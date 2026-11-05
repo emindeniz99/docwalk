@@ -26,6 +26,9 @@ function mount(): { host: HTMLElement; target: HTMLButtonElement } {
   return { host, target };
 }
 
+/** The drawing surface of the current slide; every visited slide keeps one. */
+const DRAW = '.docwalk-annotate-draw[data-active="true"]';
+
 function pointer(type: string, el: EventTarget, x: number, y: number) {
   const rect = (el instanceof Element ? el : document.body).getBoundingClientRect();
   el.dispatchEvent(
@@ -44,7 +47,7 @@ function pointer(type: string, el: EventTarget, x: number, y: number) {
 
 /** A stroke from synthetic pointer events, the same path drauu takes for mouse, touch and stylus. */
 function stroke(host: HTMLElement, from: [number, number], to: [number, number]) {
-  const svg = host.querySelector(".docwalk-annotate-draw") as SVGSVGElement;
+  const svg = host.querySelector(DRAW) as SVGSVGElement;
   pointer("pointerdown", svg, ...from);
   for (let i = 1; i <= 8; i++) {
     const x = from[0] + ((to[0] - from[0]) * i) / 8;
@@ -54,8 +57,7 @@ function stroke(host: HTMLElement, from: [number, number], to: [number, number])
   pointer("pointerup", svg, ...to);
 }
 
-const marks = (host: HTMLElement) =>
-  (host.querySelector(".docwalk-annotate-draw") as SVGSVGElement).children.length;
+const marks = (host: HTMLElement) => (host.querySelector(DRAW) as SVGSVGElement).children.length;
 
 function centre(el: Element): [number, number] {
   const r = el.getBoundingClientRect();
@@ -84,7 +86,7 @@ describe("annotation layer (decision 29)", () => {
     layer!.setColor("currentColor");
     layer!.setMode("pen");
     stroke(host, [20, 20], [200, 120]);
-    const path = host.querySelector(".docwalk-annotate-draw path");
+    const path = host.querySelector(`${DRAW} path`);
     expect(path).not.toBeNull();
     expect(path!.getAttribute("d")?.length ?? 0).toBeGreaterThan(10);
   });
@@ -95,7 +97,7 @@ describe("annotation layer (decision 29)", () => {
     host.style.color = "white";
     layer!.setMode("pen");
     stroke(host, [20, 20], [200, 120]);
-    const fill = host.querySelector(".docwalk-annotate-draw path")!.getAttribute("fill");
+    const fill = host.querySelector(`${DRAW} path`)!.getAttribute("fill");
     expect(fill).toBe(getComputedStyle(host).getPropertyValue("--dw-color-primary").trim());
     expect(fill).not.toBe("");
   });
@@ -104,7 +106,7 @@ describe("annotation layer (decision 29)", () => {
     const { host } = mount();
     layer!.setMode("arrow");
     stroke(host, [20, 20], [200, 120]);
-    const line = host.querySelector(".docwalk-annotate-draw line");
+    const line = host.querySelector(`${DRAW} line`);
     expect(line?.getAttribute("marker-end")).toMatch(/^url\(/);
   });
 
@@ -125,6 +127,52 @@ describe("annotation layer (decision 29)", () => {
     expect(marks(host)).toBe(1);
     layer!.setKey("design/1");
     expect(marks(host)).toBe(2);
+  });
+
+  test("undo history survives a slide switch, so a presenter can undo a mark after coming back to its slide", () => {
+    // Presenters often step ahead and back while talking. Saving and reloading
+    // the drawing on each switch used to drop the undo stack: the marks came
+    // back, but undo did nothing.
+    const { host } = mount();
+    layer!.setKey("intro/1");
+    layer!.setMode("pen");
+    stroke(host, [20, 20], [200, 120]);
+    stroke(host, [20, 200], [200, 220]);
+
+    layer!.setKey("design/1");
+    stroke(host, [30, 250], [300, 250]);
+    layer!.setKey("intro/1");
+    expect(marks(host)).toBe(2);
+
+    layer!.undo();
+    expect(marks(host)).toBe(1);
+    layer!.redo();
+    expect(marks(host)).toBe(2);
+    // Undo on one slide never reaches into another slide's marks.
+    layer!.undo();
+    layer!.undo();
+    layer!.undo();
+    expect(marks(host)).toBe(0);
+    layer!.setKey("design/1");
+    expect(marks(host)).toBe(1);
+  });
+
+  test("only the current slide's marks are visible, and only its surface takes the pen", () => {
+    const { host } = mount();
+    layer!.setKey("intro/1");
+    layer!.setMode("pen");
+    stroke(host, [20, 20], [200, 120]);
+    layer!.setKey("design/1");
+    const surfaces = [...host.querySelectorAll<SVGSVGElement>(".docwalk-annotate-draw")];
+    expect(surfaces).toHaveLength(2);
+    expect(surfaces.map((s) => getComputedStyle(s).display)).toEqual(["none", "block"]);
+    // A colour or tool chosen on one slide is the one used on the next.
+    layer!.setColor("rgb(1, 2, 3)");
+    layer!.setKey("intro/1");
+    stroke(host, [20, 200], [200, 220]);
+    expect(host.querySelector(`${DRAW} path:last-child`)?.getAttribute("fill")).toBe(
+      "rgb(1, 2, 3)",
+    );
   });
 
   test("undo removes the last mark, redo brings it back, clear empties the slide", () => {

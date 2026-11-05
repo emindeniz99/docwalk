@@ -20,6 +20,11 @@
   pointer-events: none;
 }
 
+/* Every visited slide keeps its own drawing surface; only the current one shows. */
+.docwalk-annotate-draw:not([data-active="true"]) {
+  display: none;
+}
+
 .docwalk-annotate[data-mode="pen"] .docwalk-annotate-draw,
 .docwalk-annotate[data-mode="arrow"] .docwalk-annotate-draw,
 .docwalk-annotate[data-mode="eraser"] .docwalk-annotate-draw,
