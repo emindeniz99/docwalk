@@ -190,26 +190,15 @@ a {
   color: var(--dw-color-stage-ink);
 }
 
+/* reveal.js sets outline: 0 on its arrows and adds no focus style of its own (WCAG 2.4.7). */
+.docwalk-deck-host .reveal .controls button:focus-visible {
+  outline: 2px solid var(--dw-color-focus-dark);
+  outline-offset: 2px;
+}
+
 .docwalk-deck-host .reveal .progress {
   color: var(--dw-color-primary);
   background: var(--dw-color-stage-border);
-}
-
-/* reveal's slide number is a link; padding on the link makes it a 24px target (WCAG 2.5.8). */
-.docwalk-deck-host .reveal .slide-number a {
-  display: block;
-  min-height: var(--dw-space-xl);
-  padding: var(--dw-space-xs) var(--dw-space-sm);
-  color: inherit;
-  text-decoration: none;
-}
-
-.docwalk-deck-host .reveal .slide-number {
-  padding: 0;
-  background: var(--dw-color-stage-raised);
-  color: var(--dw-color-stage-ink);
-  font-family: var(--dw-type-mono-family);
-  font-size: var(--dw-type-caption-size);
 }
 
 .docwalk-status {
@@ -805,6 +794,9 @@ kbd {
 
 /* The annotation toolbar sits on the dark stage: remap the semantic colours it uses. */
 .docwalk-stage-tools {
+  /* The stage is dark in both themes, so the pressed fill and focus ring use the dark values. */
+  --bg: var(--dw-color-stage);
+  --focus: var(--dw-color-focus-dark);
   --surface: var(--dw-color-stage-raised);
   --fg: var(--dw-color-stage-ink);
   --border: var(--dw-color-stage-border);
@@ -987,6 +979,11 @@ kbd {
 .docwalk-palette-trigger[data-hovered],
 .docwalk-select-button[data-hovered] {
   border-color: var(--fg);
+}
+
+/* Segments have no border of their own; the unselected one tints like an outline row. */
+.docwalk-segmented button[data-hovered]:not([data-selected]) {
+  background: var(--bg);
 }
 
 .docwalk-button[data-pressed],

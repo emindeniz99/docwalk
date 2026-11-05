@@ -4,7 +4,8 @@ import Panzoom, { type PanzoomObject } from "@panzoom/panzoom";
  * Diagram focus: a full-window view of one diagram with fit, zoom, pan,
  * reset and fullscreen. Wheel zoom needs Ctrl/Cmd so scrolling past a
  * diagram never zooms it by accident; pinch zoom works on touch screens.
- * Escape closes it and returns focus to the diagram on the slide.
+ * Escape closes it and returns focus to the diagram on the slide. While it
+ * is open the rest of the page is inert and Tab cycles through its toolbar.
  */
 export function openDiagramFocus(diagram: HTMLElement): () => void {
   const svg = diagram.querySelector("svg");
@@ -15,6 +16,8 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("aria-label", "Diagram, full screen");
+  // A click on the stage focuses the overlay rather than <body>, so its keys still work.
+  overlay.tabIndex = -1;
 
   const stage = document.createElement("div");
   stage.className = "docwalk-focus-stage";
@@ -34,6 +37,11 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
   const toolbar = document.createElement("div");
   toolbar.className = "docwalk-focus-toolbar";
   overlay.append(stage, toolbar);
+  // aria-modal only informs screen readers; inert keeps Tab and clicks off the page behind.
+  const madeInert = [...document.body.children].filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && !el.inert,
+  );
+  for (const el of madeInert) el.inert = true;
   document.body.append(overlay);
 
   const panzoom: PanzoomObject = Panzoom(canvas, {
@@ -77,7 +85,20 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
     panzoom.zoomWithWheel(event);
   };
   const onKey = (event: KeyboardEvent) => {
-    if (event.key === "Escape") close();
+    if (event.key === "Tab") {
+      // Keep focus in the toolbar: past the last button comes the first, and back.
+      const buttons = [...toolbar.querySelectorAll("button")];
+      const first = buttons[0];
+      const last = buttons.at(-1);
+      const active = document.activeElement;
+      let target: HTMLButtonElement | undefined;
+      if (!toolbar.contains(active)) target = event.shiftKey ? last : first;
+      else if (event.shiftKey && active === first) target = last;
+      else if (!event.shiftKey && active === last) target = first;
+      else return;
+      event.preventDefault();
+      target?.focus();
+    } else if (event.key === "Escape") close();
     else if (event.key === "+" || event.key === "=") panzoom.zoomIn();
     else if (event.key === "-") panzoom.zoomOut();
     else if (event.key === "0") fit();
@@ -93,6 +114,7 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
     panzoom.destroy();
     if (document.fullscreenElement === overlay) void document.exitFullscreen();
     overlay.remove();
+    for (const el of madeInert) el.inert = false;
     diagram.focus();
   }
 
