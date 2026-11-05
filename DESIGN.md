@@ -37,6 +37,16 @@ colors:
   focus-dark: "#7aa2ff"
   note-surface-dark: "#2a2412"
   note-ink-dark: "#fde9a8"
+  alert-note: "#0969da"
+  alert-tip: "#1a7f37"
+  alert-important: "#8250df"
+  alert-warning: "#9a6700"
+  alert-caution: "#d1242f"
+  alert-note-dark: "#4493f8"
+  alert-tip-dark: "#3fb950"
+  alert-important-dark: "#ab7df8"
+  alert-warning-dark: "#d29922"
+  alert-caution-dark: "#f85149"
 typography:
   slide-title:
     fontFamily: Bricolage Grotesque Variable
@@ -185,6 +195,36 @@ components:
   slide-continued:
     textColor: "{colors.slide-muted}"
     typography: "{typography.slide-body}"
+  alert-note-title:
+    backgroundColor: "{colors.slide}"
+    textColor: "{colors.alert-note}"
+  alert-tip-title:
+    backgroundColor: "{colors.slide}"
+    textColor: "{colors.alert-tip}"
+  alert-important-title:
+    backgroundColor: "{colors.slide}"
+    textColor: "{colors.alert-important}"
+  alert-warning-title:
+    backgroundColor: "{colors.slide}"
+    textColor: "{colors.alert-warning}"
+  alert-caution-title:
+    backgroundColor: "{colors.slide}"
+    textColor: "{colors.alert-caution}"
+  alert-note-title-dark:
+    backgroundColor: "{colors.surface-dark}"
+    textColor: "{colors.alert-note-dark}"
+  alert-tip-title-dark:
+    backgroundColor: "{colors.surface-dark}"
+    textColor: "{colors.alert-tip-dark}"
+  alert-important-title-dark:
+    backgroundColor: "{colors.surface-dark}"
+    textColor: "{colors.alert-important-dark}"
+  alert-warning-title-dark:
+    backgroundColor: "{colors.surface-dark}"
+    textColor: "{colors.alert-warning-dark}"
+  alert-caution-title-dark:
+    backgroundColor: "{colors.surface-dark}"
+    textColor: "{colors.alert-caution-dark}"
 ---
 
 # docwalk design
@@ -226,6 +266,13 @@ gains a border, so colour-blind readers see the state too.
   error.
 - `focus` is a blue ring, distinct from the accent, so keyboard focus never
   looks like selection.
+- `alert-*` colours are GitHub's own for `> [!NOTE]`, `[!TIP]`,
+  `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]`: a 4px left edge and a
+  coloured title with its octicon, so an alert looks the same here as on
+  GitHub. Slides always use the light set (the slide is white); document
+  mode switches to the `-dark` set with the theme. Every title passes 4.5:1
+  on its surface (lowest: `alert-warning` on white, 4.9:1; computed
+  2026-11-05).
 - Every text pair passes WCAG 2.2 AA: 4.5:1 for body text, 3:1 for text
   24px and larger. The lowest pair in the file is `primary` on `stage`
   (4.8:1), used only for the progress bar, not text. Ratios were computed
@@ -282,6 +329,11 @@ phone controls. Pills (`full`) are only for status chips.
 - **Note**: yellow box with a count chip; every note links to the source line.
 - **Slide**: white page, `overline` breadcrumb, `slide-title` heading,
   "· continued" in `slide-muted` on continuation pages.
+- **Alert**: GitHub's `> [!NOTE]` family, unchanged from GitHub: left
+  edge and title in the alert's colour, body in the normal text colour.
+- **Footnotes**: on a slide, the definitions of the footnotes that slide
+  references, under a thin rule in smaller `slide-muted` text; in document
+  mode, one list at the end, as on GitHub.
 - **Stage controls**: 44px square buttons on `stage-raised`, icon plus
   accessible label; a per-section progress bar along the bottom.
 
