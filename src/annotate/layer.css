@@ -1,0 +1,40 @@
+/* Annotation overlay (decision 29). The root never takes pointer events; only
+   the surface for the active tool does, so mode "off" leaves the slide and
+   its diagrams clickable. */
+
+.docwalk-annotate {
+  position: absolute;
+  inset: 0;
+  /* reveal.js stacks slides at z-index 10 to 12 (the present slide is 11);
+     marks must sit above every slide. */
+  z-index: 20;
+  pointer-events: none;
+}
+
+.docwalk-annotate-surface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.docwalk-annotate[data-mode="pen"] .docwalk-annotate-draw,
+.docwalk-annotate[data-mode="arrow"] .docwalk-annotate-draw,
+.docwalk-annotate[data-mode="eraser"] .docwalk-annotate-draw,
+.docwalk-annotate[data-mode="laser"] .docwalk-annotate-laser {
+  pointer-events: auto;
+  /* Touch and stylus drags draw instead of scrolling or zooming the page. */
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.docwalk-annotate[data-mode="laser"] .docwalk-annotate-laser {
+  cursor: none;
+}
+
+.docwalk-annotate-laser path,
+.docwalk-annotate-laser circle {
+  fill: var(--dw-color-primary);
+}

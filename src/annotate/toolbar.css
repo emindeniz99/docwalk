@@ -1,0 +1,62 @@
+.docwalk-annotate-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-annotate-group {
+  display: flex;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-annotate-group + .docwalk-annotate-group {
+  padding-left: var(--dw-space-sm);
+  border-left: 1px solid var(--border);
+}
+
+.docwalk-annotate-button,
+.docwalk-annotate-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: var(--dw-space-target);
+  min-height: var(--dw-space-target);
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-lg);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The active tool changes fill AND border weight, so the state is not carried by colour alone. */
+.docwalk-annotate-button[data-selected] {
+  border: 2px solid var(--fg);
+  background: var(--dw-color-primary);
+  color: var(--dw-color-on-primary);
+}
+
+.docwalk-annotate-button[data-pressed] {
+  background: var(--bg);
+}
+
+.docwalk-annotate-button[data-focus-visible],
+.docwalk-annotate-swatch[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-annotate-swatch-dot {
+  width: var(--dw-space-xl);
+  height: var(--dw-space-xl);
+  border-radius: var(--dw-radius-full);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* The chosen colour gets a heavy ring around the swatch, visible without colour vision. */
+.docwalk-annotate-swatch[data-selected] {
+  border: 2px solid var(--fg);
+}
