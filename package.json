@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.browser.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.e2e.json",
     "lint": "oxlint",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
@@ -17,7 +17,8 @@
     "test:browser": "vitest run --project browser",
     "test:all": "vitest run",
     "check": "pnpm typecheck && pnpm lint && pnpm lint:design && pnpm fmt:check && pnpm test:all && pnpm build",
-    "lint:design": "design.md lint DESIGN.md"
+    "lint:design": "design.md lint DESIGN.md",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",
@@ -54,6 +55,7 @@
   "devDependencies": {
     "@fast-check/vitest": "0.5.0",
     "@google/design.md": "0.4.0",
+    "@playwright/test": "1.64.1",
     "@react-aria/optimize-locales-plugin": "2.1.0",
     "@types/hast": "3.0.5",
     "@types/mdast": "4.0.4",
