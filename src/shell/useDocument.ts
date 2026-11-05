@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import sample from "../../fixtures/ledger-redesign.md?raw";
 import {
   describeLoadError,
@@ -10,12 +10,21 @@ import {
 } from "../inputs/load";
 import { readRefresh, readToken } from "../inputs/token";
 import type { LoadedDocument, LoadResult } from "../inputs/types";
-import { loadDraft } from "../share/draft";
+import {
+  draftWouldBeReplaced,
+  holdDraft,
+  loadDraft,
+  releaseDraft,
+  saveDraft,
+} from "../share/draft";
 import { isDocHash, readFragment } from "../share/fragment";
 
 export const SAMPLE: LoadedDocument = { markdown: sample, source: { kind: "sample" } };
 
 export const DAMAGED_LINK = "This share link is damaged or incomplete.";
+
+export const DRAFT_KEPT =
+  "Your edits are not saved in this browser: saving them would replace the draft you saved earlier.";
 
 export interface Notice {
   message: string;
@@ -37,7 +46,14 @@ function initialDocument(follow: boolean): LoadedDocument | null {
   const url = new URL(location.href);
   if (url.searchParams.get("oauth") === "callback") return null;
   if (parseInputUrl(url) !== null || isDocHash(url.hash)) return null;
-  return loadDraft() ?? SAMPLE;
+  return openDraft() ?? SAMPLE;
+}
+
+/** The saved draft, which this page then holds (src/share/draft.ts). */
+function openDraft(): LoadedDocument | null {
+  const draft = loadDraft();
+  if (draft) holdDraft();
+  return draft;
 }
 
 /**
@@ -46,7 +62,8 @@ function initialDocument(follow: boolean): LoadedDocument | null {
  * `#doc=`, then the draft), the untrusted-host confirmation, the token retry
  * for private repositories, and edits. A URL-loaded document is never
  * replaced by a draft; a failed load falls back to the sample, never to a
- * draft the user did not ask for.
+ * draft the user did not ask for. The newest load the user started wins: a
+ * slower one started earlier is dropped when it resolves.
  */
 export function useDocument({ follow }: { follow: boolean }) {
   const [doc, setDoc] = useState<LoadedDocument | null>(() => initialDocument(follow));
@@ -55,12 +72,22 @@ export function useDocument({ follow }: { follow: boolean }) {
   const [tokenOpen, setTokenOpen] = useState(false);
   /** The repository load that failed for lack of access; a saved token retries it. */
   const retryRepo = useRef<RepoRequest | null>(null);
+  /** Bumped by every load; a load whose number is no longer current has been overtaken. */
+  const generation = useRef(0);
+  const docRef = useRef(doc);
+  useLayoutEffect(() => {
+    docRef.current = doc;
+  });
 
-  const apply = useCallback((result: LoadResult, repo: RepoRequest | null = null) => {
+  const applyResult = useCallback((result: LoadResult, repo: RepoRequest | null = null) => {
     if (result.ok) {
       retryRepo.current = null;
       setConfirm(null);
       setNotice(null);
+      // An opened file has a copy on disk and becomes the draft, as before;
+      // any other loaded document leaves the saved draft alone.
+      if (result.doc.source.kind === "file") holdDraft();
+      else releaseDraft();
       setDoc(result.doc);
       return;
     }
@@ -82,17 +109,35 @@ export function useDocument({ follow }: { follow: boolean }) {
     });
   }, []);
 
+  /** Applies a result the user already has (the Open file button), overtaking any load still running. */
+  const apply = useCallback(
+    (result: LoadResult, repo: RepoRequest | null = null) => {
+      generation.current++;
+      applyResult(result, repo);
+    },
+    [applyResult],
+  );
+
   const loadRequest = useCallback(
     async (request: InputRequest) => {
-      if (request.kind === "url") apply(await loadFromUrl(request.url));
-      else apply(await loadFromRepo({ ...request, token: readToken() }), request);
+      const gen = ++generation.current;
+      if (request.kind === "url") {
+        const result = await loadFromUrl(request.url);
+        if (gen === generation.current) applyResult(result);
+      } else {
+        const result = await loadFromRepo({ ...request, token: readToken() });
+        if (gen === generation.current) applyResult(result, request);
+      }
     },
-    [apply],
+    [applyResult],
   );
 
   const loadFragment = useCallback(async (hash: string) => {
+    const gen = ++generation.current;
     const markdown = await readFragment(hash);
+    if (gen !== generation.current) return;
     if (markdown !== null) {
+      releaseDraft();
       setDoc({ markdown, source: { kind: "fragment" } });
     } else {
       setDoc((prev) => prev ?? SAMPLE);
@@ -107,6 +152,7 @@ export function useDocument({ follow }: { follow: boolean }) {
   useEffect(() => {
     if (follow || started.current) return;
     started.current = true;
+    const startedAt = generation.current;
     const signedOut = () => setNotice({ message: "Signed out of GitHub.", tone: "info" });
     void (async () => {
       // OAuth code loads only for a sign-in callback or a session to keep fresh.
@@ -124,6 +170,8 @@ export function useDocument({ follow }: { follow: boolean }) {
         }
       }
 
+      // A document the user opened during the sign-in wait stays.
+      if (generation.current !== startedAt) return;
       const request = parseInputUrl(location.href);
       if (request?.kind === "invalid") {
         setDoc((prev) => prev ?? SAMPLE);
@@ -133,10 +181,22 @@ export function useDocument({ follow }: { follow: boolean }) {
       } else if (isDocHash(location.hash)) {
         await loadFragment(location.hash);
       } else {
-        setDoc((prev) => prev ?? loadDraft() ?? SAMPLE);
+        const draft = docRef.current ? null : openDraft();
+        setDoc((prev) => prev ?? draft ?? SAMPLE);
       }
     })();
   }, [follow, loadRequest, loadFragment]);
+
+  // A share link pasted into this tab's address bar changes only the hash, so
+  // the page does not reload: load the shared document here.
+  useEffect(() => {
+    if (follow) return;
+    const onHashChange = () => {
+      if (isDocHash(location.hash)) void loadFragment(location.hash);
+    };
+    globalThis.addEventListener("hashchange", onHashChange);
+    return () => globalThis.removeEventListener("hashchange", onHashChange);
+  }, [follow, loadFragment]);
 
   /**
    * A follower loads the presenter's share link in place: only its `?src=`,
@@ -162,29 +222,68 @@ export function useDocument({ follow }: { follow: boolean }) {
   const confirmLoad = useCallback(async () => {
     if (!confirm) return;
     setConfirm(null);
-    apply(await loadFromUrl(confirm.url, { confirmed: true }));
-  }, [confirm, apply]);
+    const gen = ++generation.current;
+    const result = await loadFromUrl(confirm.url, { confirmed: true });
+    if (gen === generation.current) applyResult(result);
+  }, [confirm, applyResult]);
 
-  const openFile = useCallback(async (file: File) => apply(await loadFromFile(file)), [apply]);
+  const openFile = useCallback(
+    async (file: File) => {
+      const gen = ++generation.current;
+      const result = await loadFromFile(file);
+      if (gen === generation.current) applyResult(result);
+    },
+    [applyResult],
+  );
 
-  /** An edit makes the document the user's own text: it is autosaved and shares as a fragment. */
-  const edit = useCallback((markdown: string) => {
-    setDoc((prev) => ({
-      markdown,
-      source:
-        prev && (prev.source.kind === "paste" || prev.source.kind === "file")
-          ? prev.source
-          : { kind: "paste" },
-    }));
+  /** "Replace my draft": the user chose to make this document the saved draft. */
+  const replaceDraft = useCallback(() => {
+    const current = docRef.current;
+    holdDraft();
+    if (current && (current.source.kind === "paste" || current.source.kind === "file")) {
+      saveDraft(current.markdown, current.source);
+    }
+    setNotice(null);
   }, []);
+
+  /**
+   * An edit makes the document the user's own text: it is autosaved and
+   * shares as a fragment. Editing a share-link, URL, repo or sample document
+   * never replaces a saved draft on its own: the user is asked first.
+   */
+  const edit = useCallback(
+    (markdown: string) => {
+      const before = docRef.current?.source.kind;
+      const own = before === "paste" || before === "file";
+      if (!own && draftWouldBeReplaced()) {
+        setNotice({
+          message: DRAFT_KEPT,
+          tone: "info",
+          action: { label: "Replace my draft", run: replaceDraft },
+        });
+      }
+      setDoc((prev) => ({
+        markdown,
+        source:
+          prev && (prev.source.kind === "paste" || prev.source.kind === "file")
+            ? prev.source
+            : { kind: "paste" },
+      }));
+    },
+    [replaceDraft],
+  );
 
   /** After "Save token" in the dialog: retry the repository load that was refused. */
   const tokenChanged = useCallback(
     (token: string | null) => {
       const repo = retryRepo.current;
-      if (token && repo) void loadFromRepo({ ...repo, token }).then((r) => apply(r, repo));
+      if (!token || !repo) return;
+      const gen = ++generation.current;
+      void loadFromRepo({ ...repo, token }).then((r) => {
+        if (gen === generation.current) applyResult(r, repo);
+      });
     },
-    [apply],
+    [applyResult],
   );
 
   return {

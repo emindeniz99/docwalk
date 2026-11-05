@@ -52,6 +52,19 @@ export function followAddress(controller: DeckController, address: string): void
   if (target) controller.goTo(target);
 }
 
+/** `followedDocument` when the presenter has no link to send. */
+export const NO_DOC_LINK = "none";
+
+/**
+ * The document a follower should show for `state`: the link to load,
+ * `NO_DOC_LINK` when the presenter has none to send (the follower says so),
+ * or null while the presenter is still building it (nothing to do yet: a
+ * presenter that just joined sends state before its link is ready).
+ */
+export function followedDocument(state: FollowState): string | null {
+  return state.docLink ?? (state.docLinkTooLong ? NO_DOC_LINK : null);
+}
+
 /** The link when it is on `base`'s origin, else null. */
 export function sameOriginLink(link: string | null, base: string): string | null {
   if (!link) return null;
@@ -85,7 +98,10 @@ export function useRemoteFollower({
       onMessage: (message) => {
         if (!active || message.type !== "state") return;
         const { type: _type, ...rest } = message;
-        setState({ ...rest, docLink: sameOriginLink(rest.docLink, origin) });
+        const docLink = sameOriginLink(rest.docLink, origin);
+        // A link to another site is dropped, and the follower is told it has no document.
+        const docLinkTooLong = rest.docLinkTooLong || (rest.docLink !== null && docLink === null);
+        setState({ ...rest, docLink, docLinkTooLong });
       },
       onStatus: (next) => {
         if (active) setStatus(next);

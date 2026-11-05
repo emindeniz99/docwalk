@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
-import type { DeckController } from "../deck/controller";
+import type { DeckController, SlideInfo } from "../deck/controller";
 import type { LevelOption } from "../sectioning/sectionize";
 import { formatViewerUrl, parseViewerUrl } from "./state";
 import type { ViewerUrlState } from "./types";
@@ -45,10 +45,45 @@ function replaceUrl(state: Partial<ViewerUrlState>): void {
   });
 }
 
-/** Goes to an address; a page that no longer exists falls back to the section's first page. */
-function goTo(controller: DeckController, address: string): void {
-  if (controller.current()?.address === address) return;
-  if (!controller.goTo(address)) controller.goTo(address.slice(0, address.lastIndexOf("/")));
+/** Goes to an address; a page that no longer exists falls back to the section's first page. False when neither exists. */
+function goTo(controller: DeckController, address: string): boolean {
+  if (controller.current()?.address === address) return true;
+  return controller.goTo(address) || controller.goTo(address.slice(0, address.lastIndexOf("/")));
+}
+
+/** The slide the viewer was on in the deck before a rebuild. */
+interface Position {
+  slides: SlideInfo[];
+  index: number;
+}
+
+/**
+ * Where the slide at `previous` is in `next` when its section id no longer
+ * exists, as after typing in its heading: the same distance from the nearest
+ * neighbouring section that still exists. Null when that neighbour is gone
+ * too, as in another document, which then opens on its first slide.
+ */
+function relocate({ slides, index }: Position, next: SlideInfo[]): string | null {
+  const lost = slides[index]?.sectionId;
+  const survives = (i: number) => {
+    const id = slides[i]?.sectionId;
+    return id !== undefined && id !== lost && next.some((s) => s.sectionId === id);
+  };
+  let before = index - 1;
+  while (before >= 0 && slides[before]?.sectionId === lost) before--;
+  if (survives(before)) {
+    const id = slides[before]!.sectionId;
+    const anchor = next.findLastIndex((s) => s.sectionId === id);
+    return next[Math.min(anchor + index - before, next.length - 1)]?.address ?? null;
+  }
+  let after = index + 1;
+  while (after < slides.length && slides[after]?.sectionId === lost) after++;
+  if (before < 0 && survives(after)) {
+    const id = slides[after]!.sectionId;
+    const anchor = next.findIndex((s) => s.sectionId === id);
+    return next[Math.max(anchor - (after - index), 0)]?.address ?? null;
+  }
+  return null;
 }
 
 /**
@@ -76,13 +111,23 @@ export function useUrlSync({ controller, level, view, onLevel, onView }: UrlSync
     replaceUrl({ level: typeof level === "object" && level !== null ? [...level] : level, view });
   }, [level, view]);
 
+  // The slide the viewer is on, kept across rebuilds: the hash cannot hold it
+  // under a `#doc=` fragment or without history access.
+  const position = useRef<Position | null>(null);
   useEffect(() => {
     if (!controller) return;
     // A new controller means a rebuilt deck (first render, an edit, a new
-    // level): the hash still names the slide the viewer was on.
-    const initial = currentState()?.address;
-    if (initial) goTo(controller, initial);
-    const unsubscribe = controller.onChange((slide) => replaceUrl({ address: slide.address }));
+    // level): the hash, or else memory, still names the slide the viewer was on.
+    const previous = position.current;
+    const initial = currentState()?.address ?? previous?.slides[previous.index]?.address;
+    if (initial && !goTo(controller, initial) && previous) {
+      const moved = relocate(previous, controller.slides());
+      if (moved) goTo(controller, moved);
+    }
+    const unsubscribe = controller.onChange((slide) => {
+      position.current = { slides: controller.slides(), index: slide.index };
+      replaceUrl({ address: slide.address });
+    });
 
     const follow = () => {
       const address = currentState()?.address;

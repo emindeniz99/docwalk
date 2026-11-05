@@ -6,6 +6,13 @@
  * (tokens live in sessionStorage, decision 35). Storage can be missing,
  * blocked or full, and what it returns is untrusted (decision 46), so every
  * access is caught and every read is validated.
+ *
+ * There is one draft slot, and an edited share-link, URL or repo document
+ * becomes the user's own text too. So the slot is written only by a page
+ * that holds it: one that opened the draft, opened a file, found the slot
+ * empty, or was told by the user to replace it. Anything else would let a
+ * typo fixed in a colleague's link silently destroy the only copy of a
+ * pasted document.
  */
 import { useEffect } from "react";
 import * as v from "valibot";
@@ -31,6 +38,23 @@ function storage(): Storage | null {
   } catch {
     return null;
   }
+}
+
+let held = false;
+
+/** This page's document is the draft now (the draft was opened, a file was opened, or the user chose to replace it). */
+export function holdDraft(): void {
+  held = true;
+}
+
+/** This page's document is no longer the draft: a share link, URL or repo document replaced it. */
+export function releaseDraft(): void {
+  held = false;
+}
+
+/** True when saving now would replace a draft this page does not hold. */
+export function draftWouldBeReplaced(): boolean {
+  return !held && loadDraft() !== null;
 }
 
 /** The saved draft, or `null` when there is none, storage is unavailable, or the record is damaged. */
@@ -60,8 +84,13 @@ export function clearDraft(): void {
   }
 }
 
-/** Saves now. Returns false when the draft could not be stored (unavailable or full). */
+/**
+ * Saves now. Returns false when the draft could not be stored (unavailable or
+ * full) or when it would replace a draft this page does not hold.
+ */
 export function saveDraft(markdown: string, source: DraftSource): boolean {
+  if (draftWouldBeReplaced()) return false;
+  held = true;
   if (markdown.trim() === "") {
     clearDraft();
     return true;

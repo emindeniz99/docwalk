@@ -178,6 +178,68 @@ describe("useUrlSync", () => {
     expect(window.location.hash).toBe("#failure-handling/2");
   });
 
+  test("renaming the current slide's heading keeps the deck on that slide, not the cover", () => {
+    // Typing in a heading changes its slug, so the address in the hash no
+    // longer exists in the rebuilt deck. Jumping to slide 1 on every keystroke
+    // would throw the writer out of the slide they are editing.
+    openAt("", "");
+    const first = fakeController(DECK);
+    const render = mount({ controller: first });
+    act(() => first.goTo("failure-handling/2"));
+    render({ controller: null });
+    const renamed = fakeController([
+      "intro/1",
+      "failure-handlingx/1",
+      "failure-handlingx/2",
+      "rollout/1",
+    ]);
+    render({ controller: renamed });
+    expect(renamed.current()?.address).toBe("failure-handlingx/2");
+    expect(window.location.hash).toBe("#failure-handlingx/2");
+  });
+
+  test("renaming the first section's heading also keeps its slide, anchored on the section after it", () => {
+    openAt("", "");
+    const first = fakeController(DECK);
+    const render = mount({ controller: first });
+    render({ controller: null });
+    const renamed = fakeController([
+      "introduction/1",
+      "failure-handling/1",
+      "failure-handling/2",
+      "rollout/1",
+    ]);
+    act(() => renamed.goTo("rollout/1"));
+    render({ controller: renamed });
+    expect(renamed.current()?.address).toBe("introduction/1");
+  });
+
+  test("another document that shares no section with the old one opens on its first slide", () => {
+    // The rename fallback must not carry a slide position into an unrelated document.
+    openAt("", "");
+    const first = fakeController(DECK);
+    const render = mount({ controller: first });
+    act(() => first.goTo("rollout/1"));
+    render({ controller: null });
+    const other = fakeController(["alpha/1", "beta/1", "gamma/1", "delta/1"]);
+    render({ controller: other });
+    expect(other.current()?.address).toBe("alpha/1");
+  });
+
+  test("under a #doc= fragment a rebuilt deck stays on the viewer's slide, though the hash cannot hold it", () => {
+    // The share fragment keeps the hash, so the address lives only in memory;
+    // without it every edit of a shared document snapped back to the cover.
+    openAt("", "#doc=eJzLSM3JyQcABiwCFQ");
+    const first = fakeController(DECK);
+    const render = mount({ controller: first });
+    act(() => first.goTo("failure-handling/2"));
+    render({ controller: null });
+    const second = fakeController(DECK);
+    render({ controller: second });
+    expect(second.current()?.address).toBe("failure-handling/2");
+    expect(window.location.hash).toBe("#doc=eJzLSM3JyQcABiwCFQ");
+  });
+
   test("a #doc= share fragment survives slide changes, so the shared document is not lost", () => {
     openAt("", "#doc=eJzLSM3JyQcABiwCFQ");
     const controller = fakeController(DECK);

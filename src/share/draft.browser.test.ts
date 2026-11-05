@@ -2,7 +2,16 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { DocumentSource } from "../inputs/types";
-import { clearDraft, DRAFT_DEBOUNCE_MS, loadDraft, saveDraft, useDraftAutosave } from "./draft";
+import {
+  clearDraft,
+  DRAFT_DEBOUNCE_MS,
+  draftWouldBeReplaced,
+  holdDraft,
+  loadDraft,
+  releaseDraft,
+  saveDraft,
+  useDraftAutosave,
+} from "./draft";
 import { DRAFT_STORAGE_KEY } from "./types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -27,6 +36,8 @@ const stored = () => localStorage.getItem(DRAFT_STORAGE_KEY);
 
 beforeEach(() => {
   localStorage.clear();
+  // Each test starts as a fresh page that holds no draft.
+  releaseDraft();
   vi.useFakeTimers();
 });
 
@@ -109,6 +120,46 @@ describe("draft autosave", () => {
       act(() => vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS));
     }).not.toThrow();
     expect(saveDraft("# Big", { kind: "paste" })).toBe(false);
+  });
+});
+
+describe("the one draft slot", () => {
+  const PRECIOUS = JSON.stringify({
+    markdown: "# Pasted\n\nOnly copy.",
+    source: { kind: "paste" },
+  });
+
+  test("an edited share-link document never overwrites or clears a draft this page did not open", () => {
+    // A pasted draft exists nowhere else; fixing a typo in a colleague's link
+    // must not destroy it behind the user's back.
+    localStorage.setItem(DRAFT_STORAGE_KEY, PRECIOUS);
+    expect(draftWouldBeReplaced()).toBe(true);
+    render("# Shared doc, edited", { kind: "paste" });
+    act(() => vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS * 2));
+    act(() => {
+      globalThis.dispatchEvent(new Event("pagehide"));
+    });
+    expect(stored()).toBe(PRECIOUS);
+    expect(saveDraft("  ", { kind: "paste" })).toBe(false);
+    expect(stored()).toBe(PRECIOUS);
+  });
+
+  test("once this page holds the draft (opened it, or the user chose to replace it) edits save over it", () => {
+    localStorage.setItem(DRAFT_STORAGE_KEY, PRECIOUS);
+    holdDraft();
+    expect(draftWouldBeReplaced()).toBe(false);
+    render("# Edited draft", { kind: "paste" });
+    act(() => vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS));
+    expect(loadDraft()?.markdown).toBe("# Edited draft");
+  });
+
+  test("an empty slot is free: the first save takes it, so a fresh browser keeps edits of a shared document", () => {
+    render("# Shared doc, edited", { kind: "paste" });
+    act(() => vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS));
+    expect(loadDraft()?.markdown).toBe("# Shared doc, edited");
+    render("# Shared doc, edited more", { kind: "paste" });
+    act(() => vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS));
+    expect(loadDraft()?.markdown).toBe("# Shared doc, edited more");
   });
 });
 

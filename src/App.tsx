@@ -180,7 +180,14 @@ export function App() {
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
 
   const onReport = useCallback((r: DeckReport) => setReport(r), []);
-  const onReady = useCallback((c: DeckController | null) => setController(c), []);
+  const onReady = useCallback((c: DeckController | null) => {
+    setController(c);
+    // While the deck rebuilds, the old slide position and counts describe a deck that is gone.
+    if (!c) {
+      setCurrent(null);
+      setReport(null);
+    }
+  }, []);
 
   useEffect(() => controller?.onChange(setCurrent), [controller]);
 
@@ -196,19 +203,27 @@ export function App() {
     state: null,
     incomplete: false,
   });
-  const followLoaded = useRef(false);
-  const followState = followUpdate.state;
   const { loadFromLink } = inputs;
-  useEffect(() => {
-    if (!follow || !followState || followLoaded.current) return;
-    followLoaded.current = true;
-    if (followState.docLink) void loadFromLink(followState.docLink);
-    else
-      setNotice({
-        message: "The presenter's document is too long to send here. Open it yourself.",
-        tone: "error",
-      });
-  }, [follow, followState, loadFromLink, setNotice]);
+  // Called once for each document the presenter announces, so a follower
+  // picks up an edit or a newly opened document; null when there is no link.
+  const onFollowDocument = useCallback(
+    (link: string | null) => {
+      if (link) void loadFromLink(link);
+      else
+        setNotice({
+          message: "The presenter's document is too long to send here. Open it yourself.",
+          tone: "error",
+        });
+    },
+    [loadFromLink, setNotice],
+  );
+  const onFollowUpdate = useCallback((update: FollowUpdate) => {
+    setFollowUpdate(update);
+    // Section ids, and so the presenter's slide addresses, depend on the slide level.
+    const next = update.state?.level;
+    if (next !== undefined)
+      setLevel((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, []);
   useEffect(() => {
     if (followUpdate.incomplete)
       setNotice({
@@ -224,7 +239,8 @@ export function App() {
   );
 
   useUrlSync({
-    controller,
+    // A follower shows the presenter's slide (RemoteFollower), never one the URL or a rebuild remembers.
+    controller: follow ? null : controller,
     level,
     view,
     onLevel: setLevel,
@@ -289,7 +305,10 @@ export function App() {
       undo: () => layerRef.current?.undo(),
       redo: () => layerRef.current?.redo(),
     },
-    view === "present",
+    // Presenting, the keys work anywhere. In the edit view the toolbar is on screen
+    // too, so they work while focus is in the deck pane (the slide or the toolbar).
+    !follow,
+    view === "present" ? undefined : deckRef,
   );
 
   // Notes on slides become editor diagnostics at their section's source line.
@@ -633,6 +652,8 @@ export function App() {
               <Button
                 className="docwalk-button docwalk-exit"
                 onPress={() => {
+                  // This button unmounts on exit; keep focus on the deck, as Escape does.
+                  deckRef.current?.querySelector<HTMLElement>(".reveal")?.focus();
                   if (document.fullscreenElement) void document.exitFullscreen();
                   else show("edit");
                 }}
@@ -700,11 +721,18 @@ export function App() {
           <RemotePresenter
             controller={controller}
             doc={doc}
+            level={level}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
           />
         )}
-        {follow && <RemoteFollower controller={controller} onUpdate={setFollowUpdate} />}
+        {follow && (
+          <RemoteFollower
+            controller={controller}
+            onUpdate={onFollowUpdate}
+            onDocument={onFollowDocument}
+          />
+        )}
       </Suspense>
     </div>
   );

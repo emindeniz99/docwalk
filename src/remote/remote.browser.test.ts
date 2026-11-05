@@ -18,10 +18,16 @@ import {
   type SocketHandlers,
 } from "./client";
 import { createRoomCredentials, parseJoinFragment } from "./crypto";
-import { useRemoteFollower, type RemoteFollower } from "./follower";
-import { useRemoteHost, type RemoteHost } from "./host";
+import {
+  followedDocument,
+  NO_DOC_LINK,
+  useRemoteFollower,
+  type FollowState,
+  type RemoteFollower,
+} from "./follower";
+import { ROOM_STORAGE_KEY, useRemoteHost, type RemoteHost } from "./host";
 import { DOC_LINK_TOO_LONG, JoinDialog, KEY_NOTE, QrCode } from "./JoinDialog";
-import { RemoteView } from "./RemoteView";
+import { PRESENTER_AWAY, PRESENTER_REPLY_MS, RemoteView } from "./RemoteView";
 import type { RemoteMessage, RoomCredentials } from "./types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -375,6 +381,8 @@ describe("presenter host", () => {
         total: 10,
         title: "Title 2",
         docLink: "https://docwalk.example/?src=x",
+        docLinkTooLong: false,
+        level: "auto",
       }),
     );
     await vi.waitFor(() => expect(host.current!.status).toBe("open"));
@@ -434,6 +442,8 @@ describe("presenter host", () => {
       base: BASE,
     });
     const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    // The host connects once it holds the room, which is async; wait so the join order is fixed.
+    await vi.waitFor(() => expect(host.current!.status).toBe("open"));
     const remote = peer(relay, creds, "remote");
     peer(relay, creds, "follower");
     peer(relay, creds, "follower");
@@ -464,6 +474,110 @@ describe("presenter host", () => {
     await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.docLink).toBeNull());
     expect(ofType(follower, "state").at(-1)?.current).toBe("section-0/1");
     await vi.waitFor(() => expect(host.current!.docLinkTooLong).toBe(true));
+  });
+
+  test("sends the slide level, because a follower on another level has other section ids and cannot follow", async () => {
+    const relay = new FakeRelay();
+    const props = { docLink: null, enabled: true, socketFactory: relay.factory, base: BASE };
+    const host = mountHost({ ...props, controller: fakeController(), level: [2, 3] });
+    const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    const follower = peer(relay, creds, "follower");
+    await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.level).toEqual([2, 3]));
+    // A level change rebuilds the deck, and the new level goes out with it.
+    mountHost({ ...props, controller: fakeController(), level: 3 });
+    await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.level).toBe(3));
+  });
+
+  test("tells followers to wait while the doc link is built, and only says 'too long' when there is none", async () => {
+    // A presenter that just turned remote on sends state before its link is
+    // ready; a follower shown "too long" then never loaded the real link.
+    const relay = new FakeRelay();
+    const props = { enabled: true, socketFactory: relay.factory, base: BASE };
+    const controller = fakeController();
+    const host = mountHost({ ...props, controller, docLink: undefined });
+    const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    const follower = peer(relay, creds, "follower");
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+    expect(ofType(follower, "state").at(-1)).toMatchObject({
+      docLink: null,
+      docLinkTooLong: false,
+    });
+    expect(host.current!.docLinkTooLong).toBe(false);
+
+    mountHost({ ...props, controller, docLink: "https://docwalk.example/?src=x" });
+    await vi.waitFor(() =>
+      expect(ofType(follower, "state").at(-1)).toMatchObject({
+        docLink: "https://docwalk.example/?src=x",
+        docLinkTooLong: false,
+      }),
+    );
+    const none = mountHost({ ...props, controller, docLink: null });
+    await vi.waitFor(() =>
+      expect(ofType(follower, "state").at(-1)).toMatchObject({
+        docLink: null,
+        docLinkTooLong: true,
+      }),
+    );
+    await vi.waitFor(() => expect(none.current!.docLinkTooLong).toBe(true));
+  });
+
+  test("answers a press that moves nothing, so a remote can tell the presenter is there", async () => {
+    const relay = new FakeRelay();
+    const controller = fakeController(3);
+    controller.goTo("section-2/1");
+    // Like reveal.js on its last slide: Next changes nothing and reports nothing.
+    controller.next.mockImplementation(() => {});
+    const host = mountHost({
+      controller,
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    const creds = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!;
+    const remote = peer(relay, creds, "remote");
+    await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 50));
+    const before = ofType(remote, "state").length;
+    await remote.conn.send({ type: "step", direction: 1 });
+    await vi.waitFor(() => expect(ofType(remote, "state").length).toBe(before + 1));
+    expect(ofType(remote, "state").at(-1)?.current).toBe("section-2/1");
+  });
+
+  test("a duplicated tab opens its own room: it must not join the stored one as a second presenter", async () => {
+    // Duplicating a tab copies sessionStorage, room included. Two presenters
+    // in one room would both obey every press and fight over the followers.
+    const stored = createRoomCredentials();
+    sessionStorage.setItem(ROOM_STORAGE_KEY, JSON.stringify(stored));
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      void navigator.locks.request(
+        `docwalk.remote-room:${stored.room}`,
+        () =>
+          new Promise<void>((r) => {
+            release = r;
+            resolve();
+          }),
+      );
+    });
+    await held; // The original tab holds the room.
+    try {
+      const relay = new FakeRelay();
+      const host = mountHost({
+        controller: fakeController(),
+        docLink: null,
+        enabled: true,
+        socketFactory: relay.factory,
+        base: BASE,
+      });
+      await vi.waitFor(() => expect(host.current!.status).toBe("open"));
+      const room = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!.room;
+      expect(room).not.toBe(stored.room);
+      expect(relay.urls.some((u) => u.endsWith(stored.room))).toBe(false);
+      expect(JSON.parse(sessionStorage.getItem(ROOM_STORAGE_KEY)!).room).toBe(room);
+    } finally {
+      release?.();
+    }
   });
 
   test("keeps the room across a reload of the presenter tab, so joined phones stay valid", () => {
@@ -525,6 +639,8 @@ describe("follower", () => {
       total: 10,
       title: "Title 4",
       docLink: null,
+      docLinkTooLong: false,
+      level: "auto",
     });
     await vi.waitFor(() => expect(controller.goTo).toHaveBeenLastCalledWith("section-4/1"));
     await presenter.conn.send({
@@ -534,6 +650,8 @@ describe("follower", () => {
       total: 10,
       title: "Title 5",
       docLink: null,
+      docLinkTooLong: false,
+      level: "auto",
     });
     await vi.waitFor(() => expect(controller.goTo).toHaveBeenLastCalledWith("section-5/1"));
     expect(result.current!.status).toBe("open");
@@ -557,6 +675,8 @@ describe("follower", () => {
       total: 10,
       title: "T",
       docLink: "https://docwalk.example/?src=a",
+      docLinkTooLong: false,
+      level: "auto",
     });
     await vi.waitFor(() =>
       expect(result.current!.state?.docLink).toBe("https://docwalk.example/?src=a"),
@@ -587,6 +707,8 @@ describe("follower", () => {
       total: 6,
       title: "Intro",
       docLink: null,
+      docLinkTooLong: false,
+      level: "auto",
     });
     await vi.waitFor(() => expect(controller.goTo).toHaveBeenLastCalledWith("intro/2"));
     expect(controller.current()?.address).toBe("intro/2");
@@ -610,9 +732,30 @@ describe("follower", () => {
       total: 1,
       title: "A",
       docLink: "https://phish.example/?src=a",
+      docLinkTooLong: false,
+      level: "auto",
     });
     await vi.waitFor(() => expect(result.current!.state?.current).toBe("a/1"));
     expect(result.current!.state?.docLink).toBeNull();
+    // Dropped, not pending: the follower says it has no document instead of waiting forever.
+    expect(result.current!.state?.docLinkTooLong).toBe(true);
+  });
+
+  test("names the document to load: each new link, none while the link is built, a notice when there is none", () => {
+    const state: FollowState = {
+      current: "a/1",
+      index: 0,
+      total: 1,
+      title: "A",
+      docLink: null,
+      docLinkTooLong: false,
+      level: "auto",
+    };
+    expect(followedDocument(state)).toBeNull();
+    expect(followedDocument({ ...state, docLink: "https://docwalk.example/#doc=x" })).toBe(
+      "https://docwalk.example/#doc=x",
+    );
+    expect(followedDocument({ ...state, docLinkTooLong: true })).toBe(NO_DOC_LINK);
   });
 });
 
@@ -633,6 +776,8 @@ async function setupRemoteView() {
         total: 10,
         title: "Retries",
         docLink: null,
+        docLinkTooLong: false,
+        level: "auto",
       });
     }
   }, 5);
@@ -645,6 +790,8 @@ const button = (name: string) =>
   [...document.querySelectorAll("button")].find((b) => b.textContent?.includes(name))!;
 
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!;
+
+const status = () => document.querySelector('[role="status"]')?.textContent;
 
 describe("phone remote view", () => {
   test("shows the slide title, position and connection without loading the document", async () => {
@@ -701,6 +848,36 @@ describe("phone remote view", () => {
     at("pointerup", 0.25, 0.5);
     await vi.waitFor(() => expect(ofType(presenter, "laser-off")).toHaveLength(1));
   });
+
+  test(
+    "when the presenter stops answering, the remote says so and stops offering presses that go nowhere",
+    { timeout: PRESENTER_REPLY_MS + 5000 },
+    async () => {
+      // The relay reports no departures: after the presenter's tab closed, the
+      // phone showed "Connected" and silently dropped every press.
+      const presenter = await setupRemoteView();
+      await userEvent.click(button("Next"));
+      await vi.waitFor(() => expect(status()).toBe(PRESENTER_AWAY), {
+        timeout: PRESENTER_REPLY_MS + 2000,
+      });
+      expect(button("Next").disabled).toBe(true);
+      expect(document.querySelector("h1")?.textContent).toBe("Waiting for the presenter…");
+
+      // The presenter is back: its state brings the controls back.
+      await presenter.conn.send({
+        type: "state",
+        current: "retries/1",
+        index: 2,
+        total: 10,
+        title: "Retries",
+        docLink: null,
+        docLinkTooLong: false,
+        level: "auto",
+      });
+      await vi.waitFor(() => expect(status()).toBe("Connected"));
+      expect(button("Next").disabled).toBe(false);
+    },
+  );
 
   test("an incomplete link says so instead of spinning forever", () => {
     mount(h(RemoteView, { creds: null }));

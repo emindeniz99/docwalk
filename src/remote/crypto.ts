@@ -90,6 +90,20 @@ const DocLink = v.pipe(
   }, "docLink must be an http(s) URL"),
 );
 
+const Depth = v.picklist([1, 2, 3, 4, 5, 6]);
+
+/** A slide level as the URL writes it: "auto", one depth, or two or more distinct depths in order. */
+const Level = v.union([
+  v.literal("auto"),
+  Depth,
+  v.pipe(
+    v.array(Depth),
+    v.minLength(2),
+    v.maxLength(6),
+    v.check((list) => list.every((d, i) => i === 0 || d > list[i - 1]!), "levels must ascend"),
+  ),
+]);
+
 const StateMessage = v.pipe(
   v.object({
     type: v.literal("state"),
@@ -98,6 +112,9 @@ const StateMessage = v.pipe(
     total: Count,
     title: v.pipe(v.string(), v.maxLength(MAX_TITLE_CHARS)),
     docLink: v.nullable(DocLink),
+    // Defaults keep a page from before these fields (a cached install) in step.
+    docLinkTooLong: v.optional(v.boolean(), false),
+    level: v.optional(Level, "auto"),
   }),
   v.check((m) => m.index < m.total, "index must be inside the deck"),
 );

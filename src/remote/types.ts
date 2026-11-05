@@ -10,6 +10,8 @@
  * the presenter includes in its `hello`.
  */
 
+import type { HeadingDepth } from "../sectioning/sectionize";
+
 /** Plaintext messages, encrypted before sending. */
 export type RemoteMessage =
   /** Presenter -> all: where the deck is. Sent on join and on every change. */
@@ -19,8 +21,12 @@ export type RemoteMessage =
       index: number;
       total: number;
       title: string;
-      /** Share link a follower opens to load the same document. */
+      /** Share link a follower opens to load the same document; null while it is being built. */
       docLink: string | null;
+      /** True when the presenter has no link to send: the document is too long for a link or for the relay. */
+      docLinkTooLong: boolean;
+      /** The presenter's slide level: section ids, and so addresses, depend on it. */
+      level: "auto" | HeadingDepth | HeadingDepth[];
     }
   /** Remote -> presenter: next/previous slide. */
   | { type: "step"; direction: 1 | -1 }

@@ -21,8 +21,19 @@ const MESSAGES: RemoteMessage[] = [
     total: 47,
     title: "Retries",
     docLink: "https://docwalk.example/?src=https%3A%2F%2Fraw.githubusercontent.com%2Fa%2Fb.md",
+    docLinkTooLong: false,
+    level: [2, 3],
   },
-  { type: "state", current: "intro/1", index: 0, total: 1, title: "", docLink: null },
+  {
+    type: "state",
+    current: "intro/1",
+    index: 0,
+    total: 1,
+    title: "",
+    docLink: null,
+    docLinkTooLong: true,
+    level: "auto",
+  },
   { type: "step", direction: 1 },
   { type: "step", direction: -1 },
   { type: "goto", address: "timeouts/1" },
@@ -150,11 +161,31 @@ describe("encrypt and decrypt", () => {
       { ...state, docLink: "javascript:alert(1)" },
       { ...state, docLink: "data:text/html,hi" },
       { ...state, docLink: "not a url" },
+      { ...state, docLinkTooLong: "yes" },
+      { ...state, level: 9 },
+      { ...state, level: 0 },
+      { ...state, level: [] },
+      { ...state, level: [3] },
+      { ...state, level: [3, 2] },
+      { ...state, level: [2, 2] },
+      { ...state, level: "H2" },
     ];
     for (const message of hostile) {
       expect(await decrypt(key, await encryptRaw(key, JSON.stringify(message)))).toBeNull();
     }
     expect(await decrypt(key, await encryptRaw(key, "{not json"))).toBeNull();
+  });
+
+  test("a state from a page that predates the level and link-status fields reads as auto with no missing link", async () => {
+    // A follower with an older cached build must still follow; the defaults
+    // are what that presenter meant (it had no level override to send).
+    const key = await importKey(createRoomCredentials().key);
+    const old = { type: "state", current: "a/1", index: 0, total: 1, title: "A", docLink: null };
+    expect(await decrypt(key, await encryptRaw(key, JSON.stringify(old)))).toEqual({
+      ...old,
+      docLinkTooLong: false,
+      level: "auto",
+    });
   });
 
   test("unknown fields are stripped, so nothing a peer adds reaches the app", async () => {

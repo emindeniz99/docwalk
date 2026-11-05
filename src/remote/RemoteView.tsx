@@ -1,5 +1,11 @@
 import { ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Button } from "react-aria-components";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
 import type { FollowState } from "./follower";
@@ -8,6 +14,12 @@ import "./remote.css";
 
 /** While a finger rests on the pad, its point is repeated this often so the presenter's idle timeout does not hide it. */
 export const LASER_REPEAT_MS = 1000;
+/**
+ * The presenter answers every hello, step and goto with its state. Without
+ * an answer in this long, the presenter's tab is closed, reloading or
+ * offline, and the remote stops offering controls that would go nowhere.
+ */
+export const PRESENTER_REPLY_MS = 4000;
 
 export const STATUS_TEXT: Record<RemoteStatus, string> = {
   connecting: "Connecting…",
@@ -15,6 +27,9 @@ export const STATUS_TEXT: Record<RemoteStatus, string> = {
   reconnecting: "Reconnecting…",
   closed: "Disconnected",
 };
+
+/** The relay is connected but the presenter does not answer. */
+export const PRESENTER_AWAY = "Presenter not connected";
 
 export interface RemoteViewProps {
   /** From `parseJoinFragment(location.hash)`; null shows what is wrong with the link. */
@@ -31,9 +46,16 @@ function useRemoteControl(
 ) {
   const [status, setStatus] = useState<RemoteStatus>("connecting");
   const [state, setState] = useState<FollowState | null>(null);
+  const [presenterAway, setPresenterAway] = useState(false);
   const connection = useRef<RoomConnection | null>(null);
+  const replyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const room = creds?.room;
   const key = creds?.key;
+
+  const expectReply = useCallback(() => {
+    clearTimeout(replyTimer.current);
+    replyTimer.current = setTimeout(() => setPresenterAway(true), PRESENTER_REPLY_MS);
+  }, []);
 
   useEffect(() => {
     if (!room || !key) return;
@@ -45,10 +67,14 @@ function useRemoteControl(
       onMessage: (message) => {
         if (!active || message.type !== "state") return;
         const { type: _type, ...rest } = message;
+        clearTimeout(replyTimer.current);
+        setPresenterAway(false);
         setState(rest);
       },
       onStatus: (next) => {
-        if (active) setStatus(next);
+        if (!active) return;
+        setStatus(next);
+        if (next === "open") expectReply();
       },
       ...(socketFactory ? { socketFactory } : {}),
       ...(base ? { base } : {}),
@@ -56,14 +82,18 @@ function useRemoteControl(
     connection.current = conn;
     return () => {
       active = false;
+      clearTimeout(replyTimer.current);
       conn.close();
       connection.current = null;
       setStatus("connecting");
     };
-  }, [room, key, socketFactory, base]);
+  }, [room, key, socketFactory, base, expectReply]);
 
-  const send = (message: RemoteMessage) => void connection.current?.send(message);
-  return { status, state, send };
+  const send = (message: RemoteMessage) => {
+    if (message.type === "step" || message.type === "goto") expectReply();
+    void connection.current?.send(message);
+  };
+  return { status, state, presenterAway, send };
 }
 
 const clamp = (n: number) => Math.min(1, Math.max(0, n));
@@ -150,7 +180,7 @@ function LaserPad({ send, disabled }: { send: (m: RemoteMessage) => void; disabl
 
 /** The phone remote (`?view=remote#room=..&k=..`). No document is loaded here: only the presenter's state. */
 export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
-  const { status, state, send } = useRemoteControl(creds, socketFactory, base);
+  const { status, state, presenterAway, send } = useRemoteControl(creds, socketFactory, base);
 
   if (!creds) {
     return (
@@ -165,25 +195,33 @@ export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
     );
   }
 
-  const disabled = status !== "open";
+  // Connected to the relay is not enough: the presenter must be answering too.
+  const away = status === "open" && presenterAway;
+  const disabled = status !== "open" || presenterAway;
   return (
     <main className="docwalk-remote" aria-labelledby="docwalk-remote-title">
       <header className="docwalk-remote-header">
         <div className="docwalk-remote-heading">
           <span className="docwalk-remote-overline">Phone remote</span>
           <h1 id="docwalk-remote-title" className="docwalk-remote-title">
-            {state ? state.title || state.current : "Waiting for the presenter…"}
+            {state && !away ? state.title || state.current : "Waiting for the presenter…"}
           </h1>
         </div>
-        <span className="docwalk-remote-status" data-status={status} role="status">
-          {STATUS_TEXT[status]}
+        <span
+          className="docwalk-remote-status"
+          data-status={away ? "reconnecting" : status}
+          role="status"
+        >
+          {away ? PRESENTER_AWAY : STATUS_TEXT[status]}
         </span>
       </header>
       {/* A live region, so a screen reader confirms where a Next or Previous press landed (WCAG 4.1.3). */}
       <p className="docwalk-remote-count" aria-live="polite" aria-atomic="true">
-        <span aria-hidden="true">{state ? `${state.index + 1} / ${state.total}` : "– / –"}</span>
+        <span aria-hidden="true">
+          {state && !away ? `${state.index + 1} / ${state.total}` : "– / –"}
+        </span>
         <span className="docwalk-remote-sr">
-          {state ? `Slide ${state.index + 1} of ${state.total}` : "Slide unknown"}
+          {state && !away ? `Slide ${state.index + 1} of ${state.total}` : "Slide unknown"}
         </span>
       </p>
       <LaserPad send={send} disabled={disabled} />

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import type { DeckController } from "../deck/controller";
+import type { LevelOption } from "../sectioning/sectionize";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
 import {
   createRoomCredentials,
@@ -12,8 +13,9 @@ import type { RemoteMessage, RoomCredentials } from "./types";
 
 /**
  * The presenter's side of remote control (decision 8). The presenter's deck
- * stays the source of truth: it announces its state on join and on every
- * slide change, and applies navigation that remotes ask for.
+ * stays the source of truth: it announces its state on join, on every slide
+ * change and in answer to every step or goto (so a remote can tell that a
+ * presenter is there), and applies navigation that remotes ask for.
  */
 
 /** sessionStorage key: the room survives a reload of the presenter tab, so phones stay joined. */
@@ -25,8 +27,13 @@ const MAX_TRACKED = 1000;
 
 export interface RemoteHostOptions {
   controller: DeckController | null;
-  /** Share link for followers (`?src=`, `?repo=` or `#doc=`); null when the document has none. */
-  docLink: string | null;
+  /**
+   * Share link for followers (`?src=`, `?repo=` or `#doc=`); null when the
+   * document has none (too long for a link), undefined while it is being built.
+   */
+  docLink: string | null | undefined;
+  /** The deck's slide level; followers need it to have the same section ids. Defaults to "auto". */
+  level?: LevelOption;
   /** True when the Worker offers "remote" and the presenter turned remote control on. */
   enabled: boolean;
   socketFactory?: SocketFactory;
@@ -42,8 +49,38 @@ export interface RemoteHost {
   status: RemoteStatus;
   /** The latest laser point from a remote in slide coordinates (0..1), or null when hidden. */
   laser: { x: number; y: number } | null;
-  /** True when the doc link made the state frame too large for the relay and followers got none. */
+  /** True when followers get no document link: too long for a link, or for the relay's frame. */
   docLinkTooLong: boolean;
+}
+
+/**
+ * Takes the room for this tab with a Web Lock held until the page closes.
+ * A duplicated tab copies sessionStorage, room included; without the lock it
+ * would join the same room as a second presenter, and every remote press
+ * would move both decks. False when another tab already holds the room.
+ * Memoized per room, so React's rehearsal remount in development, which asks
+ * twice, gets the same answer. Without the Locks API (an insecure context)
+ * the room is taken unchecked.
+ */
+const claims = new Map<string, Promise<boolean>>();
+function claimRoom(room: string): Promise<boolean> {
+  let claim = claims.get(room);
+  if (!claim) {
+    const locks = globalThis.navigator?.locks;
+    claim = locks
+      ? new Promise<boolean>((resolve) => {
+          void locks
+            .request(`docwalk.remote-room:${room}`, { ifAvailable: true }, (lock) => {
+              resolve(lock !== null);
+              // Held for the page's lifetime; a closed or reloaded tab releases it.
+              return lock ? new Promise<never>(() => {}) : undefined;
+            })
+            .catch(() => resolve(true));
+        })
+      : Promise.resolve(true);
+    claims.set(room, claim);
+  }
+  return claim;
 }
 
 function storage(): Storage | null {
@@ -76,11 +113,14 @@ function storeCredentials(creds: RoomCredentials) {
 export function useRemoteHost({
   controller,
   docLink,
+  level = "auto",
   enabled,
   socketFactory,
   base,
 }: RemoteHostOptions): RemoteHost {
-  const [creds] = useState(() => readStoredCredentials() ?? createRoomCredentials());
+  const [creds, setCreds] = useState(() => readStoredCredentials() ?? createRoomCredentials());
+  /** The room this tab holds (see claimRoom); nothing connects before that. */
+  const [claimed, setClaimed] = useState<string | null>(null);
   const [status, setStatus] = useState<RemoteStatus>("connecting");
   const [participants, setParticipants] = useState({ remotes: 0, followers: 0 });
   const [laser, setLaser] = useState<{ x: number; y: number } | null>(null);
@@ -89,8 +129,10 @@ export function useRemoteHost({
   const connection = useRef<RoomConnection | null>(null);
   const controllerRef = useRef(controller);
   const docLinkRef = useRef(docLink);
+  const levelRef = useRef(level);
   useLayoutEffect(() => {
     controllerRef.current = controller;
+    levelRef.current = level;
   });
 
   // Reads everything through refs, so it is stable and the connection is never restarted for it.
@@ -99,26 +141,46 @@ export function useRemoteHost({
     const deck = controllerRef.current;
     const slide = deck?.current();
     if (!conn || !deck || !slide) return;
-    const state: RemoteMessage = {
+    const link = docLinkRef.current;
+    const lvl = levelRef.current;
+    const state: Extract<RemoteMessage, { type: "state" }> = {
       type: "state",
       current: slide.address,
       index: slide.index,
       total: deck.slides().length,
       title: slide.title.slice(0, MAX_TITLE_CHARS),
-      docLink: docLinkRef.current,
+      docLink: link ?? null,
+      docLinkTooLong: link === null,
+      level: typeof lvl === "object" ? [...lvl] : lvl,
     };
     const result = await conn.send(state);
     if (result === "too-large" && state.docLink) {
       // Navigation still works without the link; the join dialog says followers need the document.
-      if ((await conn.send({ ...state, docLink: null })) === "sent") setDocLinkTooLong(true);
+      const fallback = { ...state, docLink: null, docLinkTooLong: true };
+      if ((await conn.send(fallback)) === "sent") setDocLinkTooLong(true);
     } else if (result === "sent") {
-      setDocLinkTooLong(false);
+      setDocLinkTooLong(state.docLinkTooLong);
     }
   }, []);
 
   useEffect(() => {
     if (!enabled) return;
     storeCredentials(creds);
+    if (claimed === creds.room) return;
+    let active = true;
+    void claimRoom(creds.room).then((ok) => {
+      if (!active) return;
+      if (ok) setClaimed(creds.room);
+      else setCreds(createRoomCredentials());
+    });
+    return () => {
+      active = false;
+    };
+  }, [enabled, claimed, creds]);
+  const ready = enabled && claimed === creds.room;
+
+  useEffect(() => {
+    if (!ready) return;
     const seen = { remote: new Set<string>(), follower: new Set<string>() };
     let laserTimer: ReturnType<typeof setTimeout> | undefined;
     let active = true;
@@ -136,12 +198,16 @@ export function useRemoteHost({
           break;
         }
         case "step":
-          if (message.direction === 1) deck?.next();
+        case "goto": {
+          const before = deck?.current()?.address;
+          if (message.type === "goto") deck?.goTo(message.address);
+          else if (message.direction === 1) deck?.next();
           else deck?.prev();
+          // A move announces itself; a press that moved nothing (the last
+          // slide, an unknown address) still gets an answer.
+          if (deck?.current()?.address === before) void sendState();
           break;
-        case "goto":
-          deck?.goTo(message.address);
-          break;
+        }
         case "laser":
           setLaser({ x: message.x, y: message.y });
           clearTimeout(laserTimer);
@@ -180,15 +246,15 @@ export function useRemoteHost({
       setStatus("connecting");
       setLaser(null);
     };
-  }, [enabled, creds, socketFactory, base, sendState]);
+  }, [ready, creds, socketFactory, base, sendState]);
 
   // Subscribing announces the current slide at once, and again on every change,
   // including after the deck is rebuilt or the doc link changes.
   useEffect(() => {
-    if (!enabled || !controller) return;
+    if (!ready || !controller) return;
     docLinkRef.current = docLink;
     return controller.onChange(() => void sendState());
-  }, [enabled, controller, docLink, sendState]);
+  }, [ready, controller, docLink, sendState]);
 
   const joinBase = base ?? globalThis.location.href;
   return {
