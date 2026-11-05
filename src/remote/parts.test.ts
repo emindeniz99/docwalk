@@ -123,7 +123,7 @@ describe("reassembly", () => {
     // Count what the inflater produces: the result alone would be null either way.
     let inflated = 0;
     const Real = DecompressionStream;
-    vi.stubGlobal("DecompressionStream", function (format: CompressionFormat) {
+    vi.stubGlobal("DecompressionStream", function (format: "deflate-raw") {
       const inner = new Real(format);
       const count = new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {
