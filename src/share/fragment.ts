@@ -10,6 +10,8 @@ import { MAX_DOCUMENT_BYTES } from "../inputs/types";
 import { FRAGMENT_MAX_CHARS } from "./types";
 
 export const DOC_HASH_PREFIX = "#doc=";
+/** The fragment parameter that carries comments: `#doc=…&c=…`, or `#c=…` on a source link (decision 55). */
+export const COMMENTS_PARAM = "c";
 
 const FragmentSchema = v.pipe(
   v.string(),
@@ -106,5 +108,7 @@ export function isDocHash(hash: string): boolean {
  * `isDocHash` to tell the two apart.
  */
 export async function readFragment(hash: string): Promise<string | null> {
-  return isDocHash(hash) ? decodeDoc(hash.slice(DOC_HASH_PREFIX.length)) : null;
+  // A link may carry more after the document (`&c=…`, comments, decision 55);
+  // the document value itself never contains `&`.
+  return isDocHash(hash) ? decodeDoc(hash.slice(DOC_HASH_PREFIX.length).split("&")[0] ?? "") : null;
 }

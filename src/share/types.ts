@@ -17,4 +17,6 @@ export interface ShareLink {
   kind: "source" | "fragment";
   /** Present when the link is long enough that some chat apps may cut it. */
   warning: string | null;
+  /** True when comments were asked for but left out because the link would be too long. */
+  commentsDropped?: boolean;
 }
