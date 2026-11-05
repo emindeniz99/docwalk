@@ -10,8 +10,21 @@ import { CORS, docTitle, outline, ready, REMOTE_DOC, replaceSource, SHORT_DOC } 
 test("a #doc= link round-trips: copy it, open it in a new page, get the same slides", async ({
   page,
   context,
+  browserName,
 }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  // Only Chromium lets a test grant clipboard access; Firefox and WebKit throw
+  // "Unknown permission". The copied text is recorded on its way to the real
+  // clipboard instead, so every engine checks the same link.
+  if (browserName === "chromium") {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  }
+  await context.addInitScript(() => {
+    const write = navigator.clipboard.writeText.bind(navigator.clipboard);
+    navigator.clipboard.writeText = (text: string) => {
+      (window as unknown as { copied: string }).copied = text;
+      return write(text);
+    };
+  });
   await ready(page);
   await replaceSource(page, SHORT_DOC);
   await expect(docTitle(page)).toHaveText("Round trip");
@@ -21,9 +34,9 @@ test("a #doc= link round-trips: copy it, open it in a new page, get the same sli
   const dialog = page.getByRole("dialog", { name: "Share this document" });
   await dialog.getByRole("button", { name: "Copy link" }).click();
   await expect(dialog.getByRole("status")).toHaveText("Link copied.");
-  const link = await page.evaluate(() => navigator.clipboard.readText());
+  const link = await page.evaluate(() => (window as unknown as { copied: string }).copied);
   // An edited document shares its text, not the sample it started from.
-  expect(link).toMatch(/^http:\/\/localhost:4174\/#doc=[\w-]+$/);
+  expect(link).toMatch(new RegExp(`^${new URL(page.url()).origin}/#doc=[\\w-]+$`));
 
   const other = await context.newPage();
   await ready(other, link);

@@ -34,8 +34,10 @@ test("on a 390 px phone the header fits, actions keep their names, and targets a
     const control = page.getByRole("button", { name, exact: true });
     await expect(control).toBeVisible();
     const box = await control.boundingBox();
-    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44);
-    expect(box?.width ?? 0, name).toBeGreaterThanOrEqual(44);
+    // Firefox reports a 44 px box at a fractional offset as 43.999998 px;
+    // allow that float error, not a smaller target.
+    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44 - 0.01);
+    expect(box?.width ?? 0, name).toBeGreaterThanOrEqual(44 - 0.01);
   }
   // The palette trigger and theme move into the overflow menu instead of disappearing.
   await page.getByRole("button", { name: "More actions" }).click();
@@ -55,6 +57,14 @@ test("presenting on a phone scales the slide to the screen instead of reveal's s
   await expect(page.locator(".reveal-viewport.reveal-scroll, .reveal.reveal-scroll")).toHaveCount(
     0,
   );
-  const slide = await page.locator(".reveal .slides > section.present").boundingBox();
-  expect(slide?.width ?? Infinity).toBeLessThanOrEqual(390);
+  // The slide must fit the window it is presented in. That is 390 px in
+  // Chromium and WebKit, but headless Firefox sizes a fullscreen page to its
+  // own 1366 px screen and ignores the emulated phone, so compare against the
+  // window (polled: the fullscreen resize lands after the view flips).
+  const overhang = () =>
+    page.evaluate(() => {
+      const slide = document.querySelector(".reveal .slides > section.present");
+      return (slide?.getBoundingClientRect().width ?? Infinity) - innerWidth;
+    });
+  await expect.poll(overhang).toBeLessThanOrEqual(0);
 });
