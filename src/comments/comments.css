@@ -69,6 +69,8 @@
 .docwalk-comments-heading {
   display: flex;
   flex-direction: column;
+  /* Room for the title's focus ring (2px + 2px offset) above the count. */
+  gap: var(--dw-space-xs);
   min-width: 0;
 }
 

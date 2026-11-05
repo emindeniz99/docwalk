@@ -253,9 +253,25 @@
  * and pushes a 390 px phone layout sideways.
  */
 .docwalk-ws-banner {
-  contain: inline-size;
+  container-type: inline-size;
   flex-wrap: wrap;
   row-gap: 2px;
+}
+
+/*
+ * The header also carries the comments toggle, so at desktop widths the
+ * banner is narrow. There the root's name ("Workspace" or the folder) gives its room to
+ * the path; screen readers still hear it, and the icon still shows it.
+ */
+@container (max-width: 22rem) {
+  .docwalk-ws-root {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 /* The path gets the room first; on a narrow header the state and Save move to a second line. */

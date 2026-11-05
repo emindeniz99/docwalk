@@ -31,7 +31,9 @@ export function WorkspaceBanner({ workspace: w }: { workspace: Workspace }) {
     <p className="docwalk-source-banner docwalk-ws-banner">
       <Icon size={14} aria-hidden="true" />
       <span className="docwalk-source-label">
-        {folder ? `${w.folderName ?? "Folder"} · ` : "Workspace · "}
+        <span className="docwalk-ws-root">
+          {folder ? `${w.folderName ?? "Folder"} · ` : "Workspace · "}
+        </span>
         <strong>{source.path}</strong>
       </span>
       {/* Only a local folder's state is announced: autosave would speak after every pause in typing. */}
