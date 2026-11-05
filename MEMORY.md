@@ -6,11 +6,11 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-Week-1 spike done: AST sectioner, sanitized rendering into embedded reveal.js,
-Mermaid in strict mode with the security pre-pass, diagram fitting and focus
-view (panzoom), off-screen overflow measurement with diagnostics. `pnpm
-check` passes (23 unit + 11 browser tests). Next: H3 fallback and semantic
-pagination, then the presenter window and the editor.
+Spike plus smart pagination done: AST sections, H3 fallback, semantic
+pagination (items, rows, blocks), sanitized reveal.js deck, Mermaid strict +
+pre-pass, diagram fitting and focus view, off-screen measurement. `pnpm
+check` passes (23 unit + 18 browser tests). Next: presenter window
+(BroadcastChannel), slide addresses in the URL, then the CodeMirror editor.
 
 Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
 pnpm@12.16.1 --dir <project> <script>`; browser tests need
@@ -25,6 +25,7 @@ pnpm@12.16.1 --dir <project> <script>`; browser tests need
 
 ## Learnings
 
+- 2026-11-05: Paginate before reveal.js initializes; otherwise its slide count, progress bar and overview describe the unsplit deck.
 - 2026-11-05: reveal.js's notes plugin opens previews of `location.href`; for an app whose deck comes from pasted input, the previews show the wrong thing. Build the presenter window on BroadcastChannel instead.
 - 2026-11-05: reveal.js hides distant slides with `display: none`, so they measure as empty; measure clones in an off-screen box with `visibility: hidden`.
 - 2026-11-05: Fit diagrams from the SVG viewBox, not from layout: it works on hidden slides. Mermaid's own `max-width` style must be overridden or the fitted width is ignored.
@@ -38,6 +39,7 @@ pnpm@12.16.1 --dir <project> <script>`; browser tests need
 
 ## Done
 
+- 2026-11-05: Semantic pagination: fixture 23 slides/10 overflowing -> 47 slides/1 (atomic), no text lost (browser test).
 - 2026-11-05: Week-1 spike: reveal.js deck, Mermaid focus, overflow diagnostics; fixture shows 23 slides, 0 diagram errors, 10 honestly flagged overflows.
 - 2026-11-05: Acceptance fixture `fixtures/ledger-redesign.md` (809 lines, 7 Mermaid diagrams, all parse with Mermaid 11.12).
 - 2026-11-05: Prior-art research, design review, decision list and project docs.

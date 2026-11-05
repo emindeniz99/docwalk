@@ -14,7 +14,7 @@ so they show the app shell and the default document instead of the deck
 limits still open: footnotes
 render only in the section that holds their definition; raw HTML is dropped
 until rehype-raw is added behind the sanitizer; overflowing slides scroll
-inside the slide with a diagnostic until pagination lands.
+inside the slide with a diagnostic when even an atomic block does not fit.
 
 1. Write the acceptance fixture in `fixtures/`: a long synthetic design doc
    with many `##` and `###` sections, flowcharts, sequence and state
@@ -37,8 +37,15 @@ with a custom shell (overview grid, keyboard, fullscreen).
 
 - Presenter window over `BroadcastChannel`: current and next slide, notes,
   timer; the audience window stays the source of the rendered deck.
-- H3 fallback and semantic pagination (paragraphs, list items, table rows
-  with repeated headers).
+- Done 2026-11-05: H3 fallback and semantic pagination (paragraphs, list
+  items with `<ol start>`, table rows with repeated headers, "· continued"
+  titles, `<section-id>/<page>` addresses). The fixture goes from 23 slides
+  with 10 overflowing to 47 slides with 1 (an atomic block).
+- Pagination refinement: merge adjacent sub-heading groups that fit on one
+  slide together (today every H3 group gets its own slide once a section
+  splits).
+- Slide addresses in the URL (`#<section-id>/<page>`) and deep links from
+  GitHub anchors.
 - CodeMirror 6 editor with live preview and inline diagnostics.
 - Inputs: drop, `?src=` with the origin allowlist, `?repo=`, pasted token.
 - Worker: GitHub App OAuth (PKCE, `state`, fixed `redirect_uri`, origin-bound
