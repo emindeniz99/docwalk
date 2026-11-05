@@ -1,7 +1,8 @@
 import Reveal from "reveal.js";
 import "reveal.js/reveal.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { SectionPlan } from "../sectioning/sectionize";
+import { createDeckController, type DeckController } from "./controller";
 import { openDiagramFocus } from "./focus";
 import {
   fitDiagrams,
@@ -26,6 +27,8 @@ export interface DeckReport {
 interface DeckProps {
   plan: SectionPlan;
   onReport?: (report: DeckReport) => void;
+  /** Receives the controller once the deck is ready, and `null` when it is torn down. */
+  onReady?: (controller: DeckController | null) => void;
 }
 
 /**
@@ -33,9 +36,8 @@ interface DeckProps {
  * with DOM APIs and handed to reveal.js, which mutates it freely; React
  * reconciling that subtree would fight reveal (decision 27).
  */
-export function Deck({ plan, onReport }: DeckProps) {
+export function Deck({ plan, onReport, onReady }: DeckProps) {
   const host = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState("Rendering…");
 
   useEffect(() => {
     const root = host.current;
@@ -116,27 +118,23 @@ export function Deck({ plan, onReport }: DeckProps) {
         overflowing,
         diagramErrors: diagramResults.filter((r) => !r.ok).length,
       };
-      setStatus(
-        `${report.slides} slides · ${overflowing.length} overflowing · ${report.diagramErrors} diagram errors`,
-      );
       onReport?.(report);
+      onReady?.(createDeckController(deck, pages, slidesEl));
     })();
 
     return () => {
       cancelled = true;
       revealEl.removeEventListener("click", onClick);
       revealEl.removeEventListener("keydown", onKey);
+      onReady?.(null);
       deck?.destroy();
       root.replaceChildren();
     };
-  }, [plan, onReport]);
+  }, [plan, onReport, onReady]);
 
   return (
     <div className="docwalk-deck">
       <div ref={host} className="docwalk-deck-host" tabIndex={0} />
-      <p className="docwalk-status" role="status">
-        {status}
-      </p>
     </div>
   );
 }

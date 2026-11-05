@@ -6,11 +6,12 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-Design system in place: `DESIGN.md` (linter clean) mirrored by
-`src/design/tokens.ts`, CSS variables built by `tooling/tokens-plugin.ts`,
-self-hosted fonts, Stage look on the deck. `pnpm check` passes (48 tests).
-Next: app shell on React Aria (outline, ⌘K palette, view switch), then the
-presenter window, URL slide addresses, editor, pen and laser.
+App shell on React Aria works (outline, ⌘K palette, document mode, theme,
+present). Modules talk to the deck only through `src/deck/controller.ts`.
+Contracts exist for the next four modules (`src/editor/types.ts`,
+`src/annotate/types.ts`, `src/presenter/types.ts`, `src/url/types.ts`);
+the editor is a textarea placeholder until CodeMirror lands. `pnpm check`
+passes (49 tests). Next: build those four modules, then integrate.
 
 Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
 pnpm@12.16.1 --dir <project> <script>`; browser tests need
@@ -25,6 +26,7 @@ pnpm@12.16.1 --dir <project> <script>`; browser tests need
 
 ## Learnings
 
+- 2026-11-05: React Aria `ListBox` with `selectionMode` reports clicks as `onSelectionChange`, not `onAction`.
 - 2026-11-05: Vite loads TS configs natively now and warns on extensionless relative imports; config-side files import with `.ts` (tsconfig `allowImportingTsExtensions`).
 - 2026-11-05: Vitest inline projects ignore root `plugins` unless each project sets `extends: true`.
 - 2026-11-05: reveal.js paints `.reveal`/`.reveal-viewport` backgrounds; make them transparent or the stage colour never shows.

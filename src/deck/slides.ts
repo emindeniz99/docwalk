@@ -11,6 +11,7 @@ export function buildSlide(section: Section, options: HtmlOptions = {}): HTMLEle
   const el = document.createElement("section");
   el.dataset["docwalkId"] = section.id;
   el.dataset["kind"] = section.kind;
+  el.dataset["title"] = section.title;
 
   const slide = document.createElement("div");
   slide.className = "docwalk-slide";

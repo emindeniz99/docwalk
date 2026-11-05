@@ -35,7 +35,15 @@ export function paginateSlide(slide: HTMLElement, options: PaginateOptions): HTM
     const title = sectionTitle(slide);
     const crumbs = breadcrumbOf(slide);
     const pages: HTMLElement[] = [];
-    for (const [g, group] of splitAtSubheadings(body).entries()) {
+    const groups = splitAtSubheadings(body);
+    // A slide heading with no text of its own before its first sub-heading
+    // would become a title-only page; it joins the first sub-group instead.
+    const first = groups[0];
+    const second = groups[1];
+    if (first && second && first.every((b) => /^H[1-6]$/.test(b.tagName))) {
+      groups.splice(0, 2, [...first, ...second]);
+    }
+    for (const [g, group] of groups.entries()) {
       // Group 0 keeps the slide heading; a sub-group opens with its own
       // heading and carries the slide title in its breadcrumb.
       const groupTitle = g === 0 ? title : (group[0]?.textContent ?? "").trim();

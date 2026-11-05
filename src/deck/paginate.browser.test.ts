@@ -92,6 +92,18 @@ describe("semantic pagination", () => {
     );
   });
 
+  test("a heading with no text before its first sub-heading does not become a title-only page", () => {
+    const filler = "A paragraph of explanation that takes some room.\n\n".repeat(7);
+    const md = `## Failure handling\n\n### Retries\n\n${filler}### Timeouts\n\n${filler}`;
+    // Slide level 2 as in the fixture, where other H2s carry text; alone, Pandoc's rule would pick H3.
+    const section = sectionize(parseMarkdown(md), 2).sections[0];
+    const pages = paginateSlide(buildSlide(section as never), { size: SIZE });
+    const first = bodyOf(pages[0] as HTMLElement);
+    expect(first.querySelector("h2")?.textContent).toBe("Failure handling");
+    expect(first.querySelector("h3")?.textContent).toBe("Retries");
+    expect(first.querySelectorAll("p").length).toBeGreaterThan(0);
+  });
+
   test("an atomic block taller than a slide gets its own page and keeps its overflow", () => {
     const code = Array.from({ length: 80 }, (_, i) => `line ${i}`).join("\n");
     const md = `## Config\n\nBefore.\n\n\`\`\`\n${code}\n\`\`\`\n\nAfter.\n`;

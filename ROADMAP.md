@@ -58,7 +58,7 @@ with a custom shell (overview grid, keyboard, fullscreen).
   CI, sanitizer corpus, nightly Stryker.
 - Cloudflare deploy with the `_headers` CSP; static build with the meta CSP.
 - Done 2026-11-05: `DESIGN.md`, token module, parity test, self-hosted fonts, Stage look on the deck.
-- App shell on React Aria: outline with page counts and note badges, ⌘K command palette, view switch (edit/document/present), settings; light/dark toggle.
+- Done 2026-11-05: app shell on React Aria (outline with page counts and note dots, ⌘K palette, edit/document switch, present in fullscreen, light/dark/system theme), deck controller API, contracts for editor, annotation, presenter and URL modules.
 
 ## v1.1
 
