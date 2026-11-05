@@ -284,6 +284,12 @@ phone controls. Pills (`full`) are only for status chips.
   "· continued" in `slide-muted` on continuation pages.
 - **Stage controls**: 44px square buttons on `stage-raised`, icon plus
   accessible label; a per-section progress bar along the bottom.
+- **Update prompt**: a toast at the bottom end, `surface` with a
+  `border-strong` edge and the popover shadow; title, one caption line, a
+  primary "Reload" and a dismiss button. It never takes focus, so it cannot
+  interrupt a talk.
+- **App icon**: the Stage reduced to shapes, a white slide over a vermilion
+  progress bar on `stage`; drawn from the tokens by `tooling/pwa.ts`.
 
 Components come from React Aria Components, styled only with these tokens.
 
