@@ -17,6 +17,8 @@ export interface SlideInfo {
   title: string;
   /** True when the slide shows an overflow or too-small diagnostic. */
   flagged: boolean;
+  /** The diagnostic text shown on the slide, when flagged. */
+  note: string | null;
 }
 
 export interface DeckController {
@@ -56,6 +58,10 @@ export function createDeckController(
       page: pageNo,
       title: page.dataset["title"] ?? sectionId,
       flagged: !(page.querySelector<HTMLElement>(".docwalk-overflow")?.hidden ?? true),
+      note: (() => {
+        const el = page.querySelector<HTMLElement>(".docwalk-overflow");
+        return el && !el.hidden ? (el.textContent ?? null) : null;
+      })(),
     };
   });
   const byAddress = new Map(infos.map((s) => [s.address, s]));
