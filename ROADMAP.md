@@ -55,12 +55,13 @@ with a custom shell (overview grid, keyboard, fullscreen).
 - Pagination refinement: merge adjacent sub-heading groups that fit on one
   slide together (today every H3 group gets its own slide once a section
   splits).
-- Inputs: drop, `?src=` with the origin allowlist, `?repo=`, pasted token.
-- Worker: GitHub App OAuth (PKCE, `state`, fixed `redirect_uri`, origin-bound
-  CORS), with `@cloudflare/vitest-plugin` tests.
-- Sharing: fragment codec, autosave.
+- Done 2026-11-05: inputs (drop, file open, `?src=` with a confirmation for
+  hosts outside the allowlist, `?repo=`, pasted token); Worker with GitHub
+  App OAuth (PKCE, `state`, fixed `redirect_uri`, origin-bound CORS) and
+  `@cloudflare/vitest-plugin` tests; sharing (fragment codec, autosave
+  drafts); exports (PDF, single-file HTML, PNG); remote control (moved up
+  from v1.1, see decision 8); Playwright suite with axe on nine surfaces.
 - Pen and laser; overview; themes; light/dark.
-- Exports: PDF, single-file HTML, PNG.
 - PWA; Paraglide i18n scaffolding; accessibility pass to WCAG 2.2 AA.
 - CI: static build, Playwright on three engines, axe, size-limit, Lighthouse
   CI, sanitizer corpus, nightly Stryker.
@@ -68,11 +69,27 @@ with a custom shell (overview grid, keyboard, fullscreen).
 - Done 2026-11-05: `DESIGN.md`, token module, parity test, self-hosted fonts, Stage look on the deck.
 - Done 2026-11-05: app shell on React Aria (outline with page counts and note dots, ⌘K palette, edit/document switch, present in fullscreen, light/dark/system theme), deck controller API, contracts for editor, annotation, presenter and URL modules.
 
-## v1.1
+## v2: workspace and agents
 
-- Remote control: phone remote and followers through Durable Object
-  WebSocket rooms, joined by code or QR, with end-to-end encrypted
-  navigation events.
+After v1 ships. Each item needs a decision row before code.
+
+1. **Workspace in the browser.** Folders and files kept in the origin
+   private file system (OPFS), so nothing leaves the device: a file tree
+   beside the outline, New file, New folder, rename, delete, and "New
+   project" from a template. Import and export a project as a zip.
+2. **Open a local folder.** The File System Access API
+   (`showDirectoryPicker`, Chromium only; other browsers keep the OPFS
+   workspace). Reload a file when it changes on disk (`FileSystemObserver`
+   where available, polling otherwise). This is the agent path for local
+   agents: an agent edits the `.md` file and the open deck updates, with no
+   protocol of our own.
+3. **MCP server for agents that cannot reach the disk** (cloud agents,
+   chat apps). A remote MCP endpoint on the Worker with tools such as
+   `get_document`, `write_document`, `list_slides` and `goto_slide`, pushing
+   into a room the viewer has joined. Open questions: rooms are end-to-end
+   encrypted, so the agent needs the room key (the join link) or the room
+   runs unencrypted with the viewer's consent; authentication through the
+   GitHub App.
 
 ## Later
 
