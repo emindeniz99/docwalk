@@ -20,7 +20,7 @@ coverage/
 test-results/
 playwright-report/
 blob-report/
-.vitest-attachments/
+.vitest/
 __screenshots__/*.actual.png
 reports/mutation/
 
