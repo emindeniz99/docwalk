@@ -8,7 +8,17 @@
   "rules": {
     "vitest/no-standalone-expect": ["error", { "additionalTestBlockFunctions": ["fcTest.prop"] }],
     "react/react-in-jsx-scope": "off",
-    "import/no-unassigned-import": ["warn", { "allow": ["**/*.css", "@fontsource-variable/*"] }]
+    "import/no-unassigned-import": [
+      "warn",
+      {
+        "allow": [
+          "**/*.css",
+          "@fontsource-variable/*",
+          "monaco-editor/features/*/register",
+          "monaco-editor/languages/definitions/*/register"
+        ]
+      }
+    ]
   },
   "ignorePatterns": ["dist/**", "fixtures/**"]
 }
