@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { MAX_DOCUMENT_BYTES } from "../inputs/types";
 import type { EncryptedFrame, RemoteMessage, RoomCredentials } from "./types";
 
 /**
@@ -23,6 +24,22 @@ export const MAX_ADDRESS_CHARS = 2048;
 export const MAX_TITLE_CHARS = 1000;
 const MAX_SLIDES = 10_000;
 const MAX_LINK_CHARS = 16 * 1024;
+export const MAX_NOTE_CHARS = 1000;
+export const MAX_AGENT_NAME_CHARS = 64;
+
+/**
+ * Parts (parts.ts): a message larger than a relay frame is deflated and cut
+ * into pieces of at most PART_BYTES. 8 KB of payload is 10,924 base64url
+ * characters; inside an encrypted frame that stays under the 16 KB cap, which
+ * a test checks. MAX_PARTS bounds a transfer at 4 MB compressed.
+ */
+export const PART_BYTES = 8 * 1024;
+export const MAX_PARTS = 512;
+/**
+ * Largest message a set of parts may inflate to: a full document, JSON-escaped
+ * (a control character becomes six characters), plus the envelope.
+ */
+export const MAX_ASSEMBLED_BYTES = 6 * MAX_DOCUMENT_BYTES + 64 * 1024;
 
 const BASE64URL = /^[A-Za-z0-9_-]*$/;
 
@@ -92,6 +109,29 @@ const DocLink = v.pipe(
 
 const Depth = v.picklist([1, 2, 3, 4, 5, 6]);
 
+/** A participant, request or transfer id: random base64url (randomId), or "presenter". */
+const Id = v.pipe(v.string(), v.regex(BASE64URL), v.minLength(8), v.maxLength(64));
+/** A revision is 16 bytes of SHA-256, base64url (agent.ts). */
+const Revision = v.pipe(v.string(), v.regex(BASE64URL), v.length(22));
+/** Measured in UTF-8 bytes, like every other way a document gets in (inputs/types.ts). */
+const Markdown = v.pipe(
+  v.string(),
+  v.maxLength(MAX_DOCUMENT_BYTES),
+  v.check((text) => encoder.encode(text).byteLength <= MAX_DOCUMENT_BYTES, "document too large"),
+);
+/** Shown to the presenter as plain text; control characters could fake a line break. */
+const AgentName = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(MAX_AGENT_NAME_CHARS),
+  v.regex(/^[^\p{Cc}]+$/u),
+);
+const AgentSlideSchema = v.object({
+  address: Address,
+  title: v.pipe(v.string(), v.maxLength(MAX_TITLE_CHARS)),
+  note: v.nullable(v.pipe(v.string(), v.maxLength(MAX_NOTE_CHARS))),
+});
+
 /** A slide level as the URL writes it: "auto", one depth, or two or more distinct depths in order. */
 const Level = v.union([
   v.literal("auto"),
@@ -128,9 +168,59 @@ export const RemoteMessageSchema = v.variant("type", [
   v.object({ type: v.literal("laser-off") }),
   v.object({
     type: v.literal("hello"),
-    role: v.picklist(["remote", "follower"]),
-    id: v.pipe(v.string(), v.regex(BASE64URL), v.minLength(8), v.maxLength(64)),
+    role: v.picklist(["remote", "follower", "agent"]),
+    id: Id,
   }),
+  v.object({ type: v.literal("doc-get"), request: Id, from: Id }),
+  v.object({ type: v.literal("doc"), request: Id, to: Id, markdown: Markdown, revision: Revision }),
+  v.object({
+    type: v.literal("doc-write"),
+    request: Id,
+    from: Id,
+    name: AgentName,
+    markdown: Markdown,
+    base: v.nullable(Revision),
+  }),
+  v.object({ type: v.literal("slides-get"), request: Id, from: Id }),
+  v.object({
+    type: v.literal("slides"),
+    request: Id,
+    to: Id,
+    current: v.nullable(Address),
+    slides: v.pipe(v.array(AgentSlideSchema), v.maxLength(MAX_SLIDES)),
+  }),
+  v.variant("ok", [
+    v.object({
+      type: v.literal("result"),
+      request: Id,
+      to: Id,
+      ok: v.literal(true),
+      revision: Revision,
+    }),
+    v.object({
+      type: v.literal("result"),
+      request: Id,
+      to: Id,
+      ok: v.literal(false),
+      error: v.picklist(["edits-off", "conflict", "no-document", "too-large"]),
+    }),
+  ]),
+  v.pipe(
+    v.object({
+      type: v.literal("part"),
+      to: Id,
+      id: Id,
+      seq: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      total: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_PARTS)),
+      data: v.pipe(
+        v.string(),
+        v.regex(BASE64URL),
+        v.minLength(1),
+        v.maxLength(Math.ceil((PART_BYTES * 4) / 3)),
+      ),
+    }),
+    v.check((m) => m.seq < m.total, "seq must be inside the transfer"),
+  ),
 ]) satisfies v.GenericSchema<unknown, RemoteMessage>;
 
 const FrameSchema = v.object({

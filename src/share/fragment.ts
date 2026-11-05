@@ -20,7 +20,11 @@ const FragmentSchema = v.pipe(
   v.regex(/^[A-Za-z0-9_-]+$/),
 );
 
-async function readAll(stream: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array> {
+/** Reads a byte stream to the end, refusing more than `limit` bytes. */
+export async function readAll(
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;

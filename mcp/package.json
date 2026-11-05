@@ -1,0 +1,33 @@
+{
+  "name": "docwalk-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local MCP server that lets an agent read and edit the document a docwalk presenter is showing, through the presenter's end-to-end encrypted room.",
+  "license": "MIT",
+  "bin": {
+    "docwalk-mcp": "./dist/docwalk-mcp.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "vite build --config vite.config.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "valibot": "1.5.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

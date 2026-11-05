@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { DeckController } from "../deck/controller";
 import type { LoadedDocument } from "../inputs/types";
 import type { LevelOption } from "../sectioning/sectionize";
 import { JoinDialog } from "../remote/JoinDialog";
 import { useRemoteHost } from "../remote/host";
 import { buildShareLink } from "../share/link";
+import type { Notice } from "./useDocument";
 import { useStageLaser } from "./useStageLaser";
 
 export interface RemotePresenterProps {
@@ -14,6 +15,9 @@ export interface RemotePresenterProps {
   level: LevelOption;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Applies an agent's write the way an edit in the editor would (decision 59). */
+  edit: (markdown: string) => void;
+  setNotice: (notice: Notice | null) => void;
 }
 
 /**
@@ -22,6 +26,10 @@ export interface RemotePresenterProps {
  * "remote": the room, the join dialog and the laser on the stage. Mounted
  * once, in the main view; a duplicated tab gets a room of its own (host.ts),
  * so a room never gets a second presenter.
+ *
+ * An agent's write (decision 59) becomes an ordinary edit, and a notice says
+ * which agent made it; a write refused because agent edits are off says how
+ * to allow them.
  */
 export function RemotePresenter({
   controller,
@@ -29,6 +37,8 @@ export function RemotePresenter({
   level,
   isOpen,
   onOpenChange,
+  edit,
+  setNotice,
 }: RemotePresenterProps) {
   // Undefined until the first link is built, so followers wait instead of
   // being told the document is too long to send.
@@ -51,7 +61,33 @@ export function RemotePresenter({
     };
   }, [doc]);
 
-  const remote = useRemoteHost({ controller, docLink, level, enabled: true });
+  const onAgentEdit = useCallback(
+    (markdown: string, name: string) => {
+      // First, so the draft warning an edit can raise replaces it: that one asks for a decision.
+      setNotice({ message: `${name} changed the document.`, tone: "info" });
+      edit(markdown);
+    },
+    [edit, setNotice],
+  );
+  const onAgentEditRefused = useCallback(
+    (name: string) =>
+      setNotice({
+        message: `${name} tried to change the document. Allow agent edits in Remote control to let it.`,
+        tone: "info",
+        action: { label: "Remote control", run: () => onOpenChange(true) },
+      }),
+    [setNotice, onOpenChange],
+  );
+
+  const remote = useRemoteHost({
+    controller,
+    docLink,
+    level,
+    enabled: true,
+    markdown: doc?.markdown ?? null,
+    onAgentEdit,
+    onAgentEditRefused,
+  });
   useStageLaser(controller, remote.laser);
   return <JoinDialog isOpen={isOpen} onOpenChange={onOpenChange} host={remote} />;
 }

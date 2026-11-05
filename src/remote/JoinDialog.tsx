@@ -1,6 +1,6 @@
-import { Check, Copy, KeyRound, TriangleAlert, X } from "lucide-react";
+import { Bot, Check, Copy, KeyRound, TriangleAlert, X } from "lucide-react";
 import qrcodeGenerator from "qrcode-generator";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   Button,
   Dialog,
@@ -9,6 +9,7 @@ import {
   Label,
   Modal,
   ModalOverlay,
+  Switch,
   TextField,
 } from "react-aria-components";
 import type { RemoteStatus } from "./client";
@@ -19,6 +20,8 @@ export const KEY_NOTE =
   "Both links contain the room key. Anyone who has either link can follow along and change slides, so share them only with your audience.";
 export const DOC_LINK_TOO_LONG =
   "This document is too long to send with the follow link. Followers need to open it themselves.";
+export const AGENT_NOTE =
+  "An agent you run with docwalk-mcp and the phone remote link can read the document and change slides. Switch this on to let it change the document too. Anyone with the link could then do the same.";
 
 const STATUS_TEXT: Record<RemoteStatus, string> = {
   connecting: "Opening the room…",
@@ -35,7 +38,22 @@ const QUIET_ZONE = 4;
 export interface JoinDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  host: Pick<RemoteHost, "joinUrls" | "participants" | "status" | "docLinkTooLong">;
+  host: Pick<
+    RemoteHost,
+    | "joinUrls"
+    | "participants"
+    | "status"
+    | "docLinkTooLong"
+    | "allowAgentEdits"
+    | "setAllowAgentEdits"
+    | "lastAgentEdit"
+  >;
+}
+
+/** "Changed by <agent> at 14:03", in the viewer's locale. */
+export function describeAgentEdit(edit: { name: string; at: number }): string {
+  const time = new Date(edit.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `Last changed by ${edit.name} at ${time}.`;
 }
 
 /**
@@ -127,6 +145,8 @@ function plural(n: number, one: string, many: string) {
 /** Lets the presenter hand out the phone-remote and follow links (decision 8). */
 export function JoinDialog({ isOpen, onOpenChange, host }: JoinDialogProps) {
   const { joinUrls, participants, status, docLinkTooLong } = host;
+  const { allowAgentEdits, setAllowAgentEdits, lastAgentEdit } = host;
+  const agentsId = useId();
   return (
     <ModalOverlay
       isOpen={isOpen}
@@ -153,6 +173,8 @@ export function JoinDialog({ isOpen, onOpenChange, host }: JoinDialogProps) {
                 {" · "}
                 {plural(participants.remotes, "remote", "remotes")} and{" "}
                 {plural(participants.followers, "follower", "followers")} joined
+                {participants.agents > 0 &&
+                  ` · ${plural(participants.agents, "agent", "agents")} connected`}
               </p>
               <div className="docwalk-join-cards">
                 <JoinLink
@@ -166,6 +188,33 @@ export function JoinDialog({ isOpen, onOpenChange, host }: JoinDialogProps) {
                   url={joinUrls.follow}
                 />
               </div>
+              <section className="docwalk-join-agents" aria-labelledby={`${agentsId}-title`}>
+                <div className="docwalk-join-agents-head">
+                  <Bot aria-hidden size={18} />
+                  <h3 id={`${agentsId}-title`} className="docwalk-join-card-title">
+                    Agents
+                  </h3>
+                  <Switch
+                    className="docwalk-switch"
+                    isSelected={allowAgentEdits}
+                    onChange={setAllowAgentEdits}
+                    aria-describedby={`${agentsId}-note`}
+                  >
+                    <span className="docwalk-switch-track" aria-hidden="true">
+                      <span className="docwalk-switch-thumb" />
+                    </span>
+                    Allow agent edits
+                  </Switch>
+                </div>
+                <p id={`${agentsId}-note`} className="docwalk-join-muted">
+                  {AGENT_NOTE}
+                </p>
+                {lastAgentEdit && (
+                  <p className="docwalk-join-muted" data-testid="agent-last-edit">
+                    {describeAgentEdit(lastAgentEdit)}
+                  </p>
+                )}
+              </section>
               <p className="docwalk-join-note">
                 <KeyRound aria-hidden size={18} />
                 <span>{KEY_NOTE}</span>

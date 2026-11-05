@@ -26,7 +26,14 @@ import {
   type RemoteFollower,
 } from "./follower";
 import { ROOM_STORAGE_KEY, useRemoteHost, type RemoteHost } from "./host";
-import { DOC_LINK_TOO_LONG, JoinDialog, KEY_NOTE, QrCode } from "./JoinDialog";
+import {
+  AGENT_NOTE,
+  describeAgentEdit,
+  DOC_LINK_TOO_LONG,
+  JoinDialog,
+  KEY_NOTE,
+  QrCode,
+} from "./JoinDialog";
 import { PRESENTER_AWAY, PRESENTER_REPLY_MS, RemoteView } from "./RemoteView";
 import type { RemoteMessage, RoomCredentials } from "./types";
 
@@ -448,7 +455,7 @@ describe("presenter host", () => {
     peer(relay, creds, "follower");
     peer(relay, creds, "follower");
     await vi.waitFor(() =>
-      expect(host.current!.participants).toEqual({ remotes: 1, followers: 2 }),
+      expect(host.current!.participants).toEqual({ remotes: 1, followers: 2, agents: 0 }),
     );
     await opened(remote);
     // Sockets in join order: the host, the remote, two followers.
@@ -457,7 +464,7 @@ describe("presenter host", () => {
       timeout: 2000,
     });
     await new Promise((r) => setTimeout(r, 50));
-    expect(host.current!.participants).toEqual({ remotes: 1, followers: 2 });
+    expect(host.current!.participants).toEqual({ remotes: 1, followers: 2, agents: 0 });
   });
 
   test("a doc link too long for the relay is left out and reported, instead of losing the whole state", async () => {
@@ -614,6 +621,104 @@ describe("presenter host", () => {
     expect(relay.urls).toHaveLength(0);
     expect(host.current!.status).toBe("closed");
     expect(sessionStorage.length).toBe(0);
+  });
+});
+
+/** The presenter's reply to an agent's request. */
+const agentReply = (p: Peer, request: string) =>
+  vi.waitFor(() => {
+    const reply = p.received.find((m) => "request" in m && m.request === request);
+    if (!reply) throw new Error(`no answer to ${request}`);
+    return reply;
+  });
+
+describe("presenter host and agents (decision 59)", () => {
+  const DOC = "# Deck\n\n## One\n\nA.\n";
+
+  async function mountAgentHost(props: Partial<HostProps> & { controller: DeckController | null }) {
+    const relay = new FakeRelay();
+    const result: { current: RemoteHost | null } = { current: null };
+    const onAgentEdit = vi.fn<(markdown: string, name: string) => void>();
+    const onAgentEditRefused = vi.fn<(name: string) => void>();
+    let current: HostProps = {
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      markdown: DOC,
+      onAgentEdit,
+      onAgentEditRefused,
+      ...props,
+    };
+    const render = (next: Partial<HostProps>) => {
+      current = { ...current, ...next };
+      mount(h(HostProbe, { ...current, report: (r) => (result.current = r) }));
+    };
+    render({});
+    // The agent joins an open room, as it does when started from the dialog's link.
+    await vi.waitFor(() => expect(result.current!.status).toBe("open"));
+    const creds = parseJoinFragment(new URL(result.current!.joinUrls.remote).hash)!;
+    const agent = peer(relay, creds, "agent");
+    return { relay, host: result, agent, render, onAgentEdit, onAgentEditRefused };
+  }
+
+  test("an agent reads the document, and changes it only after the presenter allows agent edits", async () => {
+    const { host, agent, onAgentEdit, onAgentEditRefused } = await mountAgentHost({
+      controller: fakeController(),
+    });
+    await opened(agent);
+    await vi.waitFor(() => expect(host.current!.participants.agents).toBe(1));
+
+    await agent.conn.send({ type: "doc-get", request: "GetGetGetGet", from: agent.conn.id });
+    expect(await agentReply(agent, "GetGetGetGet")).toMatchObject({ type: "doc", markdown: DOC });
+
+    const write = (request: string) =>
+      agent.conn.send({
+        type: "doc-write",
+        request,
+        from: agent.conn.id,
+        name: "claude-code",
+        markdown: "# Changed\n",
+        base: null,
+      });
+    await write("WriteOneWrit");
+    expect(await agentReply(agent, "WriteOneWrit")).toMatchObject({
+      ok: false,
+      error: "edits-off",
+    });
+    expect(onAgentEditRefused).toHaveBeenCalledWith("claude-code");
+    expect(onAgentEdit).not.toHaveBeenCalled();
+
+    act(() => host.current!.setAllowAgentEdits(true));
+    await write("WriteTwoWrit");
+    expect(await agentReply(agent, "WriteTwoWrit")).toMatchObject({ ok: true });
+    expect(onAgentEdit).toHaveBeenCalledWith("# Changed\n", "claude-code");
+    await vi.waitFor(() => expect(host.current!.lastAgentEdit?.name).toBe("claude-code"));
+  });
+
+  test("the slide list waits until the deck shows the agent's write, so the agent never reads the old deck", async () => {
+    const before = fakeController(2);
+    const { host, agent, render } = await mountAgentHost({ controller: before });
+    await opened(agent);
+    act(() => host.current!.setAllowAgentEdits(true));
+    await agent.conn.send({
+      type: "doc-write",
+      request: "WriteWriteWr",
+      from: agent.conn.id,
+      name: "codex",
+      markdown: "# Changed\n",
+      base: null,
+    });
+    await agentReply(agent, "WriteWriteWr");
+    // App passes the new text before the deck has rebuilt from it.
+    render({ markdown: "# Changed\n" });
+    await agent.conn.send({ type: "slides-get", request: "SlidesSlides", from: agent.conn.id });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(agent.received.some((m) => m.type === "slides")).toBe(false);
+
+    render({ controller: fakeController(5) });
+    const reply = await agentReply(agent, "SlidesSlides");
+    expect(reply.type === "slides" && reply.slides).toHaveLength(5);
   });
 });
 
@@ -891,9 +996,12 @@ describe("join dialog", () => {
       remote: `${BASE}?view=remote#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
       follow: `${BASE}?view=follow#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
     },
-    participants: { remotes: 1, followers: 2 },
+    participants: { remotes: 1, followers: 2, agents: 0 },
     status: "open" as const,
     docLinkTooLong: false,
+    allowAgentEdits: false,
+    setAllowAgentEdits: () => {},
+    lastAgentEdit: null,
   };
 
   test("is a named dialog with both QR codes, the key warning and 44px targets", () => {
@@ -957,5 +1065,51 @@ describe("join dialog", () => {
     for (let r = 0; r < n; r++)
       for (let c = 0; c < n; c++) if (qr.isDark(r, c)) expected.add(`${r},${c}`);
     expect(drawn).toEqual(expected);
+  });
+});
+
+describe("join dialog: agents", () => {
+  const host = {
+    joinUrls: {
+      remote: `${BASE}?view=remote#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
+      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
+    },
+    participants: { remotes: 0, followers: 0, agents: 1 },
+    status: "open" as const,
+    docLinkTooLong: false,
+    allowAgentEdits: false,
+    setAllowAgentEdits: vi.fn<(allow: boolean) => void>(),
+    lastAgentEdit: null,
+  };
+
+  test("a named switch, off by default, with a 44px target, says what turning it on allows", async () => {
+    mount(h(JoinDialog, { isOpen: true, onOpenChange: () => {}, host }));
+    const toggle = dialog().querySelector<HTMLInputElement>('input[role="switch"]')!;
+    expect(toggle.checked).toBe(false);
+    const label = toggle.closest("label")!;
+    expect(label.textContent).toBe("Allow agent edits");
+    expect(label.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expect(document.getElementById(toggle.getAttribute("aria-describedby")!)?.textContent).toBe(
+      AGENT_NOTE,
+    );
+    expect(dialog().textContent).toContain("1 agent connected");
+    await userEvent.click(label);
+    expect(host.setAllowAgentEdits).toHaveBeenCalledWith(true);
+  });
+
+  test("shows which agent changed the document last", () => {
+    const at = new Date(2026, 10, 5, 14, 3).getTime();
+    mount(
+      h(JoinDialog, {
+        isOpen: true,
+        onOpenChange: () => {},
+        host: { ...host, allowAgentEdits: true, lastAgentEdit: { name: "claude-code", at } },
+      }),
+    );
+    expect(dialog().querySelector('input[role="switch"]')).toHaveProperty("checked", true);
+    expect(dialog().textContent).toContain(describeAgentEdit({ name: "claude-code", at }));
+    expect(describeAgentEdit({ name: "claude-code", at })).toMatch(
+      /^Last changed by claude-code at .*03/,
+    );
   });
 });

@@ -5,6 +5,13 @@ term, alphabetical. Numbers refer to rows in `docs/decisions.md`.
 
 ## Terms
 
+**Agent**: a coding agent in a room through `docwalk-mcp`. It may read the
+document and move the deck; it changes the document only while the
+presenter has **agent edits** on (59, 67). Code: `RoomAgent`, `answerAgent`.
+
+**Agent edits**: the "Allow agent edits" switch in the remote dialog. Off in
+every new room and after a reload (67).
+
 **Anchor**: what a comment points at: a heading's GitHub slug, or a Mermaid
 node (nearest heading, diagram number under it, node id from the source).
 Never a slide index or a character offset (55, 65). Code: `Anchor`.
@@ -49,6 +56,12 @@ for overflow, run in the order of decision 22.
 **Orphaned comment**: a comment whose **anchor** is no longer in the
 document. It stays listed apart until the user deletes it; it is never
 dropped (55).
+
+**Part**: one encrypted piece of an agent message too large for a relay
+frame, addressed to one participant (67). Code: `src/remote/parts.ts`.
+
+**Revision**: 16 bytes of the SHA-256 of the document text. An agent's write
+that names an old revision is refused (67). Code: `revisionOf`.
 
 **Section**: the part of the AST between two slide starts at the base level.
 One section yields one or more **slides**. Its id comes from the heading

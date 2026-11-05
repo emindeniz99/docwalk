@@ -1,6 +1,7 @@
 import { API_LIMITS, REMOTE_PATH } from "../api/types";
 import { decrypt, encrypt, importKey, randomId } from "./crypto";
-import type { RemoteMessage, RoomCredentials } from "./types";
+import { PartAssembler, splitMessage } from "./parts";
+import { PRESENTER_ID, type RemoteMessage, type RoomCredentials } from "./types";
 
 /**
  * One participant's connection to a remote-control room (decision 8). The
@@ -9,16 +10,20 @@ import type { RemoteMessage, RoomCredentials } from "./types";
  * reconnects on its own. Navigation events are ephemeral: nothing is queued
  * while the socket is down. Instead, remotes and followers send `hello` on
  * every (re)connect and the presenter answers with its current state.
+ *
+ * The client runs in Node too (the `docwalk-mcp` agent, decision 59), so it
+ * uses no DOM API beyond what Node 22 also has.
  */
 
 export type RemoteStatus = "connecting" | "open" | "reconnecting" | "closed";
-export type RemoteRole = "presenter" | "remote" | "follower";
+export type RemoteRole = "presenter" | "remote" | "follower" | "agent";
 
 /**
  * - `sent`: handed to the socket.
  * - `queued`: a laser point inside the throttle window; the latest one goes out when it ends.
  * - `not-open`: the socket is down; the message is dropped.
- * - `too-large`: the encrypted frame is over the relay's cap; the message is dropped.
+ * - `too-large`: the encrypted frame is over the relay's cap and the message
+ *   cannot be split into parts (parts.ts); it is dropped.
  */
 export type SendResult = "sent" | "queued" | "not-open" | "too-large";
 
@@ -38,6 +43,8 @@ export interface SocketLike {
 export type SocketFactory = (url: string, handlers: SocketHandlers) => SocketLike;
 
 export interface RoomConnection {
+  /** This participant's id: the hello id, or PRESENTER_ID. Messages with another `to` are not delivered. */
+  readonly id: string;
   send(message: RemoteMessage): Promise<SendResult>;
   /** Closes the socket for good: no reconnect, no further callbacks. */
   close(): void;
@@ -82,16 +89,26 @@ const browserSocket: SocketFactory = (url, handlers) => {
   return { send: (data) => socket.send(data), close: () => socket.close(1000) };
 };
 
+/** The browser's reportError; Node has none, so the agent logs to stderr instead. */
+function reportError(error: unknown) {
+  const report = (globalThis as { reportError?: (error: unknown) => void }).reportError;
+  if (report) report(error);
+  else console.error(error);
+}
+
 export function connectRoom({
   creds,
   role,
   onMessage,
   onStatus,
   socketFactory = browserSocket,
-  base = globalThis.location.href,
+  // Node has no location: the agent (mcp/) always passes the join link as `base`.
+  base = (globalThis as { location?: { href: string } }).location?.href ?? "",
 }: ConnectOptions): RoomConnection {
   const url = roomUrl(creds.room, base);
   const helloId = randomId();
+  const self = role === "presenter" ? PRESENTER_ID : helloId;
+  const assembler = new PartAssembler(self);
   const keyPromise = importKey(creds.key);
 
   let status: RemoteStatus = "connecting";
@@ -154,23 +171,37 @@ export function connectRoom({
         } catch {
           return;
         }
-        const message = await decrypt(await keyPromise, frame);
+        let message = await decrypt(await keyPromise, frame);
+        if (message?.type === "part") message = await assembler.add(message);
+        // An answer for another agent is not this participant's business.
+        if (message && "to" in message && message.to !== self) return;
         if (message && !closed) onMessage(message);
       })
       // A handler that throws (a deck torn down mid-rebuild) must not reject
       // the chain: every later frame would be skipped until a reload. The
       // error is still reported, not swallowed.
-      .catch((error: unknown) => globalThis.reportError(error));
+      .catch(reportError);
   }
 
   function transmit(message: RemoteMessage): Promise<SendResult> {
     const result = outbound.then(async (): Promise<SendResult> => {
       if (status !== "open" || !socket) return "not-open";
-      const frame = JSON.stringify(await encrypt(await keyPromise, message));
+      const key = await keyPromise;
+      const frame = JSON.stringify(await encrypt(key, message));
       // Base64url and JSON are ASCII, so length equals bytes.
-      if (frame.length > API_LIMITS.maxFrameBytes) return "too-large";
-      if (status !== "open" || !socket) return "not-open";
-      socket.send(frame);
+      if (frame.length <= API_LIMITS.maxFrameBytes) {
+        if (status !== "open" || !socket) return "not-open";
+        socket.send(frame);
+        return "sent";
+      }
+      const parts = await splitMessage(message, "to" in message ? message.to : PRESENTER_ID);
+      if (!parts) return "too-large";
+      for (const part of parts) {
+        const partFrame = JSON.stringify(await encrypt(key, part));
+        if (partFrame.length > API_LIMITS.maxFrameBytes) return "too-large";
+        if (status !== "open" || !socket) return "not-open";
+        socket.send(partFrame);
+      }
       return "sent";
     });
     outbound = result.catch(() => undefined);
@@ -192,6 +223,7 @@ export function connectRoom({
   });
 
   return {
+    id: self,
     send(message) {
       if (closed) return Promise.resolve("not-open");
       if (message.type === "laser") {

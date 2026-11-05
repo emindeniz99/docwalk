@@ -37,6 +37,9 @@ Two deployment modes, one build:
 - **Full:** Cloudflare, with a small Worker for GitHub App sign-in and, from
   v1.1, the remote-control relay. The app detects `/api` and enables those
   features.
+- **Agents:** in full mode, a coding agent can read and edit the presenter's
+  document through [`docwalk-mcp`](./mcp/README.md), a local MCP server that
+  joins the room with its encrypted link.
 
 In both modes the browser can install docwalk as an app, and after one
 online visit it opens and presents offline. Mermaid loads code per diagram
@@ -56,7 +59,7 @@ pnpm dev              # local dev server
 pnpm check            # the full gate: typecheck, lint, format, tests, build
 pnpm test             # unit tests (Node)
 pnpm test:browser     # layout tests in real Chromium
-pnpm build            # static build in dist/, with sw.js and the manifest
+pnpm build            # static build in dist/ (with sw.js and the manifest), docwalk-mcp in mcp/dist/
 pnpm test:e2e         # Playwright on Chromium, Firefox, WebKit, plus a /docwalk/ sub-path build
 pnpm lighthouse       # Lighthouse CI budgets on dist/ (run pnpm build first)
 pnpm mutation         # StrykerJS on the unit tests; report in reports/mutation/

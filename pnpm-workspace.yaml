@@ -1,4 +1,7 @@
-# Single-package project; this file carries pnpm settings only.
+# The app at the root, plus the agents' MCP server (decision 59), which ships
+# with it.
+packages:
+  - mcp
 
 # Supply-chain guard: never install a version published less than 7 days ago.
 # pnpm counts MINUTES (7 * 24 * 60).
