@@ -5,6 +5,8 @@
  *   (the list comes from `tooling/pwa-plugin.ts`, see `selectPrecache`).
  * - Other build assets, chiefly Mermaid's per-diagram-type chunks, are
  *   cached the first time a deck loads them, then served from the cache.
+ * - Canvas mode's fonts (`excalidraw-assets/`) are cached when a sketch
+ *   uses them and refreshed in the background, as some names carry no hash.
  * - Navigations get the precached `index.html`, except under `api/`.
  * - `api/` requests and every other origin are never answered by this
  *   worker: no route matches them, so the browser goes to the network.
@@ -21,8 +23,8 @@ import {
   type PrecacheEntry,
 } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
-import { CacheFirst } from "workbox-strategies";
-import { isApi, isBuildAsset, warmupUrls } from "./routes";
+import { CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
+import { isApi, isBuildAsset, isOptInAsset, warmupUrls } from "./routes";
 
 declare const self: ServiceWorkerGlobalScope;
 /** Replaced at build time with the precache list. */
@@ -60,6 +62,15 @@ const lazyAssets = new CacheFirst({
 registerRoute(
   ({ url, request }) => request.method === "GET" && isBuildAsset(url, scope) && !isApi(url, scope),
   lazyAssets,
+);
+
+registerRoute(
+  ({ url, request }) => request.method === "GET" && isOptInAsset(url, scope),
+  new StaleWhileRevalidate({
+    cacheName: "docwalk-canvas-fonts",
+    matchOptions: { ignoreVary: true },
+    plugins: [new ExpirationPlugin({ maxEntries: 300, purgeOnQuotaError: true })],
+  }),
 );
 
 self.addEventListener("message", (event) => {

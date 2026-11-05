@@ -4,7 +4,14 @@ import { describe, expect, test } from "vitest";
 import { tokens } from "../src/design/tokens.ts";
 import { CONTENT_SECURITY_POLICY } from "../worker/csp.ts";
 import viteConfig from "../vite.config.ts";
-import { ICON_FILES, iconSvg, selectPrecache, webManifest, type ChunkNode } from "./pwa.ts";
+import {
+  ICON_FILES,
+  iconSvg,
+  selectAssets,
+  selectPrecache,
+  webManifest,
+  type ChunkNode,
+} from "./pwa.ts";
 
 const publicDir = join(import.meta.dirname, "..", "public");
 
@@ -218,5 +225,45 @@ describe("selectPrecache", () => {
     expect(() =>
       selectPrecache([chunk("index.js", { isEntry: true, imports: ["gone.js"] })]),
     ).toThrow(/gone\.js/);
+  });
+});
+
+describe("selectAssets", () => {
+  // Fonts and workers are not chunks, so the chunk graph cannot place them.
+  // Before this rule every one was precached: canvas mode's 13 MB of CJK
+  // font slices and Monaco's worker and font went to every visitor at install.
+  const precached = new Set(["assets/index.js", "assets/index.css"]);
+  const assets = [
+    { fileName: "index.html", text: '<script src="/assets/index.js"></script>' },
+    { fileName: "assets/index.css", text: "@font-face{src:url(./inter-latin-abc.woff2)}" },
+    { fileName: "assets/inter-latin-abc.woff2", text: null },
+    { fileName: "assets/Monaco.css", text: "@font-face{src:url(./codicon-def.ttf)}" },
+    { fileName: "assets/codicon-def.ttf", text: null },
+    { fileName: "assets/editor.worker-ghi.js", text: null },
+    { fileName: "excalidraw-assets/fonts/Xiaolai/Xiaolai-Regular-1.woff2", text: null },
+  ];
+  // The entry names Monaco's stylesheet in its preload list, as Vite does.
+  const code = ['const deps = ["assets/Monaco.js", "assets/Monaco.css"];'];
+
+  test("precaches the shell and the fonts precached stylesheets name", () => {
+    const { precache } = selectAssets(assets, precached, code);
+    expect([...precache].toSorted()).toEqual(["assets/inter-latin-abc.woff2", "index.html"]);
+  });
+
+  test("leaves an opt-in mode's fonts, worker and stylesheet to the runtime cache", () => {
+    const { runtime } = selectAssets(assets, precached, code);
+    expect([...runtime].toSorted()).toEqual([
+      "assets/Monaco.css",
+      "assets/codicon-def.ttf",
+      "assets/editor.worker-ghi.js",
+      "excalidraw-assets/fonts/Xiaolai/Xiaolai-Regular-1.woff2",
+    ]);
+  });
+
+  test("precaches a worker that precached code names", () => {
+    const { precache } = selectAssets(assets, precached, [
+      'new Worker(new URL("./editor.worker-ghi.js", import.meta.url))',
+    ]);
+    expect(precache.has("assets/editor.worker-ghi.js")).toBe(true);
   });
 });

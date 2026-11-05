@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isApi, isBuildAsset, MAX_WARMUP_URLS, warmupUrls } from "./routes";
+import { isApi, isBuildAsset, isOptInAsset, MAX_WARMUP_URLS, warmupUrls } from "./routes";
 
 const ROOT = new URL("https://docwalk.example/");
 // GitHub Pages serves a project site under /<repo>/ (decision 37).
@@ -25,6 +25,18 @@ describe("what the service worker may cache (decision 11)", () => {
     expect(isBuildAsset(new URL("/index.html", ROOT), ROOT)).toBe(false);
     // Outside the subpath is another site on the same origin.
     expect(isBuildAsset(new URL("/assets/x.js", SUBPATH), SUBPATH)).toBe(false);
+  });
+});
+
+describe("canvas mode's fonts (decision 54)", () => {
+  // Not precached, so a sketch opened online must leave its fonts in a cache,
+  // or the same sketch offline draws every label in a fallback font.
+  test("same-origin files under excalidraw-assets/ are cached on use, at the root or a subpath", () => {
+    const font = "excalidraw-assets/fonts/Excalifont/Excalifont-Regular-a1.woff2";
+    expect(isOptInAsset(new URL(`/${font}`, ROOT), ROOT)).toBe(true);
+    expect(isOptInAsset(new URL(`/docwalk/${font}`, SUBPATH), SUBPATH)).toBe(true);
+    expect(isOptInAsset(new URL(`https://esm.sh/${font}`), ROOT)).toBe(false);
+    expect(isOptInAsset(new URL("/assets/App-abc123.js", ROOT), ROOT)).toBe(false);
   });
 });
 

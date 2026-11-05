@@ -2,7 +2,15 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { build, type Plugin, type ResolvedConfig } from "vite";
-import { ICON_FILES, selectPrecache, themeColorMeta, webManifest, type ChunkNode } from "./pwa.ts";
+import {
+  ICON_FILES,
+  selectAssets,
+  selectPrecache,
+  themeColorMeta,
+  webManifest,
+  type AssetNode,
+  type ChunkNode,
+} from "./pwa.ts";
 
 /** One precache entry in Workbox's shape; `revision: null` for content-hashed files. */
 interface PrecacheEntry {
@@ -54,11 +62,13 @@ export function docwalkPwa(): Plugin {
         this.emitFile({ type: "asset", fileName: MANIFEST_FILE, source: manifest });
 
         const chunks: ChunkNode[] = [];
+        const code = new Map<string, string>();
         const sizes = new Map<string, number>();
-        const others: PrecacheEntry[] = [];
+        const assets: AssetNode[] = [];
         for (const file of Object.values(bundle)) {
           if (file.type === "chunk") {
             sizes.set(file.fileName, Buffer.byteLength(file.code));
+            code.set(file.fileName, file.code);
             chunks.push({
               fileName: file.fileName,
               isEntry: file.isEntry,
@@ -74,13 +84,30 @@ export function docwalkPwa(): Plugin {
               ? Buffer.byteLength(file.source)
               : file.source.byteLength;
           sizes.set(file.fileName, size);
-          if (file.fileName.endsWith(".css") || file.fileName.endsWith(".map")) continue;
-          // index.html, the manifest, the self-hosted fonts: all part of the shell.
-          const hashed = file.fileName.startsWith(`${config.build.assetsDir}/`);
-          others.push({ url: file.fileName, revision: hashed ? null : revision(file.source) });
+          if (file.fileName.endsWith(".map") || file.fileName === MANIFEST_FILE) continue;
+          const text =
+            typeof file.source === "string" && /\.(?:css|html)$/.test(file.fileName)
+              ? file.source
+              : null;
+          assets.push({ fileName: file.fileName, text });
         }
 
         const { precache, runtime } = selectPrecache(chunks);
+        // Fonts and workers follow the code that names them; the self-hosted
+        // fonts of the app shell are precached, an opt-in mode's are not.
+        const files = selectAssets(
+          assets,
+          precache,
+          [...precache].flatMap((name) => code.get(name) ?? []),
+          config.build.assetsDir,
+        );
+        for (const name of files.runtime) runtime.add(name);
+        const others: PrecacheEntry[] = [...files.precache].toSorted().map((url) => {
+          const asset = bundle[url];
+          const hashed = url.startsWith(`${config.build.assetsDir}/`);
+          const source = asset && asset.type === "asset" ? asset.source : "";
+          return { url, revision: hashed ? null : revision(source) };
+        });
         const icons = ICON_FILES.map(({ file }) => {
           const content = readFileSync(join(config.publicDir, file));
           sizes.set(file, content.byteLength);

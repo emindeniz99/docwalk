@@ -166,3 +166,63 @@ export function selectPrecache(
   }
   return { precache, runtime };
 }
+
+/** What the precache rule needs to know about one emitted non-chunk file. */
+export interface AssetNode {
+  fileName: string;
+  /** Text of the file when it can name other files (CSS, HTML); `null` otherwise. */
+  text: string | null;
+}
+
+/**
+ * Build directories outside `assets/` that hold an opt-in mode's files and are
+ * cached on first use: Excalidraw's self-hosted fonts (canvas mode, decision
+ * 54), 13 MB of which are CJK slices fetched only for the glyphs a sketch uses.
+ */
+export const RUNTIME_CACHED_DIRS: readonly string[] = ["excalidraw-assets/"];
+
+const baseName = (fileName: string) => fileName.slice(fileName.lastIndexOf("/") + 1);
+
+/**
+ * Splits the build's other files (fonts, workers, stylesheets, `index.html`)
+ * the way `selectPrecache` splits chunks. A file under `assets/` is precached
+ * only when precached code names it: the app's fonts are named by the
+ * precached stylesheet, while Monaco's worker and codicon font, or the fonts
+ * Excalidraw's stylesheet names, belong to modes that are cached on first use.
+ * Other files are the shell (`index.html`), except `RUNTIME_CACHED_DIRS`.
+ * Stylesheets are not decided here: `selectPrecache` places them with their
+ * chunks, and any it did not precache stay runtime.
+ *
+ * `precachedCode` is the text of every precached chunk; the text of precached
+ * stylesheets and of shell files is read from `assets`.
+ */
+export function selectAssets(
+  assets: readonly AssetNode[],
+  precached: ReadonlySet<string>,
+  precachedCode: readonly string[],
+  assetsDir = "assets",
+  runtimeDirs: readonly string[] = RUNTIME_CACHED_DIRS,
+): { precache: Set<string>; runtime: Set<string> } {
+  const precache = new Set<string>();
+  const runtime = new Set<string>();
+  const inAssets = (name: string) => name.startsWith(`${assetsDir}/`);
+  const optIn = (name: string) => runtimeDirs.some((dir) => name.startsWith(dir));
+  const shell = assets.filter((a) => !inAssets(a.fileName) && !optIn(a.fileName));
+  const referrers = [
+    ...precachedCode,
+    ...assets.filter((a) => precached.has(a.fileName)).map((a) => a.text ?? ""),
+    ...shell.map((a) => a.text ?? ""),
+  ];
+  for (const asset of assets) {
+    const name = asset.fileName;
+    if (precached.has(name)) continue;
+    // `selectPrecache` already placed every stylesheet with its chunk; a
+    // lazy chunk's CSS is named in its importer's preload list, so naming
+    // alone would wrongly pull an opt-in mode's styles into the precache.
+    if (optIn(name) || name.endsWith(".css")) runtime.add(name);
+    else if (!inAssets(name)) precache.add(name);
+    else if (referrers.some((text) => text.includes(baseName(name)))) precache.add(name);
+    else runtime.add(name);
+  }
+  return { precache, runtime };
+}

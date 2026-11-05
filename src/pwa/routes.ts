@@ -18,6 +18,18 @@ export function isBuildAsset(url: URL, scope: URL): boolean {
   return url.origin === scope.origin && url.pathname.startsWith(`${scope.pathname}assets/`);
 }
 
+/**
+ * Canvas mode's self-hosted Excalidraw fonts (decision 54), same origin only.
+ * Not precached (13 MB, mostly CJK slices fetched per glyph range) and not all
+ * content-hashed, so the worker keeps what a sketch used and refreshes it in
+ * the background.
+ */
+export function isOptInAsset(url: URL, scope: URL): boolean {
+  return (
+    url.origin === scope.origin && url.pathname.startsWith(`${scope.pathname}excalidraw-assets/`)
+  );
+}
+
 /** Longest list one warm-up message may carry; a page loads about 150 files. */
 export const MAX_WARMUP_URLS = 500;
 
