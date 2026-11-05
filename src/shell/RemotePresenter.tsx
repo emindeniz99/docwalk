@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { DeckController } from "../deck/controller";
 import type { LoadedDocument } from "../inputs/types";
 import type { LevelOption } from "../sectioning/sectionize";
@@ -17,7 +17,7 @@ export interface RemotePresenterProps {
   onOpenChange: (open: boolean) => void;
   /** Applies an agent's write the way an edit in the editor would (decision 59). */
   edit: (markdown: string) => void;
-  setNotice: Dispatch<SetStateAction<Notice | null>>;
+  setNotice: (notice: Notice | null) => void;
 }
 
 /**
@@ -63,11 +63,9 @@ export function RemotePresenter({
 
   const onAgentEdit = useCallback(
     (markdown: string, name: string) => {
+      // First, so the draft warning an edit can raise replaces it: that one asks for a decision.
+      setNotice({ message: `${name} changed the document.`, tone: "info" });
       edit(markdown);
-      // A notice with an action (the draft warning an edit can raise) matters more.
-      setNotice((prev) =>
-        prev?.action ? prev : { message: `${name} changed the document.`, tone: "info" },
-      );
     },
     [edit, setNotice],
   );
