@@ -599,15 +599,7 @@ kbd {
   border-top: 1px solid var(--border);
 }
 
-.docwalk-level select {
-  min-height: 36px;
-  padding: 0 var(--dw-space-sm);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--dw-radius-md);
-  background: var(--surface);
-  color: var(--fg);
-  font: inherit;
-}
+
 
 /* ---- Source pane ---------------------------------------------------------- */
 
@@ -812,4 +804,128 @@ kbd {
 .docwalk-loading {
   margin: var(--dw-space-lg) var(--dw-space-xl);
   color: var(--muted);
+}
+
+/* ---- Select, popover, menu, tooltip (React Aria) ------------------------- */
+
+.docwalk-select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-select-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dw-space-sm);
+  min-height: var(--dw-space-target);
+  padding: 0 var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.docwalk-select-button[data-pressed],
+.docwalk-select[data-open] .docwalk-select-button {
+  border-color: var(--fg);
+}
+
+.docwalk-popover {
+  min-width: var(--trigger-width);
+  padding: var(--dw-space-xs);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-lg);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 12px 32px var(--dw-color-slide-shadow);
+  outline: none;
+}
+
+.docwalk-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  outline: none;
+}
+
+.docwalk-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  min-height: 36px;
+  padding: 0 var(--dw-space-md);
+  border-radius: var(--dw-radius-md);
+  cursor: pointer;
+  outline: none;
+}
+
+.docwalk-menu-item[data-focused] {
+  background: var(--bg);
+}
+
+.docwalk-menu-item[data-selected] {
+  font-weight: 600;
+}
+
+.docwalk-menu-item[data-selected]::after {
+  content: "✓";
+  margin-left: auto;
+}
+
+.docwalk-menu-item[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.docwalk-tooltip {
+  max-width: 240px;
+  padding: var(--dw-space-xs) var(--dw-space-sm);
+  border-radius: var(--dw-radius-sm);
+  background: var(--fg);
+  color: var(--surface);
+  font-size: var(--dw-type-caption-size);
+}
+
+/* Buttons share one interaction language: hover lifts the border, press darkens, disabled fades. */
+.docwalk-button,
+.docwalk-icon-button,
+.docwalk-palette-trigger,
+.docwalk-segmented button {
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.docwalk-button[data-hovered],
+.docwalk-icon-button[data-hovered],
+.docwalk-palette-trigger[data-hovered],
+.docwalk-select-button[data-hovered] {
+  border-color: var(--fg);
+}
+
+.docwalk-button[data-pressed],
+.docwalk-icon-button[data-pressed] {
+  background: var(--bg);
+}
+
+.docwalk-button[data-variant="primary"][data-pressed] {
+  background: var(--dw-color-primary-ink);
+  color: var(--dw-color-surface);
+}
+
+.docwalk-button[data-disabled],
+.docwalk-icon-button[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.docwalk-button[data-focus-visible],
+.docwalk-icon-button[data-focus-visible],
+.docwalk-palette-trigger[data-focus-visible],
+.docwalk-select-button[data-focus-visible],
+.docwalk-segmented button[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }

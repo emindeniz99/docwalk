@@ -28,6 +28,8 @@ import { openPresenterWindow } from "./presenter/window";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
 import { DocumentView } from "./shell/DocumentView";
+import { IconButton } from "./shell/IconButton";
+import { LevelSelect } from "./shell/LevelSelect";
 import { Outline } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
 import { useUrlSync } from "./url/useUrlSync";
@@ -319,13 +321,12 @@ export function App() {
           <ToggleButton id="edit">Edit</ToggleButton>
           <ToggleButton id="document">Document</ToggleButton>
         </ToggleButtonGroup>
-        <Button
-          className="docwalk-icon-button"
-          aria-label={`Theme: ${theme}. Switch to ${NEXT_THEME[theme]}.`}
+        <IconButton
+          label={`Theme: ${theme}. Switch to ${NEXT_THEME[theme]}`}
           onPress={() => setTheme(NEXT_THEME[theme])}
         >
           <ThemeIcon size={18} aria-hidden="true" />
-        </Button>
+        </IconButton>
         <Button className="docwalk-button" data-variant="primary" onPress={() => void present()}>
           <Play size={16} aria-hidden="true" /> Present
         </Button>
@@ -335,22 +336,9 @@ export function App() {
         {view !== "present" && (
           <aside className="docwalk-sidebar">
             <Outline slides={slides} current={current} onSelect={goTo} />
-            <label className="docwalk-level">
-              <span className="docwalk-overline">Slides start at</span>
-              <select
-                value={String(level)}
-                onChange={(e) => {
-                  const found = LEVELS.find((l) => String(l.value) === e.target.value);
-                  if (found) setLevel(found.value);
-                }}
-              >
-                {LEVELS.map((l) => (
-                  <option key={l.label} value={String(l.value)}>
-                    {l.value === "auto" ? `Auto · ${resolved}` : l.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="docwalk-level">
+              <LevelSelect value={level} onChange={setLevel} resolved={resolved} />
+            </div>
           </aside>
         )}
         {view === "edit" && (
