@@ -1,0 +1,112 @@
+/* Comment controls that show before the panel loads: header toggle, outline
+ * count, slide chip and the markers on rendered content (decision 55). */
+
+/* ---- Header toggle, outline count, slide chip ----------------------------- */
+
+.docwalk-comments-toggle {
+  position: relative;
+}
+
+.docwalk-comments-toggle[data-selected] {
+  background: var(--bg);
+  border-color: var(--fg);
+}
+
+.docwalk-comments-badge {
+  position: absolute;
+  top: -6px;
+  inset-inline-end: -6px;
+  min-width: 18px;
+  padding: 0 var(--dw-space-xs);
+  border-radius: var(--dw-radius-full);
+  background: var(--dw-color-primary);
+  color: var(--dw-color-on-primary);
+  font-size: var(--dw-type-overline-size);
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.docwalk-outline-comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--fg);
+}
+
+.docwalk-outline-comments .docwalk-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.docwalk-comment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dw-space-xs);
+  min-height: 28px;
+  padding: 0 var(--dw-space-md);
+  border: 1px solid var(--dw-color-stage-note-border);
+  border-radius: var(--dw-radius-full);
+  background: var(--dw-color-stage-note-surface);
+  color: var(--dw-color-stage-note-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.docwalk-comment-chip[data-hovered] {
+  border-color: var(--dw-color-stage-note-ink);
+}
+
+.docwalk-comment-chip[data-focus-visible] {
+  outline: 2px solid var(--dw-color-focus-dark);
+  outline-offset: 2px;
+}
+
+/* ---- Markers on rendered content ------------------------------------------ */
+
+/* Scoped to the app's panes so an export (which copies the app's CSS) never shows them. */
+.docwalk-document .docwalk-comment-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 24px;
+  margin-inline-start: var(--dw-space-sm);
+  padding: 0 var(--dw-space-sm);
+  border: 1px solid var(--note-border);
+  border-radius: var(--dw-radius-full);
+  background: var(--note-bg);
+  color: var(--note-fg);
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-caption-size);
+  font-weight: 600;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.docwalk-document .docwalk-comment-marker:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* A commented diagram node glows in the note colour. Mermaid's own scoped
+ * style sets the shape stroke with an id selector, so the glow is a filter
+ * on the node group, which that style never sets. */
+:is(.docwalk-deck-pane, .docwalk-document) g[data-docwalk-comments] {
+  filter: drop-shadow(0 0 2px var(--dw-color-note-border))
+    drop-shadow(0 0 6px var(--dw-color-note-border));
+}
+
+@media (pointer: coarse), (max-width: 640px) {
+  .docwalk-comment-chip {
+    min-height: var(--dw-space-target);
+  }
+
+  .docwalk-document .docwalk-comment-marker {
+    min-height: var(--dw-space-target);
+    min-width: var(--dw-space-target);
+    justify-content: center;
+  }
+}

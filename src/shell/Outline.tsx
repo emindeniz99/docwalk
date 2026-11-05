@@ -1,3 +1,4 @@
+import { MessageSquare } from "lucide-react";
 import { useMemo } from "react";
 import { ListBox, ListBoxItem } from "react-aria-components";
 import type { SlideInfo } from "../deck/controller";
@@ -6,6 +7,8 @@ interface OutlineProps {
   slides: SlideInfo[];
   current: SlideInfo | null;
   onSelect: (address: string) => void;
+  /** Open comments per section id (decision 55). */
+  commentCounts?: ReadonlyMap<string, number>;
 }
 
 interface OutlineEntry {
@@ -13,10 +16,11 @@ interface OutlineEntry {
   title: string;
   pages: number;
   flagged: boolean;
+  comments: number;
 }
 
 /** One entry per section: its title, how many slides it became, and whether any of them carries a note. */
-export function Outline({ slides, current, onSelect }: OutlineProps) {
+export function Outline({ slides, current, onSelect, commentCounts }: OutlineProps) {
   const entries = useMemo(() => {
     const map = new Map<string, OutlineEntry>();
     for (const s of slides) {
@@ -25,13 +29,15 @@ export function Outline({ slides, current, onSelect }: OutlineProps) {
         title: s.title || s.sectionId,
         pages: 0,
         flagged: false,
+        comments: commentCounts?.get(s.sectionId) ?? 0,
       };
       e.pages += 1;
       e.flagged ||= s.flagged;
       map.set(s.sectionId, e);
     }
     return [...map.values()];
-  }, [slides]);
+    // React Aria re-renders an item only when its entry changes, so the counts live in the entries.
+  }, [slides, commentCounts]);
 
   return (
     <nav className="docwalk-outline" aria-label="Outline">
@@ -57,6 +63,15 @@ export function Outline({ slides, current, onSelect }: OutlineProps) {
           <ListBoxItem id={e.id} textValue={e.title} className="docwalk-outline-item">
             <span className="docwalk-outline-title">{e.title}</span>
             <span className="docwalk-outline-meta">
+              {e.comments > 0 && (
+                <span className="docwalk-outline-comments">
+                  <MessageSquare size={12} aria-hidden="true" />
+                  {e.comments}
+                  <span className="docwalk-visually-hidden">
+                    {e.comments === 1 ? " comment" : " comments"}
+                  </span>
+                </span>
+              )}
               {e.flagged && (
                 <span className="docwalk-note-dot" aria-label="Has a note" role="img" />
               )}

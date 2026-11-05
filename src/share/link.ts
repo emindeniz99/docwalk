@@ -9,7 +9,7 @@
  * carry `?token=`).
  */
 import type { DocumentSource } from "../inputs/types";
-import { DOC_HASH_PREFIX, encodeDoc } from "./fragment";
+import { COMMENTS_PARAM, DOC_HASH_PREFIX, encodeDoc } from "./fragment";
 import { FRAGMENT_MAX_CHARS, FRAGMENT_WARN_CHARS, type ShareLink } from "./types";
 
 export type ShareLinkResult = { ok: true; link: ShareLink } | { ok: false; message: string };
@@ -19,6 +19,12 @@ export interface ShareLinkInput {
   markdown: string;
   /** The page's own URL; only its origin and path are used. */
   base: string | URL;
+  /**
+   * Encoded comments (src/comments/payload.ts), sent as `&c=` after the
+   * document or as `#c=` on a source link. Left out, with
+   * `commentsDropped`, when the link would pass the length cap.
+   */
+  comments?: string | null;
 }
 
 export const LONG_LINK_WARNING =
@@ -46,7 +52,7 @@ function appRoot(base: string | URL): URL {
 }
 
 /** The `?src=` URL without user info or access parameters, plus whether any were removed. */
-function publicSourceUrl(raw: string): { url: string; stripped: boolean } {
+export function publicSourceUrl(raw: string): { url: string; stripped: boolean } {
   let url: URL;
   try {
     url = new URL(raw);
@@ -84,13 +90,25 @@ export async function buildShareLink({
   source,
   markdown,
   base,
+  comments = null,
 }: ShareLinkInput): Promise<ShareLinkResult> {
   const root = appRoot(base);
+  // Comments ride in the fragment, which never reaches a server, and only
+  // while the whole link stays under the cap.
+  const withComments = (url: string, separator: string) => {
+    if (!comments) return { url, commentsDropped: false };
+    const longer = `${url}${separator}${COMMENTS_PARAM}=${comments}`;
+    return longer.length > FRAGMENT_MAX_CHARS
+      ? { url, commentsDropped: true }
+      : { url: longer, commentsDropped: false };
+  };
   if (source.kind === "url" || source.kind === "repo") {
-    return { ok: true, link: { kind: "source", ...sourceLink(root, source) } };
+    const { url, warning } = sourceLink(root, source);
+    return { ok: true, link: { kind: "source", warning, ...withComments(url, "#") } };
   }
-  const url = `${root.href}${DOC_HASH_PREFIX}${await encodeDoc(markdown)}`;
-  if (url.length > FRAGMENT_MAX_CHARS) return { ok: false, message: TOO_LONG_MESSAGE };
+  const docUrl = `${root.href}${DOC_HASH_PREFIX}${await encodeDoc(markdown)}`;
+  if (docUrl.length > FRAGMENT_MAX_CHARS) return { ok: false, message: TOO_LONG_MESSAGE };
+  const { url, commentsDropped } = withComments(docUrl, "&");
   const warning = url.length > FRAGMENT_WARN_CHARS ? LONG_LINK_WARNING : null;
-  return { ok: true, link: { kind: "fragment", url, warning } };
+  return { ok: true, link: { kind: "fragment", url, warning, commentsDropped } };
 }

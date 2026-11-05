@@ -5,6 +5,10 @@ term, alphabetical. Numbers refer to rows in `docs/decisions.md`.
 
 ## Terms
 
+**Anchor**: what a comment points at: a heading's GitHub slug, or a Mermaid
+node (nearest heading, diagram number under it, node id from the source).
+Never a slide index or a character offset (55, 65). Code: `Anchor`.
+
 **Atomic block**: a rendered block pagination never splits: a code block, a
 Mermaid diagram, an image. One taller than an empty slide gets a
 **diagnostic** (19).
@@ -38,6 +42,10 @@ from v1.1, remote control (37, 38). Opposite: **static mode**.
 **Measurement pass**: the post-render check of a slide and each Mermaid host
 for overflow, run in the order of decision 22.
 
+**Orphaned comment**: a comment whose **anchor** is no longer in the
+document. It stays listed apart until the user deletes it; it is never
+dropped (55).
+
 **Section**: the part of the AST between two slide starts at the base level.
 One section yields one or more **slides**. Its id comes from the heading
 slug and is stable across viewports (21); a heading with an empty slug
@@ -47,6 +55,9 @@ gets a **fallback address**, `heading-<hex code points>` (62). Code:
 **Sketch**: a Mermaid diagram converted into an editable Excalidraw drawing
 (canvas mode), opened from the diagram focus view. It lives in the browser,
 keyed by document and diagram source, and never changes the Markdown (54, 64).
+
+**Sidecar**: `<name>.comments.json`, the file a document's comments export
+to and import from (55). The share link carries the same JSON.
 
 **Slide**: one screen in presentation mode, addressed as `<section-id>/<n>`
 (21).
