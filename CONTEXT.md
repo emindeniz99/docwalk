@@ -5,6 +5,13 @@ term, alphabetical. Numbers refer to rows in `docs/decisions.md`.
 
 ## Terms
 
+**Agent**: a coding agent in a room through `docwalk-mcp`. It may read the
+document and move the deck; it changes the document only while the
+presenter has **agent edits** on (59, 60). Code: `RoomAgent`, `answerAgent`.
+
+**Agent edits**: the "Allow agent edits" switch in the remote dialog. Off in
+every new room and after a reload (60).
+
 **Atomic block**: a rendered block pagination never splits: a code block, a
 Mermaid diagram, an image. One taller than an empty slide gets a
 **diagnostic** (19).
@@ -37,6 +44,12 @@ from v1.1, remote control (37, 38). Opposite: **static mode**.
 
 **Measurement pass**: the post-render check of a slide and each Mermaid host
 for overflow, run in the order of decision 22.
+
+**Part**: one encrypted piece of an agent message too large for a relay
+frame, addressed to one participant (60). Code: `src/remote/parts.ts`.
+
+**Revision**: 16 bytes of the SHA-256 of the document text. An agent's write
+that names an old revision is refused (60). Code: `revisionOf`.
 
 **Section**: the part of the AST between two slide starts at the base level.
 One section yields one or more **slides**. Its id comes from the heading

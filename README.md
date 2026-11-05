@@ -37,6 +37,9 @@ Two deployment modes, one build:
 - **Full:** Cloudflare, with a small Worker for GitHub App sign-in and, from
   v1.1, the remote-control relay. The app detects `/api` and enables those
   features.
+- **Agents:** in full mode, a coding agent can read and edit the presenter's
+  document through [`docwalk-mcp`](./mcp/README.md), a local MCP server that
+  joins the room with its encrypted link.
 
 ## Development
 
@@ -50,7 +53,7 @@ pnpm dev              # local dev server
 pnpm check            # the full gate: typecheck, lint, format, tests, build
 pnpm test             # unit tests (Node)
 pnpm test:browser     # layout tests in real Chromium
-pnpm build            # static build in dist/
+pnpm build            # static build in dist/, docwalk-mcp in mcp/dist/
 ```
 
 Browser tests need Chromium: `pnpm exec playwright install chromium`, or
