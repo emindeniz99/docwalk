@@ -1,0 +1,210 @@
+import { ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Button } from "react-aria-components";
+import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
+import type { FollowState } from "./follower";
+import type { RemoteMessage, RoomCredentials } from "./types";
+import "./remote.css";
+
+/** While a finger rests on the pad, its point is repeated this often so the presenter's idle timeout does not hide it. */
+export const LASER_REPEAT_MS = 1000;
+
+export const STATUS_TEXT: Record<RemoteStatus, string> = {
+  connecting: "Connecting…",
+  open: "Connected",
+  reconnecting: "Reconnecting…",
+  closed: "Disconnected",
+};
+
+export interface RemoteViewProps {
+  /** From `parseJoinFragment(location.hash)`; null shows what is wrong with the link. */
+  creds: RoomCredentials | null;
+  socketFactory?: SocketFactory;
+  /** The page URL; defaults to the current location. */
+  base?: string;
+}
+
+function useRemoteControl(
+  creds: RoomCredentials | null,
+  socketFactory: SocketFactory | undefined,
+  base: string | undefined,
+) {
+  const [status, setStatus] = useState<RemoteStatus>("connecting");
+  const [state, setState] = useState<FollowState | null>(null);
+  const connection = useRef<RoomConnection | null>(null);
+  const room = creds?.room;
+  const key = creds?.key;
+
+  useEffect(() => {
+    if (!room || !key) return;
+    let active = true;
+    // connectRoom sends `hello` on every (re)connect; the presenter answers with state.
+    const conn = connectRoom({
+      creds: { room, key },
+      role: "remote",
+      onMessage: (message) => {
+        if (!active || message.type !== "state") return;
+        const { type: _type, ...rest } = message;
+        setState(rest);
+      },
+      onStatus: (next) => {
+        if (active) setStatus(next);
+      },
+      ...(socketFactory ? { socketFactory } : {}),
+      ...(base ? { base } : {}),
+    });
+    connection.current = conn;
+    return () => {
+      active = false;
+      conn.close();
+      connection.current = null;
+      setStatus("connecting");
+    };
+  }, [room, key, socketFactory, base]);
+
+  const send = (message: RemoteMessage) => void connection.current?.send(message);
+  return { status, state, send };
+}
+
+const clamp = (n: number) => Math.min(1, Math.max(0, n));
+
+/** The pointer's position on the pad as 0..1 coordinates, clamped to the pad. */
+function toPoint(event: ReactPointerEvent<HTMLDivElement>) {
+  const box = event.currentTarget.getBoundingClientRect();
+  return {
+    x: clamp((event.clientX - box.left) / box.width),
+    y: clamp((event.clientY - box.top) / box.height),
+  };
+}
+
+/**
+ * A touch area shaped like the slide: a finger at (x, y) on the pad points
+ * the presenter's laser at the same relative spot on the slide. A tap places
+ * a point too, so no drag is required (WCAG 2.5.7).
+ */
+function LaserPad({ send, disabled }: { send: (m: RemoteMessage) => void; disabled: boolean }) {
+  const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
+  const pressed = useRef<{ x: number; y: number } | null>(null);
+  const repeat = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const next = toPoint(event);
+    pressed.current = next;
+    setPoint(next);
+    send({ type: "laser", ...next });
+  };
+
+  const release = () => {
+    clearInterval(repeat.current);
+    if (!pressed.current) return;
+    pressed.current = null;
+    setPoint(null);
+    send({ type: "laser-off" });
+  };
+
+  // On unmount the connection closes too; the presenter's idle timeout hides the laser.
+  useEffect(() => () => clearInterval(repeat.current), []);
+
+  return (
+    <section className="docwalk-remote-pad-wrap" aria-labelledby="docwalk-remote-pad-label">
+      <div
+        className="docwalk-remote-pad"
+        data-disabled={disabled || undefined}
+        data-active={point ? true : undefined}
+        onPointerDown={(event) => {
+          if (disabled) return;
+          event.preventDefault();
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          } catch {
+            // No active pointer with that id (synthetic events); moves still arrive over the pad.
+          }
+          move(event);
+          clearInterval(repeat.current);
+          repeat.current = setInterval(() => {
+            if (pressed.current) send({ type: "laser", ...pressed.current });
+          }, LASER_REPEAT_MS);
+        }}
+        onPointerMove={(event) => {
+          if (pressed.current) move(event);
+        }}
+        onPointerUp={release}
+        onPointerCancel={release}
+        onLostPointerCapture={release}
+      >
+        <span id="docwalk-remote-pad-label" className="docwalk-remote-pad-label">
+          <Crosshair aria-hidden size={20} />
+          Laser: touch and drag to point
+        </span>
+        {point && (
+          <span
+            className="docwalk-remote-pad-dot"
+            aria-hidden
+            style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The phone remote (`?view=remote#room=..&k=..`). No document is loaded here: only the presenter's state. */
+export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
+  const { status, state, send } = useRemoteControl(creds, socketFactory, base);
+
+  if (!creds) {
+    return (
+      <main className="docwalk-remote" aria-labelledby="docwalk-remote-title">
+        <h1 id="docwalk-remote-title" className="docwalk-remote-title">
+          This remote link is incomplete
+        </h1>
+        <p className="docwalk-remote-muted">
+          Scan the QR code again, or ask the presenter to send the phone remote link.
+        </p>
+      </main>
+    );
+  }
+
+  const disabled = status !== "open";
+  return (
+    <main className="docwalk-remote" aria-labelledby="docwalk-remote-title">
+      <header className="docwalk-remote-header">
+        <div className="docwalk-remote-heading">
+          <span className="docwalk-remote-overline">Phone remote</span>
+          <h1 id="docwalk-remote-title" className="docwalk-remote-title">
+            {state ? state.title || state.current : "Waiting for the presenter…"}
+          </h1>
+        </div>
+        <span className="docwalk-remote-status" data-status={status} role="status">
+          {STATUS_TEXT[status]}
+        </span>
+      </header>
+      {/* A live region, so a screen reader confirms where a Next or Previous press landed (WCAG 4.1.3). */}
+      <p className="docwalk-remote-count" aria-live="polite" aria-atomic="true">
+        <span aria-hidden="true">{state ? `${state.index + 1} / ${state.total}` : "– / –"}</span>
+        <span className="docwalk-remote-sr">
+          {state ? `Slide ${state.index + 1} of ${state.total}` : "Slide unknown"}
+        </span>
+      </p>
+      <LaserPad send={send} disabled={disabled} />
+      <footer className="docwalk-remote-controls">
+        <Button
+          className="docwalk-remote-button"
+          isDisabled={disabled}
+          onPress={() => send({ type: "step", direction: -1 })}
+        >
+          <ChevronLeft aria-hidden size={22} />
+          Previous
+        </Button>
+        <Button
+          className="docwalk-remote-button docwalk-remote-next"
+          isDisabled={disabled}
+          onPress={() => send({ type: "step", direction: 1 })}
+        >
+          Next
+          <ChevronRight aria-hidden size={22} />
+        </Button>
+      </footer>
+    </main>
+  );
+}

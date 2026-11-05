@@ -1,0 +1,369 @@
+/* ---- Phone remote (decision 8; DESIGN.md Stage look, mockup D-mobile) ------ */
+
+.docwalk-remote {
+  /* The stage is dark in both themes, so map the semantic colours onto it. */
+  --fg: var(--dw-color-stage-ink);
+  --muted: var(--dw-color-stage-muted);
+  --border: var(--dw-color-stage-border);
+  --focus: var(--dw-color-focus-dark);
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-lg);
+  min-height: 100dvh;
+  padding: var(--dw-space-lg) var(--dw-space-lg) var(--dw-space-2xl);
+  background: var(--dw-color-stage);
+  color: var(--fg);
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-body-size);
+  line-height: var(--dw-type-body-line-height);
+  font-variant-numeric: tabular-nums;
+}
+
+.docwalk-remote-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--dw-space-md);
+}
+
+.docwalk-remote-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+  min-width: 0;
+}
+
+.docwalk-remote-overline {
+  font-family: var(--dw-type-overline-family);
+  font-size: var(--dw-type-overline-size);
+  font-weight: var(--dw-type-overline-weight);
+  letter-spacing: var(--dw-type-overline-letter-spacing);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.docwalk-remote-title {
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  line-height: var(--dw-type-heading-line-height);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+.docwalk-remote-muted {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Status chip: the text carries the state; the border only reinforces it. */
+.docwalk-remote-status {
+  flex: none;
+  padding: var(--dw-space-xs) var(--dw-space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--dw-radius-full);
+  background: var(--dw-color-stage-raised);
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+  font-weight: 600;
+}
+
+.docwalk-remote-status[data-status="open"] {
+  border-color: var(--dw-color-primary);
+  color: var(--fg);
+}
+
+.docwalk-remote-count {
+  margin: 0;
+  font-size: var(--dw-type-heading-size);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Read by screen readers, not drawn. */
+.docwalk-remote-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.docwalk-remote-pad-wrap {
+  display: flex;
+  flex: 1;
+  align-items: center;
+}
+
+/* Shaped like the slide, so a point on the pad is the same point on the slide. */
+.docwalk-remote-pad {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border);
+  border-radius: var(--dw-radius-xl);
+  background: var(--dw-color-stage-raised);
+  color: var(--muted);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.docwalk-remote-pad[data-active] {
+  border-color: var(--dw-color-primary);
+}
+
+.docwalk-remote-pad[data-disabled] {
+  opacity: 0.5;
+}
+
+.docwalk-remote-pad-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  padding: 0 var(--dw-space-lg);
+  text-align: center;
+  pointer-events: none;
+}
+
+.docwalk-remote-pad-dot {
+  position: absolute;
+  width: var(--dw-space-lg);
+  height: var(--dw-space-lg);
+  border-radius: var(--dw-radius-full);
+  background: var(--dw-color-primary);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.docwalk-remote-controls {
+  display: flex;
+  gap: var(--dw-space-sm);
+}
+
+/* 56px: comfortably above the 44px minimum for a thumb on a moving phone. */
+.docwalk-remote-button {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dw-space-sm);
+  min-height: calc(var(--dw-space-target) + var(--dw-space-md));
+  border: 1px solid var(--border);
+  border-radius: var(--dw-radius-xl);
+  background: var(--dw-color-stage-raised);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* The one primary action on this surface. */
+.docwalk-remote-next {
+  border-color: var(--dw-color-primary);
+  background: var(--dw-color-primary);
+  color: var(--dw-color-on-primary);
+  font-weight: 700;
+}
+
+.docwalk-remote-button[data-pressed] {
+  filter: brightness(0.9);
+}
+
+.docwalk-remote-button[data-disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.docwalk-remote-button[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ---- Join dialog ------------------------------------------------------------ */
+
+.docwalk-join-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding-top: 6vh;
+  overflow-y: auto;
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-join {
+  width: min(640px, calc(100vw - 2 * var(--dw-space-lg)));
+  margin-bottom: var(--dw-space-xl);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-xl);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 var(--dw-space-xl) var(--dw-space-3xl) var(--dw-color-slide-shadow);
+}
+
+.docwalk-join-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-md);
+  padding: var(--dw-space-lg) var(--dw-space-xl) var(--dw-space-xl);
+  outline: none;
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-ui-size);
+  line-height: var(--dw-type-ui-line-height);
+}
+
+.docwalk-join-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dw-space-md);
+}
+
+.docwalk-join-title {
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  line-height: var(--dw-type-heading-line-height);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+}
+
+.docwalk-join-muted {
+  margin: 0;
+  color: var(--muted);
+}
+
+.docwalk-join-room {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.docwalk-join-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--dw-space-lg);
+}
+
+.docwalk-join-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-sm);
+  min-width: 0;
+  padding: var(--dw-space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--dw-radius-lg);
+}
+
+.docwalk-join-card-title {
+  margin: 0;
+  font-size: var(--dw-type-body-size);
+  font-weight: 700;
+}
+
+/* Dark modules on a white ground in both themes: phone cameras read that reliably. */
+.docwalk-join-qr {
+  display: block;
+  width: 100%;
+  max-width: 200px;
+  margin: 0 auto;
+  border-radius: var(--dw-radius-md);
+}
+
+.docwalk-join-qr-bg {
+  fill: var(--dw-color-slide);
+}
+
+.docwalk-join-qr-fg {
+  fill: var(--dw-color-slide-ink);
+}
+
+.docwalk-join-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-join-input {
+  width: 100%;
+  min-height: var(--dw-space-target);
+  padding: 0 var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--dw-type-mono-family);
+  font-size: var(--dw-type-mono-size);
+}
+
+.docwalk-join-close,
+.docwalk-join-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dw-space-sm);
+  min-width: var(--dw-space-target);
+  min-height: var(--dw-space-target);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.docwalk-join-close {
+  padding: 0;
+}
+
+.docwalk-join-copy {
+  padding: 0 var(--dw-space-lg);
+  font-weight: 600;
+}
+
+.docwalk-join-close[data-pressed],
+.docwalk-join-copy[data-pressed] {
+  filter: brightness(0.92);
+}
+
+.docwalk-join-input:focus-visible,
+.docwalk-join-close[data-focus-visible],
+.docwalk-join-copy[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-join-status {
+  margin: 0;
+  min-height: 1lh;
+  color: var(--muted);
+}
+
+.docwalk-join-status:empty {
+  min-height: 0;
+}
+
+.docwalk-join-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--dw-space-sm);
+  margin: 0;
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border: 1px solid var(--note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--note-bg);
+  color: var(--note-fg);
+}
+
+.docwalk-join-note svg {
+  flex: none;
+  margin-top: 1px;
+}

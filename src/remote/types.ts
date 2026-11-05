@@ -27,9 +27,14 @@ export type RemoteMessage =
   /** Remote -> presenter: jump to an address. */
   | { type: "goto"; address: string }
   /** Remote -> presenter: laser position in slide coordinates (0..1), or null to hide. */
-  | { type: "laser"; x: number; y: number } | { type: "laser-off" }
-  /** Any -> presenter: announce a new participant and ask for state. */
-  | { type: "hello"; role: "remote" | "follower" };
+  | { type: "laser"; x: number; y: number }
+  | { type: "laser-off" }
+  /**
+   * Any -> presenter: announce a participant and ask for state. Sent on every
+   * (re)connect; `id` is random per page load, so the presenter can count
+   * devices without a reconnect counting twice.
+   */
+  | { type: "hello"; role: "remote" | "follower"; id: string };
 
 /** What travels over the WebSocket: AES-GCM ciphertext and its IV, base64url. */
 export interface EncryptedFrame {
