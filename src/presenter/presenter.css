@@ -1,0 +1,242 @@
+/*
+ * Presenter window, Stage look (DESIGN.md): white slides on the dark stage in
+ * both themes, 44px stage controls, tokens only.
+ */
+
+.docwalk-presenter {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  height: 100dvh;
+  background: var(--dw-color-stage);
+  color: var(--dw-color-stage-ink);
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-ui-size);
+  line-height: var(--dw-type-ui-line-height);
+}
+
+/* The stage is dark in both themes, so the dark focus ring is the visible one. */
+.docwalk-presenter :focus-visible,
+.docwalk-presenter [data-focus-visible] {
+  outline: 2px solid var(--dw-color-focus-dark);
+  outline-offset: 2px;
+}
+
+.docwalk-presenter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dw-space-2xl);
+  align-items: center;
+  padding: var(--dw-space-lg) var(--dw-space-xl);
+  border-bottom: 1px solid var(--dw-color-stage-border);
+}
+
+.docwalk-presenter-clock {
+  display: grid;
+  gap: var(--dw-space-xs);
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-slide-body-size);
+  font-weight: var(--dw-type-heading-weight);
+  line-height: var(--dw-type-heading-line-height);
+  font-variant-numeric: tabular-nums;
+}
+
+.docwalk-presenter-label {
+  color: var(--dw-color-stage-muted);
+  font-family: var(--dw-type-overline-family);
+  font-size: var(--dw-type-overline-size);
+  font-weight: var(--dw-type-overline-weight);
+  letter-spacing: var(--dw-type-overline-letter-spacing);
+  line-height: var(--dw-type-overline-line-height);
+  text-transform: uppercase;
+}
+
+.docwalk-presenter-nav {
+  display: flex;
+  gap: var(--dw-space-sm);
+  margin-left: auto;
+}
+
+.docwalk-presenter-control {
+  display: inline-grid;
+  place-items: center;
+  width: var(--dw-space-target);
+  height: var(--dw-space-target);
+  padding: 0;
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
+  background: var(--dw-color-stage-raised);
+  color: var(--dw-color-stage-ink);
+  cursor: pointer;
+}
+
+.docwalk-presenter-control[data-hovered] {
+  border-color: var(--dw-color-stage-muted);
+}
+
+.docwalk-presenter-control[data-disabled] {
+  color: var(--dw-color-stage-muted);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.docwalk-presenter-status {
+  margin: 0;
+  padding: 0 var(--dw-space-xl);
+}
+
+.docwalk-presenter-status:not(:empty) {
+  margin: var(--dw-space-md) var(--dw-space-xl) 0;
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border: 1px solid var(--dw-color-stage-note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--dw-color-stage-note-surface);
+  color: var(--dw-color-stage-note-ink);
+}
+
+.docwalk-presenter-main {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr);
+  gap: var(--dw-space-xl);
+  min-height: 0;
+  padding: var(--dw-space-xl);
+}
+
+.docwalk-presenter-side {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--dw-space-xl);
+  min-height: 0;
+}
+
+.docwalk-presenter-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-sm);
+  min-height: 0;
+  margin: 0;
+}
+
+.docwalk-presenter-preview figcaption {
+  display: flex;
+  gap: var(--dw-space-md);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.docwalk-presenter-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docwalk-presenter-frame {
+  position: relative;
+  overflow: hidden;
+}
+
+.docwalk-presenter-current .docwalk-presenter-frame {
+  flex: 1;
+  min-height: 0;
+}
+
+.docwalk-presenter-next .docwalk-presenter-frame {
+  aspect-ratio: 16 / 9;
+}
+
+.docwalk-presenter-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.docwalk-presenter-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  margin: 0;
+  border: 1px dashed var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
+  color: var(--dw-color-stage-muted);
+}
+
+.docwalk-presenter-list {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
+}
+
+.docwalk-presenter-item {
+  display: flex;
+  gap: var(--dw-space-md);
+  align-items: center;
+  min-height: var(--dw-space-target);
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+
+.docwalk-presenter-item[data-hovered] {
+  background: var(--dw-color-stage-raised);
+}
+
+/* Selection changes weight and edge, not only colour (DESIGN.md, Colors). */
+.docwalk-presenter-item[data-selected] {
+  border-left-color: var(--dw-color-primary);
+  background: var(--dw-color-stage-raised);
+  font-weight: 700;
+}
+
+.docwalk-presenter-item[data-focus-visible] {
+  outline-offset: -2px;
+}
+
+.docwalk-presenter-item-n {
+  min-width: 2.5em;
+  color: var(--dw-color-stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.docwalk-presenter-waiting {
+  display: grid;
+  place-content: center;
+  gap: var(--dw-space-md);
+  padding: var(--dw-space-xl);
+  text-align: center;
+}
+
+.docwalk-presenter-waiting h1 {
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+}
+
+.docwalk-presenter-waiting p {
+  max-width: 36rem;
+  margin: 0;
+  color: var(--dw-color-stage-muted);
+}
+
+@media (max-width: 48rem) {
+  .docwalk-presenter {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .docwalk-presenter-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .docwalk-presenter-current .docwalk-presenter-frame {
+    flex: none;
+    aspect-ratio: 16 / 9;
+  }
+
+  .docwalk-presenter-list {
+    max-height: 50dvh;
+  }
+}

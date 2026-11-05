@@ -25,5 +25,6 @@ export type PresenterMessage =
   /** Presenter -> audience: a new presenter window asks for the state. */
   | { type: "hello" };
 
-/** Opens the presenter window (`?view=presenter`). Implemented in ./bridge.ts. */
-export type OpenPresenterWindow = () => Window | null;
+// `OpenPresenterWindow` lives in ./window.ts: this file stays free of DOM
+// types so the Node-run bridge tests can import it (tsconfig.node.json has
+// no DOM lib).
