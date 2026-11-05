@@ -87,6 +87,8 @@ interface Baseline {
   key: string;
   text: string;
   lastModified: number | null;
+  /** The disk text the user chose not to load ("Keep my edits"), if it differs from `text`. */
+  declined?: string;
 }
 
 const keyOf = (s: WorkspaceSource) => `${s.root}:${s.path}`;
@@ -105,20 +107,33 @@ function message(error: unknown, fallback: string): string {
 }
 
 /**
- * What happened to a local file since `known` (its last seen modification
- * time): gone, the same, or changed, with the new text. A version the user
- * is already being asked about (`asking`) counts as the same.
+ * Some file systems keep modification times in whole seconds (WebKit's OPFS
+ * does), so a second write within the same second leaves the time as it was.
+ * While a file's time is this recent, polling compares the text as well.
+ */
+const COARSE_MTIME_MS = 2000;
+
+/**
+ * What happened to a local file since `known` (its last seen text and
+ * modification time): gone, the same, or changed, with the new text. A
+ * version the user is already being asked about (`asking`) counts as the same.
  */
 async function diskChange(
   handle: FileSystemDirectoryHandle,
   path: string,
-  known: number | null,
-  asking: number | null,
+  known: { text: string; lastModified: number | null; declined?: string },
+  asking: FileText | null,
 ): Promise<{ kind: "missing" } | { kind: "unchanged" } | { kind: "changed"; disk: FileText }> {
   const lm = await lastModified(handle, path);
   if (lm === null) return { kind: "missing" };
-  if (lm === known || lm === asking) return { kind: "unchanged" };
-  return { kind: "changed", disk: await readText(handle, path) };
+  const sameTime = lm === known.lastModified || lm === asking?.lastModified;
+  if (sameTime && Date.now() - lm > COARSE_MTIME_MS) return { kind: "unchanged" };
+  const disk = await readText(handle, path);
+  const seen = [known.text, known.declined, asking?.text];
+  if (sameTime && seen.includes(disk.text)) {
+    return { kind: "unchanged" };
+  }
+  return { kind: "changed", disk };
 }
 
 /**
@@ -348,8 +363,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     const change = await diskChange(
       handle,
       src.path,
-      known.lastModified,
-      open?.kind === "conflict" ? open.disk.lastModified : null,
+      known,
+      open?.kind === "conflict" ? open.disk : null,
     ).catch(() => null);
     checking.current = false;
     const key = keyOf(src);
@@ -776,6 +791,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
           key,
           text: known?.key === key ? known.text : open.disk.text,
           lastModified: open.disk.lastModified,
+          declined: open.disk.text,
         });
       }
     },
