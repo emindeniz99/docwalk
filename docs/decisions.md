@@ -10,20 +10,20 @@ place.
 
 ## Product
 
-| #   | Decision                                                                                                                                                                                                             | Status   |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| 1   | Name `docwalk`; MIT licence; open source                                                                                                                                                                             | accepted |
-| 2   | Public tool for teams and individuals; every input is hostile                                                                                                                                                        | accepted |
-| 3   | Four modes: editor with live preview, document, presentation, diagram focus                                                                                                                                          | accepted |
-| 4   | CodeMirror 6 behind a five-method editor interface; Monaco is a roadmap item (no mobile support, no Markdown IntelliSense to gain)                                                                                   | accepted |
-| 5   | Inputs: paste, file drop, `?src=<url>`, `?repo=&path=`, a pasted fine-grained token, GitHub App OAuth                                                                                                                | accepted |
-| 6   | `?src=` loads raw.githubusercontent.com and gist directly; other origins need a confirmation and show a "loaded from X" banner                                                                                       | accepted |
-| 7   | Sharing: link-based (`?src=`/`?repo=`) first; pasted docs fall back to a `CompressionStream` deflate-raw + base64url `#fragment` with a length warning and a browser-history note; drafts autosave to `localStorage` | accepted |
-| 8   | Presenter window on the same machine over `BroadcastChannel` in v1; phone remote and followers through Durable Object rooms with end-to-end encrypted navigation events in v1.1                                      | accepted |
-| 9   | Export to PDF (print CSS), a single self-contained HTML file and PNG per slide                                                                                                                                       | accepted |
-| 10  | GitHub-style document mode, 2–3 slide themes, light/dark following the system with a toggle                                                                                                                          | accepted |
-| 11  | Installable PWA that works offline                                                                                                                                                                                   | accepted |
-| 12  | No analytics or telemetry                                                                                                                                                                                            | accepted |
+| #   | Decision                                                                                                                                                                                                                                                | Status   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 1   | Name `docwalk`; MIT licence; open source                                                                                                                                                                                                                | accepted |
+| 2   | Public tool for teams and individuals; every input is hostile                                                                                                                                                                                           | accepted |
+| 3   | Four modes: editor with live preview, document, presentation, diagram focus                                                                                                                                                                             | accepted |
+| 4   | CodeMirror 6 behind a five-method editor interface; Monaco is a roadmap item (no mobile support, no Markdown IntelliSense to gain)                                                                                                                      | accepted |
+| 5   | Inputs: paste, file drop, `?src=<url>`, `?repo=&path=`, a pasted fine-grained token, GitHub App OAuth                                                                                                                                                   | accepted |
+| 6   | `?src=` loads raw.githubusercontent.com and gist directly; other origins need a confirmation and show a "loaded from X" banner                                                                                                                          | accepted |
+| 7   | Sharing: link-based (`?src=`/`?repo=`) first; pasted docs fall back to a `CompressionStream` deflate-raw + base64url `#fragment` with a length warning and a browser-history note; drafts autosave to `localStorage`                                    | accepted |
+| 8   | Presenter window on the same machine over `BroadcastChannel` in v1; phone remote and followers through Durable Object rooms with end-to-end encrypted navigation events in v1.1                                                                         | accepted |
+| 9   | Export to PDF (print CSS), a single self-contained HTML file and PNG per slide                                                                                                                                                                          | accepted |
+| 10  | GitHub-style document mode, 2–3 slide themes, light/dark following the system with a toggle                                                                                                                                                             | accepted |
+| 11  | Installable PWA that works offline                                                                                                                                                                                                                      | accepted |
+| 12  | No analytics, telemetry or hosted error reporting. A deliberate exception to the usual hosted-monitoring default: a tool that promises your document never leaves the browser cannot ship a tracker. Opt-in error reporting would need its own decision | accepted |
 
 ## Sectioning and pagination
 
@@ -53,7 +53,7 @@ place.
 | 29  | Drawing with `@drauu/core` inside the diagram transform; custom laser on `perfect-freehand`                                                                        | accepted              |
 | 30  | i18n with Paraglide JS + ICU plugin + Weblate Libre; English first; locale switch keeps the draft                                                                  | accepted              |
 | 31  | Browsers: Baseline widely available, Safari 17.4 floor; older browsers get a notice and the plain Markdown                                                         | accepted              |
-| 32  | Dependencies: newest versions at least 7 days old (pnpm `minimumReleaseAge: 10080`), bumped automatically                                                          | accepted              |
+| 32  | Dependencies: newest versions at least 7 days old (pnpm `minimumReleaseAge: 10080`), exact pins, bumped weekly by Dependabot with a 7-day cooldown                 | accepted              |
 
 ## Security and hosting
 
@@ -77,3 +77,6 @@ place.
 | 43  | Budgets via size-limit and Lighthouse CI: about 250 KB gzipped first load, 1.5 s to open a 500-line doc in presentation mode, 300 ms to repaginate, measured against the fixture | accepted |
 | 44  | Worker tests with `@cloudflare/vitest-plugin`                                                                                                                                    | accepted |
 | 45  | The acceptance fixture is a long synthetic design doc with no personal content                                                                                                   | accepted |
+| 46  | Validate untrusted input at its boundary with Valibot: URL parameters, the share fragment, files, and every Worker request                                                       | accepted |
+| 47  | Oxlint without type-aware rules for now; revisit when the codebase has enough async and promise-heavy code to benefit                                                            | accepted |
+| 48  | One gate, `pnpm check` (typecheck, lint, format, unit and browser tests, static build), run locally and in CI                                                                    | accepted |

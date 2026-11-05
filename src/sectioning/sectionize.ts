@@ -101,7 +101,7 @@ function resolveLevels(
     return level === null ? [] : [level];
   }
   if (typeof option === "number") return [option];
-  return [...new Set(option)].sort((a, b) => a - b);
+  return [...new Set(option)].toSorted((a, b) => a - b);
 }
 
 /** Split a parsed document into sections. Never splits with a regex: setext headings and fences are already nodes. */
@@ -136,8 +136,6 @@ export function sectionize(root: Root, option: LevelOption = "auto"): SectionPla
     sections.push(section);
     current = section;
   };
-
-  const lineOf = (node: RootContent) => node.position?.start.line ?? 1;
 
   // Body content goes into the open section. After a thematic break there is
   // none, so the content starts a part that continues the last opened section
@@ -214,4 +212,8 @@ export function sectionize(root: Root, option: LevelOption = "auto"): SectionPla
   // A title-level heading with no content of its own is a breadcrumb only.
   const kept = sections.filter((s) => s.kind !== "title" || s.nodes.length > 0);
   return { levels, titleHeading, sections: kept };
+}
+
+function lineOf(node: RootContent): number {
+  return node.position?.start.line ?? 1;
 }

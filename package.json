@@ -15,7 +15,8 @@
     "fmt:check": "oxfmt --check",
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
-    "test:all": "vitest run"
+    "test:all": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm fmt:check && pnpm test:all && pnpm build"
   },
   "dependencies": {
     "github-slugger": "2.0.0",
@@ -46,7 +47,7 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": ">=24",
+      "version": "24.22.1",
       "onFail": "error"
     }
   },

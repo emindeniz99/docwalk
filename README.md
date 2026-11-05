@@ -6,8 +6,8 @@ headings, lets you zoom into any diagram, draw on it and point at it, and
 tells you when content does not fit instead of clipping it. The file stays
 plain GitHub Markdown.
 
-Status: design settled, no code yet. The spike plan is in
-[`ROADMAP.md`](./ROADMAP.md).
+Status: early development. The splitter works; slide rendering, diagram
+focus and overflow checks are in progress. See [`ROADMAP.md`](./ROADMAP.md).
 
 ## Why
 
@@ -38,7 +38,27 @@ Two deployment modes, one build:
   v1.1, the remote-control relay. The app detects `/api` and enables those
   features.
 
-Commands land with the first scaffold.
+## Development
+
+Requirements: Node 24.22.1 and pnpm 12.16.1. Both are pinned in
+`package.json` (`devEngines`, `packageManager`); with
+[mise](https://mise.jdx.dev), `mise install` picks them up.
+
+```bash
+pnpm install          # refuses packages published less than 7 days ago
+pnpm dev              # local dev server
+pnpm check            # the full gate: typecheck, lint, format, tests, build
+pnpm test             # unit tests (Node)
+pnpm test:browser     # layout tests in real Chromium
+pnpm build            # static build in dist/
+```
+
+Browser tests need Chromium: `pnpm exec playwright install chromium`, or
+point `DOCWALK_CHROMIUM_PATH` at an existing binary.
+
+If `pnpm install` reports a version "does not meet the minimumReleaseAge
+constraint", the package is younger than 7 days. Wait, or pin the previous
+release; do not lower the setting.
 
 ## License
 

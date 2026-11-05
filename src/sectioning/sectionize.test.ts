@@ -208,7 +208,7 @@ describe("properties", () => {
 
   fcTest.prop([doc])("sections appear in document order", (md) => {
     const lines = plan(md).sections.map((s) => s.line);
-    expect(lines).toEqual([...lines].sort((a, b) => a - b));
+    expect(lines).toEqual(lines.toSorted((a, b) => a - b));
   });
 
   fcTest.prop([doc, option])(

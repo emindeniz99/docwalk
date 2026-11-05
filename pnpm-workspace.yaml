@@ -15,6 +15,3 @@ trustPolicy: no-downgrade
 # Lifecycle scripts are opt-in; an undeclared one fails the install.
 # `true` = reviewed and required, `false` = reviewed and deliberately off.
 allowBuilds: {}
-
-engineStrict: true
-nodeLinker: isolated
