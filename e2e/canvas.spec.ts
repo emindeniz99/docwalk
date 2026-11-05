@@ -185,6 +185,10 @@ test("while presenting, the sketch owns its keys and Escape leaves only the sket
   await page.keyboard.press("p");
   // Excalidraw took P (its free-draw tool).
   await expect(dialog.locator('input[data-testid="toolbar-freedraw"]')).toBeChecked();
+  // O is Excalidraw's ellipse and docwalk's slide overview: the sketch keeps it too.
+  await page.keyboard.press("o");
+  await expect(dialog.locator('input[data-testid="toolbar-ellipse"]')).toBeChecked();
+  await expect(page.getByRole("dialog", { name: "Slide overview" })).toHaveCount(0);
 
   await dialog.getByRole("button", { name: "Export" }).focus();
   await page.keyboard.press("Escape");
