@@ -818,7 +818,7 @@ export function App() {
             level={level}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
-            edit={inputs.edit}
+            edit={onEdit}
             setNotice={setNotice}
           />
         )}

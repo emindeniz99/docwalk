@@ -245,3 +245,55 @@ test("an agent's tool calls rewrite and steer the presenter's deck, a long doc i
     relay.close();
   }
 });
+
+test("an agent's write to a workspace file edits that file and autosaves it", async ({
+  context,
+}) => {
+  // Agent writes take the editor's path, so a workspace file stays the
+  // document: the browser workspace saves the write like a typed edit
+  // (decision 66), and nothing lands in the draft slot.
+  const relay = await startRelay();
+  await fullMode(context, relay.port);
+  const page = await context.newPage();
+  await ready(page);
+  await page.getByRole("button", { name: "Workspace actions" }).click();
+  await page.getByRole("menuitem", { name: "New project…" }).click();
+  const create = page.getByRole("dialog", { name: "New project" });
+  await create.getByLabel("Project name").fill("Agent notes");
+  await create.getByRole("button", { name: "Create project" }).click();
+  const banner = page.locator(".docwalk-ws-banner");
+  await expect(banner).toContainText("Saved in this browser");
+  const path = (await banner.textContent())?.match(/Agent notes\/[\w.-]+\.md/)?.[0];
+  expect(path).toBeDefined();
+  const link = await agentLink(page, relay.port);
+  await switchLabel(page).click();
+  await dialogOf(page).getByRole("button", { name: "Close" }).click();
+
+  const agent = await startAgent(link, "e2e-agent");
+  try {
+    const markdown = "# Agent notes\n\n## Written by the agent\n\nSaved like a typed edit.\n";
+    expect((await agent.call("write_document", { markdown })).isError).toBeFalsy();
+    await expect(page.locator(".docwalk-notice")).toContainText("e2e-agent changed the document.");
+    await expect(banner).toContainText(path!);
+    const opfs = (p: string) =>
+      page.evaluate(async (file) => {
+        // A read while the autosave holds the file open throws; poll again.
+        try {
+          let dir = await (
+            await navigator.storage.getDirectory()
+          ).getDirectoryHandle("docwalk-workspace");
+          const parts = file.split("/");
+          const name = parts.pop()!;
+          for (const part of parts) dir = await dir.getDirectoryHandle(part);
+          return await (await (await dir.getFileHandle(name)).getFile()).text();
+        } catch {
+          return null;
+        }
+      }, p);
+    await expect.poll(() => opfs(path!)).toBe(markdown);
+    await expect(banner).toContainText("Saved in this browser");
+  } finally {
+    agent.stop();
+    relay.close();
+  }
+});
