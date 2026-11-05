@@ -5,6 +5,7 @@ import { userEvent } from "vitest/browser";
 import mermaid from "mermaid";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import { OPEN_SKETCH_EVENT } from "../canvas/request";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import type { DeckController } from "./controller";
 import { Deck, REBUILD_DELAY_MS } from "./Deck";
@@ -113,6 +114,27 @@ describe("diagram focus view (the full-screen diagram, decision 3)", () => {
     }
     await userEvent.keyboard("{Escape}");
     expect(host.closest("[inert]")).toBeNull();
+    expect(document.activeElement).toBe(host);
+  });
+
+  test("Open as sketch hands the diagram's source and position to the app (decision 54)", async () => {
+    // The focus view is plain DOM; the app opens canvas mode only through this event.
+    // Its own second diagram: the render cache is shared, and other tests count renders of `a --> c`.
+    const second = DIAGRAM.replace("a --> b", "s --> t");
+    const deck = mountDeck(`## One\n\n${DIAGRAM}\n\n## Two\n\n${second}\n`);
+    await deck.ready();
+    const requests: unknown[] = [];
+    const listen = (event: Event) => requests.push((event as CustomEvent).detail);
+    document.addEventListener(OPEN_SKETCH_EVENT, listen);
+    deck.readies.at(-1)?.goTo("two");
+    const host = presentDiagram();
+    await userEvent.click(host);
+    await userEvent.click(overlay()!.querySelector<HTMLElement>('[aria-label="Open as sketch"]')!);
+    document.removeEventListener(OPEN_SKETCH_EVENT, listen);
+    // The second diagram of the deck, by its source as written: that is the sketch's key.
+    expect(requests).toEqual([{ source: "flowchart LR\n  s --> t\n", index: 2 }]);
+    // The focus view gives way, and the diagram gets focus back for when the sketch closes.
+    expect(overlay()).toBeNull();
     expect(document.activeElement).toBe(host);
   });
 

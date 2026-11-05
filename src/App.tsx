@@ -33,6 +33,7 @@ import {
   type DragEvent,
 } from "react";
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
+import { useSketchRequest } from "./canvas/request";
 import { clonePages, type DeckController, type SlideInfo } from "./deck/controller";
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
 import type { EditorDiagnostic } from "./editor/types";
@@ -80,6 +81,10 @@ const RemoteFollower = lazy(() =>
 );
 const ExportMenu = lazy(() =>
   import("./export/ExportMenu").then((m) => ({ default: m.ExportMenu })),
+);
+// Canvas mode pulls in Excalidraw (several MB); it loads when a diagram is opened as a sketch.
+const SketchDialog = lazy(() =>
+  import("./canvas/SketchDialog").then((m) => ({ default: m.SketchDialog })),
 );
 
 const LEVELS: { label: string; value: LevelOption }[] = [
@@ -138,6 +143,7 @@ export function App() {
   const share = useLazyDialog();
   const join = useLazyDialog();
   const [remoteOn, setRemoteOn] = useState(false);
+  const sketch = useSketchRequest(!follow);
   const phone = useMediaQuery(PHONE);
   // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -307,7 +313,8 @@ export function App() {
     },
     // Presenting, the keys work anywhere. In the edit view the toolbar is on screen
     // too, so they work while focus is in the deck pane (the slide or the toolbar).
-    !follow,
+    // A sketch owns its keys (P, A, E are Excalidraw tools too).
+    !follow && !sketch.request,
     view === "present" ? undefined : deckRef,
   );
 
@@ -724,6 +731,15 @@ export function App() {
             level={level}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
+          />
+        )}
+        {sketch.request && doc && (
+          <SketchDialog
+            source={sketch.request.source}
+            index={sketch.request.index}
+            documentSource={doc.source}
+            documentTitle={docTitle}
+            onClose={sketch.close}
           />
         )}
         {follow && (
