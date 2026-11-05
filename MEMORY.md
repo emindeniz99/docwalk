@@ -6,8 +6,13 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-Design settled, docs and the acceptance fixture written, no code. Next: the
-scaffold and the AST sectioner from the week-1 spike in `ROADMAP.md`.
+Scaffold (Vite 8, React 19, TS 7, Vitest 5, pnpm 12) and the AST sectioner
+(`src/sectioning/sectionize.ts`, 23 unit + property tests) are done. Next:
+reveal.js embedded rendering of the sections, then Mermaid focus and the
+measurement pass (`ROADMAP.md` week 1, steps 4–6).
+
+Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
+pnpm@12.16.1 --dir <project> <script>` (no mise there).
 
 ## Decisions
 
@@ -22,6 +27,8 @@ scaffold and the AST sectioner from the week-1 spike in `ROADMAP.md`.
 - 2026-11-05: GitHub's OAuth token exchange needs `client_secret` and has no CORS, PKCE included: browser-only OAuth is impossible, hence the Worker.
 - 2026-11-05: A static `_headers` CSP cannot carry a per-visitor image setting, and a `<meta>` CSP cannot carry `frame-ancestors`: the sanitizer is the image gate.
 - 2026-11-05: Mermaid and other diagram hosts hide their own overflow; measure each host, not only the slide (deckrun `src/preview.ts`).
+- 2026-11-05: Pandoc's rule alone gives H1 slides for a README (`# Name` + intro). The lone-H1 title rule fixes that; restricting it to H1 keeps a single `##` with `###` children from being mistaken for a title.
+- 2026-11-05: Property tests must reuse one parsed tree; re-parsing makes new node objects and identity checks fail for no real reason.
 
 ## Done
 

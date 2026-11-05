@@ -10,7 +10,11 @@ Mermaid diagram, an image. One taller than an empty slide gets a
 **diagnostic** (19).
 
 **Base level**: the heading level that starts slides. `auto` picks it with
-Pandoc's rule (14); the user can override it (20).
+Pandoc's rule, skipping the **document title** (14); the user can override
+it (20). Code: `SectionPlan.levels`.
+
+**Document title**: the only H1, when it comes before every other heading.
+It becomes the cover slide. Code: `findTitleHeading`.
 
 **Breadcrumb**: the trail of parent headings shown on a slide, such as
 `Failure handling › Retries` (15, 17).
