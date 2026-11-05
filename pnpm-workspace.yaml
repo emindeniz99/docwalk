@@ -1,0 +1,20 @@
+# Single-package project; this file carries pnpm settings only.
+
+# Supply-chain guard: never install a version published less than 7 days ago.
+# pnpm counts MINUTES (7 * 24 * 60).
+minimumReleaseAge: 10080
+# Written out because pnpm only defaults it to true while minimumReleaseAge is
+# set; deleting the line above would otherwise silently drop strictness.
+minimumReleaseAgeStrict: true
+# An unverifiable publish time is not a passing age.
+minimumReleaseAgeIgnoreMissingTime: false
+
+# Refuse a version whose publish provenance is weaker than an earlier one.
+trustPolicy: no-downgrade
+
+# Lifecycle scripts are opt-in; an undeclared one fails the install.
+# `true` = reviewed and required, `false` = reviewed and deliberately off.
+allowBuilds: {}
+
+engineStrict: true
+nodeLinker: isolated

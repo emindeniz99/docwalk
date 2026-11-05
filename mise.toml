@@ -1,0 +1,5 @@
+# Node and pnpm versions live in package.json (`devEngines.runtime` for Node,
+# `packageManager` for pnpm). This file only tells mise to honour them, so no
+# version is declared in two places.
+[settings]
+idiomatic_version_file_enable_tools = ["node", "pnpm"]
