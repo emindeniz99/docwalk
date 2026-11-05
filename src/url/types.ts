@@ -1,3 +1,5 @@
+import type { HeadingDepth } from "../sectioning/sectionize";
+
 /**
  * Contract for URL state (decision 21). The hash carries the slide address
  * so a link can open a deck on a given slide; a GitHub heading anchor
@@ -13,7 +15,9 @@
  */
 
 export interface ViewerUrlState {
+  /** Canonical `<section-id>/<page>`; a bare anchor parses as page 1. */
   address: string | null;
-  level: "auto" | number | number[] | null;
+  /** A list has two or more levels, sorted and without duplicates. */
+  level: "auto" | HeadingDepth | HeadingDepth[] | null;
   view: "edit" | "document" | "present" | "presenter" | null;
 }
