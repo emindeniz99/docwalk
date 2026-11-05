@@ -199,6 +199,31 @@ describe("presenter view", () => {
       .not.toBeNull();
   }, 20_000);
 
+  test("previews show the same overflow note as the deck, so a slide the room cannot read never looks fine here", async () => {
+    // A code block is atomic (decision 19): taller than a slide, it overflows
+    // on its own page and the audience deck flags it. The presenter, who is
+    // the one who must react, needs to see that flag too.
+    const code = Array.from({ length: 80 }, (_, i) => `line ${i}`).join("\n");
+    const markdown = `# Notes\n\nIntro.\n\n## Config\n\n\`\`\`\n${code}\n\`\`\`\n\n## Short\n\nFine.\n`;
+    const addresses = sectionize(parseMarkdown(markdown), "auto").sections.map((s) => `${s.id}/1`);
+    const channel = fakeChannel();
+    const el = renderView(channel.factory);
+    await channel.deliver({
+      type: "state",
+      markdown,
+      level: "auto",
+      current: addresses[1],
+      addresses,
+      startedAt: Date.now(),
+    });
+    const note = (cls: string) =>
+      el.querySelector<HTMLElement>(`.${cls} .docwalk-presenter-canvas .docwalk-overflow`);
+    await expect.poll(() => note("docwalk-presenter-current")?.hidden).toBe(false);
+    expect(note("docwalk-presenter-current")?.textContent).toMatch(/Does not fit: \d+ px too tall/);
+    // The slide that fits keeps its note hidden: the flag means something.
+    expect(note("docwalk-presenter-next")?.hidden).toBe(true);
+  });
+
   test("previews go through the same sanitizer as the deck: any same-origin tab can post a state", async () => {
     const markdown = [
       "# Notes",

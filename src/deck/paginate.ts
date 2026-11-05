@@ -5,7 +5,8 @@ import { OVERFLOW_TOLERANCE_PX } from "./measure";
  * split in this order, never by pixel slicing and never by shrinking:
  *
  * 1. at the next heading level down (H2 slide -> its H3 groups), keeping the
- *    parent title in the breadcrumb;
+ *    parent title in the breadcrumb; neighbouring groups that fit on one
+ *    page together share it;
  * 2. at block boundaries (paragraphs, headings, whole lists, whole tables);
  * 3. inside a list (by item, keeping `<ol start>` numbering) or a table (by
  *    row, repeating the header).
@@ -43,11 +44,12 @@ export function paginateSlide(slide: HTMLElement, options: PaginateOptions): HTM
     if (first && second && first.every((b) => /^H[1-6]$/.test(b.tagName))) {
       groups.splice(0, 2, [...first, ...second]);
     }
-    for (const [g, group] of groups.entries()) {
-      // Group 0 keeps the slide heading; a sub-group opens with its own
-      // heading and carries the slide title in its breadcrumb.
+    // Group 0 keeps the slide heading; a sub-group opens with its own
+    // heading and carries the slide title in its breadcrumb.
+    const crumbsFor = (g: number) => (g === 0 ? crumbs : [...crumbs, title].filter(Boolean));
+    for (const [g, group] of mergeFitting(probe, groups, crumbsFor).entries()) {
       const groupTitle = g === 0 ? title : (group[0]?.textContent ?? "").trim();
-      const groupCrumbs = g === 0 ? crumbs : [...crumbs, title].filter(Boolean);
+      const groupCrumbs = crumbsFor(g);
       setBreadcrumb(probe, groupCrumbs);
       for (const blocks of fillPages(probe, group, groupTitle)) {
         pages.push(makePage(slide, blocks, pages.length, groupCrumbs));
@@ -55,6 +57,36 @@ export function paginateSlide(slide: HTMLElement, options: PaginateOptions): HTM
     }
     return pages;
   });
+}
+
+/**
+ * Join neighbouring sub-heading groups while together they still fit on one
+ * page, so three short H3 parts become one slide instead of three
+ * half-empty ones. A group that needs several pages on its own never fits
+ * with a neighbour, so it stays alone. Merged groups keep the breadcrumb of
+ * their first group: group 0 holds the slide heading, so a merge into it
+ * needs no parent title.
+ */
+function mergeFitting(
+  probe: HTMLElement,
+  groups: Element[][],
+  crumbsFor: (g: number) => string[],
+): Element[][] {
+  const body = bodyOf(probe);
+  const merged: Element[][] = [];
+  for (const group of groups) {
+    const last = merged.at(-1);
+    if (last) {
+      setBreadcrumb(probe, crumbsFor(merged.length - 1));
+      body.replaceChildren(...last.map(clone), ...group.map(clone));
+      if (fits(body)) {
+        merged[merged.length - 1] = [...last, ...group];
+        continue;
+      }
+    }
+    merged.push(group);
+  }
+  return merged;
 }
 
 /**

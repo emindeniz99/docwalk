@@ -56,7 +56,8 @@ test("the pen draws above the slide and each slide keeps its own marks", async (
     );
   }
   await page.mouse.up();
-  const marks = page.locator(".docwalk-annotate-draw > *");
+  // Every visited slide keeps its own surface; count the marks a viewer can see.
+  const marks = page.locator(".docwalk-annotate-draw > *").filter({ visible: true });
   await expect(marks).toHaveCount(1);
 
   await page.locator(".reveal").focus();

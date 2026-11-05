@@ -1,4 +1,4 @@
-import { createDrauu, type DrawingMode } from "@drauu/core";
+import { createDrauu, type Drauu, type DrawingMode } from "@drauu/core";
 import { getStroke } from "perfect-freehand";
 import "./layer.css";
 import type { AnnotationLayer, AnnotationMode } from "./types";
@@ -50,13 +50,17 @@ function prefersReducedMotion(): boolean {
 /**
  * Pen, arrow and eraser marks (drauu) plus a fading laser trail over `host`.
  * Marks live in memory per slide key; nothing is written anywhere else.
+ *
+ * Each slide key gets its own drauu instance on its own SVG surface, made on
+ * the first visit. Dumping and reloading one instance's markup on every slide
+ * switch wiped drauu's undo stack, so marks made before leaving a slide could
+ * no longer be undone after coming back to it.
  */
 export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
   const root = document.createElement("div");
   root.className = "docwalk-annotate";
-  const draw = surface("draw");
   const laser = surface("laser");
-  root.append(draw, laser);
+  root.append(laser);
 
   // The overlay is absolutely positioned, so it needs a containing block.
   const restorePosition = host.style.position;
@@ -66,14 +70,41 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
   // Until setColor, draw in the accent (DESIGN.md: it marks the pen). currentColor would
   // follow the host's text colour, which is light on the dark stage and vanishes on a white slide.
   const accent = getComputedStyle(host).getPropertyValue("--dw-color-primary").trim();
-  const drauu = createDrauu({
-    el: draw,
-    brush: { mode: "stylus", color: accent || "currentColor", size: PEN_SIZE },
-  });
+  let color = accent || "currentColor";
 
   let mode: AnnotationMode = "off";
   let key: string | null = null;
-  const saved = new Map<string, string>();
+  /** One drawing per slide key; `null` holds marks made before the first key. */
+  const drawings = new Map<string | null, Drauu>();
+
+  /** Bring a drawing up to the current tool and colour. */
+  function applyTool(drawing: Drauu) {
+    drawing.brush.color = color;
+    if (mode === "pen" || mode === "arrow" || mode === "eraser") {
+      drawing.brush.arrowEnd = mode === "arrow";
+      // Also re-indexes the strokes for drauu's eraser.
+      drawing.mode = DRAUU_MODE[mode];
+    }
+  }
+
+  function createDrawing(): Drauu {
+    const svg = surface("draw");
+    root.insertBefore(svg, laser);
+    const drawing = createDrauu({ el: svg, brush: { mode: "stylus", color, size: PEN_SIZE } });
+    applyTool(drawing);
+    return drawing;
+  }
+
+  /** Only the current slide's surface is shown and takes pointer events (layer.css). */
+  function show(drawing: Drauu) {
+    for (const d of drawings.values()) {
+      if (d.el) d.el.dataset["active"] = String(d === drawing);
+    }
+  }
+
+  let active = createDrawing();
+  drawings.set(null, active);
+  show(active);
 
   // Laser state.
   let trail: LaserPoint[] = [];
@@ -90,7 +121,7 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
 
   /** drauu's eraser indexes the strokes when it is selected; re-index after the strokes change. */
   function refreshEraser() {
-    if (mode === "eraser") drauu.mode = "eraseLine";
+    if (mode === "eraser") active.mode = "eraseLine";
   }
 
   function clearLaser() {
@@ -168,41 +199,46 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
       mode = next;
       setRootMode(next);
       if (next !== "laser") clearLaser();
-      if (next === "pen" || next === "arrow" || next === "eraser") {
-        drauu.brush.arrowEnd = next === "arrow";
-        drauu.mode = DRAUU_MODE[next];
-      }
+      applyTool(active);
     },
     mode: () => mode,
-    setColor(color) {
-      drauu.brush.color = color;
+    setColor(next) {
+      color = next;
+      active.brush.color = next;
     },
     undo() {
-      drauu.undo();
+      active.undo();
       refreshEraser();
     },
     redo() {
-      drauu.redo();
+      active.redo();
       refreshEraser();
     },
     clear() {
-      drauu.clear();
+      active.clear();
       refreshEraser();
     },
     setKey(next) {
       if (next === key) return;
-      // Marks made before the first key belong to the first slide.
-      if (key !== null) {
-        const dump = drauu.dump();
-        if (dump) saved.set(key, dump);
-        else saved.delete(key);
-        const restored = saved.get(next);
-        if (restored) drauu.load(restored);
-        else drauu.clear();
+      if (key === null) {
+        // Marks made before the first key belong to the first slide.
+        drawings.delete(null);
+        drawings.set(next, active);
+      } else {
+        // A stroke still being drawn when the slide changes belongs to no slide.
+        active.cancel();
+        active.drawing = false;
+        let drawing = drawings.get(next);
+        if (!drawing) {
+          drawing = createDrawing();
+          drawings.set(next, drawing);
+        }
+        active = drawing;
+        applyTool(active);
+        show(active);
       }
       key = next;
       clearLaser();
-      refreshEraser();
     },
     destroy() {
       clearLaser();
@@ -211,10 +247,10 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
       laser.removeEventListener("pointerup", onLaserEnd);
       laser.removeEventListener("pointercancel", onLaserEnd);
       laser.removeEventListener("pointerleave", onLaserEnd);
-      drauu.unmount();
+      for (const d of drawings.values()) d.unmount();
+      drawings.clear();
       root.remove();
       host.style.position = restorePosition;
-      saved.clear();
     },
   };
 }

@@ -27,6 +27,8 @@ function slideFor(markdown: string): HTMLElement {
 const bodyOf = (page: HTMLElement) => page.querySelector(".docwalk-slide-body") as HTMLElement;
 const items = (pages: HTMLElement[], selector: string) =>
   pages.flatMap((p) => [...bodyOf(p).querySelectorAll(selector)].map((e) => e.textContent?.trim()));
+const headingsOn = (p: HTMLElement) =>
+  [...bodyOf(p).querySelectorAll("h2:not(.docwalk-part-title), h3")].map((h) => h.textContent);
 const fitsAll = (pages: HTMLElement[]) =>
   measureOffscreen(pages.map(bodyOf), SIZE).map((m) => m.overflows);
 
@@ -83,14 +85,44 @@ describe("semantic pagination", () => {
     const md = `# Doc\n\nx\n\n## Failure handling\n\nintro\n\n### Retries\n\n${filler}### Timeouts\n\n${filler}### Poison messages\n\n${filler}`;
     const section = sectionize(parseMarkdown(md)).sections[1];
     const pages = paginateSlide(buildSlide(section as never), { size: SIZE });
-    const firstHeadings = pages.map((p) => bodyOf(p).querySelector("h2, h3")?.textContent);
-    expect(firstHeadings).toEqual(
-      expect.arrayContaining(["Failure handling", "Retries", "Timeouts", "Poison messages"]),
-    );
-    const retries = pages.find((p) => bodyOf(p).querySelector("h3")?.textContent === "Retries");
-    expect(retries?.querySelector(".docwalk-breadcrumb")?.textContent).toBe(
+    // Each part fits a page, so the split happens only at sub-headings: no
+    // "· continued" page, and every heading shows once, in order. (The short
+    // intro shares the first page with Retries.)
+    expect(pages.some((p) => bodyOf(p).querySelector(".docwalk-part-title"))).toBe(false);
+    expect(
+      pages.flatMap((p) => [...bodyOf(p).querySelectorAll("h2, h3")].map((h) => h.textContent)),
+    ).toEqual(["Failure handling", "Retries", "Timeouts", "Poison messages"]);
+    const timeouts = pages.find((p) => bodyOf(p).querySelector("h3")?.textContent === "Timeouts");
+    expect(timeouts?.querySelector(".docwalk-breadcrumb")?.textContent).toBe(
       "Doc › Failure handling",
     );
+  });
+
+  test("short sub-heading parts that fit together share a page instead of one half-empty slide each", () => {
+    // One long part forces the split; the short parts around it would each
+    // have taken a slide of their own with two lines on it.
+    const short = "A short note.\n\n";
+    const long = "A paragraph of explanation that takes some room.\n\n".repeat(14);
+    const md = `# Doc\n\nx\n\n## Failure handling\n\nintro\n\n### Retries\n\n${short}### Timeouts\n\n${short}### Poison messages\n\n${long}### Alerts\n\n${short}### Dashboards\n\n${short}`;
+    const section = sectionize(parseMarkdown(md)).sections[1];
+    const pages = paginateSlide(buildSlide(section as never), { size: SIZE });
+
+    // Intro, Retries and Timeouts on the first page; Alerts and Dashboards together after the long part.
+    expect(headingsOn(pages[0] as HTMLElement)).toEqual([
+      "Failure handling",
+      "Retries",
+      "Timeouts",
+    ]);
+    expect(headingsOn(pages.at(-1) as HTMLElement)).toEqual(["Alerts", "Dashboards"]);
+    // The merged page that opens with a sub-heading still names its parent.
+    expect(pages.at(-1)?.querySelector(".docwalk-breadcrumb")?.textContent).toBe(
+      "Doc › Failure handling",
+    );
+    // The page holding the slide heading needs no parent title in its breadcrumb.
+    expect(pages[0]?.querySelector(".docwalk-breadcrumb")?.textContent).toBe("Doc");
+    // Merging never trades a fitting page for an overflowing one, and pages stay numbered 1..n.
+    expect(fitsAll(pages)).toEqual(pages.map(() => false));
+    expect(pages.map((p) => p.dataset["page"])).toEqual(pages.map((_, i) => String(i + 1)));
   });
 
   test("a heading with no text before its first sub-heading does not become a title-only page", () => {
@@ -291,6 +323,21 @@ describe("acceptance fixture", () => {
     const pages = slides.flatMap((s) => paginateSlide(s, { size: SIZE }));
     expect(pages.length).toBeGreaterThan(slides.length);
     expect(textOf(pages)).toEqual(before);
+
+    // "Failure handling" overflows and splits at its H3s. Its three short
+    // parts used to take a slide each (6 pages, 52 in the deck); since
+    // neighbouring parts that fit share a page, they sit on one (4 pages, 50).
+    const failure = pages.filter((p) => p.dataset["docwalkId"] === "failure-handling");
+    expect(
+      failure.map((p) =>
+        [...bodyOf(p).querySelectorAll(":scope > h2, :scope > h3")].map((h) => h.textContent),
+      ),
+    ).toEqual([
+      ["Failure handling", "Retries"],
+      ["Timeouts"],
+      ["Poison messages", "Partial failures", "Duplicate delivery"],
+      ["Clock skew"],
+    ]);
 
     const measurements = measureOffscreen(pages.map(bodyOf), SIZE);
     const stillOverflowing = pages.filter((_, i) => measurements[i]?.overflows);
