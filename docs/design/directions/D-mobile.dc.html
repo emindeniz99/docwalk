@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>docwalk: presenting on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#b8381a}a:hover{color:#8f2b13}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; background: #15171c; color: #e9eaee; font-family: Inter, system-ui, sans-serif;">
+  <header style="display: flex; align-items: center; gap: 10px; padding: 16px 16px 10px;">
+    <button type="button" aria-label="Back to document" style="width: 44px; height: 44px; border-radius: 12px; border: 1px solid #3a3d47; background: #22252d; color: #e9eaee; font: inherit; font-size: 18px;">‹</button>
+    <div style="display: flex; flex-direction: column;">
+      <span style="font-size: 12px; color: #b9bcc6;">Failure handling</span>
+      <span style="font-weight: 600;">Retries · 22 / 47</span>
+    </div>
+    <button type="button" aria-label="More" style="margin-left: auto; width: 44px; height: 44px; border-radius: 12px; border: 1px solid #3a3d47; background: #22252d; color: #e9eaee; font: inherit;">⋯</button>
+  </header>
+
+  <main style="flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; gap: 14px;">
+    <article style="aspect-ratio: 16 / 9; background: #ffffff; color: #17181c; border-radius: 12px; padding: 16px 18px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px;">
+      <div style="font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; color: #5c5e66;">Failure handling</div>
+      <h2 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 20px; letter-spacing: -0.02em;">Retries</h2>
+      <p style="margin: 0; font-size: 9px; line-height: 1.45;">Clients retry with the same idempotency key and exponential backoff from 200 ms, capped at 10 s.</p>
+      <div style="margin-top: auto; height: 34px; border-radius: 4px; background: #f4f4f2;"></div>
+    </article>
+    <p style="margin: 0; font-size: 13px; color: #b9bcc6; text-align: center;">Swipe for the next slide · pinch to zoom · turn the phone for full width</p>
+    <section aria-label="Speaker notes" style="padding: 14px; border-radius: 12px; background: #22252d; border: 1px solid #3a3d47;">
+      <div style="font-size: 12px; color: #b9bcc6; margin-bottom: 6px;">Up next</div>
+      <div style="font-weight: 600;">Timeouts</div>
+      <div style="font-size: 13px; color: #b9bcc6;">Gateway 3 s · processor 2.5 s per attempt</div>
+    </section>
+  </main>
+
+  <footer style="display: flex; gap: 8px; padding: 12px 16px 28px;">
+    <button type="button" aria-label="Previous slide" style="flex: 1; height: 52px; border-radius: 14px; border: 1px solid #3a3d47; background: #22252d; color: #e9eaee; font: inherit; font-weight: 600;">Previous</button>
+    <button type="button" aria-label="Laser pointer" style="width: 52px; height: 52px; border-radius: 14px; border: 1px solid #3a3d47; background: #22252d; color: #e9eaee;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg></button>
+    <button type="button" aria-label="Next slide" style="flex: 1; height: 52px; border-radius: 14px; border: 0; background: {{accent}}; color: #1a0702; font: inherit; font-weight: 700;">Next</button>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#e5532d","options":["#e5532d","#3b5bfd","#0f9d76"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#e5532d' };
+  }
+}
+</script>
+</body>
+</html>

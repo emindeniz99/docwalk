@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>docwalk, Workbench: presenting</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#5eead4}a:hover{color:#99f6e4}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 900px; display: grid; grid-template-rows: 1fr auto; background: #0b0d12; color: #e6e8ee; font-family: Geist, system-ui, sans-serif;">
+  <main style="display: flex; flex-direction: column; gap: 22px; padding: 72px 100px 32px; max-width: 1280px; width: 100%; margin: 0 auto; box-sizing: border-box;">
+    <div style="font-family: 'Geist Mono', monospace; font-size: 14px; color: #8a93a6;">ledgerline / configuration-flags / 2</div>
+    <h1 style="margin: 0; font-size: 52px; font-weight: 700; letter-spacing: -0.02em;">Configuration flags <span style="color: #8a93a6; font-weight: 500;">· continued</span></h1>
+    <table style="border-collapse: collapse; font-size: 19px;">
+      <thead>
+        <tr><th style="text-align: left; padding: 9px 12px; border-bottom: 1px solid #2c3242; color: #8a93a6; font-weight: 500;">Flag</th><th style="text-align: left; padding: 9px 12px; border-bottom: 1px solid #2c3242; color: #8a93a6; font-weight: 500;">Default</th><th style="text-align: left; padding: 9px 12px; border-bottom: 1px solid #2c3242; color: #8a93a6; font-weight: 500;">Description</th></tr>
+      </thead>
+      <tbody>
+        <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+          <tr><td style="padding: 9px 12px; border-bottom: 1px solid #1b2030; font-family: 'Geist Mono', monospace; color: {{accent}};">{{r.flag}}</td><td style="padding: 9px 12px; border-bottom: 1px solid #1b2030; font-family: 'Geist Mono', monospace;">{{r.value}}</td><td style="padding: 9px 12px; border-bottom: 1px solid #1b2030; color: #c9cedb;">{{r.text}}</td></tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </main>
+  <footer style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 10px 20px; border-top: 1px solid #232836; background: #0f1218; font-family: 'Geist Mono', monospace; font-size: 12px; color: #8a93a6;">
+    <span style="color: #e6e8ee;">29 / 47</span>
+    <span>→ next: configuration-flags/3</span>
+    <span style="margin-left: auto;">P pen · L laser · O overview · S presenter · Esc exit</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#2dd4bf","options":["#2dd4bf","#a78bfa","#f59e0b"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      accent: this.props.accent ?? '#2dd4bf',
+      rows: [
+        { flag: 'ledger.projector.apply_timeout_ms', value: '200', text: 'Time budget per event' },
+        { flag: 'ledger.snapshot.every_events', value: '10000', text: 'Events between snapshots' },
+        { flag: 'ledger.snapshot.retention_days', value: '30', text: 'How long snapshots are kept' },
+        { flag: 'ledger.rebuild.max_concurrency', value: '2', text: 'Rebuilds allowed at once' },
+        { flag: 'ledger.rebuild.throttle_eps', value: '20000', text: 'Events per second during a rebuild' },
+        { flag: 'ledger.processor.timeout_ms', value: '2500', text: 'Per-attempt processor timeout' },
+        { flag: 'ledger.hold.expiry_hours', value: '168', text: 'When an uncaptured hold expires' },
+        { flag: 'ledger.overdraft.enabled', value: 'false', text: 'Allow negative balances up to the limit' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

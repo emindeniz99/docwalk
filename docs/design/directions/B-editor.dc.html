@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>docwalk, Stage: editor and preview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#b8381a}a:hover{color:#8f2b13}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 900px; display: grid; grid-template-rows: auto 1fr; background: #f4f4f2; color: #17181c; font-family: Inter, system-ui, sans-serif; font-size: 14px;">
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 20px; padding: 14px 24px; background: #ffffff; border-bottom: 1px solid #e3e3df;">
+    <div style="display: flex; align-items: baseline; gap: 2px; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 22px; letter-spacing: -0.02em;">doc<span style="color: {{accent}};">walk</span></div>
+    <div style="font-weight: 600;">Ledgerline: payment ledger redesign</div>
+    <span style="color: #5c5e66; font-size: 13px;">47 slides · 2 notes</span>
+    <div style="margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px;">
+      <label style="display: flex; align-items: center; gap: 6px; color: #5c5e66;">Slides at
+        <select style="font: inherit; height: 36px; padding: 0 10px; border: 1px solid #d6d6d1; border-radius: 8px; background: #ffffff;"><option>Auto (H2)</option><option>H1</option><option>H3</option></select>
+      </label>
+      <button type="button" style="height: 36px; padding: 0 14px; border: 1px solid #d6d6d1; border-radius: 8px; background: #ffffff; font: inherit; font-weight: 500;">Share</button>
+      <button type="button" style="height: 36px; padding: 0 16px; border: 0; border-radius: 8px; background: #17181c; color: #ffffff; font: inherit; font-weight: 600;">Present ▸</button>
+    </div>
+  </header>
+
+  <main style="display: grid; grid-template-columns: 240px minmax(0, 4fr) minmax(0, 6fr); min-height: 0;">
+    <nav aria-label="Outline" style="padding: 20px 12px; border-right: 1px solid #e3e3df; background: #ffffff; display: flex; flex-direction: column; gap: 2px;">
+      <div style="padding: 0 10px 10px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #5c5e66;">Outline</div>
+      <sc-for list="{{outline}}" as="o" hint-placeholder-count="10">
+        <a href="#" style="{{o.style}}"><span>{{o.title}}</span><span style="color: #5c5e66; font-size: 12px;">{{o.pages}}</span></a>
+      </sc-for>
+    </nav>
+
+    <section aria-label="Markdown source" style="display: flex; flex-direction: column; background: #ffffff; border-right: 1px solid #e3e3df;">
+      <div style="flex: 1; padding: 20px 24px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 22px; white-space: pre-wrap; color: #2b2d33;"><span style="font-weight: 600; color: #17181c;">## Failure handling</span>
+
+<span style="font-weight: 600; color: #17181c;">### Retries</span>
+
+Clients retry with the same idempotency key and exponential backoff starting at 200 ms, capped at 10 s, with full jitter.
+
+| Failure | Retry? | Budget |
+|---|---|---|
+| Network timeout to processor | Yes | 3 attempts |
+| Processor decline | No | 0 |
+
+<span style="font-weight: 600; color: #17181c;">### Timeouts</span>
+
+- Gateway to command API: 3 s.
+- Command API to processor adapter: 2.5 s…</div>
+    </section>
+
+    <section aria-label="Preview" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #15171c;">
+      <div style="display: flex; align-items: center; gap: 10px; color: #b9bcc6; font-size: 13px;">
+        <span style="color: #ffffff; font-weight: 600;">22 / 47</span>
+        <span>Failure handling › Retries</span>
+        <span style="margin-left: auto; padding: 3px 10px; border: 1px solid #3a3d47; border-radius: 999px;">Split at H3 · 7 slides</span>
+      </div>
+      <div style="aspect-ratio: 16 / 9; background: #ffffff; border-radius: 10px; padding: 36px 44px; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);">
+        <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #5c5e66;">Failure handling</div>
+        <h2 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 40px; letter-spacing: -0.02em; line-height: 1;">Retries</h2>
+        <p style="margin: 0; font-size: 16px; line-height: 1.55; max-width: 620px;">Clients retry with the same idempotency key and exponential backoff from 200 ms, capped at 10 s. The command API owns the retry budget.</p>
+        <table style="border-collapse: collapse; font-size: 13px; margin-top: 4px;">
+          <thead><tr><th style="text-align: left; padding: 6px 10px; border-bottom: 2px solid #17181c;">Failure</th><th style="text-align: left; padding: 6px 10px; border-bottom: 2px solid #17181c;">Retry?</th><th style="text-align: left; padding: 6px 10px; border-bottom: 2px solid #17181c;">Budget</th></tr></thead>
+          <tbody>
+            <tr><td style="padding: 6px 10px; border-bottom: 1px solid #e3e3df;">Network timeout to processor</td><td style="padding: 6px 10px; border-bottom: 1px solid #e3e3df;">Yes</td><td style="padding: 6px 10px; border-bottom: 1px solid #e3e3df;">3 attempts</td></tr>
+            <tr><td style="padding: 6px 10px; border-bottom: 1px solid #e3e3df;">Processor decline</td><td style="padding: 6px 10px; border-bottom: 1px solid #e3e3df;">No</td><td style="padding: 6px 10px; border-bottom: 1px solid #e3e3df;">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div aria-label="Slide strip" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px;">
+        <sc-for list="{{strip}}" as="s" hint-placeholder-count="5">
+          <button type="button" style="{{s.style}}"><span style="font-size: 10px; color: #8d909a;">{{s.n}}</span><span style="display: block; font-size: 11px; color: #e9eaee; font-weight: 600;">{{s.title}}</span></button>
+        </sc-for>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#e5532d","options":["#e5532d","#3b5bfd","#0f9d76"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#e5532d';
+    const rows = [
+      ['Summary', '1'], ['Goals and non-goals', '1'], ['Current architecture', '1'], ['Problems', '2'],
+      ['Proposed architecture', '4'], ['Payment lifecycle', '1'], ['Request flow', '1'], ['Data model', '2'],
+      ['Failure handling', '7'], ['Configuration flags', '3'], ['Migration plan', '2'], ['Rollout', '2']
+    ];
+    const strip = [['21', 'Failure handling'], ['22', 'Retries'], ['23', 'Timeouts'], ['24', 'Poison messages'], ['25', 'Partial failures']];
+    return {
+      accent,
+      outline: rows.map(([title, pages]) => ({
+        title, pages,
+        style: 'display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 6px; text-decoration: none; color: #17181c; ' +
+          (title === 'Failure handling' ? 'background: #f4f4f2; font-weight: 600; box-shadow: inset 3px 0 0 ' + accent + ';' : '')
+      })),
+      strip: strip.map(([n, title]) => ({
+        n, title,
+        style: 'text-align: left; aspect-ratio: 16 / 9; padding: 8px; border-radius: 6px; background: #22252d; font: inherit; ' +
+          (n === '22' ? 'border: 2px solid ' + accent + ';' : 'border: 1px solid #3a3d47;')
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

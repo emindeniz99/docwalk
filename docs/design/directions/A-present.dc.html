@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>docwalk, Familiar: presenting</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0969da}a:hover{color:#0550ae}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 900px; display: flex; flex-direction: column; background: #ffffff; color: #1f2328; font-family: Inter, system-ui, sans-serif;">
+  <main style="flex: 1; display: flex; flex-direction: column; gap: 24px; padding: 64px 96px 32px; max-width: 1280px; width: 100%; margin: 0 auto; box-sizing: border-box;">
+    <div style="color: #59636e; font-size: 18px;">Ledgerline: payment ledger redesign › Failure handling</div>
+    <h1 style="margin: 0; font-size: 56px; font-weight: 700; letter-spacing: -0.01em;">Retries</h1>
+    <p style="margin: 0; font-size: 26px; line-height: 1.5; max-width: 1000px;">Clients retry with the same idempotency key and exponential backoff from 200 ms, capped at 10 s. The command API owns the retry budget, so one outage cannot multiply attempts.</p>
+    <table style="border-collapse: collapse; font-size: 22px; margin-top: 8px;">
+      <thead>
+        <tr><th style="text-align: left; padding: 10px 16px; border-bottom: 2px solid #d1d9e0;">Failure</th><th style="text-align: left; padding: 10px 16px; border-bottom: 2px solid #d1d9e0;">Retry?</th><th style="text-align: left; padding: 10px 16px; border-bottom: 2px solid #d1d9e0;">Budget</th></tr>
+      </thead>
+      <tbody>
+        <tr><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">Network timeout to processor</td><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">Yes</td><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">3 attempts</td></tr>
+        <tr><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">Processor decline</td><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">No</td><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">0</td></tr>
+        <tr><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">Database serialization failure</td><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">Yes</td><td style="padding: 10px 16px; border-bottom: 1px solid #d1d9e0;">5 attempts</td></tr>
+      </tbody>
+    </table>
+  </main>
+  <footer style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 24px; border-top: 1px solid #d1d9e0; background: #f6f8fa;">
+    <button type="button" aria-label="Previous slide" style="width: 44px; height: 44px; border: 1px solid #d1d9e0; border-radius: 6px; background: #ffffff; font: inherit;">‹</button>
+    <button type="button" aria-label="Next slide" style="width: 44px; height: 44px; border: 1px solid #d1d9e0; border-radius: 6px; background: #ffffff; font: inherit;">›</button>
+    <span style="font-size: 14px; color: #59636e;">22 / 47</span>
+    <div role="progressbar" aria-label="Deck progress" aria-valuenow="22" aria-valuemin="1" aria-valuemax="47" style="flex: 1; min-width: 160px; height: 4px; background: #d1d9e0; border-radius: 2px;"><div style="width: 47%; height: 4px; background: {{accent}}; border-radius: 2px;"></div></div>
+    <button type="button" aria-label="Pen" style="height: 44px; padding: 0 14px; border: 1px solid #d1d9e0; border-radius: 6px; background: #ffffff; font: inherit;">Pen</button>
+    <button type="button" aria-label="Laser pointer" style="height: 44px; padding: 0 14px; border: 1px solid #d1d9e0; border-radius: 6px; background: #ffffff; font: inherit;">Laser</button>
+    <button type="button" aria-label="Overview" style="height: 44px; padding: 0 14px; border: 1px solid #d1d9e0; border-radius: 6px; background: #ffffff; font: inherit;">Overview</button>
+    <button type="button" aria-label="Open presenter window" style="height: 44px; padding: 0 14px; border: 1px solid #d1d9e0; border-radius: 6px; background: #ffffff; font: inherit;">Presenter</button>
+    <button type="button" aria-label="Exit presentation" style="height: 44px; padding: 0 14px; border: 1px solid #d1d9e0; border-radius: 6px; background: #ffffff; font: inherit;">Esc</button>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0969da","options":["#0969da","#1f883d","#8250df"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#0969da' };
+  }
+}
+</script>
+</body>
+</html>

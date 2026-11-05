@@ -1,0 +1,38 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "A-present.dc.html": { "expand": "fill", "h": 900, "title": "A · Familiar — presenting", "w": 1440, "x": 1520, "y": 0 },
+    "B-editor.dc.html": { "expand": "fill", "h": 900, "title": "B · Stage — editor + preview", "w": 1440, "x": 0, "y": 1320 },
+    "B-present.dc.html": { "expand": "fill", "h": 900, "title": "B · Stage — presenting", "w": 1440, "x": 1520, "y": 1320 },
+    "C-editor.dc.html": { "expand": "fill", "h": 900, "title": "C · Workbench — editor + preview", "w": 1440, "x": 0, "y": 2640 },
+    "C-present.dc.html": { "expand": "fill", "h": 900, "title": "C · Workbench — presenting", "w": 1440, "x": 1520, "y": 2640 },
+    "D-focus.dc.html": { "expand": "fill", "h": 900, "title": "Shared · diagram focus with pen and laser (Stage look)", "w": 1440, "x": 0, "y": 3960 },
+    "D-mobile.dc.html": { "h": 844, "title": "Shared · presenting on a phone (Stage look)", "w": 390, "x": 1520, "y": 3960 },
+    "Main.dc.html": { "expand": "fill", "h": 900, "title": "A · Familiar — editor + preview", "w": 1440, "x": 0, "y": 0 },
+    "E-editor.dc.html": { "expand": "fill", "h": 900, "title": "Recommended · editor: Stage layout + Workbench tools", "w": 1440, "x": 0, "y": 5280 }
+  },
+  "createdOnFiles": { "at": "2026-11-05T10:05:00Z", "v": 1 },
+  "designSystems": [],
+  "launch": { "view": "canvas" },
+  "notes": {
+    "rowA": { "kind": "title1", "maxW": 2960, "text": "A · Familiar: looks like GitHub, document first", "w": 240, "x": 0, "y": -300 },
+    "rowB": { "kind": "title1", "maxW": 2960, "text": "B · Stage: presentation first, big type, quiet chrome", "w": 240, "x": 0, "y": 1020 },
+    "rowC": { "kind": "title1", "maxW": 2960, "text": "C · Workbench: dense, dark, keyboard first", "w": 240, "x": 0, "y": 2340 },
+    "rowD": { "kind": "title1", "maxW": 2960, "text": "Shared screens, drawn in the Stage look", "w": 240, "x": 0, "y": 3695 },
+    "rowE": { "kind": "title1", "maxW": 2960, "text": "Recommended mix: Stage presenting, this editor, Familiar document mode", "w": 240, "x": 0, "y": 4980 }
+  },
+  "order": [
+    "Main.dc.html",
+    "A-present.dc.html",
+    "B-editor.dc.html",
+    "B-present.dc.html",
+    "C-editor.dc.html",
+    "C-present.dc.html",
+    "D-focus.dc.html",
+    "D-mobile.dc.html",
+    "E-editor.dc.html"
+  ],
+  "pages": [],
+  "title": "docwalk design directions"
+}

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>docwalk, Familiar: editor and preview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0969da}a:hover{color:#0550ae}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 900px; display: flex; flex-direction: column; background: #f6f8fa; color: #1f2328; font-family: Inter, system-ui, sans-serif; font-size: 14px;">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 10px 20px; background: #ffffff; border-bottom: 1px solid #d1d9e0;">
+    <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 19c2-4 4-6 7-6s5 2 7 6"></path><circle cx="8" cy="7" r="2"></circle><circle cx="16" cy="5" r="2"></circle></svg>
+      docwalk
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; color: #59636e;">
+      <span style="font-family: 'JetBrains Mono', monospace; color: #1f2328;">ledger-redesign.md</span>
+      <span style="padding: 2px 8px; border: 1px solid #d1d9e0; border-radius: 999px; font-size: 12px;">Pasted · saved in this browser</span>
+    </div>
+    <nav aria-label="Mode" style="display: flex; margin-left: auto; border: 1px solid #d1d9e0; border-radius: 6px; overflow: hidden;">
+      <button type="button" style="padding: 6px 14px; border: 0; background: #f6f8fa; font: inherit; font-weight: 600; color: #1f2328;">Edit</button>
+      <button type="button" style="padding: 6px 14px; border: 0; border-left: 1px solid #d1d9e0; background: #ffffff; font: inherit; color: #59636e;">Document</button>
+      <button type="button" style="padding: 6px 14px; border: 0; border-left: 1px solid #d1d9e0; background: #ffffff; font: inherit; color: #59636e;">Present</button>
+    </nav>
+    <label style="display: flex; align-items: center; gap: 6px; color: #59636e;">Slides at
+      <select style="font: inherit; padding: 5px 8px; border: 1px solid #d1d9e0; border-radius: 6px; background: #ffffff;"><option>Auto (H2)</option><option>H1</option><option>H3</option></select>
+    </label>
+    <button type="button" style="padding: 7px 14px; border: 1px solid #1f883d; border-radius: 6px; background: #1f883d; color: #ffffff; font: inherit; font-weight: 600;">Share</button>
+  </header>
+
+  <main style="flex: 1; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 0;">
+    <section aria-label="Markdown source" style="display: flex; flex-direction: column; background: #ffffff; border-right: 1px solid #d1d9e0;">
+      <div style="padding: 8px 16px; border-bottom: 1px solid #d1d9e0; color: #59636e; font-size: 12px;">Markdown · 809 lines</div>
+      <div style="flex: 1; display: grid; grid-template-columns: 48px minmax(0, 1fr); font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 22px;">
+        <div style="padding: 12px 8px; text-align: right; color: #8c959f; background: #f6f8fa; white-space: pre-line;">96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115</div>
+        <div style="padding: 12px 16px; white-space: pre-wrap; color: #1f2328;"><span style="color: #0550ae; font-weight: 600;">## Current architecture</span>
+
+The current system writes balances in place. The API service updates the <span style="color: #953800;">`balances`</span> table and inserts a row into <span style="color: #953800;">`transactions`</span> in the same request, but not always in the same database transaction.
+
+<span style="color: #8250df;">```mermaid</span>
+flowchart LR
+    client[Client apps] --&gt; gw[API gateway]
+    gw --&gt; api[Payments API]
+    api --&gt; bal[(balances table)]
+    api --&gt; txn[(transactions table)]
+<span style="color: #8250df;">```</span>
+
+<span style="color: #0550ae; font-weight: 600;">## Problems with the current system</span>
+
+1. Refunds retried after a timeout can apply twice…</div>
+      </div>
+    </section>
+
+    <section aria-label="Preview" style="display: flex; flex-direction: column; gap: 16px; padding: 20px;">
+      <div style="display: flex; align-items: center; gap: 8px; color: #59636e; font-size: 12px;">
+        <span style="font-weight: 600; color: #1f2328;">Slide 5 of 47</span>
+        <span>current-architecture/1</span>
+        <span style="margin-left: auto;">Synced with the cursor</span>
+      </div>
+      <div style="aspect-ratio: 16 / 9; background: #ffffff; border: 1px solid #d1d9e0; border-radius: 8px; box-shadow: 0 1px 3px rgba(31, 35, 40, 0.08); padding: 32px 40px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box;">
+        <div style="color: #59636e; font-size: 12px;">Ledgerline: payment ledger redesign</div>
+        <h2 style="margin: 0; font-size: 28px; font-weight: 700;">Current architecture</h2>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55;">The current system writes balances in place. The API service updates the <code style="font-family: 'JetBrains Mono', monospace; background: #f6f8fa; padding: 1px 4px; border-radius: 4px;">balances</code> table and inserts a row into <code style="font-family: 'JetBrains Mono', monospace; background: #f6f8fa; padding: 1px 4px; border-radius: 4px;">transactions</code> in the same request.</p>
+        <figure style="margin: 8px 0 0; flex: 1; display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px dashed #d1d9e0; border-radius: 6px;">
+          <div style="padding: 8px 12px; background: #ddf4ff; border: 1px solid #54aeff; border-radius: 4px; font-size: 12px;">Client apps</div>
+          <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true"><path d="M0 5h18M14 1l4 4-4 4" fill="none" stroke="#59636e" stroke-width="1.5"></path></svg>
+          <div style="padding: 8px 12px; background: #ddf4ff; border: 1px solid #54aeff; border-radius: 4px; font-size: 12px;">API gateway</div>
+          <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true"><path d="M0 5h18M14 1l4 4-4 4" fill="none" stroke="#59636e" stroke-width="1.5"></path></svg>
+          <div style="padding: 8px 12px; background: #ddf4ff; border: 1px solid #54aeff; border-radius: 4px; font-size: 12px;">Payments API</div>
+          <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true"><path d="M0 5h18M14 1l4 4-4 4" fill="none" stroke="#59636e" stroke-width="1.5"></path></svg>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div style="padding: 6px 10px; background: #ffffff; border: 1px solid #54aeff; border-radius: 10px; font-size: 12px;">balances table</div>
+            <div style="padding: 6px 10px; background: #ffffff; border: 1px solid #54aeff; border-radius: 10px; font-size: 12px;">transactions table</div>
+          </div>
+          <span style="margin-left: auto; align-self: flex-end; font-size: 11px; color: #59636e;">Click to explore</span>
+        </figure>
+      </div>
+
+      <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; color: #3b2300;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9a6700" stroke-width="2" aria-hidden="true"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18v.5"></path></svg>
+        <div><strong>2 notes in this deck.</strong> "Proposed architecture" shows its diagram at 26%, too small to read: it opens full screen on click. One code block in the appendix is taller than a slide.</div>
+      </div>
+
+      <div aria-label="Slide overview" style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px;">
+        <sc-for list="{{thumbs}}" as="t" hint-placeholder-count="6">
+          <button type="button" style="{{t.style}}">
+            <span style="display: block; font-size: 10px; color: #59636e;">{{t.n}}</span>
+            <span style="display: block; font-size: 11px; font-weight: 600; line-height: 1.3; color: #1f2328;">{{t.title}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0969da","options":["#0969da","#1f883d","#8250df"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const base = 'text-align: left; aspect-ratio: 16 / 9; padding: 8px; border-radius: 6px; background: #ffffff; font: inherit; cursor: pointer; ';
+    const items = [
+      ['3', 'Goals and non-goals'], ['4', 'Glossary'], ['5', 'Current architecture'],
+      ['6', 'Problems · 1/2'], ['7', 'Problems · 2/2'], ['8', 'Proposed architecture']
+    ];
+    return {
+      accent: this.props.accent ?? '#0969da',
+      thumbs: items.map(([n, title]) => ({
+        n, title,
+        style: base + (n === '5' ? 'border: 2px solid #0969da;' : 'border: 1px solid #d1d9e0;')
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>
