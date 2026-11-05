@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+import { firstLoadFilesContaining } from "./first-load.ts";
 
 // Decision 43: size-limit fails the build above the hard limit in
 // .size-limit.ts (1 MB); above WARN_BYTES it only warns, so growth is seen
@@ -28,4 +30,13 @@ for (const result of JSON.parse(output) as Result[]) {
     console.log(process.env["GITHUB_ACTIONS"] ? `::warning::${message}` : `warning: ${message}`);
   }
 }
+// Decision 53: Monaco is opt-in and about 830 kB gzip. Its code in the first
+// load would stay under the hard limit and still cost every visitor, so its
+// presence fails on its own. `MonacoEnvironment` appears only in Monaco's code.
+const leaked = firstLoadFilesContaining(join(import.meta.dirname, "../dist"), "MonacoEnvironment");
+if (leaked.length > 0) {
+  console.log(`Monaco reached the first load through ${leaked.join(", ")}; keep it behind lazy()`);
+  failed = true;
+}
+
 process.exit(failed ? 1 : 0);

@@ -37,6 +37,7 @@ import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
 import { clonePages, type DeckController, type SlideInfo } from "./deck/controller";
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
 import { useOverviewShortcut } from "./deck/useOverviewShortcut";
+import { useEditorChoice } from "./editor/choice";
 import type { EditorDiagnostic } from "./editor/types";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
@@ -64,6 +65,10 @@ type View = "edit" | "document" | "present";
 // CodeMirror is the largest single dependency; load it after the deck is up.
 const SourceEditor = lazy(() =>
   import("./editor/SourceEditor").then((m) => ({ default: m.SourceEditor })),
+);
+// Monaco (decision 53) is larger still and loads only for viewers who pick it.
+const MonacoEditor = lazy(() =>
+  import("./editor/monaco/MonacoEditor").then((m) => ({ default: m.MonacoEditor })),
 );
 // Dialogs and the exporters (modern-screenshot, the HTML sanitizer, the QR
 // encoder) stay out of the first-load bundle (decision 43).
@@ -145,6 +150,7 @@ export function App() {
   const overview = useLazyDialog();
   const [remoteOn, setRemoteOn] = useState(false);
   const phone = useMediaQuery(PHONE);
+  const Editor = useEditorChoice() === "monaco" ? MonacoEditor : SourceEditor;
   // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
   const [health, setHealth] = useState<HealthResponse | null>(null);
   useEffect(() => {
@@ -639,7 +645,7 @@ export function App() {
           <section className="docwalk-source" aria-label="Markdown source">
             {doc ? (
               <Suspense fallback={<p className="docwalk-loading">Loading editor…</p>}>
-                <SourceEditor
+                <Editor
                   value={markdown}
                   onChange={inputs.edit}
                   onCursorLine={onCursorLine}

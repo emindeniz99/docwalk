@@ -37,3 +37,14 @@ export function firstLoadFiles(dist: string, lazy: readonly string[] = ["App"]):
   }
   return [...files];
 }
+
+/**
+ * The first-load files whose text contains `marker`. A bundler can merge a
+ * lazy module into an eager chunk under another name, so the check reads the
+ * contents instead of trusting file names.
+ */
+export function firstLoadFilesContaining(dist: string, marker: string): string[] {
+  return firstLoadFiles(dist).filter((file) =>
+    readFileSync(join(dist, file), "utf8").includes(marker),
+  );
+}

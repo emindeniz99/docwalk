@@ -1,0 +1,65 @@
+/*
+ * Monaco (decision 53) on top of editor.css. Colours inside the text area
+ * come from the Monaco theme built in theme.ts; this file only styles what
+ * docwalk adds: focus ring, diagnostics and the reveal highlight. Selectors
+ * start with .docwalk-monaco .monaco-editor to outrank Monaco's own CSS.
+ */
+
+.docwalk-monaco .docwalk-editor-host {
+  position: relative;
+  min-width: 0;
+}
+
+.docwalk-monaco .monaco-editor {
+  position: absolute;
+  inset: 0;
+}
+
+.docwalk-monaco .monaco-editor.focused {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* ---- Diagnostics: yellow, never red (DESIGN.md "note-*") ---------------- */
+
+.docwalk-monaco .monaco-editor .dw-note-line {
+  background: var(--note-bg);
+}
+
+/* Monaco sizes glyph-margin elements inline, so the dot is drawn inside, centred. */
+.docwalk-monaco .monaco-editor .dw-note-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.docwalk-monaco .monaco-editor .dw-note-marker::before {
+  box-sizing: border-box;
+  width: var(--dw-space-sm);
+  height: var(--dw-space-sm);
+  border: 2px solid var(--note-border);
+  border-radius: var(--dw-radius-full);
+  content: "";
+}
+
+/* A warning is filled, a note is a ring: shape carries the severity, not colour alone. */
+.docwalk-monaco .monaco-editor .dw-note-warning::before {
+  background: var(--note-border);
+}
+
+/* ---- Reveal: the line the outline pointed at ---------------------------- */
+
+.docwalk-monaco .monaco-editor .dw-reveal {
+  animation: dw-reveal-fade 1.2s ease-out forwards;
+  background: var(--note-bg);
+  box-shadow: inset 3px 0 0 var(--focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docwalk-monaco .monaco-editor .dw-reveal {
+    animation: none;
+  }
+}
