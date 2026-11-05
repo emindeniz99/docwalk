@@ -19,3 +19,11 @@ allowBuilds:
   # bundler; workerd, Cloudflare's runtime that wrangler and Miniflare run).
   esbuild: true
   workerd: true
+
+overrides:
+  # Excalidraw 0.18.1 pins mermaid-to-excalidraw 2.2.2, which pulls Mermaid 11
+  # and langium 3.3.1; trustPolicy rejects that langium as a provenance
+  # downgrade. 3.x converts through Pele with no Mermaid and no live DOM, and
+  # keeps the same `parseMermaidToExcalidraw` API, so Excalidraw's own copy
+  # follows the one canvas mode uses (decision 54).
+  "@excalidraw/excalidraw>@excalidraw/mermaid-to-excalidraw": "3.1.0"
