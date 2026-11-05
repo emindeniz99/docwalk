@@ -1,0 +1,154 @@
+/* ---- Share dialog (decision 7) ------------------------------------------- */
+
+.docwalk-share-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding-top: 12vh;
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-share {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 2 * var(--dw-space-lg)));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-xl);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 var(--dw-space-xl) var(--dw-space-3xl) var(--dw-color-slide-shadow);
+}
+
+.docwalk-share-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-md);
+  padding: var(--dw-space-lg) var(--dw-space-xl) var(--dw-space-xl);
+  outline: none;
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-ui-size);
+  line-height: var(--dw-type-ui-line-height);
+}
+
+.docwalk-share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dw-space-md);
+}
+
+.docwalk-share-title {
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  line-height: var(--dw-type-heading-line-height);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+}
+
+.docwalk-share-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-share-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-share-input {
+  flex: 1 1 240px;
+  min-width: 0;
+  min-height: var(--dw-space-target);
+  box-sizing: border-box;
+  padding: 0 var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--dw-type-mono-family);
+  font-size: var(--dw-type-mono-size);
+}
+
+.docwalk-share-close,
+.docwalk-share-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dw-space-sm);
+  box-sizing: border-box;
+  min-width: var(--dw-space-target);
+  min-height: var(--dw-space-target);
+  border-radius: var(--dw-radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.docwalk-share-close {
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* The one primary action on this surface (DESIGN.md: one per surface). */
+.docwalk-share-copy {
+  padding: 0 var(--dw-space-lg);
+  border: 1px solid var(--dw-color-primary);
+  background: var(--dw-color-primary);
+  color: var(--dw-color-on-primary);
+  font-weight: 700;
+}
+
+.docwalk-share-close[data-pressed],
+.docwalk-share-copy[data-pressed] {
+  filter: brightness(0.92);
+}
+
+.docwalk-share-input:focus-visible,
+.docwalk-share-close[data-focus-visible],
+.docwalk-share-copy[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-share-warning,
+.docwalk-share-privacy {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--dw-space-sm);
+  margin: 0;
+}
+
+.docwalk-share-warning {
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border: 1px solid var(--note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--note-bg);
+  color: var(--note-fg);
+}
+
+.docwalk-share-warning svg,
+.docwalk-share-privacy svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.docwalk-share-muted {
+  margin: 0;
+  color: var(--muted);
+}
+
+.docwalk-share-status {
+  margin: 0;
+  min-height: 1lh;
+  color: var(--muted);
+}
+
+.docwalk-share-status:empty {
+  min-height: 0;
+}
