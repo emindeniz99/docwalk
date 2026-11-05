@@ -199,6 +199,30 @@ describe("heading anchors in the deck", () => {
     expect(present().querySelector("#user-content-retry-budget")).not.toBeNull();
   });
 
+  test("anchors on a page that merged short sub-heading parts open that one page", async () => {
+    // The deck track merges short parts after a split; the anchor fallback
+    // must find each merged heading on the shared page, so a link and the
+    // overview agree on one address.
+    const short = "A short note.\n\n";
+    const long = "A paragraph of explanation that takes some room.\n\n".repeat(14);
+    const deck = await mountDeck(
+      `# Doc\n\nx\n\n## Failure handling\n\nintro\n\n### Retries\n\n${short}### Timeouts\n\n${short}### Poison messages\n\n${long}### Alerts\n\n${short}### Dashboards\n\n${short}`,
+    );
+    const pages = deck.slides().filter((s) => s.sectionId === "failure-handling");
+    const last = pages.at(-1)!.address;
+    expect(deck.goTo("alerts")).toBe(true);
+    await expect.poll(() => deck.current()?.address).toBe(last);
+    deck.goTo("failure-handling");
+    await expect.poll(() => deck.current()?.address).toBe(pages[0]!.address);
+    expect(deck.goTo("dashboards")).toBe(true);
+    await expect.poll(() => deck.current()?.address).toBe(last);
+    expect(present().querySelector("#user-content-alerts")).not.toBeNull();
+    expect(present().querySelector("#user-content-dashboards")).not.toBeNull();
+    // Timeouts merged into the first page, with the slide heading.
+    expect(deck.goTo("timeouts")).toBe(true);
+    await expect.poll(() => deck.current()?.address).toBe(pages[0]!.address);
+  });
+
   test("an unknown anchor is still refused, so the URL sync falls back as before", async () => {
     const deck = await mountDeck(LONG);
     expect(deck.goTo("no-such-heading")).toBe(false);
