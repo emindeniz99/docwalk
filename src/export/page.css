@@ -1,0 +1,56 @@
+/*
+ * Layout of a standalone export (print view and the downloaded HTML file).
+ * Loaded as text and written into those documents only, never into the app:
+ * an @page rule here would change how the app itself prints.
+ * The @page size and each page's width and height come from the deck size.
+ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--dw-color-stage);
+}
+
+.docwalk-export {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--dw-space-2xl);
+  padding: var(--dw-space-2xl) var(--dw-space-lg);
+}
+
+.docwalk-export-page {
+  flex: none;
+  overflow: hidden;
+  break-inside: avoid;
+}
+
+/* One slide per printed page; breaks are ignored on screen. */
+.docwalk-export-page + .docwalk-export-page {
+  break-before: page;
+}
+
+/* An exported page is a page, not an object on a stage. */
+.docwalk-export-page .docwalk-slide {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+@media print {
+  html,
+  body {
+    background: var(--dw-color-slide);
+  }
+
+  .docwalk-export {
+    display: block;
+    padding: 0;
+  }
+
+  /* Keep code and note backgrounds: they carry meaning, not decoration. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

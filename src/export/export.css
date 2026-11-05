@@ -1,0 +1,49 @@
+/* Export menu, plus the two off-screen hosts the exporters mount in the app document. */
+
+.docwalk-export-menu-root {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-export-trigger {
+  min-height: var(--dw-space-target);
+}
+
+.docwalk-export-trigger[data-pending] {
+  cursor: progress;
+}
+
+.docwalk-export-menu .docwalk-menu-item {
+  min-height: var(--dw-space-target);
+}
+
+.docwalk-export-status {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+/* The print view: present for the print dialog, invisible and zero-size on screen. */
+.docwalk-print-frame {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border: 0;
+}
+
+/* PNG capture: laid out at deck size, far outside the viewport. */
+.docwalk-export-capture {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  color-scheme: light;
+  /* The slide is white in both themes, so links take the light-theme colour. */
+  --link: var(--dw-color-primary-ink);
+}
+
+.docwalk-export-capture .docwalk-slide {
+  border-radius: 0;
+  box-shadow: none;
+}
