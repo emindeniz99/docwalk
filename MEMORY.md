@@ -6,23 +6,29 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-Scaffold (Vite 8, React 19, TS 7, Vitest 5, pnpm 12) and the AST sectioner
-(`src/sectioning/sectionize.ts`, 23 unit + property tests) are done. Next:
-reveal.js embedded rendering of the sections, then Mermaid focus and the
-measurement pass (`ROADMAP.md` week 1, steps 4–6).
+Week-1 spike done: AST sectioner, sanitized rendering into embedded reveal.js,
+Mermaid in strict mode with the security pre-pass, diagram fitting and focus
+view (panzoom), off-screen overflow measurement with diagnostics. `pnpm
+check` passes (23 unit + 11 browser tests). Next: H3 fallback and semantic
+pagination, then the presenter window and the editor.
 
 Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
-pnpm@12.16.1 --dir <project> <script>` (no mise there).
+pnpm@12.16.1 --dir <project> <script>`; browser tests need
+`DOCWALK_CHROMIUM_PATH=/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell`.
 
 ## Decisions
 
-- 2026-11-05: The full decision list lives in `docs/decisions.md` (45 rows); the evidence is in `docs/prior-art.md`. This file stays short.
+- 2026-11-05: The full decision list lives in `docs/decisions.md` (48 rows); the evidence is in `docs/prior-art.md`. This file stays short.
 - 2026-11-05: Thin viewer on reveal.js, Mermaid, drauu and unified, over forking Slidekick, Marp Core or Slidev + WebContainer: Slidekick splits on H1 and silently shrinks, Marp Core v5 is a release candidate, WebContainer needs a paid licence for employee use.
 - 2026-11-05: Vite SPA + Cloudflare Worker over Vinext: the UI runs entirely in the browser, and Vinext is pre-1.0.
 - 2026-11-05: Full semantic pagination and OAuth ship in v1, against a reviewer's advice to stage them. Slides are addressed by section id to keep links stable.
 
 ## Learnings
 
+- 2026-11-05: reveal.js's notes plugin opens previews of `location.href`; for an app whose deck comes from pasted input, the previews show the wrong thing. Build the presenter window on BroadcastChannel instead.
+- 2026-11-05: reveal.js hides distant slides with `display: none`, so they measure as empty; measure clones in an off-screen box with `visibility: hidden`.
+- 2026-11-05: Fit diagrams from the SVG viewBox, not from layout: it works on hidden slides. Mermaid's own `max-width` style must be overridden or the fitted width is ignored.
+- 2026-11-05: DOMPurify's SVG profile strips `foreignObject`, which Mermaid uses for HTML labels; run Mermaid with root `htmlLabels: false` so labels are SVG text.
 - 2026-11-05: reveal.js's Markdown plugin discards the separator match and is not fence-aware; split on the AST and hand reveal pre-built `<section>` HTML.
 - 2026-11-05: GitHub's OAuth token exchange needs `client_secret` and has no CORS, PKCE included: browser-only OAuth is impossible, hence the Worker.
 - 2026-11-05: A static `_headers` CSP cannot carry a per-visitor image setting, and a `<meta>` CSP cannot carry `frame-ancestors`: the sanitizer is the image gate.
@@ -32,5 +38,6 @@ pnpm@12.16.1 --dir <project> <script>` (no mise there).
 
 ## Done
 
+- 2026-11-05: Week-1 spike: reveal.js deck, Mermaid focus, overflow diagnostics; fixture shows 23 slides, 0 diagram errors, 10 honestly flagged overflows.
 - 2026-11-05: Acceptance fixture `fixtures/ledger-redesign.md` (809 lines, 7 Mermaid diagrams, all parse with Mermaid 11.12).
 - 2026-11-05: Prior-art research, design review, decision list and project docs.

@@ -7,6 +7,15 @@ trigger fires, and delete the entry in the same commit.
 
 ### Week 1: spike (decides rows 27 and 28)
 
+Done on 2026-11-05: steps 1 to 6, except the presenter window. reveal.js's
+notes plugin was tried and dropped: its preview frames reload the page URL,
+so they show the app shell and the default document instead of the deck
+(decision 8 already calls for a BroadcastChannel presenter window). Other
+limits still open: footnotes
+render only in the section that holds their definition; raw HTML is dropped
+until rehype-raw is added behind the sanitizer; overflowing slides scroll
+inside the slide with a diagnostic until pagination lands.
+
 1. Write the acceptance fixture in `fixtures/`: a long synthetic design doc
    with many `##` and `###` sections, flowcharts, sequence and state
    diagrams, long lists, an oversized table, code and links. No personal
@@ -26,6 +35,8 @@ with a custom shell (overview grid, keyboard, fullscreen).
 
 ### After the spike
 
+- Presenter window over `BroadcastChannel`: current and next slide, notes,
+  timer; the audience window stays the source of the rendered deck.
 - H3 fallback and semantic pagination (paragraphs, list items, table rows
   with repeated headers).
 - CodeMirror 6 editor with live preview and inline diagnostics.

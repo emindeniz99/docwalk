@@ -1,0 +1,185 @@
+/* Placeholder look until DESIGN.md defines tokens (ROADMAP: DESIGN.md once the first themes exist). */
+:root {
+  color-scheme: light dark;
+  --dw-fg: #1f2328;
+  --dw-bg: #ffffff;
+  --dw-muted: #59636e;
+  --dw-border: #d1d9e0;
+  --dw-warn-bg: #fff8c5;
+  --dw-warn-fg: #3b2300;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --dw-fg: #f0f6fc;
+    --dw-bg: #0d1117;
+    --dw-muted: #9198a1;
+    --dw-border: #3d444d;
+    --dw-warn-bg: #3b2300;
+    --dw-warn-fg: #fff8c5;
+  }
+}
+
+body {
+  margin: 0;
+  color: var(--dw-fg);
+  background: var(--dw-bg);
+}
+
+.docwalk-app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100dvh;
+}
+
+.docwalk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--dw-border);
+}
+
+.docwalk-toolbar textarea {
+  width: 100%;
+  min-height: 8rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.docwalk-deck {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-height: 0;
+}
+
+.docwalk-deck-host {
+  position: relative;
+  min-height: 0;
+}
+
+.docwalk-deck-host:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: -2px;
+}
+
+.docwalk-deck-host .reveal {
+  height: 100%;
+}
+
+.docwalk-status {
+  margin: 0;
+  padding: 0.25rem 1rem;
+  color: var(--dw-muted);
+  font-size: 0.85rem;
+}
+
+/* One slide: breadcrumb, body, diagnostic. The body scrolls rather than clips. */
+.reveal .slides > section,
+section[data-docwalk-id] {
+  height: 100%;
+  padding: 0;
+  text-align: left;
+}
+
+.docwalk-slide {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  color: var(--dw-fg);
+  font-size: 24px;
+  line-height: 1.5;
+}
+
+.docwalk-breadcrumb {
+  color: var(--dw-muted);
+  font-size: 0.7em;
+  margin-bottom: 0.4em;
+}
+
+.docwalk-slide-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.docwalk-slide-body h1,
+.docwalk-slide-body h2 {
+  margin-top: 0;
+  line-height: 1.2;
+}
+
+.docwalk-slide-body table {
+  border-collapse: collapse;
+  font-size: 0.8em;
+}
+
+.docwalk-slide-body th,
+.docwalk-slide-body td {
+  border: 1px solid var(--dw-border);
+  padding: 0.2em 0.5em;
+}
+
+.docwalk-slide-body pre {
+  font-size: 0.7em;
+  overflow: auto;
+}
+
+.docwalk-overflow {
+  margin: 0.3em 0 0;
+  padding: 0.3em 0.6em;
+  border-radius: 0.3em;
+  background: var(--dw-warn-bg);
+  color: var(--dw-warn-fg);
+  font-size: 0.6em;
+}
+
+/* fitDiagrams sizes each SVG to the slide; hosts still clip as a last resort, and the measurement pass checks each host. */
+.docwalk-diagram {
+  margin: 0.5em 0;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.docwalk-diagram svg {
+  display: block;
+}
+
+.docwalk-blocked-image {
+  display: inline-block;
+  min-width: 8em;
+  min-height: 2em;
+  border: 1px dashed var(--dw-border);
+}
+
+.docwalk-focus {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  background: var(--dw-bg);
+}
+
+.docwalk-focus-stage {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.docwalk-focus-toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
+.docwalk-focus-toolbar button {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1rem;
+}

@@ -42,18 +42,18 @@ place.
 
 ## Architecture
 
-| #   | Decision                                                                                                                                                           | Status                |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
-| 23  | React 19 + Vite 8 SPA in TypeScript; no router at first (three views in URL state)                                                                                 | accepted              |
-| 24  | One Cloudflare Worker (Hono) via `@cloudflare/vite-plugin` for `/api`; Vinext rejected (no server rendering to gain, pre-1.0)                                      | accepted              |
-| 25  | Parsing: remark-parse, remark-gfm, remark-rehype, rehype-sanitize (GitHub schema), rehype-github-alert, then DOMPurify                                             | accepted              |
-| 26  | Mermaid 12 pinned, lazy ESM, `strict`; pre-pass strips `%%{init}%%`, image shapes and `url()`; `bindFunctions` never called; SVG through DOMPurify                 | accepted              |
-| 27  | reveal.js 6 embedded (`hash: false`, scoped keyboard), rendering into a container React does not reconcile; switch to a custom shell if week 2 still needs patches | accepted, spike-gated |
-| 28  | Zoom/pan with d3-zoom or `@panzoom/panzoom`, chosen in the first spike                                                                                             | open until spike      |
-| 29  | Drawing with `@drauu/core` inside the diagram transform; custom laser on `perfect-freehand`                                                                        | accepted              |
-| 30  | i18n with Paraglide JS + ICU plugin + Weblate Libre; English first; locale switch keeps the draft                                                                  | accepted              |
-| 31  | Browsers: Baseline widely available, Safari 17.4 floor; older browsers get a notice and the plain Markdown                                                         | accepted              |
-| 32  | Dependencies: newest versions at least 7 days old (pnpm `minimumReleaseAge: 10080`), exact pins, bumped weekly by Dependabot with a 7-day cooldown                 | accepted              |
+| #   | Decision                                                                                                                                                                                                                                   | Status                |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
+| 23  | React 19 + Vite 8 SPA in TypeScript; no router at first (three views in URL state)                                                                                                                                                         | accepted              |
+| 24  | One Cloudflare Worker (Hono) via `@cloudflare/vite-plugin` for `/api`; Vinext rejected (no server rendering to gain, pre-1.0)                                                                                                              | accepted              |
+| 25  | Parsing: remark-parse, remark-gfm, remark-rehype, rehype-sanitize (GitHub schema), rehype-github-alert, then DOMPurify                                                                                                                     | accepted              |
+| 26  | Mermaid 12 pinned, lazy ESM, `strict`; pre-pass strips `%%{init}%%`, image shapes and `url()`; `bindFunctions` never called; SVG through DOMPurify                                                                                         | accepted              |
+| 27  | reveal.js 6 embedded (`hash: false`, scoped keyboard), rendering into a container React does not reconcile; switch to a custom shell if week 2 still needs patches                                                                         | accepted, spike-gated |
+| 28  | Zoom/pan with `@panzoom/panzoom`: pinch built in, 3.9 KB, one call per action. d3-zoom would mean leaning on Mermaid's internal d3 or adding d3-selection. Diagrams are fitted to the slide from their viewBox and flagged below 65% scale | accepted              |
+| 29  | Drawing with `@drauu/core` inside the diagram transform; custom laser on `perfect-freehand`                                                                                                                                                | accepted              |
+| 30  | i18n with Paraglide JS + ICU plugin + Weblate Libre; English first; locale switch keeps the draft                                                                                                                                          | accepted              |
+| 31  | Browsers: Baseline widely available, Safari 17.4 floor; older browsers get a notice and the plain Markdown                                                                                                                                 | accepted              |
+| 32  | Dependencies: newest versions at least 7 days old (pnpm `minimumReleaseAge: 10080`), exact pins, bumped weekly by Dependabot with a 7-day cooldown                                                                                         | accepted              |
 
 ## Security and hosting
 
