@@ -6,62 +6,65 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-v1 features are in and a full review (5 dimensions, adversarially verified)
-found 37 defects; all are fixed with a failing-first test each. `pnpm check`
-passes (508 unit/browser + 30 Worker tests, no dist/ needed); `pnpm test:e2e`
-runs 31 Playwright tests with axe on nine surfaces; `pnpm size` (size-limit,
-in CI) measures first load (295 KB gzip JS+CSS); fails above 1 MB, warns above 500 KB. CSP
-`connect-src` is now `'self' https: wss:` (decision 34) and the static build
-carries a meta CSP. Open: decision row 8 needs an ADR (remote moved into v1);
-the presenter window still pulls reveal.js through `deck/Deck.tsx` exports
-(move `SLIDE_SIZE`/`slideAddress` to a small module); v2 workspace and agent
-plan in ROADMAP.
+Round 1 is merged into `claude/docwalk` (2026-11-05): nine tracks (ci, deck,
+markdown, pwa, monaco, canvas, comments, workspace, mcp), each a real merge
+commit, plus cross-track fixes. `pnpm check` passes (855 unit/browser incl.
+mcp/, 30 Worker tests, build); `pnpm size` first load is 386 kB gzip (warn 500 kB, fail
+1 MB); `pnpm test:e2e` runs every spec on Chromium, Firefox and WebKit plus
+a `/docwalk/` sub-path project. Decision rows run to 67: 60-62 Markdown
+fidelity, 63 offline, 64 canvas, 65 comments, 66 workspace, 67 agent parts.
+None of the new GitHub workflows (three-engine e2e, Lighthouse, Stryker,
+deploys) has run on GitHub yet. Open work is in ROADMAP "Follow-ups".
 
 Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
 pnpm@12.16.1 --dir <project> <script>`; browser tests need
-`DOCWALK_CHROMIUM_PATH=/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell`.
+`DOCWALK_CHROMIUM_PATH=/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell`,
+e2e `DOCWALK_CHROMIUM_FULL_PATH=/opt/pw-browsers/chromium`; Firefox and
+WebKit come from `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`. A busy port:
+`DOCWALK_E2E_PORT` (the sub-path build takes the next one).
 
 ## Decisions
 
-- 2026-11-05: The full decision list lives in `docs/decisions.md` (48 rows); the evidence is in `docs/prior-art.md`. This file stays short.
+- 2026-11-05: The full decision list lives in `docs/decisions.md` (67 rows); the evidence is in `docs/prior-art.md`. This file stays short.
 - 2026-11-05: Thin viewer on reveal.js, Mermaid, drauu and unified, over forking Slidekick, Marp Core or Slidev + WebContainer: Slidekick splits on H1 and silently shrinks, Marp Core v5 is a release candidate, WebContainer needs a paid licence for employee use.
 - 2026-11-05: Vite SPA + Cloudflare Worker over Vinext: the UI runs entirely in the browser, and Vinext is pre-1.0.
 - 2026-11-05: Full semantic pagination and OAuth ship in v1, against a reviewer's advice to stage them. Slides are addressed by section id to keep links stable.
+- 2026-11-05: Parallel tracks append decision rows independently; the merge renumbers them in merge order and fixes every reference (round 1: pwa 60→63, canvas →64, comments →65, workspace →66, mcp →67).
 
 ## Learnings
 
-- 2026-11-05: reveal.js `keyboardCondition: "focused"` only counts pointer presses on the deck; Tab and programmatic focus leave it deaf. Use a function that checks DOM focus.
-- 2026-11-05: reveal.js stacks slides at z-index 10 to 12; overlays inside `.slides` need a higher z-index.
-- 2026-11-05: reveal.js binds Escape to its overview and marks the event handled; rebind 27 to a no-op so the app owns Escape.
+- 2026-11-05: reveal.js: `keyboardCondition: "focused"` ignores Tab and programmatic focus (use a DOM-focus function); slides sit at z-index 10-12; it binds Escape and O (rebound to no-ops); it paints `.reveal` backgrounds; scroll view starts at 435 px (`scrollActivationWidth: 0`); distant slides are `display: none` (measure clones); any nested `<section>` becomes a vertical slide (content sections become divs); it lays out only on window resize (panels dispatch one).
+- 2026-11-05: Paginate before reveal.js initializes, split on the AST (its Markdown plugin is not fence-aware), and fit diagrams from the SVG viewBox; measure each Mermaid host, not only the slide.
 - 2026-11-05: Fullscreen only paints the fullscreen element's subtree; put the page root in fullscreen or portalled dialogs vanish.
-- 2026-11-05: Five integration bugs passed 154 unit/browser tests and showed only in the assembled app; the e2e suite now guards each one (verified by reintroducing the keyboard bug).
-- 2026-11-05: React Aria `ListBox` with `selectionMode` reports clicks as `onSelectionChange`, not `onAction`.
-- 2026-11-05: Vite loads TS configs natively now and warns on extensionless relative imports; config-side files import with `.ts` (tsconfig `allowImportingTsExtensions`).
-- 2026-11-05: Vitest inline projects ignore root `plugins` unless each project sets `extends: true`.
-- 2026-11-05: reveal.js paints `.reveal`/`.reveal-viewport` backgrounds; make them transparent or the stage colour never shows.
-- 2026-11-05: Paginate before reveal.js initializes; otherwise its slide count, progress bar and overview describe the unsplit deck.
-- 2026-11-05: reveal.js's notes plugin opens previews of `location.href`; for an app whose deck comes from pasted input, the previews show the wrong thing. Build the presenter window on BroadcastChannel instead.
-- 2026-11-05: reveal.js hides distant slides with `display: none`, so they measure as empty; measure clones in an off-screen box with `visibility: hidden`.
-- 2026-11-05: Fit diagrams from the SVG viewBox, not from layout: it works on hidden slides. Mermaid's own `max-width` style must be overridden or the fitted width is ignored.
-- 2026-11-05: DOMPurify's SVG profile strips `foreignObject`, which Mermaid uses for HTML labels; run Mermaid with root `htmlLabels: false` so labels are SVG text.
-- 2026-11-05: reveal.js's Markdown plugin discards the separator match and is not fence-aware; split on the AST and hand reveal pre-built `<section>` HTML.
-- 2026-11-05: GitHub's OAuth token exchange needs `client_secret` and has no CORS, PKCE included: browser-only OAuth is impossible, hence the Worker.
-- 2026-11-05: A static `_headers` CSP cannot carry a per-visitor image setting, and a `<meta>` CSP cannot carry `frame-ancestors`: the sanitizer is the image gate.
-- 2026-11-05: Mermaid and other diagram hosts hide their own overflow; measure each host, not only the slide (deckrun `src/preview.ts`).
-- 2026-11-05: Pandoc's rule alone gives H1 slides for a README (`# Name` + intro). The lone-H1 title rule fixes that; restricting it to H1 keeps a single `##` with `###` children from being mistaken for a title.
+- 2026-11-05: Firefox and WebKit really enter fullscreen under Playwright and keep Escape for leaving it; the page never sees the key. App replays Escape into an open dialog on `fullscreenchange`, so the overview or sketch closes and presenting continues windowed.
+- 2026-11-05: Integration bugs pass per-module tests and show only in the assembled app; round 1's merge found three (comments lost on workspace files, agent writes skipping the comments edit path, a 16.7 MB precache).
+- 2026-11-05: React Aria: `ListBox` with `selectionMode` reports clicks as `onSelectionChange`; collections cache rows per item object (put row data in the items or pass `dependencies`); `GridListItem` takes its name from `textValue`; Tree rows are DOM siblings; Radio, Switch and Checkbox inputs are visually hidden (click the label or card in Playwright); modals portal to `<body>` (block app keys with a document listener, not stopPropagation on the dialog).
+- 2026-11-05: Vite loads TS configs natively; config-side files import with `.ts`. Vitest inline projects need `extends: true` to inherit root plugins. The node tsconfig has no DOM: a test touching `matchMedia` must be `*.browser.test.ts`.
+- 2026-11-05: Sanitizing: DOMPurify's SVG profile strips `foreignObject` (Mermaid runs with `htmlLabels: false`); hast-util-sanitize re-prefixes ids remark-rehype already prefixed (`clobberPrefix: ''`, resolve `#x` in code); rehype-raw throws on `<template>` inside SVG (catch and re-render without raw HTML); the GitHub schema unwraps `<style>` (strip it with its contents).
+- 2026-11-05: GitHub's OAuth token exchange needs `client_secret` and has no CORS: browser-only OAuth is impossible, hence the Worker. A `<meta>` CSP cannot carry `frame-ancestors`; the sanitizer is the image gate.
+- 2026-11-05: axe misses `contenteditable` as tabbable (CodeMirror `.cm-content` gets `tabindex="0"`) and cannot judge contrast on reveal's scaled slide (assert colours with `getComputedStyle`). Run axe after CSS transitions settle (`document.getAnimations()`), or WebKit measures mid-fade colours.
 - 2026-11-05: Property tests must reuse one parsed tree; re-parsing makes new node objects and identity checks fail for no real reason.
-- 2026-11-05: reveal.js turns on its scroll view when the deck is 435 px wide or less (`scrollActivationWidth`): a phone or a narrow preview stacked every slide at full size. Deck sets it to 0.
-- 2026-11-05: axe does not count `contenteditable` as tabbable, so CodeMirror's scroller failed scrollable-region-focusable until `.cm-content` got `tabindex="0"`. A React Aria Autocomplete menu only takes virtual focus; scroll the dialog that holds the search field instead.
-- 2026-11-05: `role="button"` on a diagram host made the diagram's text presentational and failed label-in-name; a focusable `group` keeps Enter-to-open and the labels.
-- 2026-11-05: Playwright `context.routeWebSocket` without `connectToServer` is a working relay for multi-page remote tests; `addInitScript` also runs in `srcdoc` iframes, so it can stub the print frame's `print()`.
-- 2026-11-05: SourceBanner and the editor pane both used `.docwalk-source`; module CSS must check the shell's class names.
+- 2026-11-05: Playwright: `routeWebSocket` without `connectToServer` relays multi-page remote tests, but cannot carry a Node child's socket (run a local `ws` relay); `addInitScript` reaches `srcdoc` iframes; `context.route` never sees a service worker's update check (serve dist/ from an in-test server).
+- 2026-11-05: Playwright engines: WebKit sends a service-worker-controlled page's requests past routing (config blocks workers; only pwa.spec allows them); WebKit refuses OPFS in throwaway contexts (`opfsTest` uses a persistent one); Firefox `insertText` over a selection inserts nothing (delete first); only Chromium grants clipboard permissions; headless Firefox fullscreen is 1366 px wide; Firefox mobile emulation opens menus on `tap()`, not `click()`; Firefox's HTTP cache answers offline fetches (`cache: "no-store"`) and its offline mode still lets navigations to localhost through; `Page.getInstallabilityErrors` always reports `in-incognito`.
+- 2026-11-05: WebKit's OPFS keeps whole-second `lastModified`; the local-folder poll compares text while a file's time is under 2 s old.
+- 2026-11-05: Chromium 1243 aborts with SIGTRAP when an OPFS directory handle stored in IndexedDB is read back in a new document; workspace.spec stubs the handle with a marker.
+- 2026-11-05: Nowrap text in a flex item sets the header's min-content width even with overflow hidden; `contain: inline-size` stopped a 390 px page scrolling sideways.
+- 2026-11-05: oxlint's React compiler rules reject synchronous setState in effects; derive the state or adjust it during render.
+- 2026-11-05: drauu `load()` clears its undo stack: keep one drauu instance per slide key.
+- 2026-11-05: Importing anything from `deck/Deck.tsx` pulls reveal.js into the importer's chunk; non-deck code imports from `deck/pages.ts`.
+- 2026-11-05: Mermaid 12.2 names node groups `<render-id>-<kind>-<source id>-<n>`; sequence and gantt diagrams have no node ids (guarded by `diagramNodes.browser.test.ts`).
+- 2026-11-05: `indexedDB.deleteDatabase` waits forever while a page holds a connection; close on `versionchange`, or use a new browser context.
+- 2026-11-05: Excalidraw 0.18 lists esm.sh as a second source of every FontFace; `tooling/excalidraw-assets-plugin.ts` rewrites it at build time and fails if the code moves. Convert Mermaid only after Excalifont has loaded, or every label is clipped.
+- 2026-11-05: pnpm `trustPolicy: no-downgrade` rejects vite-plugin-pwa (workbox-build) and mermaid-to-excalidraw 2.x (langium 3.3.1); the Workbox runtime modules and mermaid-to-excalidraw 3 plus an override pass.
+- 2026-11-05: The PWA plugin chooses chunks by the import graph and other files by who names them; an opt-in mode's fonts or worker must never reach the precache (check `docwalk-pwa: precaching` in the build log, about 3 MB).
+- 2026-11-05: Monaco sits behind the decision 4 contract (one driver per editor in `SourceEditor.browser.test.ts`); its markers do not move with edits (re-derived per change), the editor-level bracket colouring option is ignored (set it on the model), glyph hovers render Markdown (escape them), and it is 831 kB gzip (`pnpm size` fails if `MonacoEnvironment` reaches the first load).
+- 2026-11-05: Agent messages over the relay's 16 KB frame travel as deflated, encrypted, addressed parts (decision 67); agent writes take the editor's `onEdit`, so comments and the workspace treat them as typed edits.
+- 2026-11-05: Stryker 10's tsconfig preprocessor needs a TypeScript JS API that TypeScript 7 dropped (point `tsconfigFile` at a missing file). CI's pnpm/action-setup needs `package_json_file`; `pnpm deploy` is pnpm's own command (`pnpm run deploy`).
 
 ## Done
 
-- 2026-11-05: Batch 2 (inputs, share, export, Worker, remote) integrated with e2e and axe suites; 12 integration defects fixed (scroll view on phones, axe findings, class collision, phone layout).
-- 2026-11-05: Parallel build of editor, annotation, presenter and URL modules (4 builders + 4 reviewers, 16 defects fixed in review), integrated, e2e suite added.
-- 2026-11-05: Design: three directions on a Claude Design canvas, mix chosen (decision 49), DESIGN.md + tokens + parity test, Stage look applied.
-- 2026-11-05: Semantic pagination: fixture 23 slides/10 overflowing -> 47 slides/1 (atomic), no text lost (browser test).
-- 2026-11-05: Week-1 spike: reveal.js deck, Mermaid focus, overflow diagnostics; fixture shows 23 slides, 0 diagram errors, 10 honestly flagged overflows.
-- 2026-11-05: Acceptance fixture `fixtures/ledger-redesign.md` (809 lines, 7 Mermaid diagrams, all parse with Mermaid 11.12).
-- 2026-11-05: Prior-art research, design review, decision list and project docs.
+- 2026-11-05: Round 1 merged: CI on three engines with Lighthouse, Stryker and deploy workflows; slide overview and merged sub-heading pages; GitHub alerts, footnotes, raw HTML and heading anchors; offline PWA; Monaco; canvas mode; comments; workspace and local folders; docwalk-mcp.
+- 2026-11-05: Batch 2 (inputs, share, export, Worker, remote) integrated with e2e and axe suites; 12 integration defects fixed.
+- 2026-11-05: Parallel build of editor, annotation, presenter and URL modules, integrated, e2e suite added.
+- 2026-11-05: Design: three directions, mix chosen (decision 49), DESIGN.md + tokens + parity test, Stage look applied.
+- 2026-11-05: Semantic pagination, week-1 spike, acceptance fixture, prior-art research and project docs.
