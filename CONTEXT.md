@@ -42,6 +42,10 @@ for overflow, run in the order of decision 22.
 One section yields one or more **slides**. Its id comes from the heading
 slug and is stable across viewports (21).
 
+**Sketch**: a Mermaid diagram converted into an editable Excalidraw drawing
+(canvas mode), opened from the diagram focus view. It lives in the browser,
+keyed by document and diagram source, and never changes the Markdown (54, 60).
+
 **Slide**: one screen in presentation mode, addressed as `<section-id>/<n>`
 (21).
 
