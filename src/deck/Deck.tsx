@@ -1,6 +1,7 @@
 import Reveal from "reveal.js";
 import "reveal.js/reveal.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import type { SectionPlan } from "../sectioning/sectionize";
 import { createDeckController, type DeckController } from "./controller";
 import { openDiagramFocus } from "./focus";
@@ -17,6 +18,9 @@ import { buildSlides } from "./slides";
 
 /** reveal.js lays slides out at this size and scales the whole deck to fit. */
 export const SLIDE_SIZE = { width: 1280, height: 720 } as const;
+
+/** A rebuild re-renders and re-measures every slide, so it waits until typing pauses this long. */
+export const REBUILD_DELAY_MS = 250;
 
 export interface DeckReport {
   slides: number;
@@ -38,6 +42,15 @@ interface DeckProps {
  */
 export function Deck({ plan, onReport, onReady }: DeckProps) {
   const host = useRef<HTMLDivElement>(null);
+  const loadRemoteImages = useLoadRemoteImages();
+  // The first plan builds at once; later plans (keystrokes) wait for a pause,
+  // and the last finished deck stays up meanwhile.
+  const [built, setBuilt] = useState(plan);
+  useEffect(() => {
+    if (plan === built) return;
+    const timer = setTimeout(() => setBuilt(plan), REBUILD_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [plan, built]);
 
   useEffect(() => {
     const root = host.current;
@@ -55,7 +68,7 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
     revealEl.setAttribute("aria-label", "Slides");
     const slidesEl = document.createElement("div");
     slidesEl.className = "slides";
-    const slides = buildSlides(plan);
+    const slides = buildSlides(built, { loadRemoteImages });
     slidesEl.append(...slides);
     revealEl.append(slidesEl);
     root.replaceChildren(revealEl);
@@ -67,13 +80,18 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Enter") return;
       const diagram = (event.target as Element).closest<HTMLElement>(".docwalk-diagram");
-      if (diagram) openDiagramFocus(diagram);
+      if (!diagram) return;
+      // Otherwise the key's default action clicks the Close button the view has just focused.
+      event.preventDefault();
+      openDiagramFocus(diagram);
     };
     revealEl.addEventListener("click", onClick);
     revealEl.addEventListener("keydown", onKey);
+    const stopClickToLoad = enableClickToLoad(revealEl);
 
     void (async () => {
-      const diagramResults = await renderDiagrams(slidesEl);
+      // A newer build makes this one stale; stop it between diagrams.
+      const diagramResults = await renderDiagrams(slidesEl, () => cancelled);
       if (cancelled) return;
       fitDiagrams(slidesEl, slideBodySize(SLIDE_SIZE));
       await settled(slidesEl);
@@ -102,7 +120,9 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
         center: false,
         controls: true,
         progress: true,
-        slideNumber: "c/t",
+        // The header already shows "n / total" and the slide address; reveal's
+        // corner chip repeated it on top of the next arrow and the slide's corner.
+        slideNumber: false,
         transition: "none",
         // reveal switches to its scroll view when the deck is 435px wide or
         // less (a phone, a narrow preview pane): every slide stacked at full
@@ -141,11 +161,12 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
       cancelled = true;
       revealEl.removeEventListener("click", onClick);
       revealEl.removeEventListener("keydown", onKey);
+      stopClickToLoad();
       onReady?.(null);
       deck?.destroy();
       root.replaceChildren();
     };
-  }, [plan, onReport, onReady]);
+  }, [built, onReport, onReady, loadRemoteImages]);
 
   return (
     <div className="docwalk-deck">

@@ -14,11 +14,34 @@ export interface HtmlOptions {
   loadRemoteImages?: boolean;
 }
 
+/** Resolving a `src` against this base tells a same-origin path from a reference to another host. */
+const PAGE_BASE = "https://docwalk.invalid/";
+const PAGE_ORIGIN = new URL(PAGE_BASE).origin;
+
+/**
+ * Where an image `src` would be fetched from when that is another host, or
+ * null when it stays on the page's own origin. Resolved with the browser's
+ * own URL rules, so `//host`, `/\host` and `\\host` count as other hosts,
+ * exactly as the browser would fetch them. An unparsable value counts as
+ * remote, so it stays blocked.
+ */
+export function remoteImageUrl(src: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(src, PAGE_BASE);
+  } catch {
+    return src;
+  }
+  if (url.protocol === "data:" || url.protocol === "blob:") return null;
+  return url.origin === PAGE_ORIGIN ? null : url.href;
+}
+
 /**
  * Remote images leak the viewer's IP address to the image host, and docwalk
  * has no proxy. So the sanitizer is the gate (decision 33): it moves a
- * remote `src` to `data-src`, and the page loads it only after a click or
- * when the setting allows it. Relative, `data:` and `blob:` sources pass.
+ * remote `src` to `data-src` and makes the placeholder a button, and the
+ * page loads it only after a click (`src/render/remoteImages.ts`) or when
+ * the setting allows it. Same-origin sources pass.
  */
 export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
   return (tree: HastRoot) => {
@@ -26,13 +49,22 @@ export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
     visit(tree, "element", (node: Element) => {
       if (node.tagName !== "img") return;
       const src = node.properties["src"];
-      if (typeof src !== "string" || !/^https?:/i.test(src)) return;
-      node.properties["dataSrc"] = src;
+      if (typeof src !== "string") return;
+      const remote = remoteImageUrl(src);
+      if (remote === null) return;
+      node.properties["dataSrc"] = remote;
       delete node.properties["src"];
       const classes = Array.isArray(node.properties["className"])
         ? node.properties["className"]
         : [];
       node.properties["className"] = [...classes, BLOCKED_IMAGE_CLASS];
+      const alt = typeof node.properties["alt"] === "string" ? node.properties["alt"] : "";
+      const host = URL.canParse(remote) ? new URL(remote).host : "another site";
+      const label = `Load image${alt ? ` "${alt}"` : ""} from ${host}`;
+      node.properties["role"] = "button";
+      node.properties["tabIndex"] = 0;
+      node.properties["ariaLabel"] = label;
+      node.properties["title"] = label;
     });
   };
 }

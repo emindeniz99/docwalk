@@ -1,12 +1,15 @@
 import optimizeLocales from "@react-aria/optimize-locales-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { docwalkCspMeta } from "./tooling/csp-plugin.ts";
 import { docwalkTokens } from "./tooling/tokens-plugin.ts";
 
 export default defineConfig({
   plugins: [
     react(),
     docwalkTokens(),
+    // Static hosts ignore _headers; the built index.html carries the CSP itself (decision 34).
+    docwalkCspMeta(),
     // React Aria ships strings for 30+ locales; keep only the ones docwalk offers.
     { ...optimizeLocales.vite({ locales: ["en-US"] }), enforce: "pre" },
   ],

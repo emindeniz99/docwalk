@@ -6,19 +6,9 @@
  * same values; `headersFile()` renders it and a test keeps the two equal.
  */
 
-/** decision 34; `img-src` per decision 33, `connect-src` for GitHub and the remote relay. */
-export const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' https: data: blob:",
-  "worker-src 'self' blob:",
-  "connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://gist.githubusercontent.com wss:",
-  "font-src 'self' data:",
-  "frame-ancestors 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-].join("; ");
+import { CONTENT_SECURITY_POLICY } from "./csp";
+
+export { CONTENT_SECURITY_POLICY };
 
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Content-Security-Policy": CONTENT_SECURITY_POLICY,

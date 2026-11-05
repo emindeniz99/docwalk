@@ -107,6 +107,10 @@ export function prepareSlide(el: HTMLElement, policy: ResourcePolicy): HTMLEleme
   for (const img of el.querySelectorAll("img")) {
     img.removeAttribute("srcset");
     img.removeAttribute("data-src");
+    // Nothing loads a blocked image in an export, so it stops being a button.
+    if (img.classList.contains("docwalk-blocked-image")) {
+      for (const attr of ["role", "tabindex", "aria-label", "title"]) img.removeAttribute(attr);
+    }
     // A lazy image outside the (zero-size) print frame would never load.
     img.removeAttribute("loading");
     const src = img.getAttribute("src");
