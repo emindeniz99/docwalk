@@ -340,6 +340,12 @@ phone controls. Pills (`full`) are only for status chips.
   page as a white thumbnail on the stage, numbered, with a `stage-note`
   "Note" chip on flagged pages. The current slide has an accent border and a
   "Current" chip. Arrow keys move, Enter jumps, Escape closes.
+- **Update prompt**: a toast at the bottom end, `surface` with a
+  `border-strong` edge and the popover shadow; title, one caption line, a
+  primary "Reload" and a dismiss button. It never takes focus, so it cannot
+  interrupt a talk.
+- **App icon**: the Stage reduced to shapes, a white slide over a vermilion
+  progress bar on `stage`; drawn from the tokens by `tooling/pwa.ts`.
 
 Components come from React Aria Components, styled only with these tokens.
 

@@ -38,6 +38,12 @@ Two deployment modes, one build:
   v1.1, the remote-control relay. The app detects `/api` and enables those
   features.
 
+In both modes the browser can install docwalk as an app, and after one
+online visit it opens and presents offline. Mermaid loads code per diagram
+type, and docwalk keeps only the types a deck has already shown, so a
+diagram type you have never rendered needs a connection the first time.
+When a new version is deployed, docwalk asks before reloading.
+
 ## Development
 
 Requirements: Node 24.22.1 and pnpm 12.16.1. Both are pinned in
@@ -50,10 +56,11 @@ pnpm dev              # local dev server
 pnpm check            # the full gate: typecheck, lint, format, tests, build
 pnpm test             # unit tests (Node)
 pnpm test:browser     # layout tests in real Chromium
-pnpm build            # static build in dist/
+pnpm build            # static build in dist/, with sw.js and the manifest
 pnpm test:e2e         # Playwright on Chromium, Firefox, WebKit, plus a /docwalk/ sub-path build
 pnpm lighthouse       # Lighthouse CI budgets on dist/ (run pnpm build first)
 pnpm mutation         # StrykerJS on the unit tests; report in reports/mutation/
+pnpm icons            # redraw public/icons/ after a colour token changes
 ```
 
 Browser tests need Chromium: `pnpm exec playwright install chromium`, or

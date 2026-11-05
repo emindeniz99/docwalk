@@ -17,5 +17,5 @@
     "allowImportingTsExtensions": true
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/pwa/sw.ts"]
 }

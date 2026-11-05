@@ -32,6 +32,9 @@ const RemoteView = lazy(async () => {
   return { default: () => <View creds={creds} /> };
 });
 
+// Service worker and update prompt (decision 11), main view of a production build only.
+const PwaUpdates = lazy(() => import("./pwa/PwaUpdates").then((m) => ({ default: m.PwaUpdates })));
+
 createRoot(root).render(
   <StrictMode>
     {view === "presenter" ? (
@@ -43,9 +46,16 @@ createRoot(root).render(
         <RemoteView />
       </Suspense>
     ) : (
-      <Suspense fallback={null}>
-        <App />
-      </Suspense>
+      <>
+        <Suspense fallback={null}>
+          <App />
+        </Suspense>
+        {import.meta.env.PROD && (
+          <Suspense fallback={null}>
+            <PwaUpdates />
+          </Suspense>
+        )}
+      </>
     )}
   </StrictMode>,
 );
