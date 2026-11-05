@@ -55,17 +55,12 @@ const WCAG_22_AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 async function expectNoSeriousViolations(page: Page, include?: string) {
   // Buttons fade their background over 120 ms after a theme switch or a
   // hover; axe sampling mid-fade measured a colour pair no one ever sees
-  // (WebKit, one run in three). Judge the settled colours.
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          document
-            .getAnimations()
-            .filter((a) => a instanceof CSSTransition && a.playState === "running").length,
-      ),
-    )
-    .toBe(0);
+  // (WebKit, one run in three). Judge the settled colours: jump every
+  // running transition to its end (Firefox can leave them running for
+  // seconds when it paints no frames, so waiting is not enough).
+  await page.evaluate(() => {
+    for (const a of document.getAnimations()) if (a instanceof CSSTransition) a.finish();
+  });
   const builder = new AxeBuilder({ page }).withTags(WCAG_22_AA);
   const results = await (include ? builder.include(include) : builder).analyze();
   const serious = results.violations
