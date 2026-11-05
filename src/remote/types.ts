@@ -8,6 +8,13 @@
  * relay (worker/) only forwards bytes. The document itself is never sent:
  * followers load it from the share link (`?src=`, `?repo=` or `#doc=`), which
  * the presenter includes in its `hello`.
+ *
+ * Agents (decision 59) are the exception: a local MCP server (`mcp/`) joins
+ * with a room's link and asks the presenter for the document, the slide list,
+ * or a document write. Those messages are addressed (`from` on a request,
+ * `to` on its answer) and can be larger than a relay frame, so they travel as
+ * encrypted `part`s (src/remote/parts.ts). The presenter applies a write only
+ * while "Allow agent edits" is on.
  */
 
 import type { HeadingDepth } from "../sectioning/sectionize";
@@ -40,7 +47,58 @@ export type RemoteMessage =
    * (re)connect; `id` is random per page load, so the presenter can count
    * devices without a reconnect counting twice.
    */
-  | { type: "hello"; role: "remote" | "follower"; id: string };
+  | { type: "hello"; role: "remote" | "follower" | "agent"; id: string }
+  /** Agent -> presenter: send me the document. `from` is the agent's hello id. */
+  | { type: "doc-get"; request: string; from: string }
+  /** Presenter -> one agent: the document and its revision (a hash of the text). */
+  | { type: "doc"; request: string; to: string; markdown: string; revision: string }
+  /**
+   * Agent -> presenter: replace the document. `name` is shown to the presenter
+   * as the author; `base`, when set, is the revision the agent edited, and the
+   * write is refused when the document changed since.
+   */
+  | {
+      type: "doc-write";
+      request: string;
+      from: string;
+      name: string;
+      markdown: string;
+      base: string | null;
+    }
+  /** Agent -> presenter: send me the slide list. */
+  | { type: "slides-get"; request: string; from: string }
+  /** Presenter -> one agent: the deck as it is rendered now, notes included. */
+  | {
+      type: "slides";
+      request: string;
+      to: string;
+      current: string | null;
+      slides: AgentSlide[];
+    }
+  /** Presenter -> one agent: the outcome of a `doc-write`, or why a request failed. */
+  | { type: "result"; request: string; to: string; ok: true; revision: string }
+  | { type: "result"; request: string; to: string; ok: false; error: AgentError }
+  /** One piece of a message too large for a relay frame, for one participant (parts.ts). */
+  | { type: "part"; to: string; id: string; seq: number; total: number; data: string };
+
+/** One slide as an agent sees it. `note` is the slide's diagnostic (overflow, diagram error). */
+export interface AgentSlide {
+  address: string;
+  title: string;
+  note: string | null;
+}
+
+/**
+ * Why the presenter refused an agent's request:
+ * - `edits-off`: "Allow agent edits" is off in the remote dialog.
+ * - `conflict`: the document changed since the revision the agent edited.
+ * - `no-document`: the presenter's document is still loading.
+ * - `too-large`: the answer or the write is over the size limits.
+ */
+export type AgentError = "edits-off" | "conflict" | "no-document" | "too-large";
+
+/** The recipient id of messages for the presenter, which sends no hello. */
+export const PRESENTER_ID = "presenter";
 
 /** What travels over the WebSocket: AES-GCM ciphertext and its IV, base64url. */
 export interface EncryptedFrame {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import * as v from "valibot";
 import type { DeckController } from "../deck/controller";
 import type { LevelOption } from "../sectioning/sectionize";
+import { answerAgent, isAgentRequest, type AgentHostContext } from "./agent";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
 import {
   createRoomCredentials,
@@ -16,6 +17,10 @@ import type { RemoteMessage, RoomCredentials } from "./types";
  * stays the source of truth: it announces its state on join, on every slide
  * change and in answer to every step or goto (so a remote can tell that a
  * presenter is there), and applies navigation that remotes ask for.
+ *
+ * Agents (decision 59) may read the document and the slide list; they may
+ * change the document only while the presenter has "Allow agent edits" on.
+ * The switch belongs to the room and starts off, also after a reload.
  */
 
 /** sessionStorage key: the room survives a reload of the presenter tab, so phones stay joined. */
@@ -24,6 +29,8 @@ export const ROOM_STORAGE_KEY = "docwalk.remote-room";
 export const LASER_IDLE_MS = 3000;
 /** Distinct participant ids remembered per role; a hostile key holder cannot grow this without bound. */
 const MAX_TRACKED = 1000;
+/** An agent asking for the slide list waits at most this long for the deck to catch up with the document. */
+export const DECK_WAIT_MS = 10_000;
 
 export interface RemoteHostOptions {
   controller: DeckController | null;
@@ -39,18 +46,29 @@ export interface RemoteHostOptions {
   socketFactory?: SocketFactory;
   /** The app URL join links start from; defaults to the current location. */
   base?: string;
+  /** The document agents read and write; null while it loads. */
+  markdown?: string | null;
+  /** An agent's write was applied: replace the document and say who changed it. */
+  onAgentEdit?: (markdown: string, name: string) => void;
+  /** An agent tried to write while agent edits are off. */
+  onAgentEditRefused?: (name: string) => void;
 }
 
 export interface RemoteHost {
   joinUrls: { remote: string; follow: string };
   /** Devices that joined this session, counted once each. Departures are not reported by the relay. */
-  participants: { remotes: number; followers: number };
+  participants: { remotes: number; followers: number; agents: number };
   /** "closed" while disabled. */
   status: RemoteStatus;
   /** The latest laser point from a remote in slide coordinates (0..1), or null when hidden. */
   laser: { x: number; y: number } | null;
   /** True when followers get no document link: too long for a link, or for the relay's frame. */
   docLinkTooLong: boolean;
+  /** "Allow agent edits" for this room; off until the presenter turns it on. */
+  allowAgentEdits: boolean;
+  setAllowAgentEdits: (allow: boolean) => void;
+  /** The last write an agent made in this room, for "changed by". */
+  lastAgentEdit: { name: string; at: number } | null;
 }
 
 /**
@@ -117,12 +135,19 @@ export function useRemoteHost({
   enabled,
   socketFactory,
   base,
+  markdown = null,
+  onAgentEdit,
+  onAgentEditRefused,
 }: RemoteHostOptions): RemoteHost {
   const [creds, setCreds] = useState(() => readStoredCredentials() ?? createRoomCredentials());
   /** The room this tab holds (see claimRoom); nothing connects before that. */
   const [claimed, setClaimed] = useState<string | null>(null);
   const [status, setStatus] = useState<RemoteStatus>("connecting");
-  const [participants, setParticipants] = useState({ remotes: 0, followers: 0 });
+  const [participants, setParticipants] = useState({ remotes: 0, followers: 0, agents: 0 });
+  // Keyed by room, so a new room (a duplicated tab) starts with edits off.
+  const [agentEdits, setAgentEdits] = useState<{ room: string; allow: boolean } | null>(null);
+  const allowAgentEdits = agentEdits?.room === creds.room && agentEdits.allow;
+  const [lastAgentEdit, setLastAgentEdit] = useState<RemoteHost["lastAgentEdit"]>(null);
   const [laser, setLaser] = useState<{ x: number; y: number } | null>(null);
   const [docLinkTooLong, setDocLinkTooLong] = useState(false);
 
@@ -130,9 +155,24 @@ export function useRemoteHost({
   const controllerRef = useRef(controller);
   const docLinkRef = useRef(docLink);
   const levelRef = useRef(level);
+  const markdownRef = useRef(markdown);
+  /** The document the current deck was built from; the slide list is stale while it differs. */
+  const builtForRef = useRef<string | null>(null);
+  const deckWaiters = useRef(new Set<() => void>());
+  const allowRef = useRef(allowAgentEdits);
+  const callbacks = useRef({ onAgentEdit, onAgentEditRefused });
   useLayoutEffect(() => {
+    if (controller !== controllerRef.current) builtForRef.current = controller ? markdown : null;
     controllerRef.current = controller;
     levelRef.current = level;
+    // An applied write sets the ref at once; the prop catches up a render later.
+    markdownRef.current = markdown;
+    allowRef.current = allowAgentEdits;
+    callbacks.current = { onAgentEdit, onAgentEditRefused };
+  });
+  useEffect(() => {
+    if (!controller || builtForRef.current !== markdownRef.current) return;
+    for (const wake of deckWaiters.current) wake();
   });
 
   // Reads everything through refs, so it is stable and the connection is never restarted for it.
@@ -181,18 +221,74 @@ export function useRemoteHost({
 
   useEffect(() => {
     if (!ready) return;
-    const seen = { remote: new Set<string>(), follower: new Set<string>() };
+    const seen = {
+      remote: new Set<string>(),
+      follower: new Set<string>(),
+      agent: new Set<string>(),
+    };
     let laserTimer: ReturnType<typeof setTimeout> | undefined;
     let active = true;
 
+    const agentContext: AgentHostContext = {
+      markdown: () => markdownRef.current,
+      slides: () =>
+        new Promise((resolve) => {
+          const answer = () => {
+            clearTimeout(timer);
+            deckWaiters.current.delete(answer);
+            const deck = controllerRef.current;
+            resolve({
+              current: deck?.current()?.address ?? null,
+              slides: deck?.slides() ?? [],
+            });
+          };
+          // Past the wait, the agent gets the deck as it is rather than nothing.
+          const timer = setTimeout(answer, DECK_WAIT_MS);
+          deckWaiters.current.add(answer);
+          if (controllerRef.current && builtForRef.current === markdownRef.current) answer();
+        }),
+      allowEdits: () => allowRef.current,
+      apply: (next, name) => {
+        markdownRef.current = next;
+        setLastAgentEdit({ name, at: Date.now() });
+        callbacks.current.onAgentEdit?.(next, name);
+      },
+      refused: (name) => callbacks.current.onAgentEditRefused?.(name),
+    };
+    // One request at a time: a write checks its base revision against the
+    // document the previous write left, not one that is about to change.
+    let agentQueue: Promise<unknown> = Promise.resolve();
+
     const handle = (message: RemoteMessage) => {
+      if (isAgentRequest(message)) {
+        agentQueue = agentQueue
+          .then(async () => {
+            const reply = await answerAgent(message, agentContext);
+            if (!active) return;
+            if ((await conn.send(reply)) === "too-large") {
+              await conn.send({
+                type: "result",
+                request: message.request,
+                to: message.from,
+                ok: false,
+                error: "too-large",
+              });
+            }
+          })
+          .catch((error: unknown) => globalThis.reportError(error));
+        return;
+      }
       const deck = controllerRef.current;
       switch (message.type) {
         case "hello": {
           const ids = seen[message.role];
           if (!ids.has(message.id) && ids.size < MAX_TRACKED) {
             ids.add(message.id);
-            setParticipants({ remotes: seen.remote.size, followers: seen.follower.size });
+            setParticipants({
+              remotes: seen.remote.size,
+              followers: seen.follower.size,
+              agents: seen.agent.size,
+            });
           }
           void sendState();
           break;
@@ -218,7 +314,11 @@ export function useRemoteHost({
           setLaser(null);
           break;
         case "state":
-          // Only the presenter announces state; another tab claiming to is ignored.
+        case "doc":
+        case "slides":
+        case "result":
+        case "part":
+          // Only the presenter announces state and answers agents; another tab claiming to is ignored.
           break;
       }
     };
@@ -256,6 +356,11 @@ export function useRemoteHost({
     return controller.onChange(() => void sendState());
   }, [ready, controller, docLink, sendState]);
 
+  const setAllowAgentEdits = useCallback(
+    (allow: boolean) => setAgentEdits({ room: creds.room, allow }),
+    [creds.room],
+  );
+
   const joinBase = base ?? globalThis.location.href;
   return {
     joinUrls: {
@@ -266,5 +371,8 @@ export function useRemoteHost({
     status: enabled ? status : "closed",
     laser: enabled ? laser : null,
     docLinkTooLong,
+    allowAgentEdits,
+    setAllowAgentEdits,
+    lastAgentEdit,
   };
 }

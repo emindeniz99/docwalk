@@ -369,3 +369,78 @@
   flex: none;
   margin-top: 1px;
 }
+
+/* ---- Agents (decision 59): "Allow agent edits" ------------------------------ */
+
+.docwalk-join-agents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-sm);
+  padding: var(--dw-space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--dw-radius-lg);
+}
+
+.docwalk-join-agents-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-join-agents-head > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.docwalk-join-agents-head > h3 {
+  flex: 1;
+}
+
+.docwalk-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  min-height: var(--dw-space-target);
+  padding-inline: var(--dw-space-xs);
+  border-radius: var(--dw-radius-md);
+  color: var(--fg);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.docwalk-switch[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The track's border is the muted ink, so the off state keeps 3:1 against the dialog (WCAG 1.4.11). */
+.docwalk-switch-track {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  padding: 2px;
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.docwalk-switch-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.docwalk-switch[data-selected] .docwalk-switch-track {
+  border-color: var(--dw-color-primary);
+  background: var(--dw-color-primary);
+  /* Flex end, not a translate: the thumb lands on the correct side in a right-to-left locale too. */
+  justify-content: flex-end;
+}
+
+.docwalk-switch[data-selected] .docwalk-switch-thumb {
+  background: var(--dw-color-slide);
+}
