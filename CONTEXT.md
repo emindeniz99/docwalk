@@ -35,6 +35,10 @@ slides (3, 10).
 **Full mode**: a deployment with the Worker, so `/api` exists: OAuth and,
 from v1.1, remote control (37, 38). Opposite: **static mode**.
 
+**Local folder**: a folder on disk the user opened through the File System
+Access API. Its files are saved only on Save or Ctrl/Cmd+S, and reload when
+they change on disk (58). Code: root `"folder"`.
+
 **Measurement pass**: the post-render check of a slide and each Mermaid host
 for overflow, run in the order of decision 22.
 
@@ -50,3 +54,8 @@ and remote control works (37, 38).
 
 **Title slide**: a slide for a heading above the base level that has its own
 content (15).
+
+**Workspace**: the files and folders docwalk keeps for the user, either in
+the browser's origin private file system (autosaved) or in a **local
+folder**. The file panel above the outline shows it (57, 60). Code:
+`src/workspace/`, document source `{ kind: "workspace" }`.
