@@ -1,0 +1,172 @@
+/* ---- Source banner -------------------------------------------------------- */
+
+.docwalk-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  padding: var(--dw-space-xs) var(--dw-space-lg);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-source-label {
+  overflow-wrap: anywhere;
+}
+
+.docwalk-source-label strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* The untrusted-origin prompt is a note: information the user must act on, not an error. */
+.docwalk-source-confirm {
+  display: grid;
+  gap: var(--dw-space-sm);
+  padding: var(--dw-space-md) var(--dw-space-lg);
+  border: 1px solid var(--note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--note-bg);
+  color: var(--note-fg);
+}
+
+.docwalk-source-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  margin: 0;
+  font-size: var(--dw-type-body-size);
+  font-weight: 700;
+}
+
+.docwalk-source-confirm p {
+  margin: 0;
+}
+
+.docwalk-source-confirm code {
+  font-family: var(--dw-type-mono-family);
+  font-size: var(--dw-type-caption-size);
+  overflow-wrap: anywhere;
+}
+
+.docwalk-inputs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dw-space-sm);
+}
+
+/* Two classes so the 44px target wins over the shared .docwalk-button height. */
+.docwalk-button.docwalk-inputs-target {
+  min-height: var(--dw-space-target);
+}
+
+.docwalk-button.docwalk-inputs-target[data-focus-visible],
+.docwalk-inputs-dialog a[data-focus-visible],
+.docwalk-inputs-dialog input[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-button.docwalk-inputs-target[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* ---- Token dialog --------------------------------------------------------- */
+
+.docwalk-inputs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding-top: 10vh;
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-inputs-modal {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 80vh;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-xl);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 24px 48px var(--dw-color-slide-shadow);
+}
+
+.docwalk-inputs-dialog {
+  display: grid;
+  gap: var(--dw-space-lg);
+  padding: var(--dw-space-xl);
+  outline: none;
+}
+
+.docwalk-inputs-dialog h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+}
+
+.docwalk-inputs-dialog p,
+.docwalk-inputs-dialog ol {
+  margin: 0;
+  line-height: var(--dw-type-body-line-height);
+}
+
+.docwalk-inputs-dialog a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dw-space-xs);
+  min-height: var(--dw-space-target);
+  color: var(--link);
+}
+
+.docwalk-inputs-form {
+  display: grid;
+  gap: var(--dw-space-md);
+}
+
+.docwalk-inputs-field {
+  display: grid;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-inputs-field label {
+  font-weight: 600;
+}
+
+.docwalk-inputs-field input {
+  box-sizing: border-box;
+  min-height: var(--dw-space-target);
+  padding: 0 var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--dw-type-mono-family);
+}
+
+.docwalk-inputs-field input[data-invalid] {
+  border: 2px solid var(--note-border);
+}
+
+.docwalk-inputs-hint,
+.docwalk-inputs-status {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-inputs-error {
+  color: var(--note-fg);
+  background: var(--note-bg);
+  padding: var(--dw-space-xs) var(--dw-space-sm);
+  border-radius: var(--dw-radius-sm);
+  font-size: var(--dw-type-caption-size);
+}
