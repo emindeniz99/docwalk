@@ -6,15 +6,16 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-Batch 2 is integrated: inputs (`?src=`, `?repo=`, `#doc=`, drafts, file open
-and drop, token dialog, OAuth behind `/api/health`), sharing, exports, the
-Worker (`pnpm test:worker` inside `pnpm check`, `public/_headers` from
-`worker/headers.ts`) and remote control (`?view=remote`, `?view=follow`,
-lazy-loaded). `pnpm check` passes (407 unit/browser + 30 Worker tests);
-`pnpm test:e2e` runs 29 Playwright tests including axe (WCAG 2.2 AA) on nine
-surfaces. First load is about 272 KB gzip (`gzip -9`), over the ~250 KB budget;
-size-limit is still not in CI. Open: decision row 8 needs an ADR (remote moved
-into v1); CSP `connect-src` blocks confirmed `?src=` hosts in full mode.
+v1 features are in and a full review (5 dimensions, adversarially verified)
+found 37 defects; all are fixed with a failing-first test each. `pnpm check`
+passes (508 unit/browser + 30 Worker tests, no dist/ needed); `pnpm test:e2e`
+runs 31 Playwright tests with axe on nine surfaces; `pnpm size` (size-limit,
+in CI) holds first load at 295 KB gzip JS+CSS, over the ~250 KB goal. CSP
+`connect-src` is now `'self' https: wss:` (decision 34) and the static build
+carries a meta CSP. Open: decision row 8 needs an ADR (remote moved into v1);
+the presenter window still pulls reveal.js through `deck/Deck.tsx` exports
+(move `SLIDE_SIZE`/`slideAddress` to a small module); v2 workspace and agent
+plan in ROADMAP.
 
 Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
 pnpm@12.16.1 --dir <project> <script>`; browser tests need

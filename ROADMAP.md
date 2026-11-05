@@ -46,8 +46,9 @@ with a custom shell (overview grid, keyboard, fullscreen).
   presenter previews do not show overflow notes; a sub-heading anchor that
   is not a slide falls back to the first slide; empty-slug headings get no
   linkable address.
-- Bundle: the entry chunk is 247 KB gzipped against the ~250 KB budget;
-  add size-limit to CI before the next dependency lands.
+- Bundle: first load is 295 KB gzip (JS+CSS), held there by size-limit in
+  CI; the goal is ~250 KB. Next cut: stop the presenter window importing
+  reveal.js through `deck/Deck.tsx`, then defer the React Aria menu pieces.
 - Done 2026-11-05: H3 fallback and semantic pagination (paragraphs, list
   items with `<ol start>`, table rows with repeated headers, "· continued"
   titles, `<section-id>/<page>` addresses). The fixture goes from 23 slides

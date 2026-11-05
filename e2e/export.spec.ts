@@ -29,9 +29,12 @@ test("HTML export downloads one file with the slides' titles and no script", asy
   for (const title of ["Ledgerline: payment ledger redesign", "Summary", "Rollout", "Security"]) {
     expect(html).toContain(title);
   }
-  const slides = await page.locator(".docwalk-outline-item").count();
-  expect(slides).toBeGreaterThan(10);
-  expect((html.match(/class="docwalk-export-page"/g) ?? []).length).toBeGreaterThanOrEqual(slides);
+  // One export page per paginated slide, continuation pages included. The
+  // outline counts sections, so an export of the unsplit sections would pass it.
+  const counter = await page.locator(".docwalk-preview-head strong").textContent();
+  const slides = Number(/\/\s*(\d+)/.exec(counter ?? "")?.[1]);
+  expect(slides).toBeGreaterThan(await page.locator(".docwalk-outline-item").count());
+  expect((html.match(/class="docwalk-export-page"/g) ?? []).length).toBe(slides);
 });
 
 test("PNG export downloads real PNG images of the slides", async ({ page }) => {

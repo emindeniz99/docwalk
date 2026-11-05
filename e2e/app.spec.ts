@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { replaceSource } from "./helpers";
 
 /**
  * End-to-end checks of the assembled app. Each test guards a failure that
@@ -88,8 +89,43 @@ test("editing the source updates the deck and shows slide notes in the gutter", 
   await page.keyboard.press("Control+Home");
   await page.keyboard.press("End");
   await page.keyboard.type(" (edited)");
-  await expect(page.locator(".docwalk-doc-title strong")).toHaveText(/\(edited\)$/);
+  // The header title comes from the parse alone; the deck's cover slide proves the deck rebuilt.
+  await expect(page.locator(".reveal .slides > section").first().locator("h1")).toHaveText(
+    /\(edited\)$/,
+  );
+
+  // A code block taller than a slide is atomic: its page keeps an overflow note,
+  // and the note must reach the gutter at its own section's heading (line 7), not elsewhere.
+  const code = Array.from({ length: 80 }, (_, i) => `line ${i}`).join("\n");
+  await replaceSource(
+    page,
+    `# Notes doc\n\n## Short\n\nFine.\n\n## Config\n\nBefore.\n\n\`\`\`\n${code}\n\`\`\`\n`,
+  );
+  const marker = page.locator(".dw-note-marker");
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveAttribute("title", /\(config\/\d+\)/);
+  const noted = page.locator(".cm-line.dw-note-line");
+  await expect(noted).toHaveCount(1);
+  await expect(noted).toContainText("## Config");
 });
+
+for (const view of ["remote", "presenter"]) {
+  test(`?view=${view} does not download the editor and deck app`, async ({ page }) => {
+    // The phone remote is opened from a QR code, usually on cellular; the app
+    // bundle (reveal.js, the parser, the sample doc) is ~180 KB gzip it never runs.
+    const scripts: Promise<string>[] = [];
+    page.on("response", (r) => {
+      if (r.request().resourceType() === "script") scripts.push(r.text().catch(() => ""));
+    });
+    await page.goto(`/?view=${view}`);
+    await page.waitForLoadState("networkidle");
+    expect(scripts.length).toBeGreaterThan(0);
+    // A string only App renders: present in whichever script carries App.
+    const bodies = await Promise.all(scripts);
+    const withApp = bodies.filter((b) => b.includes("Nothing uploaded · works offline"));
+    expect(withApp.length, "scripts that carry App").toBe(0);
+  });
+}
 
 test("the presenter window mirrors the deck and can drive it", async ({ page, context }) => {
   await ready(page);

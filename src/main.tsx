@@ -1,6 +1,5 @@
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
 import "@fontsource-variable/bricolage-grotesque";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
@@ -13,6 +12,10 @@ if (!root) throw new Error("docwalk: #root element missing from index.html");
 // The presenter window and the phone remote (decision 8) are the same build
 // opened with ?view=presenter or ?view=remote#room=..&k=..
 const view = new URLSearchParams(location.search).get("view");
+
+// The editor and deck (reveal.js, the parser, the sample doc) load only in the
+// main view, so the presenter window and the phone remote do not download them.
+const App = lazy(() => import("./App").then((m) => ({ default: m.App })));
 
 // Loaded only in the presenter window, so the audience page does not ship it.
 const PresenterView = lazy(() =>
@@ -40,7 +43,9 @@ createRoot(root).render(
         <RemoteView />
       </Suspense>
     ) : (
-      <App />
+      <Suspense fallback={null}>
+        <App />
+      </Suspense>
     )}
   </StrictMode>,
 );

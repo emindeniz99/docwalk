@@ -80,13 +80,17 @@ function fillPages(probe: HTMLElement, blocks: Element[], title: string): Elemen
 
     const next = remaining[0];
     if (next) {
-      const split = splitBlock(next, (part) => tryFit([...page, part]));
+      // A page holding nothing but headings must take something more, or it
+      // would be a bare title: at least the first item or row of a list or
+      // table, else the whole (atomic) block. Too tall even then, it keeps
+      // its overflow diagnostic.
+      const headingsOnly = page.every(isHeading);
+      const split = splitBlock(next, (part) => tryFit([...page, part]), headingsOnly);
       if (split) {
         page = [...page, split.head];
         remaining = [split.tail, ...remaining.slice(1)];
-      } else if (page.length === 0) {
-        // Atomic and too tall even alone: it gets its own page and keeps its diagnostic.
-        page = [next];
+      } else if (headingsOnly) {
+        page = [...page, next];
         remaining = remaining.slice(1);
       }
     }
@@ -95,17 +99,23 @@ function fillPages(probe: HTMLElement, blocks: Element[], title: string): Elemen
   return pages;
 }
 
-/** Split a list by item or a table by row so that `head` fits; `null` when not splittable or nothing fits. */
+/**
+ * Split a list by item or a table by row so that `head` fits; `null` when not
+ * splittable or nothing fits. With `atLeastOne`, `head` holds at least the
+ * first item or row even when that alone does not fit.
+ */
 function splitBlock(
   block: Element,
   fitsWith: (part: Element) => boolean,
+  atLeastOne: boolean,
 ): { head: Element; tail: Element } | null {
   if (SPLITTABLE_LIST.has(block.tagName)) {
     const items = [...block.children].filter((c) => c.tagName === "LI");
     if (items.length < 2) return null;
-    const k = largestPrefix(items.length - 1, (n) =>
+    const fitting = largestPrefix(items.length - 1, (n) =>
       fitsWith(listWith(block, items.slice(0, n), 0)),
     );
+    const k = atLeastOne ? Math.max(fitting, 1) : fitting;
     if (k === 0) return null;
     const start = block.tagName === "OL" ? Number(block.getAttribute("start") ?? 1) : 0;
     return {
@@ -118,9 +128,10 @@ function splitBlock(
     const thead = table.querySelector("thead");
     const rows = [...table.querySelectorAll("tbody > tr")];
     if (rows.length < 2) return null;
-    const k = largestPrefix(rows.length - 1, (n) =>
+    const fitting = largestPrefix(rows.length - 1, (n) =>
       fitsWith(tableWith(table, thead, rows.slice(0, n))),
     );
+    const k = atLeastOne ? Math.max(fitting, 1) : fitting;
     if (k === 0) return null;
     return {
       head: tableWith(table, thead, rows.slice(0, k)),
@@ -128,6 +139,10 @@ function splitBlock(
     };
   }
   return null;
+}
+
+function isHeading(block: Element): boolean {
+  return /^H[1-6]$/.test(block.tagName);
 }
 
 function largestPrefix(max: number, ok: (n: number) => boolean): number {
