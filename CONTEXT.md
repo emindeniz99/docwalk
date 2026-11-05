@@ -44,6 +44,10 @@ slug and is stable across viewports (21); a heading with an empty slug
 gets a **fallback address**, `heading-<hex code points>` (62). Code:
 `headingIds`.
 
+**Sketch**: a Mermaid diagram converted into an editable Excalidraw drawing
+(canvas mode), opened from the diagram focus view. It lives in the browser,
+keyed by document and diagram source, and never changes the Markdown (54, 64).
+
 **Slide**: one screen in presentation mode, addressed as `<section-id>/<n>`
 (21).
 

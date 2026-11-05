@@ -1,0 +1,123 @@
+/* ---- Canvas mode: a diagram as an Excalidraw sketch (decision 54) ------- */
+
+.docwalk-sketch-overlay {
+  position: fixed;
+  inset: 0;
+  /* Above the diagram focus view (1000), which it replaces. */
+  z-index: 1100;
+  display: grid;
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-sketch {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.docwalk-sketch-dialog {
+  display: grid;
+  min-height: 0;
+  outline: none;
+}
+
+.docwalk-sketch-body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+}
+
+.docwalk-sketch-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dw-space-md);
+  padding: var(--dw-space-sm) var(--dw-space-xl);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.docwalk-sketch-heading {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.docwalk-sketch-title {
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  line-height: var(--dw-type-heading-line-height);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+}
+
+.docwalk-sketch-subtitle {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docwalk-sketch-subtitle[data-tone="note"] {
+  color: var(--note-fg);
+}
+
+.docwalk-sketch-status {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-sketch-status:empty {
+  display: none;
+}
+
+/* Popovers portal to <body>; this one belongs to the sketch, above its overlay. */
+.docwalk-sketch-popover {
+  z-index: 1101;
+}
+
+/* Excalidraw fills its parent, which needs a definite size. */
+.docwalk-sketch-canvas {
+  position: relative;
+  min-height: 0;
+}
+
+.docwalk-sketch-wait {
+  margin: var(--dw-space-xl);
+  color: var(--muted);
+}
+
+/* While converting, the note sits over the empty canvas, which is already mounted. */
+.docwalk-sketch-wait[role="status"] {
+  position: absolute;
+  inset: 40% 0 auto;
+  margin: 0;
+  text-align: center;
+  pointer-events: none;
+}
+
+.docwalk-sketch-wait.docwalk-diagnostic {
+  padding: var(--dw-space-md);
+  border: 1px solid var(--note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--note-bg);
+  color: var(--note-fg);
+}
+
+@media (max-width: 640px) {
+  .docwalk-sketch-header {
+    gap: var(--dw-space-sm);
+    padding: var(--dw-space-sm) var(--dw-space-lg);
+  }
+
+  /* The status wraps under the title row rather than squeezing the buttons. */
+  .docwalk-sketch-status {
+    order: 1;
+    flex-basis: 100%;
+  }
+}

@@ -1,4 +1,5 @@
 import Panzoom, { type PanzoomObject } from "@panzoom/panzoom";
+import { requestSketch } from "../canvas/request";
 
 /**
  * Diagram focus: a full-window view of one diagram with fit, zoom, pan,
@@ -77,6 +78,19 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void overlay.requestFullscreen?.();
   });
+  // Canvas mode (decision 54): the app opens the sketch dialog, lazily, in place of this view.
+  const source = diagram.dataset["source"];
+  if (source !== undefined) {
+    // A short label keeps the toolbar on one row at 390 px; the name says what it does.
+    button("Sketch", "Open as sketch", () => {
+      const hosts = [
+        ...(diagram.closest(".slides") ?? document).querySelectorAll(".docwalk-diagram"),
+      ];
+      const at = hosts.indexOf(diagram);
+      close();
+      requestSketch({ source, index: at >= 0 ? at + 1 : null });
+    });
+  }
   const closeButton = button("✕", "Close", () => close());
 
   const onWheel = (event: WheelEvent) => {
