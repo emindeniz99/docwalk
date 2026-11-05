@@ -17,6 +17,8 @@
 
 .docwalk-annotate-button,
 .docwalk-annotate-swatch {
+  /* Contains React Aria's visually hidden radio input, which would otherwise escape a scrolling pane. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -39,6 +41,12 @@
   color: var(--dw-color-on-primary);
 }
 
+/* Hover lifts the border, like every other header control. */
+.docwalk-annotate-button[data-hovered],
+.docwalk-annotate-swatch[data-hovered] {
+  border-color: var(--fg);
+}
+
 .docwalk-annotate-button[data-pressed] {
   background: var(--bg);
 }
@@ -53,7 +61,8 @@
   width: var(--dw-space-xl);
   height: var(--dw-space-xl);
   border-radius: var(--dw-radius-full);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  /* A light edge, so the Ink colour (near-black) shows on the dark chip. */
+  box-shadow: inset 0 0 0 2px var(--fg);
 }
 
 /* The chosen colour gets a heavy ring around the swatch, visible without colour vision. */

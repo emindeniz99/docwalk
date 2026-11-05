@@ -45,8 +45,10 @@ export function Outline({ slides, current, onSelect }: OutlineProps) {
         selectionMode="single"
         selectedKeys={current ? [current.sectionId] : []}
         // With a selection mode, React Aria reports clicks and Enter as selection changes.
+        // Pressing the current section toggles it off and arrives as an empty set: it
+        // still means "go to this section's first page".
         onSelectionChange={(keys) => {
-          const [key] = keys === "all" ? [] : [...keys];
+          const [key = current?.sectionId] = keys === "all" ? [] : [...keys];
           if (key !== undefined) onSelect(`${String(key)}/1`);
         }}
         className="docwalk-outline-list"

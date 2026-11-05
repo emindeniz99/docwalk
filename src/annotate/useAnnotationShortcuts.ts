@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent } from "react";
+import { useEffect, useEffectEvent, type RefObject } from "react";
 import type { AnnotationMode } from "./types";
 
 export type AnnotationShortcut = { mode: AnnotationMode } | { action: "undo" | "redo" };
@@ -60,11 +60,17 @@ export interface AnnotationShortcutHandlers {
 
 /**
  * P pen, L laser, A arrow, E eraser, Escape off, Ctrl/Cmd+Z undo,
- * Shift+Ctrl/Cmd+Z redo. Ignored while focus is in a text field.
+ * Shift+Ctrl/Cmd+Z redo. Ignored while focus is in a text field, and, when
+ * `scope` is given, for keys pressed outside it (so P stays type-ahead in a list).
  */
-export function useAnnotationShortcuts(handlers: AnnotationShortcutHandlers, enabled = true): void {
+export function useAnnotationShortcuts(
+  handlers: AnnotationShortcutHandlers,
+  enabled = true,
+  scope?: RefObject<HTMLElement | null>,
+): void {
   // An effect event always sees the latest handlers without re-subscribing.
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (scope && !(event.target instanceof Node && scope.current?.contains(event.target))) return;
     const shortcut = annotationShortcut(event);
     if (!shortcut) return;
     if ("action" in shortcut) {
