@@ -47,6 +47,12 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
 
     const revealEl = document.createElement("div");
     revealEl.className = "reveal";
+    // reveal.js with keyboardCondition "focused" only takes keys while focus is
+    // inside its own element, so that element is the deck's tab stop.
+    revealEl.tabIndex = 0;
+    revealEl.setAttribute("role", "region");
+    revealEl.setAttribute("aria-roledescription", "slide deck");
+    revealEl.setAttribute("aria-label", "Slides");
     const slidesEl = document.createElement("div");
     slidesEl.className = "slides";
     const slides = buildSlides(plan);
@@ -83,7 +89,12 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
         hash: false,
         history: false,
         respondToHashChanges: false,
-        keyboardCondition: "focused",
+        // reveal's "focused" mode only counts pointer presses, so Tab and the
+        // Present button would leave the deck deaf to keys. Use real DOM focus.
+        keyboardCondition: () => revealEl.contains(document.activeElement),
+        // Escape belongs to the app (pen off, then leave present mode); the
+        // overview stays on O.
+        keyboard: { 27: () => undefined },
         width: SLIDE_SIZE.width,
         height: SLIDE_SIZE.height,
         // Leave a visible stage around the slide (DESIGN.md, Colors).
@@ -134,7 +145,7 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
 
   return (
     <div className="docwalk-deck">
-      <div ref={host} className="docwalk-deck-host" tabIndex={0} />
+      <div ref={host} className="docwalk-deck-host" />
     </div>
   );
 }

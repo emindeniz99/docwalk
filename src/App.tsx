@@ -1,17 +1,43 @@
 import { Command as CommandIcon, Moon, Monitor, Play, Sun } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import {
+  AnnotationToolbar,
+  PEN_COLORS,
+  resolvePenColor,
+  type PenColor,
+} from "./annotate/AnnotationToolbar";
+import type { AnnotationLayer, AnnotationMode } from "./annotate/types";
+import { useAnnotationShortcuts } from "./annotate/useAnnotationShortcuts";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
 import sample from "../fixtures/ledger-redesign.md?raw";
 import type { DeckController, SlideInfo } from "./deck/controller";
 import { Deck, type DeckReport } from "./deck/Deck";
-import { SourceEditor } from "./editor/SourceEditor";
+import type { EditorDiagnostic } from "./editor/types";
+import { startPresenterBridge } from "./presenter/bridge";
+import { openPresenterWindow } from "./presenter/window";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
 import { DocumentView } from "./shell/DocumentView";
 import { Outline } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
+import { useUrlSync } from "./url/useUrlSync";
 
 type View = "edit" | "document" | "present";
+
+// CodeMirror is the largest single dependency; load it after the deck is up.
+const SourceEditor = lazy(() =>
+  import("./editor/SourceEditor").then((m) => ({ default: m.SourceEditor })),
+);
 
 const LEVELS: { label: string; value: LevelOption }[] = [
   { label: "Auto", value: "auto" },
@@ -35,7 +61,21 @@ export function App() {
   const [controller, setController] = useState<DeckController | null>(null);
   const [current, setCurrent] = useState<SlideInfo | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [revealLine, setRevealLine] = useState<number | null>(null);
+  const [presenterRequested, setPresenterRequested] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [mode, setMode] = useState<AnnotationMode>("off");
+  const [penColor, setPenColor] = useState<PenColor>(PEN_COLORS[0].variable);
   const deckRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<AnnotationLayer | null>(null);
+  const startedAt = useRef(0);
+  // The presenter bridge reads the latest document through refs, so it is not restarted on every keystroke.
+  const markdownRef = useRef(markdown);
+  const levelRef = useRef(level);
+  useLayoutEffect(() => {
+    markdownRef.current = markdown;
+    levelRef.current = level;
+  });
 
   // reveal.js lays out on window resize, so nudge it whenever the deck's pane changes size.
   const show = useCallback((next: View | ((v: View) => View)) => {
@@ -49,21 +89,134 @@ export function App() {
   const docTitle = plan.titleHeading
     ? (plan.sections[0]?.title ?? "")
     : (plan.sections[0]?.title ?? "Untitled");
-  const slides = controller?.slides() ?? [];
+  const slides = useMemo(() => controller?.slides() ?? [], [controller]);
 
   const onReport = useCallback((r: DeckReport) => setReport(r), []);
   const onReady = useCallback((c: DeckController | null) => setController(c), []);
 
   useEffect(() => controller?.onChange(setCurrent), [controller]);
 
+  // Source line of every section, for the editor's reveal, cursor sync and notes.
+  const sectionLines = useMemo(
+    () => new Map(plan.sections.map((sec) => [sec.id, sec.line] as const)),
+    [plan],
+  );
+
+  useUrlSync({
+    controller,
+    level,
+    view,
+    onLevel: setLevel,
+    // Present needs a user gesture for fullscreen, so a link can open edit or document only.
+    onView: (v) => {
+      if (v === "edit" || v === "document") show(v);
+    },
+  });
+
+  // Presenter bridge: only in the tab that opened the presenter window, so two
+  // open docwalk tabs never both answer it.
+  useEffect(() => {
+    if (!controller || !presenterRequested) return;
+    return startPresenterBridge({
+      getState: () => ({
+        markdown: markdownRef.current,
+        level: typeof levelRef.current === "object" ? [...levelRef.current] : levelRef.current,
+        current: controller.current()?.address ?? "",
+        addresses: controller.slides().map((sl) => sl.address),
+        startedAt: startedAt.current,
+      }),
+      goTo: (address) => controller.goTo(address),
+      step: (d) => (d === 1 ? controller.next() : controller.prev()),
+      subscribe: (onChange) => controller.onChange(() => onChange()),
+    });
+  }, [controller, presenterRequested]);
+
+  // Pen and laser over the slides; each slide keeps its own marks while the deck is open.
+  // The layer (drauu, perfect-freehand) loads after the deck is up, outside the first-load bundle.
+  const [layerReady, setLayerReady] = useState(0);
+  useEffect(() => {
+    if (!controller) return;
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    void import("./annotate/layer").then(({ createAnnotationLayer }) => {
+      if (cancelled) return;
+      const layer = createAnnotationLayer(controller.stage());
+      layerRef.current = layer;
+      stop = controller.onChange((sl) => layer.setKey(sl.address));
+      setLayerReady((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+      layerRef.current?.destroy();
+      layerRef.current = null;
+    };
+  }, [controller]);
+  useEffect(() => {
+    if (layerReady) layerRef.current?.setMode(mode);
+  }, [mode, layerReady]);
+  // The pen colour is a CSS variable whose value changes with the theme, so
+  // `theme` re-resolves it even though the body does not read it.
+  useEffect(() => {
+    if (layerReady) layerRef.current?.setColor(resolvePenColor(penColor));
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [penColor, theme, layerReady]);
+  useAnnotationShortcuts(
+    {
+      mode,
+      setMode,
+      undo: () => layerRef.current?.undo(),
+      redo: () => layerRef.current?.redo(),
+    },
+    view === "present",
+  );
+
+  // Notes on slides become editor diagnostics at their section's source line.
+  const diagnostics = useMemo<EditorDiagnostic[]>(
+    () =>
+      slides
+        .filter((sl) => sl.flagged)
+        .map((sl) => ({
+          line: sectionLines.get(sl.sectionId) ?? 1,
+          message: `Slide ${sl.index + 1} (${sl.address}): ${sl.note ?? "has a note"}`,
+          severity: "warning" as const,
+        })),
+    [slides, sectionLines],
+  );
+
+  // The preview follows the cursor while editing.
+  const onCursorLine = useCallback(
+    (line: number) => {
+      if (!controller) return;
+      let target: string | null = null;
+      for (const sec of plan.sections) if (sec.line <= line) target = sec.id;
+      if (target && controller.current()?.sectionId !== target) controller.goTo(target);
+    },
+    [controller, plan],
+  );
+
+  const openPresenter = useCallback(() => {
+    if (!openPresenterWindow()) {
+      setNotice(
+        "The browser blocked the presenter window. Allow pop-ups for this site and try again.",
+      );
+      return;
+    }
+    startedAt.current = Date.now();
+    setPresenterRequested(true);
+    setNotice(null);
+  }, []);
+
   const present = useCallback(async () => {
     show("present");
     try {
-      await deckRef.current?.requestFullscreen?.();
+      // The whole page goes fullscreen, not just the deck: dialogs such as the
+      // command palette render outside the deck and would be invisible.
+      await document.documentElement.requestFullscreen?.();
     } catch {
       // Fullscreen can be refused (iOS, iframes); present mode still fills the window.
     }
-    deckRef.current?.querySelector<HTMLElement>(".docwalk-deck-host")?.focus();
+    deckRef.current?.querySelector<HTMLElement>(".reveal")?.focus();
   }, [show]);
 
   useEffect(() => {
@@ -79,22 +232,36 @@ export function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((open) => !open);
+        return;
+      }
+      // Without fullscreen (refused on iOS, in iframes, or headless) Escape is
+      // the only way out of present mode, so handle it here too. The pen and
+      // laser claim Escape first while a tool is active.
+      // reveal marks Escape as handled (its binding is a no-op), so do not test defaultPrevented here.
+      if (e.key === "Escape") {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else show((v) => (v === "present" ? "edit" : v));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [show]);
 
   const goTo = useCallback(
     (address: string) => {
       if (view === "document") show("edit");
       controller?.goTo(address);
+      // Reset first, so revealing the same section twice scrolls again.
+      const line = sectionLines.get(address.split("/")[0] ?? "");
+      setRevealLine(null);
+      if (line) requestAnimationFrame(() => setRevealLine(line));
     },
-    [controller, view, show],
+    [controller, view, show, sectionLines],
   );
 
   const commands: Command[] = [
     { id: "present", label: "Present", run: () => void present() },
+    { id: "presenter", label: "Open presenter view", run: openPresenter },
     { id: "view-edit", label: "Show editor", run: () => show("edit") },
     { id: "view-document", label: "Show document", run: () => show("document") },
     {
@@ -188,7 +355,16 @@ export function App() {
         )}
         {view === "edit" && (
           <section className="docwalk-source" aria-label="Markdown source">
-            <SourceEditor value={markdown} onChange={setMarkdown} label="Markdown source" />
+            <Suspense fallback={<p className="docwalk-loading">Loading editor…</p>}>
+              <SourceEditor
+                value={markdown}
+                onChange={setMarkdown}
+                onCursorLine={onCursorLine}
+                revealLine={revealLine}
+                diagnostics={diagnostics}
+                label="Markdown source"
+              />
+            </Suspense>
           </section>
         )}
         {view === "document" && (
@@ -197,10 +373,36 @@ export function App() {
           </section>
         )}
         <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document"}>
-          <div className="docwalk-preview-head" hidden={view === "present"}>
+          <div className="docwalk-preview-head">
             <strong>{current ? `${current.index + 1} / ${slides.length}` : "…"}</strong>
             <span>{current?.address ?? ""}</span>
+            {view === "present" && (
+              <Button
+                className="docwalk-button docwalk-exit"
+                onPress={() => {
+                  if (document.fullscreenElement) void document.exitFullscreen();
+                  else show("edit");
+                }}
+              >
+                Exit <kbd>Esc</kbd>
+              </Button>
+            )}
+            <div className="docwalk-stage-tools">
+              <AnnotationToolbar
+                mode={mode}
+                onModeChange={setMode}
+                color={penColor}
+                onColorChange={setPenColor}
+                onUndo={() => layerRef.current?.undo()}
+                onClear={() => layerRef.current?.clear()}
+              />
+            </div>
           </div>
+          {notice && (
+            <p className="docwalk-notice" role="alert">
+              {notice}
+            </p>
+          )}
           <Deck plan={plan} onReport={onReport} onReady={onReady} />
         </div>
       </main>
