@@ -14,4 +14,8 @@ trustPolicy: no-downgrade
 
 # Lifecycle scripts are opt-in; an undeclared one fails the install.
 # `true` = reviewed and required, `false` = reviewed and deliberately off.
-allowBuilds: {}
+allowBuilds:
+  # Reviewed 2026-11-05: both install their own platform binary (esbuild's
+  # bundler; workerd, Cloudflare's runtime that wrangler and Miniflare run).
+  esbuild: true
+  workerd: true

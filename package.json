@@ -35,10 +35,13 @@
     "@panzoom/panzoom": "4.6.2",
     "dompurify": "3.4.17",
     "github-slugger": "2.0.0",
+    "hono": "4.13.14",
     "lucide-react": "1.64.0",
     "mdast-util-to-string": "4.0.0",
     "mermaid": "12.2.0",
+    "modern-screenshot": "4.7.0",
     "perfect-freehand": "1.2.3",
+    "qrcode-generator": "2.0.4",
     "react": "19.3.1",
     "react-aria-components": "1.22.1",
     "react-dom": "19.3.1",
@@ -53,6 +56,9 @@
     "valibot": "1.5.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "1.66.0",
+    "@cloudflare/vitest-plugin": "1.4.10",
+    "@cloudflare/workers-types": "5.20261029.1",
     "@fast-check/vitest": "0.5.0",
     "@google/design.md": "0.4.0",
     "@playwright/test": "1.64.1",
@@ -71,6 +77,7 @@
     "typescript": "7.0.2",
     "vite": "8.3.5",
     "vitest": "5.0.5",
+    "wrangler": "4.155.0",
     "yaml": "2.9.1"
   },
   "devEngines": {
