@@ -18,6 +18,7 @@ import {
   saveDraft,
 } from "../share/draft";
 import { isDocHash, readFragment } from "../share/fragment";
+import { rememberedFile } from "../workspace/store";
 
 export const SAMPLE: LoadedDocument = { markdown: sample, source: { kind: "sample" } };
 
@@ -38,14 +39,16 @@ type RepoRequest = Extract<InputRequest, { kind: "repo" }>;
  * The document on first render, when it can be known without waiting:
  * the saved draft or the sample. `null` while something must load first:
  * an OAuth callback (which restores the page the user signed in from), a
- * `?src=` / `?repo=` link, a `#doc=` share link, or a follower waiting for
- * the presenter's link.
+ * `?src=` / `?repo=` link, a `#doc=` share link, a workspace file to reopen,
+ * or a follower waiting for the presenter's link.
  */
 function initialDocument(follow: boolean): LoadedDocument | null {
   if (follow) return null;
   const url = new URL(location.href);
   if (url.searchParams.get("oauth") === "callback") return null;
   if (parseInputUrl(url) !== null || isDocHash(url.hash)) return null;
+  // Only a browser that has opened a workspace file waits here; everyone else starts as before.
+  if (rememberedFile() !== null) return null;
   return openDraft() ?? SAMPLE;
 }
 
@@ -59,7 +62,7 @@ function openDraft(): LoadedDocument | null {
 /**
  * Where the document comes from (decisions 5, 6, 7): startup loading in the
  * order the notes fix (OAuth callback first, then `?src=`, `?repo=`,
- * `#doc=`, then the draft), the untrusted-host confirmation, the token retry
+ * `#doc=`, then the workspace file shown last, then the draft), the untrusted-host confirmation, the token retry
  * for private repositories, and edits. A URL-loaded document is never
  * replaced by a draft; a failed load falls back to the sample, never to a
  * draft the user did not ask for. The newest load the user started wins: a
@@ -181,6 +184,19 @@ export function useDocument({ follow }: { follow: boolean }) {
       } else if (isDocHash(location.hash)) {
         await loadFragment(location.hash);
       } else {
+        // A workspace file shown on the last visit comes back (decision 57); a
+        // link always wins over it, and it wins over the draft.
+        const remembered = docRef.current ? null : rememberedFile();
+        if (remembered) {
+          const { restoreFile } = await import("../workspace/restore");
+          const restored = await restoreFile(remembered);
+          if (generation.current !== startedAt) return;
+          if (restored) {
+            releaseDraft();
+            setDoc(restored);
+            return;
+          }
+        }
         const draft = docRef.current ? null : openDraft();
         setDoc((prev) => prev ?? draft ?? SAMPLE);
       }
@@ -254,6 +270,11 @@ export function useDocument({ follow }: { follow: boolean }) {
   const edit = useCallback(
     (markdown: string) => {
       const before = docRef.current?.source.kind;
+      // A workspace file is saved by the workspace (src/workspace), never into the draft slot.
+      if (before === "workspace") {
+        setDoc((prev) => ({ markdown, source: prev?.source ?? { kind: "paste" } }));
+        return;
+      }
       const own = before === "paste" || before === "file";
       if (!own && draftWouldBeReplaced()) {
         setNotice({
@@ -286,8 +307,31 @@ export function useDocument({ follow }: { follow: boolean }) {
     [applyResult],
   );
 
+  /** Shows a document the workspace read (decision 57), overtaking any load still running. */
+  const openDocument = useCallback((next: LoadedDocument) => {
+    generation.current++;
+    setConfirm(null);
+    setNotice(null);
+    releaseDraft();
+    setDoc(next);
+  }, []);
+
+  /** The open workspace file was deleted: show the draft or the sample, as a plain visit would. */
+  const closeDocument = useCallback(() => {
+    generation.current++;
+    setDoc(openDraft() ?? SAMPLE);
+  }, []);
+
+  /** The open workspace file was renamed or moved: same text, new address. */
+  const retarget = useCallback((source: LoadedDocument["source"]) => {
+    setDoc((prev) => (prev ? { markdown: prev.markdown, source } : prev));
+  }, []);
+
   return {
     doc,
+    openDocument,
+    closeDocument,
+    retarget,
     confirm,
     confirmLoad,
     cancelConfirm: () => setConfirm(null),

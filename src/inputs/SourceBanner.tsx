@@ -69,6 +69,16 @@ function describe(source: DocumentSource): { Icon: LucideIcon; label: ReactNode 
       };
     case "fragment":
       return { Icon: Share2, label: "Opened from a shared link" };
+    // App shows workspace files with src/workspace/WorkspaceBanner (save state, Save button).
+    case "workspace":
+      return {
+        Icon: FileText,
+        label: (
+          <>
+            Workspace file <strong>{source.path}</strong>
+          </>
+        ),
+      };
   }
 }
 

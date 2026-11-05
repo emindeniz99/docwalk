@@ -14,7 +14,9 @@ export type DocumentSource =
   /** `?repo=<owner>/<name>&path=<path>[&ref=<ref>]`: GitHub contents API, with a token for private repos. */
   | { kind: "repo"; repo: string; path: string; ref: string | null }
   /** `#doc=...`: a share fragment (src/share). */
-  | { kind: "fragment" };
+  | { kind: "fragment" }
+  /** A file in the workspace (decisions 57, 58): the browser's private file system or a picked folder. */
+  | { kind: "workspace"; root: "opfs" | "folder"; path: string };
 
 export interface LoadedDocument {
   markdown: string;
