@@ -72,7 +72,7 @@ with a custom shell (overview grid, keyboard, fullscreen).
 
 ## v2: workspace and agents
 
-After v1 ships. Each item needs a decision row before code.
+Decisions 57 to 59.
 
 1. **Workspace in the browser.** Folders and files kept in the origin
    private file system (OPFS), so nothing leaves the device: a file tree
@@ -84,13 +84,10 @@ After v1 ships. Each item needs a decision row before code.
    where available, polling otherwise). This is the agent path for local
    agents: an agent edits the `.md` file and the open deck updates, with no
    protocol of our own.
-3. **MCP server for agents that cannot reach the disk** (cloud agents,
-   chat apps). A remote MCP endpoint on the Worker with tools such as
-   `get_document`, `write_document`, `list_slides` and `goto_slide`, pushing
-   into a room the viewer has joined. Open questions: rooms are end-to-end
-   encrypted, so the agent needs the room key (the join link) or the room
-   runs unencrypted with the viewer's consent; authentication through the
-   GitHub App.
+3. **MCP for agents that cannot reach the disk** (decision 59). A local
+   `docwalk-mcp` server takes a room's join link and keeps the room's
+   end-to-end encryption; the presenter allows agent edits per room. Chat
+   apps that only accept remote MCP servers stay unsupported.
 
 ## Later
 
