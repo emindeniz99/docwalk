@@ -1,0 +1,70 @@
+/* ---- Update prompt (src/pwa/UpdateToast.tsx) ------------------------------ */
+
+/* Bottom end, clear of the status bar; above the deck's overlays (z-index up to 30). */
+.docwalk-toast-region {
+  position: fixed;
+  z-index: 100;
+  inset-block-end: var(--dw-space-3xl);
+  inset-inline-end: var(--dw-space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-sm);
+  width: min(26rem, calc(100vw - 2 * var(--dw-space-lg)));
+  outline: none;
+}
+
+.docwalk-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-sm) var(--dw-space-md);
+  padding: var(--dw-space-md) var(--dw-space-sm) var(--dw-space-md) var(--dw-space-lg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-lg);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 12px 32px var(--dw-color-slide-shadow);
+}
+
+.docwalk-toast[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-toast-icon {
+  flex: none;
+  color: var(--link);
+}
+
+.docwalk-toast-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+  min-width: 0;
+}
+
+.docwalk-toast-title {
+  font-weight: 600;
+}
+
+.docwalk-toast-description {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+  line-height: var(--dw-type-caption-line-height);
+}
+
+.docwalk-toast .docwalk-icon-button {
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+}
+
+/* On a phone the status bar wraps to several lines; the prompt sits over it
+   rather than over the editor or the slide. */
+@media (max-width: 640px) {
+  .docwalk-toast-region {
+    inset-block-end: var(--dw-space-lg);
+    inset-inline: var(--dw-space-lg);
+    width: auto;
+  }
+}
