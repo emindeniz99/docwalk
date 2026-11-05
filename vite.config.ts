@@ -2,6 +2,7 @@ import optimizeLocales from "@react-aria/optimize-locales-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { docwalkCspMeta } from "./tooling/csp-plugin.ts";
+import { docwalkPwa } from "./tooling/pwa-plugin.ts";
 import { docwalkTokens } from "./tooling/tokens-plugin.ts";
 
 export default defineConfig({
@@ -10,6 +11,8 @@ export default defineConfig({
     docwalkTokens(),
     // Static hosts ignore _headers; the built index.html carries the CSP itself (decision 34).
     docwalkCspMeta(),
+    // Installable and offline (decision 11): manifest, precache list, sw.js.
+    docwalkPwa(),
     // React Aria ships strings for 30+ locales; keep only the ones docwalk offers.
     { ...optimizeLocales.vite({ locales: ["en-US"] }), enforce: "pre" },
   ],

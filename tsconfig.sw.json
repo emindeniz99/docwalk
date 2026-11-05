@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "WebWorker"],
+    "types": [],
+    // Workbox 7's plugin types declare optional callbacks without `| undefined`,
+    // so ExpirationPlugin does not fit WorkboxPlugin under the strict setting.
+    "exactOptionalPropertyTypes": false
+  },
+  "include": ["src/pwa/sw.ts"],
+  "exclude": []
+}
