@@ -1,4 +1,29 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, test as base, type Page } from "@playwright/test";
+
+/**
+ * `test` for specs that keep files in the origin private file system. WebKit
+ * refuses `navigator.storage.getDirectory()` in Playwright's throwaway
+ * contexts, as Safari does in a private window, so there each test gets a
+ * persistent context with its own profile directory instead.
+ */
+export const opfsTest = base.extend({
+  context: async (
+    { context, browserName, playwright, baseURL, viewport, serviceWorkers },
+    use,
+    info,
+  ) => {
+    if (browserName !== "webkit") {
+      await use(context);
+      return;
+    }
+    const persistent = await playwright.webkit.launchPersistentContext(
+      info.outputPath("webkit-profile"),
+      { ...(baseURL ? { baseURL } : {}), viewport, serviceWorkers },
+    );
+    await use(persistent);
+    await persistent.close();
+  },
+});
 
 /** Opens `path` and waits until the deck has rendered and reported its slides. */
 export async function ready(page: Page, path = "/") {

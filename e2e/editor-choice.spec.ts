@@ -96,7 +96,8 @@ test("only viewers who pick Monaco download it, and it loads from this origin un
   expect(MONACO_ASSET.test((await started).url())).toBe(true);
   const origin = new URL(page.url()).origin;
   assets.push((await started).url());
-  expect(assets.filter((u) => !u.startsWith(origin))).toEqual([]);
+  // Firefox reports a worker's URL as written (`/assets/…`); resolve it first.
+  expect(assets.filter((u) => new URL(u, origin).origin !== origin)).toEqual([]);
   expect(violations).toEqual([]);
 });
 
@@ -114,7 +115,8 @@ test("touch screens keep CodeMirror and are not offered Monaco", async ({ browse
   expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
   await expect(page.locator(".cm-content")).toBeVisible();
   await expect(page.locator(".monaco-editor")).toHaveCount(0);
-  await page.getByRole("button", { name: "More actions" }).click();
+  // A finger taps; Firefox's mobile emulation does not open the menu on a mouse click.
+  await page.getByRole("button", { name: "More actions" }).tap();
   await expect(page.getByRole("menu", { name: "More actions" })).toBeVisible();
   await expect(page.getByRole("menuitemradio")).toHaveCount(0);
   await context.close();

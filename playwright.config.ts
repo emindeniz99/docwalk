@@ -22,7 +22,11 @@ export default defineConfig({
   timeout: 60_000,
   fullyParallel: true,
   reporter: process.env.CI ? "github" : "list",
-  use: { baseURL: `http://localhost:${port}`, viewport },
+  // The production build registers a service worker. In WebKit, requests a
+  // controlled page makes bypass Playwright's routing, so the specs that
+  // stub the network would reach the real one. Only e2e/pwa.spec.ts, which
+  // tests the worker itself, lets it run.
+  use: { baseURL: `http://localhost:${port}`, viewport, serviceWorkers: "block" },
   projects: [
     {
       name: "chromium",

@@ -1,8 +1,8 @@
 import { AxeBuilder } from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { readFileSync } from "node:fs";
-import { docTitle, outline, ready, replaceSource } from "./helpers";
+import { docTitle, opfsTest as test, outline, ready, replaceSource } from "./helpers";
 
 /**
  * The workspace (decisions 57, 58) in the assembled app: files kept in the

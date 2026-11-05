@@ -13,6 +13,9 @@ import { ready } from "./helpers";
  * an update that reloads under a presenter or never arrives.
  */
 
+// The other specs block the worker (playwright.config.ts); this one tests it.
+test.use({ serviceWorkers: "allow" });
+
 const WCAG_22_AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const SHOTS = process.env["DOCWALK_SHOTS_DIR"];
 
@@ -73,7 +76,11 @@ test("after one online visit the app reloads offline and still renders the sampl
 
 test("the manifest parses without errors and Chromium finds the app installable", async ({
   page,
+  browserName,
 }) => {
+  // Both checks are Chromium DevTools Protocol calls; Firefox and WebKit have
+  // no equivalent. tooling/pwa.test.ts checks the manifest fields everywhere.
+  test.skip(browserName !== "chromium", "CDP installability checks exist only in Chromium");
   await ready(page);
   await controlled(page);
   const cdp = await page.context().newCDPSession(page);
@@ -100,37 +107,47 @@ test("the manifest parses without errors and Chromium finds the app installable"
 test("/api requests always reach the network and never land in a cache", async ({
   page,
   context,
+  browserName,
 }) => {
   await ready(page);
   await controlled(page);
 
-  // A cacheable answer, to tempt any cache that would keep it.
-  let served = 0;
-  await context.route("**/api/health", (route) => {
-    served += 1;
-    return route.fulfill({
-      json: { ok: true, n: served, features: [] },
-      headers: { "Cache-Control": "public, max-age=3600" },
+  if (browserName === "webkit") {
+    // WebKit sends a controlled page's requests past Playwright's routing, so
+    // the answers cannot be counted there; the preview server answers instead,
+    // and the Cache Storage check below still runs.
+    for (let i = 0; i < 2; i++) await page.evaluate(() => fetch("/api/health").then(() => {}));
+  } else {
+    // A cacheable answer, to tempt any cache that would keep it.
+    let served = 0;
+    await context.route("**/api/health", (route) => {
+      served += 1;
+      return route.fulfill({
+        json: { ok: true, n: served, features: [] },
+        headers: { "Cache-Control": "public, max-age=3600" },
+      });
     });
-  });
-  const read = () =>
-    page.evaluate(async () => {
-      const res = await fetch("/api/health");
-      return ((await res.json()) as { n: number }).n;
-    });
-  const first = await read();
-  const second = await read();
-  expect(second).toBe(first + 1);
+    const read = () =>
+      page.evaluate(async () => {
+        const res = await fetch("/api/health");
+        return ((await res.json()) as { n: number }).n;
+      });
+    const first = await read();
+    const second = await read();
+    expect(second).toBe(first + 1);
+    await context.unroute("**/api/health");
+  }
   expect(
     (await cachedUrls(page)).filter((url) => new URL(url).pathname.startsWith("/api/")),
   ).toEqual([]);
 
   // Offline, an /api call fails as it would without a worker: a replayed
-  // token or room answer would be worse than an error.
-  await context.unroute("**/api/health");
+  // token or room answer would be worse than an error. `no-store` keeps the
+  // browser's HTTP cache out of it (Firefox answers the max-age reply from
+  // there); the request still passes through the worker, which must not answer.
   await context.setOffline(true);
   const offline = await page.evaluate(() =>
-    fetch("/api/health").then(
+    fetch("/api/health", { cache: "no-store" }).then(
       () => "answered",
       () => "failed",
     ),
