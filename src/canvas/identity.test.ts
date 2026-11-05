@@ -13,6 +13,13 @@ describe("sketch identity (decision 54)", () => {
     expect(documentKey({ kind: "file", name: "design.md" })).toBe("file:design.md");
   });
 
+  test("a workspace file is keyed by its root and path", () => {
+    // Two files of one workspace are two documents, like two links.
+    const a = documentKey({ kind: "workspace", root: "opfs", path: "a.md" });
+    expect(a).toBe("workspace:opfs:a.md");
+    expect(documentKey({ kind: "workspace", root: "opfs", path: "b.md" })).not.toBe(a);
+  });
+
   test("documents with no address share one key per kind", () => {
     expect(documentKey({ kind: "sample" })).toBe("sample");
     expect(documentKey({ kind: "paste" })).toBe("paste");

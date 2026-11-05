@@ -4,7 +4,7 @@
  *
  * - A document with a home keeps that home as its identity: `?src=` URL
  *   (with access parameters removed, so no token is ever stored), `?repo=`
- *   path, or an opened file's name. The file at that home can change
+ *   path, an opened file's name, or a workspace file's root and path. The file at that home can change
  *   upstream and the comments stay with it; a comment whose heading went
  *   away shows as orphaned rather than vanishing with a new hash.
  * - A document that is only text (a share link, the sample) has no home,
@@ -29,6 +29,10 @@ export function sourceKey(source: DocumentSource): string | null {
       return `repo:${source.repo}@${source.ref ?? ""}:${source.path}`;
     case "file":
       return `file:${source.name}`;
+    // A workspace file is saved under its path and never through the draft
+    // slot, so a content hash would lose its comments at the first edit.
+    case "workspace":
+      return `workspace:${source.root}:${source.path}`;
     default:
       return null;
   }

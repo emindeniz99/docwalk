@@ -15,6 +15,8 @@ export function documentKey(source: DocumentSource): string {
       return `repo:${source.repo}:${source.ref ?? ""}:${source.path}`;
     case "file":
       return `file:${source.name}`;
+    case "workspace":
+      return `workspace:${source.root}:${source.path}`;
     default:
       return source.kind;
   }

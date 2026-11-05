@@ -163,6 +163,17 @@ describe("document identity", () => {
     ).toBe("url:https://raw.githubusercontent.com/o/r/main/a.md");
   });
 
+  test("a workspace file is keyed by its root and path, so an edit and a reload keep its comments", () => {
+    // Workspace files skip the draft slot (and its alias); a content key
+    // would change with every saved edit and strand the comments.
+    expect(sourceKey({ kind: "workspace", root: "opfs", path: "talks/plan.md" })).toBe(
+      "workspace:opfs:talks/plan.md",
+    );
+    expect(sourceKey({ kind: "workspace", root: "folder", path: "talks/plan.md" })).not.toBe(
+      sourceKey({ kind: "workspace", root: "opfs", path: "talks/plan.md" }),
+    );
+  });
+
   test("text-only documents are keyed by content, so the same share link finds the same comments", async () => {
     expect(sourceKey({ kind: "fragment" })).toBeNull();
     expect(await contentKey("# A")).toBe(await contentKey("# A"));
