@@ -154,7 +154,11 @@ test("/api requests always reach the network and never land in a cache", async (
   );
   expect(offline).toBe("failed");
   // Nor does a navigation under /api get the app shell (the OAuth endpoints live there).
-  await expect(page.goto("/api/health")).rejects.toThrow();
+  // Chromium fails it offline; Firefox lets localhost through offline and the
+  // preview server answers 404 (its error page never fires "load"). The
+  // worker's shell would be a 200.
+  const navigation = await page.goto("/api/health", { waitUntil: "commit" }).catch(() => null);
+  expect(navigation?.status() ?? "failed").not.toBe(200);
 });
 
 /**
