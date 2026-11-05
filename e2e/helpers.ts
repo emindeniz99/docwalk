@@ -6,10 +6,18 @@ export async function ready(page: Page, path = "/") {
   await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slides/, { timeout: 30_000 });
 }
 
-/** Replaces the editor's text the way a paste does (one input event, no key-by-key auto-indent). */
+/**
+ * Replaces the editor's text the way a paste does (one input event, no
+ * key-by-key auto-indent). The selection is deleted first: in Firefox,
+ * `insertText` over a selection only removed it and CodeMirror received no
+ * text, while inserting into an empty editor works on every engine. (A
+ * synthetic paste event is no way out: Firefox drops the constructor's
+ * `clipboardData`.)
+ */
 export async function replaceSource(page: Page, markdown: string) {
   await page.locator(".cm-content").click();
   await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Delete");
   await page.keyboard.insertText(markdown);
 }
 

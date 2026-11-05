@@ -51,10 +51,22 @@ pnpm check            # the full gate: typecheck, lint, format, tests, build
 pnpm test             # unit tests (Node)
 pnpm test:browser     # layout tests in real Chromium
 pnpm build            # static build in dist/
+pnpm test:e2e         # Playwright on Chromium, Firefox, WebKit, plus a /docwalk/ sub-path build
+pnpm lighthouse       # Lighthouse CI budgets on dist/ (run pnpm build first)
+pnpm mutation         # StrykerJS on the unit tests; report in reports/mutation/
 ```
 
 Browser tests need Chromium: `pnpm exec playwright install chromium`, or
-point `DOCWALK_CHROMIUM_PATH` at an existing binary.
+point `DOCWALK_CHROMIUM_PATH` at an existing binary. The end-to-end suite
+needs all three engines (`pnpm exec playwright install firefox webkit`;
+`--project chromium` runs one) and serves on port 4174 and 4175, or on
+`DOCWALK_E2E_PORT` and the port after it. Lighthouse finds Chrome itself,
+or uses `CHROME_PATH`.
+
+Two deploy workflows run only when started by hand (Actions tab, "Run
+workflow"): `docwalk-deploy-cloudflare.yml` runs `pnpm run deploy` with the
+`CLOUDFLARE_API_TOKEN` repository secret, and `docwalk-deploy-pages.yml`
+builds for the Pages base path (`/<repo>/`) and publishes the static mode.
 
 If `pnpm install` reports a version "does not meet the minimumReleaseAge
 constraint", the package is younger than 7 days. Wait, or pin the previous

@@ -3,6 +3,7 @@ node_modules/
 
 # build output
 dist/
+dist-subpath/
 *.tsbuildinfo
 
 # Cloudflare / Wrangler
@@ -27,3 +28,5 @@ reports/mutation/
 # logs and OS junk
 *.log
 .DS_Store
+.lighthouseci/
+.stryker-tmp/
