@@ -28,7 +28,10 @@ const idOf = (v: LevelOption) => (typeof v === "object" ? v.join(",") : String(v
 
 /** "Slides start at": a React Aria Select styled from the design tokens, keyboard and screen-reader complete. */
 export function LevelSelect({ value, onChange, resolved }: LevelSelectProps) {
-  const items = OPTIONS.map((o) => ({ ...o, label: o.value === "auto" ? `Auto · ${resolved}` : o.label }));
+  const items = OPTIONS.map((o) => ({
+    ...o,
+    label: o.value === "auto" ? `Auto · ${resolved}` : o.label,
+  }));
   const selected = OPTIONS.some((o) => o.id === idOf(value)) ? idOf(value) : "auto";
   return (
     <Select

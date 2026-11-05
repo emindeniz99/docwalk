@@ -34,6 +34,32 @@ export interface DeckController {
   stage(): HTMLElement;
 }
 
+/** A slide's page element, copied so a consumer can change it without touching the live deck. */
+export interface ClonedPage {
+  info: SlideInfo;
+  element: HTMLElement;
+}
+
+/**
+ * Deep copies of the rendered pages, in deck order, for exporters: they work
+ * from the paginated slides the audience sees (decision 9) and mutate what
+ * they get. Pages are matched by address, not position, and a slide with no
+ * page in the stage throws rather than going missing from an export.
+ */
+export function clonePages(controller: DeckController): ClonedPage[] {
+  const pages = new Map<string, HTMLElement>();
+  for (const el of controller
+    .stage()
+    .querySelectorAll<HTMLElement>(":scope > section[data-docwalk-id]")) {
+    pages.set(`${el.dataset["docwalkId"]}/${el.dataset["page"] ?? "1"}`, el);
+  }
+  return controller.slides().map((info) => {
+    const page = pages.get(info.address);
+    if (!page) throw new Error(`Slide ${info.address} is not in the deck.`);
+    return { info, element: page.cloneNode(true) as HTMLElement };
+  });
+}
+
 interface RevealLike {
   getIndices(): { h: number };
   slide(h: number): void;

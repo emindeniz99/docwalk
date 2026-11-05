@@ -133,6 +133,20 @@ describe("hostile input", () => {
   });
 });
 
+describe("diagram hosts and assistive technology", () => {
+  test("a diagram is a focusable group, so its own labels stay readable", async () => {
+    // role=button made the diagram's text presentational: a screen reader
+    // heard "Diagram, button" and none of the boxes or arrows (axe: WCAG 2.5.3).
+    const body = mountSlide("## D\n\n```mermaid\nflowchart LR\n  Ledger --> Journal\n```\n");
+    await renderDiagrams(body);
+    const host = body.querySelector<HTMLElement>(".docwalk-diagram") as HTMLElement;
+    expect(host.getAttribute("role")).toBe("group");
+    expect(host.tabIndex).toBe(0);
+    expect(host.getAttribute("aria-label")).toMatch(/Enter/);
+    expect(host.textContent).toContain("Journal");
+  });
+});
+
 describe("acceptance fixture", () => {
   test("every diagram renders, and the dense slides are flagged instead of clipped silently", async () => {
     const plan = sectionize(parseMarkdown(fixture));

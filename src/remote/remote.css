@@ -11,6 +11,8 @@
   gap: var(--dw-space-lg);
   min-height: 100dvh;
   padding: var(--dw-space-lg) var(--dw-space-lg) var(--dw-space-2xl);
+  /* On a tablet or laptop the 16:9 pad would fill the width and push Next below the fold. */
+  padding-inline: max(var(--dw-space-lg), calc(50% - 360px));
   background: var(--dw-color-stage);
   color: var(--fg);
   font-family: var(--dw-type-ui-family);

@@ -21,7 +21,7 @@ export function OpenFileButton({ onLoad }: OpenFileButtonProps) {
     >
       <Button className="docwalk-button docwalk-inputs-target">
         <FileUp size={16} aria-hidden="true" />
-        Open file
+        <span className="docwalk-button-label">Open file</span>
       </Button>
     </FileTrigger>
   );

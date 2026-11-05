@@ -104,6 +104,10 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
         progress: true,
         slideNumber: "c/t",
         transition: "none",
+        // reveal switches to its scroll view when the deck is 435px wide or
+        // less (a phone, a narrow preview pane): every slide stacked at full
+        // size. Pages are measured for the 1280x720 stage, so keep scaling it.
+        scrollActivationWidth: 0,
       });
       await deck.initialize();
       if (cancelled) return;

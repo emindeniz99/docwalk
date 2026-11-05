@@ -93,7 +93,10 @@ export async function renderDiagrams(root: ParentNode): Promise<DiagramResult[]>
     const host = document.createElement("figure");
     host.className = "docwalk-diagram";
     host.tabIndex = 0;
-    host.setAttribute("role", "button");
+    // A group, not a button: a button's children are presentational, which
+    // hid the diagram's own labels from screen readers, and its name would
+    // have to contain all of that visible text (WCAG 2.5.3).
+    host.setAttribute("role", "group");
     host.setAttribute("aria-label", "Diagram. Press Enter to open it full screen.");
     host.dataset["source"] = code.textContent ?? "";
     pre.replaceWith(host);

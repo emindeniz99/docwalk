@@ -95,7 +95,9 @@ export function SourceBanner({ source, confirm, onLoad, onCancel }: SourceBanner
           <code>{confirm.url}</code>
         </p>
         <div className="docwalk-inputs-actions">
+          {/* The prompt appears without a click; focus tells keyboard and screen-reader users it is there. */}
           <Button
+            autoFocus
             data-variant="primary"
             className="docwalk-button docwalk-inputs-target"
             onPress={() => onLoad?.()}
@@ -113,9 +115,9 @@ export function SourceBanner({ source, confirm, onLoad, onCancel }: SourceBanner
   if (!description) return null;
   const { Icon, label } = description;
   return (
-    <aside className="docwalk-source" aria-label="Document source">
+    <p className="docwalk-source-banner">
       <Icon size={14} aria-hidden="true" />
       <span className="docwalk-source-label">{label}</span>
-    </aside>
+    </p>
   );
 }

@@ -72,7 +72,7 @@ export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) 
           isPending={busy}
         >
           <Download size={16} aria-hidden="true" />
-          Export
+          <span className="docwalk-button-label">Export</span>
         </Button>
         <Popover className="docwalk-popover" placement="bottom end">
           <Menu

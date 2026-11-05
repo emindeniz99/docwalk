@@ -6,12 +6,15 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-Editor (CodeMirror), presenter window, URL addresses and pen/laser are built
-and integrated. `pnpm check` passes (154 tests) and `pnpm test:e2e` (7
-Playwright tests on the built app) passes; CI runs both. Entry bundle 247 KB
-gz of the ~250 KB budget: the editor, presenter view and annotation layer
-load lazily. Next: inputs (?src=, drop, token), sharing, exports, the OAuth
-Worker; follow-ups are listed in ROADMAP.md.
+Batch 2 is integrated: inputs (`?src=`, `?repo=`, `#doc=`, drafts, file open
+and drop, token dialog, OAuth behind `/api/health`), sharing, exports, the
+Worker (`pnpm test:worker` inside `pnpm check`, `public/_headers` from
+`worker/headers.ts`) and remote control (`?view=remote`, `?view=follow`,
+lazy-loaded). `pnpm check` passes (407 unit/browser + 30 Worker tests);
+`pnpm test:e2e` runs 29 Playwright tests including axe (WCAG 2.2 AA) on nine
+surfaces. First load is about 272 KB gzip (`gzip -9`), over the ~250 KB budget;
+size-limit is still not in CI. Open: decision row 8 needs an ADR (remote moved
+into v1); CSP `connect-src` blocks confirmed `?src=` hosts in full mode.
 
 Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
 pnpm@12.16.1 --dir <project> <script>`; browser tests need
@@ -46,9 +49,15 @@ pnpm@12.16.1 --dir <project> <script>`; browser tests need
 - 2026-11-05: Mermaid and other diagram hosts hide their own overflow; measure each host, not only the slide (deckrun `src/preview.ts`).
 - 2026-11-05: Pandoc's rule alone gives H1 slides for a README (`# Name` + intro). The lone-H1 title rule fixes that; restricting it to H1 keeps a single `##` with `###` children from being mistaken for a title.
 - 2026-11-05: Property tests must reuse one parsed tree; re-parsing makes new node objects and identity checks fail for no real reason.
+- 2026-11-05: reveal.js turns on its scroll view when the deck is 435 px wide or less (`scrollActivationWidth`): a phone or a narrow preview stacked every slide at full size. Deck sets it to 0.
+- 2026-11-05: axe does not count `contenteditable` as tabbable, so CodeMirror's scroller failed scrollable-region-focusable until `.cm-content` got `tabindex="0"`. A React Aria Autocomplete menu only takes virtual focus; scroll the dialog that holds the search field instead.
+- 2026-11-05: `role="button"` on a diagram host made the diagram's text presentational and failed label-in-name; a focusable `group` keeps Enter-to-open and the labels.
+- 2026-11-05: Playwright `context.routeWebSocket` without `connectToServer` is a working relay for multi-page remote tests; `addInitScript` also runs in `srcdoc` iframes, so it can stub the print frame's `print()`.
+- 2026-11-05: SourceBanner and the editor pane both used `.docwalk-source`; module CSS must check the shell's class names.
 
 ## Done
 
+- 2026-11-05: Batch 2 (inputs, share, export, Worker, remote) integrated with e2e and axe suites; 12 integration defects fixed (scroll view on phones, axe findings, class collision, phone layout).
 - 2026-11-05: Parallel build of editor, annotation, presenter and URL modules (4 builders + 4 reviewers, 16 defects fixed in review), integrated, e2e suite added.
 - 2026-11-05: Design: three directions on a Claude Design canvas, mix chosen (decision 49), DESIGN.md + tokens + parity test, Stage look applied.
 - 2026-11-05: Semantic pagination: fixture 23 slides/10 overflowing -> 47 slides/1 (atomic), no text lost (browser test).

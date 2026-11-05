@@ -1,19 +1,24 @@
 /* ---- Source banner -------------------------------------------------------- */
 
-.docwalk-source {
+/* Not .docwalk-source: that is the editor pane in styles.css. */
+.docwalk-source-banner {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--dw-space-sm);
-  padding: var(--dw-space-xs) var(--dw-space-lg);
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  gap: var(--dw-space-xs);
+  min-width: 0;
+  margin: 0;
   color: var(--muted);
   font-size: var(--dw-type-caption-size);
 }
 
+.docwalk-source-banner svg {
+  flex: none;
+}
+
 .docwalk-source-label {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .docwalk-source-label strong {

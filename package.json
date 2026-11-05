@@ -9,16 +9,19 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.e2e.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.e2e.json && tsc --noEmit -p worker/tsconfig.json && tsc --noEmit -p worker/tsconfig.node.json",
     "lint": "oxlint",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
     "test:all": "vitest run",
-    "check": "pnpm typecheck && pnpm lint && pnpm lint:design && pnpm fmt:check && pnpm test:all && pnpm build",
+    "check": "pnpm typecheck && pnpm lint && pnpm lint:design && pnpm fmt:check && pnpm test:all && pnpm test:worker && pnpm build",
     "lint:design": "design.md lint DESIGN.md",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:worker": "vitest run --config worker/vitest.config.ts",
+    "dev:worker": "pnpm build && wrangler dev --config worker/wrangler.jsonc",
+    "deploy": "pnpm build && wrangler deploy --config worker/wrangler.jsonc"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",
@@ -56,6 +59,7 @@
     "valibot": "1.5.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@cloudflare/vite-plugin": "1.66.0",
     "@cloudflare/vitest-plugin": "1.4.10",
     "@cloudflare/workers-types": "5.20261029.1",

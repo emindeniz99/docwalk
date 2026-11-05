@@ -1,4 +1,18 @@
-import { Command as CommandIcon, Moon, Monitor, Play, Sun } from "lucide-react";
+import {
+  Cast,
+  Command as CommandIcon,
+  Download,
+  KeyRound,
+  LogIn,
+  Moon,
+  Monitor,
+  MonitorPlay,
+  Play,
+  Search,
+  Share2,
+  Sun,
+  X,
+} from "lucide-react";
 import {
   AnnotationToolbar,
   PEN_COLORS,
@@ -19,19 +33,28 @@ import {
   type DragEvent,
 } from "react";
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
-import sample from "../fixtures/ledger-redesign.md?raw";
-import type { DeckController, SlideInfo } from "./deck/controller";
-import { Deck, type DeckReport } from "./deck/Deck";
+import { clonePages, type DeckController, type SlideInfo } from "./deck/controller";
+import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
 import type { EditorDiagnostic } from "./editor/types";
+import type { ExportOptions } from "./export/types";
+import { OpenFileButton } from "./inputs/OpenFileButton";
+import type { HealthResponse } from "./api/types";
+import { SourceBanner } from "./inputs/SourceBanner";
 import { startPresenterBridge } from "./presenter/bridge";
 import { openPresenterWindow } from "./presenter/window";
+import type { RemoteStatus } from "./remote/client";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
+import { useDraftAutosave } from "./share/draft";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
 import { DocumentView } from "./shell/DocumentView";
 import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
+import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
 import { Outline } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
+import { useDocument } from "./shell/useDocument";
+import { useMediaQuery } from "./shell/useMediaQuery";
+import type { FollowUpdate } from "./shell/RemoteFollower";
 import { useUrlSync } from "./url/useUrlSync";
 
 type View = "edit" | "document" | "present";
@@ -39,6 +62,24 @@ type View = "edit" | "document" | "present";
 // CodeMirror is the largest single dependency; load it after the deck is up.
 const SourceEditor = lazy(() =>
   import("./editor/SourceEditor").then((m) => ({ default: m.SourceEditor })),
+);
+// Dialogs and the exporters (modern-screenshot, the HTML sanitizer, the QR
+// encoder) stay out of the first-load bundle (decision 43).
+const ShareDialog = lazy(() =>
+  import("./share/ShareDialog").then((m) => ({ default: m.ShareDialog })),
+);
+const TokenDialog = lazy(() =>
+  import("./inputs/TokenDialog").then((m) => ({ default: m.TokenDialog })),
+);
+// Remote control (decision 8) loads only once a presenter turns it on, or on a follower page.
+const RemotePresenter = lazy(() =>
+  import("./shell/RemotePresenter").then((m) => ({ default: m.RemotePresenter })),
+);
+const RemoteFollower = lazy(() =>
+  import("./shell/RemoteFollower").then((m) => ({ default: m.RemoteFollower })),
+);
+const ExportMenu = lazy(() =>
+  import("./export/ExportMenu").then((m) => ({ default: m.ExportMenu })),
 );
 
 const LEVELS: { label: string; value: LevelOption }[] = [
@@ -54,8 +95,35 @@ const NEXT_THEME: Record<ThemeChoice, ThemeChoice> = {
   dark: "system",
 };
 
+const FOLLOW_STATUS: Record<RemoteStatus, string> = {
+  connecting: "Connecting to the presenter…",
+  open: "Following the presenter",
+  reconnecting: "Reconnecting to the presenter…",
+  closed: "Not connected",
+};
+
+/** Narrow screens move the palette trigger and theme into the overflow menu. */
+const PHONE = "(max-width: 640px)";
+
+/** Mounts a lazily loaded dialog on first open and keeps it mounted, so closing animates and restores focus. */
+function useLazyDialog() {
+  const [isOpen, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const onOpenChange = useCallback((open: boolean) => {
+    if (open) setMounted(true);
+    setOpen(open);
+  }, []);
+  return { isOpen, mounted, onOpenChange, open: () => onOpenChange(true) };
+}
+
 export function App() {
-  const [markdown, setMarkdown] = useState(sample);
+  // ?view=follow: a read-only screen that follows a presenter (decision 8).
+  const [follow] = useState(() => new URLSearchParams(location.search).get("view") === "follow");
+
+  const inputs = useDocument({ follow });
+  const { doc, notice, setNotice } = inputs;
+  const markdown = doc?.markdown ?? "";
+
   const [level, setLevel] = useState<LevelOption>("auto");
   const [view, setView] = useState<View>("edit");
   const [theme, setTheme] = useTheme();
@@ -65,9 +133,25 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [revealLine, setRevealLine] = useState<number | null>(null);
   const [presenterRequested, setPresenterRequested] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<AnnotationMode>("off");
   const [penColor, setPenColor] = useState<PenColor>(PEN_COLORS[0].variable);
+  const share = useLazyDialog();
+  const join = useLazyDialog();
+  const [remoteOn, setRemoteOn] = useState(false);
+  const phone = useMediaQuery(PHONE);
+  // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  useEffect(() => {
+    let live = true;
+    void import("./inputs/oauth")
+      .then((m) => m.fetchApiHealth())
+      .then((h) => {
+        if (live) setHealth(h);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
   const deckRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<AnnotationLayer | null>(null);
   const startedAt = useRef(0);
@@ -88,15 +172,50 @@ export function App() {
   const root = useMemo(() => parseMarkdown(markdown), [markdown]);
   const plan = useMemo(() => sectionize(root, level), [root, level]);
   const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : "breaks only";
-  const docTitle = plan.titleHeading
-    ? (plan.sections[0]?.title ?? "")
-    : (plan.sections[0]?.title ?? "Untitled");
+  const docTitle = !doc
+    ? "Loading document…"
+    : plan.titleHeading
+      ? (plan.sections[0]?.title ?? "")
+      : (plan.sections[0]?.title ?? "Untitled");
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
 
   const onReport = useCallback((r: DeckReport) => setReport(r), []);
   const onReady = useCallback((c: DeckController | null) => setController(c), []);
 
   useEffect(() => controller?.onChange(setCurrent), [controller]);
+
+  // Pasted and opened documents exist nowhere else; App never unmounts, so no debounced save is lost.
+  useDraftAutosave(markdown, doc?.source ?? { kind: "sample" });
+
+  // ---- Remote control (decision 8): only when the Worker offers it -------
+  // Feature-detected through /api/health and hidden in static mode (AGENTS.md rule 6).
+  const remoteAvailable = !follow && health?.features.includes("remote") === true;
+
+  const [followUpdate, setFollowUpdate] = useState<FollowUpdate>({
+    status: "connecting",
+    state: null,
+    incomplete: false,
+  });
+  const followLoaded = useRef(false);
+  const followState = followUpdate.state;
+  const { loadFromLink } = inputs;
+  useEffect(() => {
+    if (!follow || !followState || followLoaded.current) return;
+    followLoaded.current = true;
+    if (followState.docLink) void loadFromLink(followState.docLink);
+    else
+      setNotice({
+        message: "The presenter's document is too long to send here. Open it yourself.",
+        tone: "error",
+      });
+  }, [follow, followState, loadFromLink, setNotice]);
+  useEffect(() => {
+    if (followUpdate.incomplete)
+      setNotice({
+        message: "This follow link is incomplete. Ask the presenter for the link again.",
+        tone: "error",
+      });
+  }, [followUpdate.incomplete, setNotice]);
 
   // Source line of every section, for the editor's reveal, cursor sync and notes.
   const sectionLines = useMemo(
@@ -199,15 +318,17 @@ export function App() {
 
   const openPresenter = useCallback(() => {
     if (!openPresenterWindow()) {
-      setNotice(
-        "The browser blocked the presenter window. Allow pop-ups for this site and try again.",
-      );
+      setNotice({
+        message:
+          "The browser blocked the presenter window. Allow pop-ups for this site and try again.",
+        tone: "error",
+      });
       return;
     }
     startedAt.current = Date.now();
     setPresenterRequested(true);
     setNotice(null);
-  }, []);
+  }, [setNotice]);
 
   const present = useCallback(async () => {
     show("present");
@@ -231,7 +352,7 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if (!follow && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((open) => !open);
         return;
@@ -247,7 +368,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [show]);
+  }, [show, follow]);
 
   const goTo = useCallback(
     (address: string) => {
@@ -261,11 +382,46 @@ export function App() {
     [controller, view, show, sectionLines],
   );
 
+  // The exporters work from the paginated pages the audience sees, as copies they may change.
+  const getExportOptions = useCallback((): ExportOptions | null => {
+    if (!controller) return null;
+    return {
+      title: docTitle,
+      size: SLIDE_SIZE,
+      slides: clonePages(controller).map(({ info, element }) => ({
+        address: info.address,
+        title: info.title,
+        element,
+      })),
+    };
+  }, [controller, docTitle]);
+
+  const oauthClientId = health?.features.includes("oauth") ? health.githubClientId : undefined;
+  const signIn = useCallback(() => {
+    if (!oauthClientId) return;
+    import("./inputs/oauth")
+      .then((m) => m.startLogin(oauthClientId))
+      .catch(() =>
+        setNotice({
+          message: "Sign-in needs session storage, which this browser blocks.",
+          tone: "error",
+        }),
+      );
+  }, [oauthClientId, setNotice]);
+  const openRemote = useCallback(() => {
+    setRemoteOn(true);
+    join.onOpenChange(true);
+  }, [join]);
+
   const commands: Command[] = [
     { id: "present", label: "Present", run: () => void present() },
     { id: "presenter", label: "Open presenter view", run: openPresenter },
     { id: "view-edit", label: "Show editor", run: () => show("edit") },
     { id: "view-document", label: "Show document", run: () => show("document") },
+    { id: "share", label: "Share link", run: share.open },
+    { id: "token", label: "GitHub token…", run: () => inputs.setTokenOpen(true) },
+    ...(oauthClientId ? [{ id: "sign-in", label: "Sign in with GitHub", run: signIn }] : []),
+    ...(remoteAvailable ? [{ id: "remote", label: "Remote and followers…", run: openRemote }] : []),
     {
       id: "theme",
       label: `Theme: switch to ${NEXT_THEME[theme]}`,
@@ -278,18 +434,58 @@ export function App() {
     })),
   ];
 
-  const onDrop = async (event: DragEvent) => {
+  const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
+  const moreActions: MoreAction[] = [
+    ...(phone
+      ? [
+          {
+            id: "palette",
+            label: "Jump to slide or command",
+            Icon: Search,
+            run: () => setPaletteOpen(true),
+          },
+        ]
+      : []),
+    { id: "token", label: "GitHub token…", Icon: KeyRound, run: () => inputs.setTokenOpen(true) },
+    ...(oauthClientId
+      ? [{ id: "sign-in", label: "Sign in with GitHub", Icon: LogIn, run: signIn }]
+      : []),
+    ...(remoteAvailable
+      ? [{ id: "remote", label: "Remote and followers…", Icon: Cast, run: openRemote }]
+      : []),
+    { id: "presenter", label: "Open presenter view", Icon: MonitorPlay, run: openPresenter },
+    ...(phone
+      ? [
+          {
+            id: "theme",
+            label: `Theme: switch to ${NEXT_THEME[theme]}`,
+            Icon: ThemeIcon,
+            run: () => setTheme(NEXT_THEME[theme]),
+          },
+        ]
+      : []),
+  ];
+
+  const onDrop = (event: DragEvent) => {
     event.preventDefault();
     const file = event.dataTransfer.files[0];
-    if (file && /\.(md|markdown|txt)$/i.test(file.name)) setMarkdown(await file.text());
+    if (file && !follow) void inputs.openFile(file);
   };
 
-  const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
+  const subline = follow ? (
+    <p className="docwalk-source-banner" role="status">
+      {followUpdate.incomplete ? FOLLOW_STATUS.closed : FOLLOW_STATUS[followUpdate.status]}
+    </p>
+  ) : !doc ? null : doc.source.kind === "sample" ? (
+    <p className="docwalk-source-banner">Sample document · nothing uploaded</p>
+  ) : (
+    <SourceBanner source={doc.source} />
+  );
 
   return (
     <div
       className="docwalk-app"
-      data-view={view}
+      data-view={follow ? "follow" : view}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
@@ -299,41 +495,106 @@ export function App() {
         </div>
         <div className="docwalk-doc-title">
           <strong>{docTitle}</strong>
-          <span>Pasted · saved in this browser</span>
+          {subline}
         </div>
-        <Button className="docwalk-palette-trigger" onPress={() => setPaletteOpen(true)}>
-          Jump to slide, command or setting…
-          <kbd>
-            <CommandIcon size={11} aria-hidden="true" />K
-          </kbd>
-        </Button>
-        <ToggleButtonGroup
-          aria-label="View"
-          selectionMode="single"
-          disallowEmptySelection
-          selectedKeys={[view === "present" ? "edit" : view]}
-          onSelectionChange={(keys) => {
-            const [k] = [...keys];
-            if (k === "edit" || k === "document") show(k);
-          }}
-          className="docwalk-segmented"
-        >
-          <ToggleButton id="edit">Edit</ToggleButton>
-          <ToggleButton id="document">Document</ToggleButton>
-        </ToggleButtonGroup>
-        <IconButton
-          label={`Theme: ${theme}. Switch to ${NEXT_THEME[theme]}`}
-          onPress={() => setTheme(NEXT_THEME[theme])}
-        >
-          <ThemeIcon size={18} aria-hidden="true" />
-        </IconButton>
-        <Button className="docwalk-button" data-variant="primary" onPress={() => void present()}>
-          <Play size={16} aria-hidden="true" /> Present
-        </Button>
+        {!follow && !phone && (
+          <Button className="docwalk-palette-trigger" onPress={() => setPaletteOpen(true)}>
+            Jump to slide or command…
+            <kbd>
+              <CommandIcon size={11} aria-hidden="true" />K
+            </kbd>
+          </Button>
+        )}
+        {!follow && (
+          <div className="docwalk-toolbar-actions">
+            <ToggleButtonGroup
+              aria-label="View"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[view === "present" ? "edit" : view]}
+              onSelectionChange={(keys) => {
+                const [k] = [...keys];
+                if (k === "edit" || k === "document") show(k);
+              }}
+              className="docwalk-segmented"
+            >
+              <ToggleButton id="edit">Edit</ToggleButton>
+              <ToggleButton id="document">Document</ToggleButton>
+            </ToggleButtonGroup>
+            <OpenFileButton onLoad={inputs.apply} />
+            <Button className="docwalk-button" isDisabled={!doc} onPress={share.open}>
+              <Share2 size={16} aria-hidden="true" />
+              <span className="docwalk-button-label">Share</span>
+            </Button>
+            <Suspense
+              fallback={
+                <Button className="docwalk-button docwalk-export-trigger" isDisabled>
+                  <Download size={16} aria-hidden="true" />
+                  <span className="docwalk-button-label">Export</span>
+                </Button>
+              }
+            >
+              <ExportMenu getOptions={getExportOptions} isDisabled={!controller} />
+            </Suspense>
+            <MoreMenu actions={moreActions} />
+            {!phone && (
+              <IconButton
+                label={`Theme: ${theme}. Switch to ${NEXT_THEME[theme]}`}
+                onPress={() => setTheme(NEXT_THEME[theme])}
+              >
+                <ThemeIcon size={18} aria-hidden="true" />
+              </IconButton>
+            )}
+          </div>
+        )}
+        {follow ? (
+          <IconButton
+            label={`Theme: ${theme}. Switch to ${NEXT_THEME[theme]}`}
+            onPress={() => setTheme(NEXT_THEME[theme])}
+          >
+            <ThemeIcon size={18} aria-hidden="true" />
+          </IconButton>
+        ) : (
+          <Button
+            className="docwalk-button docwalk-present"
+            data-variant="primary"
+            isDisabled={!doc}
+            onPress={() => void present()}
+          >
+            <Play size={16} aria-hidden="true" /> Present
+          </Button>
+        )}
       </header>
 
+      <div className="docwalk-banners">
+        {inputs.confirm && (
+          <SourceBanner
+            source={null}
+            confirm={inputs.confirm}
+            onLoad={() => void inputs.confirmLoad()}
+            onCancel={inputs.cancelConfirm}
+          />
+        )}
+        {/* Always mounted, so a new notice is announced (WCAG 4.1.3). */}
+        <div role="status" className="docwalk-notice-region">
+          {notice && (
+            <div className="docwalk-notice" data-tone={notice.tone}>
+              <span>{notice.message}</span>
+              {notice.action && (
+                <Button className="docwalk-button" onPress={notice.action.run}>
+                  {notice.action.label}
+                </Button>
+              )}
+              <IconButton label="Dismiss" onPress={() => setNotice(null)}>
+                <X size={16} aria-hidden="true" />
+              </IconButton>
+            </div>
+          )}
+        </div>
+      </div>
+
       <main className="docwalk-main">
-        {view !== "present" && (
+        {view !== "present" && !follow && (
           <aside className="docwalk-sidebar">
             <Outline slides={slides} current={current} onSelect={goTo} />
             <div className="docwalk-level">
@@ -341,26 +602,30 @@ export function App() {
             </div>
           </aside>
         )}
-        {view === "edit" && (
+        {view === "edit" && !follow && (
           <section className="docwalk-source" aria-label="Markdown source">
-            <Suspense fallback={<p className="docwalk-loading">Loading editor…</p>}>
-              <SourceEditor
-                value={markdown}
-                onChange={setMarkdown}
-                onCursorLine={onCursorLine}
-                revealLine={revealLine}
-                diagnostics={diagnostics}
-                label="Markdown source"
-              />
-            </Suspense>
+            {doc ? (
+              <Suspense fallback={<p className="docwalk-loading">Loading editor…</p>}>
+                <SourceEditor
+                  value={markdown}
+                  onChange={inputs.edit}
+                  onCursorLine={onCursorLine}
+                  revealLine={revealLine}
+                  diagnostics={diagnostics}
+                  label="Markdown source"
+                />
+              </Suspense>
+            ) : (
+              <p className="docwalk-loading">Loading document…</p>
+            )}
           </section>
         )}
-        {view === "document" && (
-          <section className="docwalk-document-pane">
+        {view === "document" && !follow && (
+          <section className="docwalk-document-pane" aria-label="Document">
             <DocumentView root={root} />
           </section>
         )}
-        <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document"}>
+        <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document" && !follow}>
           <div className="docwalk-preview-head">
             <strong>{current ? `${current.index + 1} / ${slides.length}` : "…"}</strong>
             <span>{current?.address ?? ""}</span>
@@ -375,23 +640,26 @@ export function App() {
                 Exit <kbd>Esc</kbd>
               </Button>
             )}
-            <div className="docwalk-stage-tools">
-              <AnnotationToolbar
-                mode={mode}
-                onModeChange={setMode}
-                color={penColor}
-                onColorChange={setPenColor}
-                onUndo={() => layerRef.current?.undo()}
-                onClear={() => layerRef.current?.clear()}
-              />
-            </div>
+            {!follow && (
+              <div className="docwalk-stage-tools">
+                <AnnotationToolbar
+                  mode={mode}
+                  onModeChange={setMode}
+                  color={penColor}
+                  onColorChange={setPenColor}
+                  onUndo={() => layerRef.current?.undo()}
+                  onClear={() => layerRef.current?.clear()}
+                />
+              </div>
+            )}
           </div>
-          {notice && (
-            <p className="docwalk-notice" role="alert">
-              {notice}
+          {doc ? (
+            <Deck plan={plan} onReport={onReport} onReady={onReady} />
+          ) : (
+            <p className="docwalk-stage-wait">
+              {follow ? "Waiting for the presenter…" : "Loading document…"}
             </p>
           )}
-          <Deck plan={plan} onReport={onReport} onReady={onReady} />
         </div>
       </main>
 
@@ -403,13 +671,41 @@ export function App() {
         <span className="docwalk-statusbar-end">Nothing uploaded · works offline</span>
       </footer>
 
-      <CommandPalette
-        isOpen={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        slides={slides}
-        commands={commands}
-        onGoTo={goTo}
-      />
+      {!follow && (
+        <CommandPalette
+          isOpen={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          slides={slides}
+          commands={commands}
+          onGoTo={goTo}
+        />
+      )}
+      <Suspense fallback={null}>
+        {share.mounted && doc && (
+          <ShareDialog
+            isOpen={share.isOpen}
+            onOpenChange={share.onOpenChange}
+            source={doc.source}
+            markdown={doc.markdown}
+          />
+        )}
+        {inputs.tokenOpen && (
+          <TokenDialog
+            isOpen={inputs.tokenOpen}
+            onOpenChange={inputs.setTokenOpen}
+            onTokenChange={inputs.tokenChanged}
+          />
+        )}
+        {remoteAvailable && remoteOn && (
+          <RemotePresenter
+            controller={controller}
+            doc={doc}
+            isOpen={join.isOpen}
+            onOpenChange={join.onOpenChange}
+          />
+        )}
+        {follow && <RemoteFollower controller={controller} onUpdate={setFollowUpdate} />}
+      </Suspense>
     </div>
   );
 }

@@ -188,7 +188,10 @@ export function editorExtensions({ label, onUpdate }: SetupOptions): Extension[]
     keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap]),
     notesField,
     flashField,
-    EditorView.contentAttributes.of({ spellcheck: "false" }),
+    // The editable area is already a tab stop; saying so explicitly lets
+    // checkers see that the scrolling editor is keyboard-reachable (axe
+    // does not count contenteditable as tabbable).
+    EditorView.contentAttributes.of({ spellcheck: "false", tabindex: "0" }),
     label,
     onUpdate,
   ];
