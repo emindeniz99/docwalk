@@ -4,7 +4,7 @@ import { Button, ListBox, ListBoxItem } from "react-aria-components";
 import { fitDiagrams, settled, slideBodySize } from "../deck/measure";
 import { renderDiagrams } from "../deck/mermaid";
 import { paginateSlide } from "../deck/paginate";
-import { SLIDE_SIZE, slideAddress } from "../deck/pages";
+import { flagPages, SLIDE_SIZE, slideAddress } from "../deck/pages";
 import { buildSlides } from "../deck/slides";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
 import {
@@ -305,7 +305,7 @@ function SlidePreview({ className, label, title, page, empty }: SlidePreviewProp
 
 /**
  * The audience's pipeline, run again here: sections, diagrams, fitting,
- * settling, pagination. The pages are slide-sized and do not depend on this
+ * settling, pagination, overflow notes. The pages are slide-sized and do not depend on this
  * window's size, so they match the audience's addresses.
  */
 async function buildPreviews(
@@ -331,6 +331,9 @@ async function buildPreviews(
     fitDiagrams(box, slideBodySize(SLIDE_SIZE));
     await settled(box);
     const pages = slides.flatMap((s) => paginateSlide(s, { size: SLIDE_SIZE }));
+    // The presenter must see the same notes the audience deck shows, or a
+    // clipped slide or an unreadable diagram looks fine in the preview.
+    flagPages(pages, SLIDE_SIZE);
     return new Map(pages.map((p) => [slideAddress(p), p]));
   } finally {
     box.remove();
