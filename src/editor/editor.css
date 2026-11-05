@@ -1,0 +1,222 @@
+/*
+ * Source editor (CodeMirror 6). Only token and semantic variables: the
+ * editor follows the app theme because --surface, --fg and friends switch
+ * with it. Selectors start with .docwalk-editor .cm-editor so they outrank
+ * CodeMirror's injected base theme (two classes) without !important.
+ */
+
+.docwalk-editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.docwalk-editor-host {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.docwalk-editor .cm-editor {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.docwalk-editor .cm-editor.cm-focused {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.docwalk-editor .cm-editor .cm-scroller {
+  font-family: var(--dw-type-mono-family);
+  font-size: var(--dw-type-mono-size);
+  line-height: var(--dw-type-mono-line-height);
+}
+
+.docwalk-editor .cm-editor .cm-content {
+  padding: var(--dw-space-lg) 0;
+  caret-color: var(--fg);
+}
+
+.docwalk-editor .cm-editor .cm-line {
+  padding: 0 var(--dw-space-xl) 0 var(--dw-space-sm);
+}
+
+.docwalk-editor .cm-editor .cm-gutters {
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.docwalk-editor .cm-editor .cm-activeLine {
+  background: var(--bg);
+}
+
+.docwalk-editor .cm-editor .cm-activeLineGutter {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.docwalk-editor .cm-editor .cm-searchMatch {
+  outline: 1px solid var(--note-border);
+  background: var(--note-bg);
+}
+
+.docwalk-editor .cm-editor .cm-searchMatch-selected {
+  outline: 2px solid var(--focus);
+}
+
+/* ---- Search panel ------------------------------------------------------- */
+
+.docwalk-editor .cm-editor .cm-panels {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-ui-size);
+}
+
+.docwalk-editor .cm-editor .cm-panel.cm-search {
+  padding: var(--dw-space-sm) var(--dw-space-md);
+}
+
+.docwalk-editor .cm-editor .cm-panel.cm-search input,
+.docwalk-editor .cm-editor .cm-panel.cm-search button {
+  min-height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+
+.docwalk-editor .cm-editor .cm-panel.cm-search button[name="close"] {
+  min-width: 28px;
+  color: var(--fg);
+}
+
+.docwalk-editor .cm-editor .cm-panel.cm-search :focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* ---- Markdown highlighting ---------------------------------------------- */
+
+.docwalk-editor .dw-tok-heading {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.docwalk-editor .dw-tok-strong {
+  font-weight: 700;
+}
+
+.docwalk-editor .dw-tok-emphasis {
+  font-style: italic;
+}
+
+.docwalk-editor .dw-tok-strike {
+  text-decoration: line-through;
+}
+
+.docwalk-editor .dw-tok-link {
+  color: var(--link);
+}
+
+.docwalk-editor .dw-tok-code {
+  color: var(--link);
+}
+
+.docwalk-editor .dw-tok-quote {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.docwalk-editor .dw-tok-mark {
+  color: var(--muted);
+}
+
+/* ---- Diagnostics: yellow, never red (DESIGN.md "note-*") ---------------- */
+
+.docwalk-editor .cm-editor .dw-note-line {
+  background: var(--note-bg);
+}
+
+.docwalk-editor .dw-note-gutter .cm-gutterElement {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dw-space-lg);
+}
+
+.docwalk-editor .dw-note-marker {
+  box-sizing: border-box;
+  width: var(--dw-space-sm);
+  height: var(--dw-space-sm);
+  border: 2px solid var(--note-border);
+  border-radius: var(--dw-radius-full);
+}
+
+/* A warning is filled, a note is a ring: shape carries the severity, not colour alone. */
+.docwalk-editor .dw-note-warning {
+  background: var(--note-border);
+}
+
+/* ---- Reveal: the line the outline pointed at ---------------------------- */
+
+.docwalk-editor .cm-editor .dw-reveal {
+  animation: dw-reveal-fade 1.2s ease-out forwards;
+  background: var(--note-bg);
+  box-shadow: inset 3px 0 0 var(--focus);
+}
+
+@keyframes dw-reveal-fade {
+  70% {
+    background: var(--note-bg);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* The global reduced-motion rule shortens the fade; keep the highlight static instead. */
+@media (prefers-reduced-motion: reduce) {
+  .docwalk-editor .cm-editor .dw-reveal {
+    animation: none;
+  }
+}
+
+/* ---- Touch ----------------------------------------------------------------- */
+
+@media (pointer: coarse) {
+  /* 16px text keeps iOS from zooming the page when the editor takes focus. */
+  .docwalk-editor .cm-editor .cm-scroller {
+    font-size: var(--dw-type-body-size);
+  }
+
+  .docwalk-editor .cm-editor .cm-panel.cm-search input,
+  .docwalk-editor .cm-editor .cm-panel.cm-search button,
+  .docwalk-editor .cm-editor .cm-panel.cm-search label {
+    min-height: var(--dw-space-target);
+  }
+
+  .docwalk-editor .cm-editor .cm-panel.cm-search button[name="close"] {
+    min-width: var(--dw-space-target);
+  }
+}
+
+/* ---- Shared ------------------------------------------------------------------ */
+
+.docwalk-editor .dw-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
