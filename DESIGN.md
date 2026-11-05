@@ -284,6 +284,10 @@ phone controls. Pills (`full`) are only for status chips.
   "· continued" in `slide-muted` on continuation pages.
 - **Stage controls**: 44px square buttons on `stage-raised`, icon plus
   accessible label; a per-section progress bar along the bottom.
+- **Slide overview** (O, or the grid button beside the slide counter): every
+  page as a white thumbnail on the stage, numbered, with a `stage-note`
+  "Note" chip on flagged pages. The current slide has an accent border and a
+  "Current" chip. Arrow keys move, Enter jumps, Escape closes.
 
 Components come from React Aria Components, styled only with these tokens.
 

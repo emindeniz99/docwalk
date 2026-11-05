@@ -3,6 +3,7 @@ import {
   Command as CommandIcon,
   Download,
   KeyRound,
+  LayoutGrid,
   LogIn,
   Moon,
   Monitor,
@@ -35,6 +36,7 @@ import {
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
 import { clonePages, type DeckController, type SlideInfo } from "./deck/controller";
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
+import { useOverviewShortcut } from "./deck/useOverviewShortcut";
 import type { EditorDiagnostic } from "./editor/types";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
@@ -80,6 +82,9 @@ const RemoteFollower = lazy(() =>
 );
 const ExportMenu = lazy(() =>
   import("./export/ExportMenu").then((m) => ({ default: m.ExportMenu })),
+);
+const SlideOverview = lazy(() =>
+  import("./deck/SlideOverview").then((m) => ({ default: m.SlideOverview })),
 );
 
 const LEVELS: { label: string; value: LevelOption }[] = [
@@ -137,6 +142,7 @@ export function App() {
   const [penColor, setPenColor] = useState<PenColor>(PEN_COLORS[0].variable);
   const share = useLazyDialog();
   const join = useLazyDialog();
+  const overview = useLazyDialog();
   const [remoteOn, setRemoteOn] = useState(false);
   const phone = useMediaQuery(PHONE);
   // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
@@ -311,6 +317,13 @@ export function App() {
     view === "present" ? undefined : deckRef,
   );
 
+  // O opens the slide overview: anywhere while presenting, from the deck pane while editing.
+  useOverviewShortcut(
+    overview.open,
+    !follow && controller !== null && view !== "document",
+    view === "present" ? undefined : deckRef,
+  );
+
   // Notes on slides become editor diagnostics at their section's source line.
   const diagnostics = useMemo<EditorDiagnostic[]>(
     () =>
@@ -435,6 +448,7 @@ export function App() {
   const commands: Command[] = [
     { id: "present", label: "Present", run: () => void present() },
     { id: "presenter", label: "Open presenter view", run: openPresenter },
+    { id: "overview", label: "Slide overview", hint: "O", run: overview.open },
     { id: "view-edit", label: "Show editor", run: () => show("edit") },
     { id: "view-document", label: "Show document", run: () => show("document") },
     { id: "share", label: "Share link", run: share.open },
@@ -648,6 +662,17 @@ export function App() {
           <div className="docwalk-preview-head">
             <strong>{current ? `${current.index + 1} / ${slides.length}` : "…"}</strong>
             <span>{current?.address ?? ""}</span>
+            {!follow && (
+              <IconButton
+                label="Slide overview"
+                aria-keyshortcuts="O"
+                className="docwalk-annotate-button docwalk-overview-trigger"
+                isDisabled={!controller}
+                onPress={overview.open}
+              >
+                <LayoutGrid size={18} aria-hidden="true" />
+              </IconButton>
+            )}
             {view === "present" && (
               <Button
                 className="docwalk-button docwalk-exit"
@@ -715,6 +740,15 @@ export function App() {
             isOpen={inputs.tokenOpen}
             onOpenChange={inputs.setTokenOpen}
             onTokenChange={inputs.tokenChanged}
+          />
+        )}
+        {overview.mounted && (
+          <SlideOverview
+            isOpen={overview.isOpen}
+            onOpenChange={overview.onOpenChange}
+            controller={controller}
+            current={current?.address ?? null}
+            onGoTo={goTo}
           />
         )}
         {remoteAvailable && remoteOn && (

@@ -805,6 +805,15 @@ kbd {
   margin-left: auto;
 }
 
+/* The overview button beside the slide counter: a stage control like the annotation tools. */
+.docwalk-overview-trigger {
+  --bg: var(--dw-color-stage);
+  --focus: var(--dw-color-focus-dark);
+  --surface: var(--dw-color-stage-raised);
+  --fg: var(--dw-color-stage-ink);
+  --border-strong: var(--dw-color-stage-border);
+}
+
 /* ---- Banners: the untrusted-source prompt and notices ------------------- */
 
 .docwalk-banners > .docwalk-source-confirm {

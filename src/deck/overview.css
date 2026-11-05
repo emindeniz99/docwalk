@@ -1,0 +1,233 @@
+/* Slide overview: a stage surface (DESIGN.md), dark in both themes, with
+   white slide thumbnails. Loaded with the overview chunk only. */
+
+.docwalk-overview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  padding: var(--dw-space-xl);
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-overview {
+  display: flex;
+  width: min(1240px, 100%);
+  height: min(880px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-xl);
+  background: var(--dw-color-stage);
+  color: var(--dw-color-stage-ink);
+  box-shadow: 0 24px 48px var(--dw-color-slide-shadow);
+}
+
+.docwalk-overview-dialog {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  outline: none;
+}
+
+.docwalk-overview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dw-space-sm) var(--dw-space-md);
+  padding: var(--dw-space-md) var(--dw-space-md) var(--dw-space-md) var(--dw-space-xl);
+  border-bottom: 1px solid var(--dw-color-stage-border);
+}
+
+.docwalk-overview-title {
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+  line-height: var(--dw-type-heading-line-height);
+}
+
+.docwalk-overview-count,
+.docwalk-overview-hint {
+  color: var(--dw-color-stage-muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-overview-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.docwalk-overview-hint {
+  margin: 0 0 0 auto;
+}
+
+.docwalk-overview-hint kbd {
+  padding: 0 var(--dw-space-xs);
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-sm);
+  font-family: var(--dw-type-mono-family);
+}
+
+.docwalk-overview-close {
+  display: inline-grid;
+  place-items: center;
+  width: var(--dw-space-target);
+  height: var(--dw-space-target);
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
+  background: var(--dw-color-stage-raised);
+  color: var(--dw-color-stage-ink);
+  cursor: pointer;
+}
+
+.docwalk-overview-close[data-hovered] {
+  border-color: var(--dw-color-stage-ink);
+}
+
+.docwalk-overview-close[data-focus-visible] {
+  outline: 2px solid var(--dw-color-focus-dark);
+  outline-offset: 2px;
+}
+
+.docwalk-overview-grid {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-content: start;
+  gap: var(--dw-space-lg);
+  min-height: 0;
+  padding: var(--dw-space-xl);
+  overflow: auto;
+  outline: none;
+}
+
+.docwalk-overview-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-sm);
+  min-width: 0;
+  padding: var(--dw-space-sm);
+  border: 2px solid transparent;
+  border-radius: var(--dw-radius-lg);
+  cursor: pointer;
+  outline: none;
+}
+
+.docwalk-overview-item[data-hovered] {
+  border-color: var(--dw-color-stage-border);
+  background: var(--dw-color-stage-raised);
+}
+
+/* The current slide gets the accent border AND a "Current" chip, so the state is not colour alone. */
+.docwalk-overview-item[data-current] {
+  border-color: var(--dw-color-primary);
+}
+
+.docwalk-overview-item[data-focus-visible] {
+  outline: 2px solid var(--dw-color-focus-dark);
+  outline-offset: 2px;
+}
+
+.docwalk-overview-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--dw-radius-md);
+  background: var(--dw-color-slide);
+}
+
+/* A slide-sized page; SlideOverview scales it to the frame's width. */
+.docwalk-overview-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.docwalk-overview-canvas .docwalk-slide {
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.docwalk-overview-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--dw-space-xs) var(--dw-space-sm);
+  min-width: 0;
+  font-size: var(--dw-type-caption-size);
+  line-height: var(--dw-type-caption-line-height);
+}
+
+.docwalk-overview-n,
+.docwalk-overview-page {
+  color: var(--dw-color-stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.docwalk-overview-name {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docwalk-overview-note,
+.docwalk-overview-here {
+  padding: 0 var(--dw-space-sm);
+  border-radius: var(--dw-radius-full);
+  font-weight: 600;
+}
+
+.docwalk-overview-note {
+  border: 1px solid var(--dw-color-stage-note-border);
+  background: var(--dw-color-stage-note-surface);
+  color: var(--dw-color-stage-note-ink);
+}
+
+.docwalk-overview-here {
+  border: 1px solid var(--dw-color-primary);
+  background: var(--dw-color-primary);
+  color: var(--dw-color-on-primary);
+}
+
+@media (max-width: 640px) {
+  .docwalk-overview-overlay {
+    padding: 0;
+  }
+
+  .docwalk-overview {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .docwalk-overview-hint {
+    display: none;
+  }
+
+  .docwalk-overview-close {
+    margin-left: auto;
+  }
+
+  .docwalk-overview-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: var(--dw-space-sm);
+    padding: var(--dw-space-lg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .docwalk-overview-item {
+    transition:
+      border-color 120ms ease,
+      background-color 120ms ease;
+  }
+}

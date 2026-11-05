@@ -45,6 +45,10 @@ slug and is stable across viewports (21).
 **Slide**: one screen in presentation mode, addressed as `<section-id>/<n>`
 (21).
 
+**Slide overview**: the grid of every slide's thumbnail, opened with O or
+the grid button; Enter jumps to a slide. It replaces reveal.js's own
+overview. Code: `SlideOverview`.
+
 **Static mode**: a deployment without the Worker. Everything except OAuth
 and remote control works (37, 38).
 

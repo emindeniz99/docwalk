@@ -106,9 +106,10 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
         // reveal's "focused" mode only counts pointer presses, so Tab and the
         // Present button would leave the deck deaf to keys. Use real DOM focus.
         keyboardCondition: () => revealEl.contains(document.activeElement),
-        // Escape belongs to the app (pen off, then leave present mode); the
-        // overview stays on O.
-        keyboard: { 27: () => undefined },
+        // Escape belongs to the app (pen off, then leave present mode). O
+        // opens the app's own slide overview (keyboard navigable, named)
+        // instead of reveal's.
+        keyboard: { 27: () => undefined, 79: () => undefined },
         width: SLIDE_SIZE.width,
         height: SLIDE_SIZE.height,
         // Leave a visible stage around the slide (DESIGN.md, Colors).
