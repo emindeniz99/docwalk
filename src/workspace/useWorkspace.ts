@@ -136,6 +136,9 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   const { doc, openDocument, closeDocument, retarget, setNotice } = inputs;
   const supported = useMemo(() => ({ opfs: opfsSupported(), folder: folderSupported() }), []);
   const [opfs, setOpfs] = useState<FileSystemDirectoryHandle | null>(null);
+  // The API can exist and still refuse: Safari's private windows (and
+  // Playwright's WebKit) reject getDirectory(). Then there is no workspace.
+  const [opfsRefused, setOpfsRefused] = useState(false);
   const [folder, setFolder] = useState<FolderState | null>(null);
   // A browser without the folder picker always shows the browser workspace.
   const [root, setRoot] = useState<WorkspaceRoot>(() =>
@@ -187,7 +190,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     if (supported.opfs) {
       opfsRoot()
         .then((h) => live && setOpfs(h))
-        .catch(() => undefined);
+        .catch(() => live && setOpfsRefused(true));
     }
     if (supported.folder) {
       void loadFolderHandle().then(async (handle) => {
@@ -792,8 +795,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   const currentDir = openPath ? parentOf(openPath) : "";
 
   return {
-    supported,
-    available: enabled && (supported.opfs || supported.folder),
+    supported: { opfs: supported.opfs && !opfsRefused, folder: supported.folder },
+    available: enabled && ((supported.opfs && !opfsRefused) || supported.folder),
     root,
     folderName,
     folderPermission: folder?.permission ?? null,

@@ -157,6 +157,26 @@ test("with an empty workspace the sidebar starts with a collapsed Files row and 
   await expect(page.locator(".docwalk-outline-item").first()).toBeVisible();
 });
 
+test("where the browser refuses OPFS, there is no file panel and the sample loads as before", async ({
+  page,
+}) => {
+  // Safari's private windows have the OPFS API but reject getDirectory();
+  // a panel whose every action fails would be worse than none (decision 66).
+  await page.addInitScript(() => {
+    // On the prototype: WebKit ignores an own property set this early.
+    Object.defineProperty(StorageManager.prototype, "getDirectory", {
+      configurable: true,
+      value: () => Promise.reject(new DOMException("The operation failed", "UnknownError")),
+    });
+    delete (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+  });
+  await ready(page);
+  await expect(docTitle(page)).toHaveText(SAMPLE_TITLE);
+  await expect(page.locator(".docwalk-outline-item").first()).toBeVisible();
+  await expect(filesTrigger(page)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Workspace actions" })).toHaveCount(0);
+});
+
 test("a project made from a template lives in OPFS, autosaves edits, and reopens after a reload", async ({
   page,
 }) => {
