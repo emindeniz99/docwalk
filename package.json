@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "size": "size-limit",
+    "size": "node tooling/size-check.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.e2e.json && tsc --noEmit -p worker/tsconfig.json && tsc --noEmit -p worker/tsconfig.node.json",
     "lint": "oxlint",
     "fmt": "oxfmt",

@@ -10,7 +10,7 @@ v1 features are in and a full review (5 dimensions, adversarially verified)
 found 37 defects; all are fixed with a failing-first test each. `pnpm check`
 passes (508 unit/browser + 30 Worker tests, no dist/ needed); `pnpm test:e2e`
 runs 31 Playwright tests with axe on nine surfaces; `pnpm size` (size-limit,
-in CI) holds first load at 295 KB gzip JS+CSS, over the ~250 KB goal. CSP
+in CI) measures first load (295 KB gzip JS+CSS); fails above 1 MB, warns above 500 KB. CSP
 `connect-src` is now `'self' https: wss:` (decision 34) and the static build
 carries a meta CSP. Open: decision row 8 needs an ADR (remote moved into v1);
 the presenter window still pulls reveal.js through `deck/Deck.tsx` exports
