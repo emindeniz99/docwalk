@@ -6,12 +6,12 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-App shell on React Aria works (outline, ⌘K palette, document mode, theme,
-present). Modules talk to the deck only through `src/deck/controller.ts`.
-Contracts exist for the next four modules (`src/editor/types.ts`,
-`src/annotate/types.ts`, `src/presenter/types.ts`, `src/url/types.ts`);
-the editor is a textarea placeholder until CodeMirror lands. `pnpm check`
-passes (49 tests). Next: build those four modules, then integrate.
+Editor (CodeMirror), presenter window, URL addresses and pen/laser are built
+and integrated. `pnpm check` passes (154 tests) and `pnpm test:e2e` (7
+Playwright tests on the built app) passes; CI runs both. Entry bundle 247 KB
+gz of the ~250 KB budget: the editor, presenter view and annotation layer
+load lazily. Next: inputs (?src=, drop, token), sharing, exports, the OAuth
+Worker; follow-ups are listed in ROADMAP.md.
 
 Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
 pnpm@12.16.1 --dir <project> <script>`; browser tests need
@@ -26,6 +26,11 @@ pnpm@12.16.1 --dir <project> <script>`; browser tests need
 
 ## Learnings
 
+- 2026-11-05: reveal.js `keyboardCondition: "focused"` only counts pointer presses on the deck; Tab and programmatic focus leave it deaf. Use a function that checks DOM focus.
+- 2026-11-05: reveal.js stacks slides at z-index 10 to 12; overlays inside `.slides` need a higher z-index.
+- 2026-11-05: reveal.js binds Escape to its overview and marks the event handled; rebind 27 to a no-op so the app owns Escape.
+- 2026-11-05: Fullscreen only paints the fullscreen element's subtree; put the page root in fullscreen or portalled dialogs vanish.
+- 2026-11-05: Five integration bugs passed 154 unit/browser tests and showed only in the assembled app; the e2e suite now guards each one (verified by reintroducing the keyboard bug).
 - 2026-11-05: React Aria `ListBox` with `selectionMode` reports clicks as `onSelectionChange`, not `onAction`.
 - 2026-11-05: Vite loads TS configs natively now and warns on extensionless relative imports; config-side files import with `.ts` (tsconfig `allowImportingTsExtensions`).
 - 2026-11-05: Vitest inline projects ignore root `plugins` unless each project sets `extends: true`.
@@ -44,6 +49,7 @@ pnpm@12.16.1 --dir <project> <script>`; browser tests need
 
 ## Done
 
+- 2026-11-05: Parallel build of editor, annotation, presenter and URL modules (4 builders + 4 reviewers, 16 defects fixed in review), integrated, e2e suite added.
 - 2026-11-05: Design: three directions on a Claude Design canvas, mix chosen (decision 49), DESIGN.md + tokens + parity test, Stage look applied.
 - 2026-11-05: Semantic pagination: fixture 23 slides/10 overflowing -> 47 slides/1 (atomic), no text lost (browser test).
 - 2026-11-05: Week-1 spike: reveal.js deck, Mermaid focus, overflow diagnostics; fixture shows 23 slides, 0 diagram errors, 10 honestly flagged overflows.

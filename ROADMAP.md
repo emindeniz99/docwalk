@@ -35,8 +35,19 @@ with a custom shell (overview grid, keyboard, fullscreen).
 
 ### After the spike
 
-- Presenter window over `BroadcastChannel`: current and next slide, notes,
-  timer; the audience window stays the source of the rendered deck.
+- Done 2026-11-05: presenter window over `BroadcastChannel` (current and
+  next slide, timer, slide list, prev/next driving the audience deck);
+  slide addresses in the URL; CodeMirror 6 editor (gutter notes, reveal,
+  cursor sync); pen, arrow, eraser and laser with per-slide marks;
+  Playwright end-to-end suite in CI.
+- Follow-ups from the module reviews: GitHub alerts (`> [!NOTE]`) need
+  rehype-github-alert behind the sanitizer (decision 25); undo history does
+  not survive a slide switch (one drauu instance per slide would fix it);
+  presenter previews do not show overflow notes; a sub-heading anchor that
+  is not a slide falls back to the first slide; empty-slug headings get no
+  linkable address.
+- Bundle: the entry chunk is 247 KB gzipped against the ~250 KB budget;
+  add size-limit to CI before the next dependency lands.
 - Done 2026-11-05: H3 fallback and semantic pagination (paragraphs, list
   items with `<ol start>`, table rows with repeated headers, "· continued"
   titles, `<section-id>/<page>` addresses). The fixture goes from 23 slides
@@ -44,9 +55,6 @@ with a custom shell (overview grid, keyboard, fullscreen).
 - Pagination refinement: merge adjacent sub-heading groups that fit on one
   slide together (today every H3 group gets its own slide once a section
   splits).
-- Slide addresses in the URL (`#<section-id>/<page>`) and deep links from
-  GitHub anchors.
-- CodeMirror 6 editor with live preview and inline diagnostics.
 - Inputs: drop, `?src=` with the origin allowlist, `?repo=`, pasted token.
 - Worker: GitHub App OAuth (PKCE, `state`, fixed `redirect_uri`, origin-bound
   CORS), with `@cloudflare/vitest-plugin` tests.
