@@ -955,6 +955,28 @@ kbd {
   outline-offset: -2px;
 }
 
+/* A labelled group of radio items, such as the editor choice. */
+.docwalk-menu-separator {
+  height: 1px;
+  margin: var(--dw-space-xs) 0;
+  background: var(--border);
+}
+
+.docwalk-menu-header {
+  padding: var(--dw-space-xs) var(--dw-space-md);
+  color: var(--muted);
+  font-family: var(--dw-type-overline-family);
+  font-size: var(--dw-type-overline-size);
+  font-weight: var(--dw-type-overline-weight);
+  letter-spacing: var(--dw-type-overline-letter-spacing);
+  text-transform: uppercase;
+}
+
+/* Lines items without an icon up with the labels of items that have one. */
+.docwalk-menu-item-inset {
+  padding-inline-start: calc(var(--dw-space-md) + var(--dw-space-lg) + var(--dw-space-sm));
+}
+
 .docwalk-tooltip {
   max-width: 240px;
   padding: var(--dw-space-xs) var(--dw-space-sm);
