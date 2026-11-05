@@ -2,6 +2,7 @@ import { Check, Copy, Info, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
+  Checkbox,
   Dialog,
   Heading,
   Input,
@@ -10,12 +11,19 @@ import {
   ModalOverlay,
   TextField,
 } from "react-aria-components";
+import type { ShareComments } from "../comments/useCommentsUi";
 import type { DocumentSource } from "../inputs/types";
 import { buildShareLink, type ShareLinkResult } from "./link";
 import "./share.css";
 
 export const PRIVACY_NOTE =
   "The document is inside the link. It is never sent to a server, but stays in browser history.";
+
+export const COMMENTS_PRIVACY_NOTE =
+  "The comments are inside the link too: never sent to a server, but kept in browser history.";
+
+export const COMMENTS_DROPPED =
+  "The comments did not fit in the link, so it carries the document only. Export them from the Comments panel and send the file along.";
 
 const COPIED = "Link copied.";
 const COPY_MANUALLY = "Copying is blocked here. The link is selected: press Ctrl+C (⌘C on a Mac).";
@@ -27,6 +35,8 @@ export interface ShareDialogProps {
   markdown: string;
   /** The page URL the link starts from; defaults to the current location. */
   base?: string;
+  /** The document's comments (decision 55); offered as "Include comments" when there are any. */
+  comments?: ShareComments;
 }
 
 type State = { status: "building" } | ShareLinkResult;
@@ -62,14 +72,30 @@ export function ShareDialog({ isOpen, onOpenChange, ...body }: ShareDialogProps)
 }
 
 /** Mounted each time the dialog opens, so it starts from "building" with no stale copy status. */
-function ShareBody({ source, markdown, base }: Omit<ShareDialogProps, "isOpen" | "onOpenChange">) {
+function ShareBody({
+  source,
+  markdown,
+  base,
+  comments,
+}: Omit<ShareDialogProps, "isOpen" | "onOpenChange">) {
   const [state, setState] = useState<State>({ status: "building" });
+  const [withComments, setWithComments] = useState(true);
+  const hasComments = (comments?.count ?? 0) > 0;
+  const includeComments = hasComments && withComments;
   const [copyStatus, setCopyStatus] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    buildShareLink({ source, markdown, base: base ?? globalThis.location.href })
+    (includeComments && comments ? comments.encode() : Promise.resolve(null))
+      .then((encoded) =>
+        buildShareLink({
+          source,
+          markdown,
+          base: base ?? globalThis.location.href,
+          comments: encoded,
+        }),
+      )
       .catch((): ShareLinkResult => ({
         ok: false,
         message: "docwalk could not build a link here.",
@@ -80,7 +106,7 @@ function ShareBody({ source, markdown, base }: Omit<ShareDialogProps, "isOpen" |
     return () => {
       cancelled = true;
     };
-  }, [source, markdown, base]);
+  }, [source, markdown, base, includeComments, comments]);
 
   const copy = async (url: string) => {
     try {
@@ -98,6 +124,18 @@ function ShareBody({ source, markdown, base }: Omit<ShareDialogProps, "isOpen" |
 
   return (
     <>
+      {hasComments && (
+        <Checkbox
+          className="docwalk-share-checkbox"
+          isSelected={withComments}
+          onChange={setWithComments}
+        >
+          <span className="docwalk-share-checkbox-box" aria-hidden="true">
+            {withComments && <Check size={14} />}
+          </span>
+          Include {comments?.count === 1 ? "1 comment" : `${comments?.count} comments`}
+        </Checkbox>
+      )}
       {"status" in state ? (
         <p className="docwalk-share-muted">Preparing the link…</p>
       ) : state.ok ? (
@@ -120,6 +158,12 @@ function ShareBody({ source, markdown, base }: Omit<ShareDialogProps, "isOpen" |
               </Button>
             </div>
           </TextField>
+          {state.link.commentsDropped && (
+            <p className="docwalk-share-warning">
+              <TriangleAlert aria-hidden size={18} />
+              <span>{COMMENTS_DROPPED}</span>
+            </p>
+          )}
           {state.link.warning && (
             <p className="docwalk-share-warning">
               <TriangleAlert aria-hidden size={18} />
@@ -130,6 +174,12 @@ function ShareBody({ source, markdown, base }: Omit<ShareDialogProps, "isOpen" |
             <p className="docwalk-share-muted docwalk-share-privacy">
               <Info aria-hidden size={16} />
               <span>{PRIVACY_NOTE}</span>
+            </p>
+          )}
+          {includeComments && !state.link.commentsDropped && (
+            <p className="docwalk-share-muted docwalk-share-privacy">
+              <Info aria-hidden size={16} />
+              <span>{COMMENTS_PRIVACY_NOTE}</span>
             </p>
           )}
         </>

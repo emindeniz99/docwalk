@@ -1,0 +1,349 @@
+/* ---- Comments panel (decision 55) ---------------------------------------- */
+
+/* Wide screens: a column beside the deck. The main grid keeps its own
+ * columns and gives up room on its inline end, so the panel works with any
+ * column layout the shell uses. */
+.docwalk-main:has(> .docwalk-comments-side) {
+  position: relative;
+  padding-inline-end: 360px;
+}
+
+.docwalk-comments-side {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: 360px;
+  border-inline-start: 1px solid var(--border);
+}
+
+.docwalk-comments {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* Narrow screens: a sheet from the bottom edge. */
+.docwalk-comments-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: flex-end;
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-comments-sheet {
+  width: 100%;
+  max-height: 88dvh;
+  border-top: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-xl) var(--dw-radius-xl) 0 0;
+  box-shadow: 0 calc(-1 * var(--dw-space-md)) var(--dw-space-3xl) var(--dw-color-slide-shadow);
+}
+
+.docwalk-comments-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+}
+
+.docwalk-comments-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-md);
+  min-height: 0;
+  height: 100%;
+  padding: var(--dw-space-lg);
+  overflow: auto;
+}
+
+.docwalk-comments-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-comments-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.docwalk-comments-title {
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  line-height: var(--dw-type-heading-line-height);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+  outline: none;
+}
+
+.docwalk-comments-title:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-comments-count {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-comments-tools {
+  display: flex;
+  gap: var(--dw-space-xs);
+  margin-inline-start: auto;
+}
+
+.docwalk-comments-warning {
+  display: flex;
+  gap: var(--dw-space-sm);
+  margin: 0;
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border: 1px solid var(--note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--note-bg);
+  color: var(--note-fg);
+}
+
+.docwalk-comments-warning svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.docwalk-comments-add,
+.docwalk-comments-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-comments-add .docwalk-select-button {
+  width: 100%;
+}
+
+.docwalk-comments-add .docwalk-select-button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docwalk-comments-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.docwalk-comments-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 76px;
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--dw-type-body-family);
+  font-size: var(--dw-type-ui-size);
+  line-height: var(--dw-type-body-line-height);
+  resize: vertical;
+}
+
+.docwalk-comments-textarea[data-focus-visible],
+.docwalk-comments-textarea:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.docwalk-comments-textarea::placeholder {
+  color: var(--muted);
+}
+
+.docwalk-comments-submit {
+  align-self: flex-end;
+  justify-content: center;
+}
+
+.docwalk-comments-popover {
+  max-height: min(420px, 60dvh);
+  max-width: min(420px, calc(100vw - 2 * var(--dw-space-lg)));
+  overflow: auto;
+}
+
+.docwalk-comments-popover-head {
+  display: block;
+  padding: var(--dw-space-sm) var(--dw-space-md) var(--dw-space-xs);
+}
+
+.docwalk-comments-option {
+  flex-wrap: wrap;
+  column-gap: var(--dw-space-sm);
+  padding-block: var(--dw-space-xs);
+}
+
+.docwalk-comments-option[data-depth="3"] {
+  padding-inline-start: var(--dw-space-xl);
+}
+
+.docwalk-comments-option[data-depth="4"],
+.docwalk-comments-option[data-depth="5"],
+.docwalk-comments-option[data-depth="6"] {
+  padding-inline-start: var(--dw-space-2xl);
+}
+
+.docwalk-comments-option-detail {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-comments-filter {
+  align-self: flex-start;
+}
+
+.docwalk-comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-lg);
+}
+
+.docwalk-comments-empty,
+.docwalk-comments-note {
+  margin: 0;
+  color: var(--muted);
+}
+
+.docwalk-comments-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-comments-anchor {
+  margin: 0;
+  font-size: var(--dw-type-ui-size);
+  font-weight: 600;
+}
+
+.docwalk-comments-goto {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.docwalk-comments-goto[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-comments-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docwalk-comments-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+  padding: var(--dw-space-md);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--bg);
+}
+
+/* Resolved reads as done: a neutral edge, not the note colour, plus the "resolved" word. */
+.docwalk-comments-item[data-resolved] {
+  border-inline-start-color: var(--border-strong);
+}
+
+.docwalk-comments-was {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--dw-type-mono-family);
+  font-size: var(--dw-type-caption-size);
+  overflow-wrap: anywhere;
+}
+
+/* Comment text is plain text: keep its line breaks, wrap long words. */
+.docwalk-comments-text {
+  margin: 0;
+  font-family: var(--dw-type-body-family);
+  line-height: var(--dw-type-body-line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.docwalk-comments-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-comments-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-comments-actions .docwalk-icon-button {
+  width: 32px;
+  height: 32px;
+}
+
+.docwalk-comments-actions .docwalk-button {
+  min-height: 32px;
+  padding: 0 var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.docwalk-comments-confirm {
+  margin-inline-end: auto;
+  font-weight: 600;
+}
+
+.docwalk-comments-danger {
+  font-weight: 600;
+}
+
+.docwalk-comments-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-comments-status:empty {
+  display: none;
+}
+
+.docwalk-comments-status[data-tone="error"] {
+  color: var(--note-fg);
+}
+
+@media (pointer: coarse), (max-width: 640px) {
+  .docwalk-comments-actions .docwalk-icon-button {
+    width: var(--dw-space-target);
+    height: var(--dw-space-target);
+  }
+
+  .docwalk-comments-actions .docwalk-button {
+    min-height: var(--dw-space-target);
+  }
+}

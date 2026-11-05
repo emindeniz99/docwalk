@@ -33,6 +33,7 @@ import {
   type DragEvent,
 } from "react";
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
+import { useCommentsUi } from "./comments/useCommentsUi";
 import { clonePages, type DeckController, type SlideInfo } from "./deck/controller";
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
 import type { EditorDiagnostic } from "./editor/types";
@@ -401,6 +402,29 @@ export function App() {
     [controller, view, show, sectionLines],
   );
 
+  // Comments (decision 55): App only places the pieces the hook builds.
+  const comments = useCommentsUi({
+    doc: follow ? null : doc,
+    title: docTitle,
+    root,
+    plan,
+    controller,
+    current,
+    enabled: !follow && view !== "present",
+    phone,
+    setNotice,
+    goTo,
+  });
+  const { markEdit } = comments;
+  const { edit } = inputs;
+  const onEdit = useCallback(
+    (next: string) => {
+      markEdit(next);
+      edit(next);
+    },
+    [markEdit, edit],
+  );
+
   // The exporters work from the paginated pages the audience sees, as copies they may change.
   const getExportOptions = useCallback((): ExportOptions | null => {
     if (!controller) return null;
@@ -438,6 +462,7 @@ export function App() {
     { id: "view-edit", label: "Show editor", run: () => show("edit") },
     { id: "view-document", label: "Show document", run: () => show("document") },
     { id: "share", label: "Share link", run: share.open },
+    ...(comments.command ? [comments.command] : []),
     { id: "token", label: "GitHub token…", run: () => inputs.setTokenOpen(true) },
     ...(oauthClientId ? [{ id: "sign-in", label: "Sign in with GitHub", run: signIn }] : []),
     ...(remoteAvailable ? [{ id: "remote", label: "Remote and followers…", run: openRemote }] : []),
@@ -473,6 +498,7 @@ export function App() {
       ? [{ id: "remote", label: "Remote and followers…", Icon: Cast, run: openRemote }]
       : []),
     { id: "presenter", label: "Open presenter view", Icon: MonitorPlay, run: openPresenter },
+    ...(comments.moreAction ? [comments.moreAction] : []),
     ...(phone
       ? [
           {
@@ -555,6 +581,7 @@ export function App() {
             >
               <ExportMenu getOptions={getExportOptions} isDisabled={!controller} />
             </Suspense>
+            {comments.toggle}
             <MoreMenu actions={moreActions} />
             {!phone && (
               <IconButton
@@ -615,7 +642,12 @@ export function App() {
       <main className="docwalk-main">
         {view !== "present" && !follow && (
           <aside className="docwalk-sidebar">
-            <Outline slides={slides} current={current} onSelect={goTo} />
+            <Outline
+              slides={slides}
+              current={current}
+              onSelect={goTo}
+              commentCounts={comments.outlineCounts}
+            />
             <div className="docwalk-level">
               <LevelSelect value={level} onChange={setLevel} resolved={resolved} />
             </div>
@@ -627,7 +659,7 @@ export function App() {
               <Suspense fallback={<p className="docwalk-loading">Loading editor…</p>}>
                 <SourceEditor
                   value={markdown}
-                  onChange={inputs.edit}
+                  onChange={onEdit}
                   onCursorLine={onCursorLine}
                   revealLine={revealLine}
                   diagnostics={diagnostics}
@@ -641,13 +673,14 @@ export function App() {
         )}
         {view === "document" && !follow && (
           <section className="docwalk-document-pane" aria-label="Document">
-            <DocumentView root={root} />
+            <DocumentView root={root} onRendered={comments.onDocumentRendered} />
           </section>
         )}
         <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document" && !follow}>
           <div className="docwalk-preview-head">
             <strong>{current ? `${current.index + 1} / ${slides.length}` : "…"}</strong>
             <span>{current?.address ?? ""}</span>
+            {comments.chip}
             {view === "present" && (
               <Button
                 className="docwalk-button docwalk-exit"
@@ -682,6 +715,7 @@ export function App() {
             </p>
           )}
         </div>
+        {comments.panel}
       </main>
 
       <footer className="docwalk-statusbar" aria-label="Status">
@@ -708,6 +742,7 @@ export function App() {
             onOpenChange={share.onOpenChange}
             source={doc.source}
             markdown={doc.markdown}
+            comments={comments.share}
           />
         )}
         {inputs.tokenOpen && (

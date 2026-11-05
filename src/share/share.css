@@ -152,3 +152,34 @@
 .docwalk-share-status:empty {
   min-height: 0;
 }
+
+/* "Include comments" (decision 55): a React Aria checkbox with a drawn box. */
+.docwalk-share-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  align-self: flex-start;
+  min-height: var(--dw-space-target);
+  cursor: pointer;
+}
+
+.docwalk-share-checkbox-box {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-sm);
+  background: var(--surface);
+  color: var(--dw-color-on-primary);
+}
+
+.docwalk-share-checkbox[data-selected] .docwalk-share-checkbox-box {
+  border-color: var(--dw-color-primary);
+  background: var(--dw-color-primary);
+}
+
+.docwalk-share-checkbox[data-focus-visible] .docwalk-share-checkbox-box {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
