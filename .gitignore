@@ -27,3 +27,5 @@ reports/mutation/
 # logs and OS junk
 *.log
 .DS_Store
+.lighthouseci/
+.stryker-tmp/
