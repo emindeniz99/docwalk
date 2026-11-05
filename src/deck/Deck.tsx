@@ -5,19 +5,15 @@ import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import type { SectionPlan } from "../sectioning/sectionize";
 import { createDeckController, type DeckController } from "./controller";
 import { openDiagramFocus } from "./focus";
-import {
-  fitDiagrams,
-  measureOffscreen,
-  settled,
-  slideBodySize,
-  type SlideMeasurement,
-} from "./measure";
+import { fitDiagrams, settled, slideBodySize, type SlideMeasurement } from "./measure";
 import { renderDiagrams } from "./mermaid";
 import { paginateSlide } from "./paginate";
+import { flagPages, SLIDE_SIZE, slideAddress } from "./pages";
 import { buildSlides } from "./slides";
 
-/** reveal.js lays slides out at this size and scales the whole deck to fit. */
-export const SLIDE_SIZE = { width: 1280, height: 720 } as const;
+// Kept for the app shell, which loads reveal.js anyway. Code that must stay
+// free of reveal.js (the presenter window) imports these from ./pages.
+export { describeOverflow, SLIDE_SIZE, slideAddress } from "./pages";
 
 /** A rebuild re-renders and re-measures every slide, so it waits until typing pauses this long. */
 export const REBUILD_DELAY_MS = 250;
@@ -132,21 +128,10 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
       await deck.initialize();
       if (cancelled) return;
 
-      const bodies = pages.map(
-        (s) => s.querySelector<HTMLElement>(".docwalk-slide-body") as HTMLElement,
-      );
-      const measurements = measureOffscreen(bodies, SLIDE_SIZE);
       const overflowing: DeckReport["overflowing"] = [];
-      measurements.forEach((m, i) => {
-        const slide = pages[i] as HTMLElement;
-        const diagnostic = slide.querySelector<HTMLElement>(".docwalk-overflow");
-        if (!diagnostic) return;
-        const flagged = m.overflows || m.tooSmall > 0;
-        diagnostic.hidden = !flagged;
-        if (flagged) diagnostic.textContent = describeOverflow(m);
-        if (m.overflows) {
-          overflowing.push({ id: slideAddress(slide), measurement: m });
-        }
+      flagPages(pages, SLIDE_SIZE).forEach((m, i) => {
+        const slide = pages[i];
+        if (m.overflows && slide) overflowing.push({ id: slideAddress(slide), measurement: m });
       });
       const report: DeckReport = {
         slides: pages.length,
@@ -173,25 +158,4 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
       <div ref={host} className="docwalk-deck-host" />
     </div>
   );
-}
-
-export function describeOverflow(m: SlideMeasurement): string {
-  const parts: string[] = [];
-  if (m.body.y > 0) parts.push(`${Math.round(m.body.y)} px too tall`);
-  if (m.body.x > 0) parts.push(`${Math.round(m.body.x)} px too wide`);
-  const clipped = m.diagrams.filter((d) => d.x > 0 || d.y > 0).length;
-  if (clipped > 0) parts.push(`${clipped} diagram${clipped > 1 ? "s" : ""} clipped`);
-  const notes: string[] = [];
-  if (parts.length > 0) notes.push(`Does not fit: ${parts.join(", ")}. Scroll inside the slide.`);
-  if (m.tooSmall > 0) {
-    notes.push(
-      `${m.tooSmall} diagram${m.tooSmall > 1 ? "s are" : " is"} too small to read here. Click to open full screen.`,
-    );
-  }
-  return notes.join(" ");
-}
-
-/** A slide's stable address: `<section-id>/<page>` (decision 21). */
-export function slideAddress(slide: HTMLElement): string {
-  return `${slide.dataset["docwalkId"] ?? ""}/${slide.dataset["page"] ?? "1"}`;
 }

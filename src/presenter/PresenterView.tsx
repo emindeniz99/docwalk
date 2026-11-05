@@ -1,10 +1,10 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, ListBox, ListBoxItem } from "react-aria-components";
-import { SLIDE_SIZE, slideAddress } from "../deck/Deck";
 import { fitDiagrams, settled, slideBodySize } from "../deck/measure";
 import { renderDiagrams } from "../deck/mermaid";
 import { paginateSlide } from "../deck/paginate";
+import { SLIDE_SIZE, slideAddress } from "../deck/pages";
 import { buildSlides } from "../deck/slides";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
 import {
