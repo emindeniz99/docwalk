@@ -397,7 +397,19 @@ export function App() {
 
   useEffect(() => {
     const onFullscreen = () => {
-      if (!document.fullscreenElement) show((v) => (v === "present" ? "edit" : v));
+      if (document.fullscreenElement) return;
+      // Browsers keep Escape for leaving fullscreen and the page never sees
+      // the key. With a dialog open (slide overview, sketch, palette) that
+      // Escape was meant for the dialog: hand it over and keep presenting,
+      // windowed, as a page without fullscreen would.
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && focused.closest('[role="dialog"]')) {
+        focused.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+        return;
+      }
+      show((v) => (v === "present" ? "edit" : v));
     };
     document.addEventListener("fullscreenchange", onFullscreen);
     return () => document.removeEventListener("fullscreenchange", onFullscreen);
