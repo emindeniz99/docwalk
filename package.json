@@ -38,6 +38,7 @@
     "@lezer/highlight": "1.2.5",
     "@panzoom/panzoom": "4.6.2",
     "dompurify": "3.4.17",
+    "fflate": "0.8.3",
     "github-slugger": "2.0.0",
     "hono": "4.13.14",
     "lucide-react": "1.64.0",
