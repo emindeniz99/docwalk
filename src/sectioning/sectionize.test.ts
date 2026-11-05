@@ -113,6 +113,64 @@ describe("ids", () => {
     const p = plan("## Notes\n\na\n\n### Notes\n\nb\n\n## Notes\n\nc\n");
     expect(ids(p)).toEqual(["notes", "notes-2"]);
   });
+
+  test("sub-headings carry their GitHub anchor too, so a link to one can find its slide", () => {
+    const p = plan("## Failure handling\n\nintro\n\n#### Retry budget\n\nr\n");
+    expect([...p.headingIds.values()]).toEqual(["failure-handling", "retry-budget"]);
+  });
+
+  test("an emoji-only heading gets an address instead of GitHub's empty anchor, which no link can hold", () => {
+    // GitHub gives "## 🚀" the anchor "" (a link to it is just "#"); the
+    // slide would have had the address "/1", which the URL parser rejects.
+    const p = plan("## 🚀\n\nlaunch\n\n## ???\n\nquestions\n");
+    expect(ids(p)).toEqual(["heading-1f680", "heading-3f-3f-3f"]);
+    for (const id of ids(p)) expect(id).toMatch(/^[a-z0-9-]+$/);
+  });
+
+  test("the fallback depends on the heading's own text, so edits elsewhere never move the link", () => {
+    const before = plan("## 🚀\n\nx\n").sections[0]?.id;
+    const after = plan("## Added above\n\nnew\n\n## 🚀\n\nx\n").sections[1]?.id;
+    expect(after).toBe(before);
+  });
+
+  test("repeated emoji headings and a heading that spells a fallback still get distinct ids", () => {
+    // github-slugger turns the second empty slug into "-1"; both are empty
+    // text to a reader, so both get fallbacks, numbered like GitHub numbers.
+    const p = plan("## 🚀\n\na\n\n## 🚀\n\nb\n\n## heading-1f680\n\nc\n");
+    expect(ids(p)).toEqual(["heading-1f680-2", "heading-1f680-3", "heading-1f680"]);
+  });
+
+  test("an empty heading gets a plain fallback rather than no id", () => {
+    expect(ids(plan("##\n\nbody\n\n## Next\n\nn\n"))).toEqual(["heading", "next"]);
+  });
+});
+
+describe("definitions", () => {
+  const md = [
+    "## Uses",
+    "",
+    "See [the spec][spec] and a note.[^n]",
+    "",
+    "## Ends",
+    "",
+    "Last words.",
+    "",
+    "---",
+    "",
+    "[spec]: https://example.com/spec",
+    "[^n]: The note.",
+    "",
+  ].join("\n");
+
+  test("link and footnote definitions are collected for the renderer, wherever they stand", () => {
+    const p = plan(md);
+    expect(p.definitions.map((d) => d.type)).toEqual(["definition", "footnoteDefinition"]);
+  });
+
+  test("a block of definitions after a break does not become an empty slide", () => {
+    // Before, the definitions opened an "ends-part-2" slide that rendered blank.
+    expect(ids(plan(md))).toEqual(["uses", "ends"]);
+  });
 });
 
 describe("level override", () => {
@@ -175,12 +233,15 @@ const block = fc.oneof(
   fc.constant("---"),
   fc.constant("```\ncode\n---\nmore\n```"),
   fc.constant("Setext heading\n---"),
+  fc.constantFrom("## 🚀", "### ???", "Text with a note.[^a]", "[^a]: The note.", "[r]: /x"),
 );
 const doc = fc.array(block, { minLength: 0, maxLength: 25 }).map((blocks) => blocks.join("\n\n"));
 const option = fc.oneof(
   fc.constant("auto" as const),
   fc.constantFrom(1, 2, 3, 4) as fc.Arbitrary<1 | 2 | 3 | 4>,
 );
+
+const isDefinition = (n: RootContent) => n.type === "definition" || n.type === "footnoteDefinition";
 
 const emittedNodes = (p: SectionPlan): RootContent[] =>
   p.sections.flatMap((s) => (s.heading ? [s.heading, ...s.nodes] : s.nodes));
@@ -192,13 +253,24 @@ describe("properties", () => {
     const emitted = emittedNodes(p);
     const minLevel = Math.min(...p.levels);
     // Only thematic breaks (slide markers) and title-level headings without
-    // text of their own (kept as breadcrumbs) may be left out.
+    // text of their own (kept as breadcrumbs) may be left out. Definitions
+    // move to `p.definitions`, which every slide can draw from.
     const expected = root.children.filter(
       (n) =>
         n.type !== "thematicBreak" &&
+        !isDefinition(n) &&
         (emitted.includes(n) || !(n.type === "heading" && n.depth < minLevel)),
     );
     expect(emitted).toEqual(expected);
+    expect(p.definitions).toEqual(root.children.filter(isDefinition));
+  });
+
+  fcTest.prop([doc])("every top-level heading has a non-empty, linkable anchor", (md) => {
+    const root = parseMarkdown(md);
+    const anchors = [...sectionize(root).headingIds.values()];
+    expect(anchors).toHaveLength(root.children.filter((n) => n.type === "heading").length);
+    expect(new Set(anchors).size).toBe(anchors.length);
+    for (const a of anchors) expect(a).toMatch(/^[\p{Alphabetic}\p{M}\p{N}\p{Pc}-]+$/u);
   });
 
   fcTest.prop([doc, option])("section ids are unique", (md, opt) => {

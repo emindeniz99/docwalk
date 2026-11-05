@@ -1,5 +1,6 @@
 import type { Section, SectionPlan } from "../sectioning/sectionize";
-import { nodesToHtml, type HtmlOptions } from "../render/toHtml";
+import { nodesToHtml, type HtmlOptions, type RenderContext } from "../render/toHtml";
+import "../render/content.css";
 import { purifyHtml } from "./purify";
 
 /**
@@ -7,7 +8,7 @@ import { purifyHtml } from "./purify";
  * continued title) is built with DOM APIs and `textContent`, never by
  * string concatenation, so heading text can never become markup.
  */
-export function buildSlide(section: Section, options: HtmlOptions = {}): HTMLElement {
+export function buildSlide(section: Section, options: RenderContext = {}): HTMLElement {
   const el = document.createElement("section");
   el.dataset["docwalkId"] = section.id;
   el.dataset["kind"] = section.kind;
@@ -37,7 +38,8 @@ export function buildSlide(section: Section, options: HtmlOptions = {}): HTMLEle
     body.append(title);
   }
   const nodes = section.heading ? [section.heading, ...section.nodes] : section.nodes;
-  body.append(purifyHtml(nodesToHtml(nodes, options)));
+  body.append(purifyHtml(nodesToHtml(nodes, { footnotePrefix: `${section.id}-`, ...options })));
+  unnestSections(body);
   slide.append(body);
 
   const diagnostic = document.createElement("p");
@@ -50,6 +52,27 @@ export function buildSlide(section: Section, options: HtmlOptions = {}): HTMLEle
   return el;
 }
 
+/**
+ * reveal.js reads every `<section>` inside a slide as a vertical sub-slide,
+ * and GitHub's footnote list is a `<section>` (so is raw HTML's, which the
+ * schema allows). Inside a slide each becomes a `<div>` with the same
+ * attributes and children, so the deck stays one slide per page.
+ */
+function unnestSections(body: HTMLElement): void {
+  for (const inner of body.querySelectorAll("section")) {
+    const div = document.createElement("div");
+    for (const attr of inner.attributes) div.setAttribute(attr.name, attr.value);
+    div.append(...inner.childNodes);
+    inner.replaceWith(div);
+  }
+}
+
+/**
+ * Every slide gets the document's heading anchors (so a link to a sub-heading
+ * finds its slide) and its definitions (so a footnote or link reference
+ * resolves on the slide that uses it, wherever it is defined).
+ */
 export function buildSlides(plan: SectionPlan, options: HtmlOptions = {}): HTMLElement[] {
-  return plan.sections.map((s) => buildSlide(s, options));
+  const context = { ...options, headingIds: plan.headingIds, definitions: plan.definitions };
+  return plan.sections.map((s) => buildSlide(s, context));
 }

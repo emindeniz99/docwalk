@@ -1,7 +1,7 @@
 import { fc, test as fcTest } from "@fast-check/vitest";
 import GithubSlugger from "github-slugger";
 import { describe, expect, test } from "vitest";
-import type { HeadingDepth } from "../sectioning/sectionize";
+import { fallbackHeadingId, type HeadingDepth } from "../sectioning/sectionize";
 import { formatViewerUrl, parseViewerUrl } from "./state";
 import type { ViewerUrlState } from "./types";
 
@@ -80,9 +80,10 @@ describe("every section id the sectioner produces is linkable", () => {
   fcTest.prop([fc.string({ unit: "grapheme", minLength: 1, maxLength: 60 })])(
     "a slugged heading round-trips through the hash",
     (heading) => {
-      const id = new GithubSlugger().slug(heading);
-      // Empty slugs (emoji-only headings) and ids over the 200 cap are out of scope.
-      fc.pre(id !== "" && [...id].length <= 200);
+      // An empty slug (emoji-only heading) gets the sectioner's fallback.
+      const id = new GithubSlugger().slug(heading) || fallbackHeadingId(heading);
+      // Ids over the 200 cap are out of scope.
+      fc.pre([...id].length <= 200);
       const written = formatViewerUrl(new URL(BASE), { address: `${id}/3` });
       expect(parseViewerUrl(written).address).toBe(`${id}/3`);
     },

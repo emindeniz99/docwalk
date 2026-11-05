@@ -1,6 +1,7 @@
 import Reveal from "reveal.js";
 import "reveal.js/reveal.css";
 import { useEffect, useRef, useState } from "react";
+import { focusTarget, fragmentAddress, fragmentTarget } from "../render/fragments";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import type { SectionPlan } from "../sectioning/sectionize";
 import { createDeckController, type DeckController } from "./controller";
@@ -69,7 +70,22 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
     revealEl.append(slidesEl);
     root.replaceChildren(revealEl);
 
+    let controller: DeckController | null = null;
     const onClick = (event: Event) => {
+      const link = (event.target as Element).closest<HTMLAnchorElement>('a[href^="#"]');
+      if (link) {
+        // The browser's own jump would scroll reveal.js's stage. A target on
+        // this page (a footnote and its back link) gets focus; otherwise the
+        // fragment is an address or a heading's anchor on another slide.
+        event.preventDefault();
+        const href = link.getAttribute("href") ?? "";
+        const page = link.closest<HTMLElement>("section[data-docwalk-id]");
+        const target = page ? fragmentTarget(page, href) : null;
+        const address = fragmentAddress(href);
+        if (target) focusTarget(target);
+        else if (address) controller?.goTo(address);
+        return;
+      }
       const diagram = (event.target as Element).closest<HTMLElement>(".docwalk-diagram");
       if (diagram) openDiagramFocus(diagram);
     };
@@ -140,7 +156,8 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
         diagramErrors: diagramResults.filter((r) => !r.ok).length,
       };
       onReport?.(report);
-      onReady?.(createDeckController(deck, pages, slidesEl));
+      controller = createDeckController(deck, pages, slidesEl);
+      onReady?.(controller);
     })();
 
     return () => {

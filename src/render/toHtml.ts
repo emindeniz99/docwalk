@@ -1,5 +1,7 @@
 import type { Element, Root as HastRoot } from "hast";
-import type { Root, RootContent } from "mdast";
+import type { Heading, Root, RootContent } from "mdast";
+import rehypeGithubAlert from "rehype-github-alert";
+import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import remarkRehype from "remark-rehype";
@@ -13,6 +15,18 @@ export interface HtmlOptions {
   /** Load remote images directly (the "always load images" setting). Default: blocked. */
   loadRemoteImages?: boolean;
 }
+
+/**
+ * GitHub's schema, plus one change: a `<style>` element is removed with its
+ * contents, as `<script>` is, instead of being unwrapped. Unwrapped, its CSS
+ * showed as text, and inside a `<table>` that text moved when the browser
+ * re-parsed the output, so the sanitized tree was not the one the browser
+ * built (the shape mutation XSS needs).
+ */
+export const SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  strip: [...(defaultSchema.strip ?? []), "style"],
+};
 
 /** Resolving a `src` against this base tells a same-origin path from a reference to another host. */
 const PAGE_BASE = "https://docwalk.invalid/";
@@ -47,6 +61,20 @@ export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
   return (tree: HastRoot) => {
     if (options.loadRemoteImages) return;
     visit(tree, "element", (node: Element) => {
+      // GitHub's schema keeps `<picture><source srcset>` from raw HTML, and the
+      // browser fetches a matching candidate as soon as it renders. Any remote
+      // candidate drops the `srcset`, so the picture falls back to its `<img>`,
+      // which this gate handles below. Every comma- or space-separated token
+      // is checked: stricter than the browser's srcset parser, so no URL it
+      // could fetch slips past as part of a "descriptor".
+      if (node.tagName === "source") {
+        const srcset = node.properties["srcSet"];
+        const tokens = (Array.isArray(srcset) ? srcset.join(",") : String(srcset ?? ""))
+          .split(/[\s,]+/)
+          .filter(Boolean);
+        if (tokens.some((t) => remoteImageUrl(t) !== null)) delete node.properties["srcSet"];
+        return;
+      }
       if (node.tagName !== "img") return;
       const src = node.properties["src"];
       if (typeof src !== "string") return;
@@ -69,38 +97,105 @@ export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
   };
 }
 
-/**
- * Render mdast nodes to HTML the way GitHub would, then sanitize with
- * hast-util-sanitize's default schema, which follows GitHub's rules
- * (including the `user-content-` prefix on ids). Raw HTML in the source is
- * kept only as far as that schema allows. DOMPurify runs again in the
- * browser before insertion (see `src/deck/purify.ts`).
- */
-export function nodesToHtml(nodes: RootContent[], options: HtmlOptions = {}): string {
-  const root: Root = { type: "root", children: nodes };
-  const processor = unified()
-    .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeRawPassthrough)
-    .use(rehypeSanitize, defaultSchema)
-    .use(rehypeBlockRemoteImages, options)
-    .use(rehypeStringify);
-  const hast = processor.runSync(root);
-  return processor.stringify(hast as HastRoot);
+export interface RenderContext extends HtmlOptions {
+  /** Anchors from `headingIds`, written on each heading as `id="user-content-<anchor>"`, as GitHub does. */
+  headingIds?: ReadonlyMap<Heading, string>;
+  /**
+   * The document's link and footnote definitions. A slide renders only its
+   * own section, so a reference whose definition sits elsewhere would show
+   * as literal `[text][ref]` without them. Unused ones render nothing.
+   */
+  definitions?: readonly RootContent[];
+  /**
+   * Put before footnote ids and links (`#<prefix>fn-1`), so the footnotes of
+   * two slides in one deck never share an id. Empty in document mode.
+   */
+  footnotePrefix?: string;
 }
 
 /**
- * remark-rehype keeps raw HTML as `raw` nodes when `allowDangerousHtml` is
- * set. Parsing them into elements needs rehype-raw (not added yet), so for
- * now raw nodes are dropped: the safe choice until raw HTML support lands.
+ * Render mdast nodes to HTML the way GitHub would:
+ *
+ * 1. remark-rehype, keeping raw HTML;
+ * 2. rehype-raw parses that HTML into the tree, BEFORE the sanitizer, so the
+ *    sanitizer sees real elements and keeps only what GitHub's schema allows
+ *    (`details`, `kbd`, `sup`, `img width` …);
+ * 3. rehype-sanitize with hast-util-sanitize's default (GitHub) schema,
+ *    which also prefixes ids with `user-content-`;
+ * 4. rehype-github-alert turns `> [!NOTE]` quotes into alerts. It runs after
+ *    the sanitizer (decision 25), so the alert markup it adds is ours and the
+ *    schema needs no class or SVG allowances that raw HTML could then forge;
+ * 5. the remote image gate (decision 33).
+ *
+ * DOMPurify runs again in the browser before insertion (`src/deck/purify.ts`).
  */
-function rehypeRawPassthrough() {
+export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): string {
+  const { headingIds, definitions, footnotePrefix = "" } = options;
+  let children = nodes;
+  if (definitions) {
+    children = [...nodes.filter((n) => !definitions.includes(n)), ...definitions];
+  }
+  if (headingIds) children = children.map((n) => withHeadingId(n, headingIds));
+  const root: Root = { type: "root", children };
+  const render = (rawHtml: typeof rehypeRaw | typeof rehypeDropRaw) => {
+    const processor = unified()
+      // The sanitizer adds the `user-content-` prefix; remark-rehype's own
+      // default prefix would double it and break every footnote link.
+      .use(remarkRehype, { allowDangerousHtml: true, clobberPrefix: footnotePrefix })
+      .use(rawHtml)
+      .use(rehypePrefixFootnoteLabel, footnotePrefix)
+      .use(rehypeSanitize, SANITIZE_SCHEMA)
+      .use(rehypeGithubAlert)
+      .use(rehypeBlockRemoteImages, options)
+      .use(rehypeStringify);
+    // remark-rehype builds a new tree, so a failed run leaves `root` intact for the retry.
+    return processor.stringify(processor.runSync(root) as HastRoot);
+  };
+  try {
+    return render(rehypeRaw);
+  } catch {
+    // hast-util-from-parse5 throws on some markup (a <template> inside SVG
+    // or MathML). Hostile input must not take the whole deck down, so this
+    // render keeps the Markdown and drops the raw HTML.
+    return render(rehypeDropRaw);
+  }
+}
+
+/** Removes raw HTML nodes: the fallback when parsing them fails. */
+function rehypeDropRaw() {
   return (tree: HastRoot) => {
     visit(tree, "raw", (_node, index, parent) => {
-      if (parent && typeof index === "number") {
-        parent.children.splice(index, 1);
-        return index;
+      if (!parent || typeof index !== "number") return undefined;
+      parent.children.splice(index, 1);
+      return index;
+    });
+  };
+}
+
+/** A copy of a heading that renders with its anchor as `id`; the parsed tree is shared, so it is never mutated. */
+function withHeadingId(node: RootContent, ids: ReadonlyMap<Heading, string>): RootContent {
+  const id = node.type === "heading" ? ids.get(node) : undefined;
+  if (node.type !== "heading" || id === undefined) return node;
+  return { ...node, data: { ...node.data, hProperties: { ...node.data?.hProperties, id } } };
+}
+
+/**
+ * mdast-util-to-hast names the footnote heading `footnote-label` whatever the
+ * prefix, and every reference points at it with `aria-describedby`. Two
+ * slides with footnotes would then share that id, so it gets the prefix too.
+ */
+function rehypePrefixFootnoteLabel(prefix: string) {
+  return (tree: HastRoot) => {
+    if (!prefix) return;
+    const label = "footnote-label";
+    visit(tree, "element", (node: Element) => {
+      if (node.properties["id"] === label) node.properties["id"] = `${prefix}${label}`;
+      const described = node.properties["ariaDescribedBy"];
+      if (Array.isArray(described)) {
+        node.properties["ariaDescribedBy"] = described.map((v) =>
+          v === label ? `${prefix}${label}` : v,
+        );
       }
-      return undefined;
     });
   };
 }

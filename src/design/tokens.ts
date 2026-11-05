@@ -41,6 +41,16 @@ export const tokens = {
     "focus-dark": "#7aa2ff",
     "note-surface-dark": "#2a2412",
     "note-ink-dark": "#fde9a8",
+    "alert-note": "#0969da",
+    "alert-tip": "#1a7f37",
+    "alert-important": "#8250df",
+    "alert-warning": "#9a6700",
+    "alert-caution": "#d1242f",
+    "alert-note-dark": "#4493f8",
+    "alert-tip-dark": "#3fb950",
+    "alert-important-dark": "#ab7df8",
+    "alert-warning-dark": "#d29922",
+    "alert-caution-dark": "#f85149",
   },
   typography: {
     "slide-title": {

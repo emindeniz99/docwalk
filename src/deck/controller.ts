@@ -4,6 +4,7 @@
  * src/deck/ talks to the deck through this interface, never through reveal.js
  * directly, so the shell could change without touching those modules.
  */
+import { anchorTarget } from "../render/fragments";
 
 export interface SlideInfo {
   /** 0-based position in the deck. */
@@ -24,7 +25,11 @@ export interface SlideInfo {
 export interface DeckController {
   slides(): SlideInfo[];
   current(): SlideInfo | null;
-  /** Go to a slide by address; a bare section id goes to its first page. Returns false when unknown. */
+  /**
+   * Go to a slide by address; a bare section id goes to its first page, and
+   * a sub-heading's anchor to the page that holds that heading. Returns
+   * false when unknown.
+   */
   goTo(address: string): boolean;
   next(): void;
   prev(): void;
@@ -91,6 +96,12 @@ export function createDeckController(
     };
   });
   const byAddress = new Map(infos.map((s) => [s.address, s]));
+  // A GitHub link to a sub-heading (`#retry-budget`) names no section: find
+  // the page that holds the heading (or a raw HTML anchor) with that anchor.
+  const byAnchor = (address: string): SlideInfo | undefined => {
+    const index = pages.findIndex((p) => anchorTarget(p, address.split("/")[0] ?? "") !== null);
+    return infos[index];
+  };
 
   const current = () => infos[reveal.getIndices().h] ?? null;
 
@@ -98,7 +109,7 @@ export function createDeckController(
     slides: () => infos,
     current,
     goTo(address) {
-      const target = byAddress.get(address) ?? byAddress.get(`${address}/1`);
+      const target = byAddress.get(address) ?? byAddress.get(`${address}/1`) ?? byAnchor(address);
       if (!target) return false;
       reveal.slide(target.index);
       return true;

@@ -1,0 +1,164 @@
+/*
+ * Markdown content beyond plain text: GitHub alerts, footnotes and the raw
+ * HTML GitHub's schema allows (kbd, details). Slides are white in both
+ * themes, so slide rules use the light tokens; document mode follows the
+ * theme. Values come from design tokens only (DESIGN.md).
+ */
+
+:root {
+  --alert-note: var(--dw-color-alert-note);
+  --alert-tip: var(--dw-color-alert-tip);
+  --alert-important: var(--dw-color-alert-important);
+  --alert-warning: var(--dw-color-alert-warning);
+  --alert-caution: var(--dw-color-alert-caution);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --alert-note: var(--dw-color-alert-note-dark);
+    --alert-tip: var(--dw-color-alert-tip-dark);
+    --alert-important: var(--dw-color-alert-important-dark);
+    --alert-warning: var(--dw-color-alert-warning-dark);
+    --alert-caution: var(--dw-color-alert-caution-dark);
+  }
+}
+
+:root[data-theme="dark"] {
+  --alert-note: var(--dw-color-alert-note-dark);
+  --alert-tip: var(--dw-color-alert-tip-dark);
+  --alert-important: var(--dw-color-alert-important-dark);
+  --alert-warning: var(--dw-color-alert-warning-dark);
+  --alert-caution: var(--dw-color-alert-caution-dark);
+}
+
+/* The slide stays white in a dark theme, so it keeps the light set. */
+.docwalk-slide-body {
+  --alert-note: var(--dw-color-alert-note);
+  --alert-tip: var(--dw-color-alert-tip);
+  --alert-important: var(--dw-color-alert-important);
+  --alert-warning: var(--dw-color-alert-warning);
+  --alert-caution: var(--dw-color-alert-caution);
+}
+
+/* Links too: the dark theme's light link colour reads at 2.4:1 on the white slide. */
+.docwalk-slide-body a {
+  color: var(--dw-color-primary-ink);
+}
+
+/* ---- Alerts (> [!NOTE] …), as GitHub draws them ------------------------- */
+
+.markdown-alert {
+  --alert-color: var(--alert-note);
+  margin: 0 0 var(--dw-space-lg);
+  padding: var(--dw-space-sm) var(--dw-space-lg);
+  border-inline-start: var(--dw-space-xs) solid var(--alert-color);
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+}
+
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+}
+
+.markdown-alert > .markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  margin-bottom: var(--dw-space-xs);
+  color: var(--alert-color);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.markdown-alert-title svg {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+
+/* ---- Footnotes ------------------------------------------------------------ */
+
+:is(.docwalk-slide-body, .docwalk-document) .footnotes {
+  margin-top: var(--dw-space-xl);
+  padding-top: var(--dw-space-sm);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.875em;
+}
+
+.docwalk-slide-body .footnotes {
+  margin-top: var(--dw-space-lg);
+  border-top-color: var(--dw-color-border);
+  color: var(--dw-color-slide-muted);
+  font-size: 0.7em;
+}
+
+:is(.docwalk-slide-body, .docwalk-document) .footnotes :is(ol, p) {
+  margin: 0;
+}
+
+/* A followed footnote or heading link focuses its target. The slide is white
+   in both themes, so it keeps the light focus ring the white needs. */
+.docwalk-slide-body :is(li, h1, h2, h3, h4, h5, h6, a):focus-visible {
+  outline-color: var(--dw-color-focus);
+}
+
+/* GitHub hides the "Footnotes" label visually; screen readers still hear it. */
+:is(.docwalk-slide-body, .docwalk-document) .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- Raw HTML GitHub allows ------------------------------------------------ */
+
+/* The app's kbd style is for shortcut hints in menus; content gets GitHub's key cap. */
+:is(.docwalk-slide-body, .docwalk-document) kbd {
+  display: inline-block;
+  margin: 0;
+  padding: 0 0.35em;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--dw-radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--dw-type-mono-family);
+  font-size: 0.8em;
+  line-height: 1.5;
+}
+
+.docwalk-slide-body kbd {
+  border-color: var(--dw-color-border-strong);
+  background: var(--dw-color-canvas);
+  color: var(--dw-color-slide-ink);
+}
+
+:is(.docwalk-slide-body, .docwalk-document) details {
+  margin: 0 0 var(--dw-space-lg);
+}
+
+:is(.docwalk-slide-body, .docwalk-document) summary {
+  cursor: pointer;
+  font-weight: 600;
+}
