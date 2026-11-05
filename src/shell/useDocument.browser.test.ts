@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DRAFT_DEBOUNCE_MS, releaseDraft, useDraftAutosave } from "../share/draft";
 import { encodeDoc } from "../share/fragment";
 import { DRAFT_STORAGE_KEY } from "../share/types";
+import { writeText } from "../workspace/fs";
+import { opfsRoot, rememberFile } from "../workspace/store";
 import { DRAFT_KEPT, useDocument } from "./useDocument";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -138,5 +140,45 @@ describe("loading", () => {
     respond!(new Response("# Remote doc\n", { headers: { "content-type": "text/plain" } }));
     await pause(100);
     expect(inputs.current!.doc).toEqual(file);
+  });
+});
+
+describe("workspace files (decision 57)", () => {
+  test("a plain visit reopens the workspace file shown last, ahead of the saved draft", async () => {
+    await writeText(await opfsRoot(), "restore-test/plan.md", "# From the workspace\n");
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(PASTED));
+    rememberFile({ root: "opfs", path: "restore-test/plan.md" });
+    openAt("", "");
+    const inputs = mount();
+    // Nothing is shown until the file is read: showing the draft first would flash the wrong document.
+    expect(inputs.current!.doc).toBeNull();
+    await vi.waitFor(() =>
+      expect(inputs.current!.doc).toEqual({
+        markdown: "# From the workspace\n",
+        source: { kind: "workspace", root: "opfs", path: "restore-test/plan.md" },
+      }),
+    );
+    await (await opfsRoot()).removeEntry("restore-test", { recursive: true });
+  });
+
+  test("a remembered file that is gone falls back to the draft, as before", async () => {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(PASTED));
+    rememberFile({ root: "opfs", path: "missing/nowhere.md" });
+    openAt("", "");
+    const inputs = mount();
+    await vi.waitFor(() => expect(inputs.current!.doc).toEqual(PASTED));
+  });
+
+  test("editing a workspace file keeps its source and never touches the draft slot", async () => {
+    // The workspace saves the file itself; writing the draft too would replace a pasted document.
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(PASTED));
+    const inputs = mount();
+    const source = { kind: "workspace", root: "opfs", path: "a.md" } as const;
+    act(() => inputs.current!.openDocument({ markdown: "# A\n", source }));
+    act(() => inputs.current!.edit("# A, edited\n"));
+    await pause(DRAFT_DEBOUNCE_MS + 200);
+    expect(inputs.current!.doc).toEqual({ markdown: "# A, edited\n", source });
+    expect(stored()).toEqual(PASTED);
+    expect(inputs.current!.notice).toBeNull();
   });
 });

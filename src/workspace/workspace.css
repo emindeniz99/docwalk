@@ -1,0 +1,453 @@
+/* ---- File panel (decision 57): above the outline in the sidebar ---------- */
+
+.docwalk-files {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 45%;
+  border-bottom: 1px solid var(--border);
+}
+
+.docwalk-files-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--dw-space-sm) var(--dw-space-sm) var(--dw-space-xs);
+}
+
+.docwalk-files-heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+
+.docwalk-files-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  width: 100%;
+  min-height: 32px;
+  padding: 0 var(--dw-space-xs);
+  border: 0;
+  border-radius: var(--dw-radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.docwalk-files-trigger[data-hovered] {
+  background: var(--bg);
+}
+
+.docwalk-files-caret {
+  flex: none;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.docwalk-files-head:has([aria-expanded="true"]) .docwalk-files-caret {
+  transform: rotate(90deg);
+}
+
+.docwalk-files-root {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Quiet header buttons: the outline below is what the sidebar is about. */
+.docwalk-icon-button.docwalk-files-action {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.docwalk-icon-button.docwalk-files-action[data-hovered] {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.docwalk-files-panel {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--dw-space-sm) var(--dw-space-sm);
+}
+
+.docwalk-files-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  outline: none;
+}
+
+.docwalk-files-item {
+  border-radius: var(--dw-radius-sm);
+  color: var(--fg);
+  cursor: pointer;
+  outline: none;
+}
+
+.docwalk-files-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-xs);
+  min-height: 30px;
+  padding-inline: calc((var(--tree-item-level, 1) - 1) * 14px) 2px;
+}
+
+.docwalk-files-item[data-hovered] {
+  background: var(--bg);
+}
+
+/* The open file: fill, weight and an accent edge, so colour is never the only cue (DESIGN.md). */
+.docwalk-files-item[data-selected] {
+  background: var(--bg);
+  box-shadow: inset 2px 0 0 var(--dw-color-primary);
+  font-weight: 600;
+}
+
+.docwalk-files-item[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.docwalk-files-chevron {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dw-radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.docwalk-files-chevron svg {
+  transition: transform 120ms ease;
+}
+
+/* Tree rows are siblings in the DOM (role="row"), so this only reaches the row's own chevron. */
+.docwalk-files-item[data-expanded] .docwalk-files-chevron svg {
+  transform: rotate(90deg);
+}
+
+.docwalk-files-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.docwalk-files-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docwalk-files-dirty {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--dw-radius-full);
+  background: var(--dw-color-primary);
+}
+
+/* Row actions appear on hover, selection or keyboard focus; touch screens always show them. */
+.docwalk-files-row-menu {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dw-radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.docwalk-files-item:is([data-hovered], [data-selected], [data-focus-visible-within])
+  .docwalk-files-row-menu,
+.docwalk-files-row-menu:is([data-focus-visible], [data-pressed]) {
+  opacity: 1;
+}
+
+.docwalk-files-row-menu[data-hovered] {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.docwalk-files-trigger[data-focus-visible],
+.docwalk-files-chevron[data-focus-visible],
+.docwalk-files-row-menu[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.docwalk-files-note {
+  display: grid;
+  justify-items: start;
+  gap: var(--dw-space-sm);
+  margin: var(--dw-space-xs) var(--dw-space-xs) var(--dw-space-sm);
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-files-note p {
+  margin: 0;
+}
+
+.docwalk-files-note strong {
+  color: var(--fg);
+}
+
+.docwalk-files-separator {
+  height: 1px;
+  margin: var(--dw-space-xs) 0;
+  border: 0;
+  background: var(--border);
+}
+
+@media (pointer: coarse), (max-width: 640px) {
+  .docwalk-files-row {
+    min-height: var(--dw-space-target);
+  }
+
+  .docwalk-icon-button.docwalk-files-action,
+  .docwalk-files-row-menu {
+    width: var(--dw-space-target);
+    height: var(--dw-space-target);
+    opacity: 1;
+  }
+
+  .docwalk-files-chevron {
+    width: 32px;
+    height: 32px;
+  }
+
+  .docwalk-files-trigger {
+    min-height: var(--dw-space-target);
+  }
+}
+
+/* ---- Banner under the document title ------------------------------------ */
+
+/*
+ * A long path must ellipsize, not widen the page: without inline-size
+ * containment the banner's nowrap text sets the header's min-content width
+ * and pushes a 390 px phone layout sideways.
+ */
+.docwalk-ws-banner {
+  contain: inline-size;
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+/* The path gets the room first; on a narrow header the state and Save move to a second line. */
+.docwalk-ws-banner .docwalk-source-label {
+  flex: 1 1 6em;
+  min-width: 0;
+}
+
+.docwalk-ws-state {
+  flex: none;
+  white-space: nowrap;
+}
+
+.docwalk-ws-state::before {
+  content: "·";
+  margin-inline-end: var(--dw-space-xs);
+}
+
+.docwalk-ws-state[data-state="unsaved"],
+.docwalk-ws-state[data-state="missing"],
+.docwalk-ws-state[data-state="error"] {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.docwalk-toolbar .docwalk-button.docwalk-ws-save {
+  flex: none;
+  min-height: 24px;
+  margin-inline-start: var(--dw-space-xs);
+  padding: 0 var(--dw-space-sm);
+  font-size: var(--dw-type-caption-size);
+}
+
+@media (pointer: coarse), (max-width: 640px) {
+  .docwalk-toolbar .docwalk-button.docwalk-ws-save {
+    min-height: var(--dw-space-target);
+    min-width: var(--dw-space-target);
+  }
+}
+
+/* ---- Dialogs ---------------------------------------------------------------- */
+
+.docwalk-ws-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding-top: 10vh;
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-ws-modal {
+  width: min(480px, calc(100vw - 32px));
+  max-height: 80vh;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-xl);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 24px 48px var(--dw-color-slide-shadow);
+}
+
+.docwalk-ws-dialog {
+  display: grid;
+  gap: var(--dw-space-lg);
+  padding: var(--dw-space-xl);
+  outline: none;
+}
+
+.docwalk-ws-dialog h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+.docwalk-ws-dialog h2 svg {
+  flex: none;
+}
+
+.docwalk-ws-body p {
+  margin: 0;
+  line-height: var(--dw-type-body-line-height);
+}
+
+.docwalk-ws-form {
+  display: grid;
+  gap: var(--dw-space-lg);
+}
+
+.docwalk-ws-field {
+  display: grid;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-ws-field label,
+.docwalk-ws-templates > label {
+  font-weight: 600;
+}
+
+.docwalk-ws-field input {
+  min-height: var(--dw-space-target);
+  padding: 0 var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+.docwalk-ws-field input[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-ws-field input[data-invalid] {
+  border: 2px solid var(--note-border);
+}
+
+.docwalk-ws-hint {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-ws-error {
+  padding: var(--dw-space-xs) var(--dw-space-sm);
+  border-radius: var(--dw-radius-sm);
+  background: var(--note-bg);
+  color: var(--note-fg);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-ws-templates {
+  display: grid;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-ws-template {
+  display: grid;
+  gap: 2px;
+  padding: var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  cursor: pointer;
+}
+
+.docwalk-ws-template[data-hovered] {
+  border-color: var(--fg);
+}
+
+/* Selected: a thicker accent border and a fill, not colour alone. */
+.docwalk-ws-template[data-selected] {
+  border: 2px solid var(--dw-color-primary);
+  padding: calc(var(--dw-space-md) - 1px);
+  background: var(--bg);
+}
+
+.docwalk-ws-template[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.docwalk-ws-template-label {
+  font-weight: 600;
+}
+
+.docwalk-ws-template[data-selected] .docwalk-ws-template-label::after {
+  content: " ✓";
+}
+
+.docwalk-ws-template-description {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-ws-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-ws-actions .docwalk-button {
+  min-height: var(--dw-space-target);
+}
+
+.docwalk-ws-actions .docwalk-button[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

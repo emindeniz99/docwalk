@@ -61,6 +61,11 @@ import { useDocument } from "./shell/useDocument";
 import { useMediaQuery } from "./shell/useMediaQuery";
 import type { FollowUpdate } from "./shell/RemoteFollower";
 import { useUrlSync } from "./url/useUrlSync";
+import { workspaceCommands } from "./workspace/commands";
+import { FilesPanel } from "./workspace/FilesPanel";
+import { useWorkspace } from "./workspace/useWorkspace";
+import { WorkspaceBanner } from "./workspace/WorkspaceBanner";
+import { WorkspaceDialogs } from "./workspace/WorkspaceDialogs";
 
 type View = "edit" | "document" | "present";
 
@@ -138,6 +143,8 @@ export function App() {
 
   const inputs = useDocument({ follow });
   const { doc, notice, setNotice } = inputs;
+  // Files in OPFS or a local folder (decisions 57, 58); an empty workspace changes nothing else.
+  const workspace = useWorkspace({ inputs, enabled: !follow });
   const markdown = doc?.markdown ?? "";
 
   const [level, setLevel] = useState<LevelOption>("auto");
@@ -503,6 +510,7 @@ export function App() {
       label: `Slides start at ${l.value === "auto" ? `auto (${resolved})` : l.label}`,
       run: () => setLevel(l.value),
     })),
+    ...workspaceCommands(workspace),
   ];
 
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
@@ -541,14 +549,16 @@ export function App() {
   const onDrop = (event: DragEvent) => {
     event.preventDefault();
     const file = event.dataTransfer.files[0];
-    if (file && !follow) void inputs.openFile(file);
+    if (file && !follow) workspace.guard(() => void inputs.openFile(file));
   };
 
   const subline = follow ? (
     <p className="docwalk-source-banner" role="status">
       {followUpdate.incomplete ? FOLLOW_STATUS.closed : FOLLOW_STATUS[followUpdate.status]}
     </p>
-  ) : !doc ? null : doc.source.kind === "sample" ? (
+  ) : !doc ? null : doc.source.kind === "workspace" ? (
+    <WorkspaceBanner workspace={workspace} />
+  ) : doc.source.kind === "sample" ? (
     <p className="docwalk-source-banner">Sample document · nothing uploaded</p>
   ) : (
     <SourceBanner source={doc.source} />
@@ -593,7 +603,7 @@ export function App() {
               <ToggleButton id="edit">Edit</ToggleButton>
               <ToggleButton id="document">Document</ToggleButton>
             </ToggleButtonGroup>
-            <OpenFileButton onLoad={inputs.apply} />
+            <OpenFileButton onLoad={(r) => workspace.guard(() => inputs.apply(r))} />
             <Button className="docwalk-button" isDisabled={!doc} onPress={share.open}>
               <Share2 size={16} aria-hidden="true" />
               <span className="docwalk-button-label">Share</span>
@@ -669,6 +679,7 @@ export function App() {
       <main className="docwalk-main">
         {view !== "present" && !follow && (
           <aside className="docwalk-sidebar">
+            {workspace.available && <FilesPanel workspace={workspace} />}
             <Outline
               slides={slides}
               current={current}
@@ -773,6 +784,7 @@ export function App() {
           onGoTo={goTo}
         />
       )}
+      {!follow && <WorkspaceDialogs workspace={workspace} />}
       <Suspense fallback={null}>
         {share.mounted && doc && (
           <ShareDialog
