@@ -1,58 +1,168 @@
-/* Placeholder look until DESIGN.md defines tokens (ROADMAP: DESIGN.md once the first themes exist). */
+/*
+ * docwalk styles. Every value comes from a design token (DESIGN.md,
+ * src/design/tokens.ts), served as --dw-* variables by
+ * virtual:docwalk-tokens.css. This file maps them onto semantic,
+ * theme-aware names. No raw colours here: a test fails on any hex literal.
+ */
+
 :root {
-  color-scheme: light dark;
-  --dw-fg: #1f2328;
-  --dw-bg: #ffffff;
-  --dw-muted: #59636e;
-  --dw-border: #d1d9e0;
-  --dw-warn-bg: #fff8c5;
-  --dw-warn-fg: #3b2300;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  color-scheme: light;
+  --bg: var(--dw-color-canvas);
+  --surface: var(--dw-color-surface);
+  --border: var(--dw-color-border);
+  --border-strong: var(--dw-color-border-strong);
+  --fg: var(--dw-color-ink);
+  --muted: var(--dw-color-ink-muted);
+  --link: var(--dw-color-primary-ink);
+  --focus: var(--dw-color-focus);
+  --note-bg: var(--dw-color-note-surface);
+  --note-border: var(--dw-color-note-border);
+  --note-fg: var(--dw-color-note-ink);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --dw-fg: #f0f6fc;
-    --dw-bg: #0d1117;
-    --dw-muted: #9198a1;
-    --dw-border: #3d444d;
-    --dw-warn-bg: #3b2300;
-    --dw-warn-fg: #fff8c5;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: var(--dw-color-canvas-dark);
+    --surface: var(--dw-color-surface-dark);
+    --border: var(--dw-color-border-dark);
+    --border-strong: var(--dw-color-border-dark);
+    --fg: var(--dw-color-ink-dark);
+    --muted: var(--dw-color-ink-muted-dark);
+    --link: var(--dw-color-primary-ink-dark);
+    --focus: var(--dw-color-focus-dark);
+    --note-bg: var(--dw-color-note-surface-dark);
+    --note-border: var(--dw-color-stage-note-border);
+    --note-fg: var(--dw-color-note-ink-dark);
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: var(--dw-color-canvas-dark);
+  --surface: var(--dw-color-surface-dark);
+  --border: var(--dw-color-border-dark);
+  --border-strong: var(--dw-color-border-dark);
+  --fg: var(--dw-color-ink-dark);
+  --muted: var(--dw-color-ink-muted-dark);
+  --link: var(--dw-color-primary-ink-dark);
+  --focus: var(--dw-color-focus-dark);
+  --note-bg: var(--dw-color-note-surface-dark);
+  --note-border: var(--dw-color-stage-note-border);
+  --note-fg: var(--dw-color-note-ink-dark);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  color: var(--dw-fg);
-  background: var(--dw-bg);
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-ui-size);
+  line-height: var(--dw-type-ui-line-height);
+  font-variant-numeric: tabular-nums;
 }
+
+a {
+  color: var(--link);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---- App shell ---------------------------------------------------------- */
 
 .docwalk-app {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   height: 100dvh;
 }
 
 .docwalk-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--dw-space-md);
   align-items: center;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--dw-border);
+  padding: var(--dw-space-md) var(--dw-space-xl);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.docwalk-wordmark {
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+}
+
+.docwalk-wordmark span {
+  color: var(--dw-color-primary);
 }
 
 .docwalk-toolbar textarea {
   width: 100%;
-  min-height: 8rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-height: 10rem;
+  padding: var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--dw-type-mono-family);
+  font-size: var(--dw-type-mono-size);
+  line-height: var(--dw-type-mono-line-height);
 }
+
+.docwalk-button {
+  min-height: 38px;
+  padding: 0 var(--dw-space-lg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.docwalk-button[data-variant="primary"] {
+  border-color: var(--dw-color-primary);
+  background: var(--dw-color-primary);
+  color: var(--dw-color-on-primary);
+  font-weight: 700;
+}
+
+.docwalk-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dw-space-lg);
+  padding: var(--dw-space-xs) var(--dw-space-xl);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--dw-type-mono-family);
+  font-size: var(--dw-type-caption-size);
+}
+
+/* ---- Stage and slides ---------------------------------------------------- */
 
 .docwalk-deck {
   display: grid;
   grid-template-rows: 1fr auto;
   min-height: 0;
+  background: var(--dw-color-stage);
 }
 
 .docwalk-deck-host {
@@ -60,23 +170,48 @@ body {
   min-height: 0;
 }
 
-.docwalk-deck-host:focus-visible {
-  outline: 2px solid #0969da;
-  outline-offset: -2px;
-}
-
 .docwalk-deck-host .reveal {
   height: 100%;
 }
 
-.docwalk-status {
-  margin: 0;
-  padding: 0.25rem 1rem;
-  color: var(--dw-muted);
-  font-size: 0.85rem;
+.docwalk-deck-host:focus-visible {
+  outline-offset: -3px;
 }
 
-/* One slide: breadcrumb, body, diagnostic. The body scrolls rather than clips. */
+/* reveal.js paints its own background and controls; the stage owns both here. */
+.docwalk-deck-host .reveal,
+.docwalk-deck-host .reveal-viewport {
+  background: transparent;
+}
+
+.docwalk-deck-host .reveal .controls {
+  color: var(--dw-color-stage-ink);
+}
+
+.docwalk-deck-host .reveal .progress {
+  color: var(--dw-color-primary);
+  background: var(--dw-color-stage-border);
+}
+
+.docwalk-deck-host .reveal .slide-number a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.docwalk-deck-host .reveal .slide-number {
+  background: var(--dw-color-stage-raised);
+  color: var(--dw-color-stage-ink);
+  font-family: var(--dw-type-mono-family);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-status {
+  margin: 0;
+  padding: var(--dw-space-xs) var(--dw-space-xl) var(--dw-space-sm);
+  color: var(--dw-color-stage-muted);
+  font-size: var(--dw-type-caption-size);
+}
+
 .reveal .slides > section,
 section[data-docwalk-id] {
   height: 100%;
@@ -84,20 +219,29 @@ section[data-docwalk-id] {
   text-align: left;
 }
 
+/* The slide stays white in both themes: it is the projected page (DESIGN.md, Colors). */
 .docwalk-slide {
+  box-shadow: 0 24px 48px var(--dw-color-slide-shadow);
   display: flex;
   flex-direction: column;
   height: 100%;
-  box-sizing: border-box;
-  color: var(--dw-fg);
-  font-size: 24px;
-  line-height: 1.5;
+  padding: var(--dw-space-3xl) 64px var(--dw-space-2xl);
+  border-radius: var(--dw-radius-lg);
+  background: var(--dw-color-slide);
+  color: var(--dw-color-slide-ink);
+  font-family: var(--dw-type-slide-body-family);
+  font-size: var(--dw-type-slide-body-size);
+  line-height: var(--dw-type-slide-body-line-height);
 }
 
 .docwalk-breadcrumb {
-  color: var(--dw-muted);
-  font-size: 0.7em;
-  margin-bottom: 0.4em;
+  margin-bottom: var(--dw-space-md);
+  color: var(--dw-color-slide-muted);
+  font-family: var(--dw-type-overline-family);
+  font-size: var(--dw-type-overline-size);
+  font-weight: var(--dw-type-overline-weight);
+  letter-spacing: var(--dw-type-overline-letter-spacing);
+  text-transform: uppercase;
 }
 
 .docwalk-slide-body {
@@ -107,39 +251,79 @@ section[data-docwalk-id] {
 }
 
 .docwalk-slide-body h1,
-.docwalk-slide-body h2 {
-  margin-top: 0;
-  line-height: 1.2;
+.docwalk-slide-body h2,
+.docwalk-slide-body > :is(h3, h4, h5, h6):first-child {
+  margin: 0 0 var(--dw-space-lg);
+  font-family: var(--dw-type-slide-title-family);
+  font-size: var(--dw-type-slide-title-size);
+  font-weight: var(--dw-type-slide-title-weight);
+  line-height: var(--dw-type-slide-title-line-height);
+  letter-spacing: var(--dw-type-slide-title-letter-spacing);
+}
+
+.docwalk-slide-body h3,
+.docwalk-slide-body h4 {
+  margin: var(--dw-space-xl) 0 var(--dw-space-sm);
+  font-family: var(--dw-type-heading-family);
+  font-weight: var(--dw-type-heading-weight);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+}
+
+.docwalk-slide-body p,
+.docwalk-slide-body ul,
+.docwalk-slide-body ol {
+  margin: 0 0 var(--dw-space-lg);
+}
+
+.docwalk-continued {
+  color: var(--dw-color-slide-muted);
+  font-weight: var(--dw-type-heading-weight);
 }
 
 .docwalk-slide-body table {
   border-collapse: collapse;
-  font-size: 0.8em;
+  font-size: 0.75em;
 }
 
-.docwalk-slide-body th,
+.docwalk-slide-body th {
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border-bottom: 2px solid var(--dw-color-slide-ink);
+  text-align: left;
+}
+
 .docwalk-slide-body td {
-  border: 1px solid var(--dw-border);
-  padding: 0.2em 0.5em;
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border-bottom: 1px solid var(--dw-color-border);
+}
+
+.docwalk-slide-body code {
+  font-family: var(--dw-type-mono-family);
+  font-size: 0.85em;
 }
 
 .docwalk-slide-body pre {
-  font-size: 0.7em;
+  padding: var(--dw-space-lg);
+  border-radius: var(--dw-radius-md);
+  background: var(--dw-color-canvas);
+  font-size: 0.6em;
+  line-height: var(--dw-type-mono-line-height);
   overflow: auto;
 }
 
 .docwalk-overflow {
-  margin: 0.3em 0 0;
-  padding: 0.3em 0.6em;
-  border-radius: 0.3em;
-  background: var(--dw-warn-bg);
-  color: var(--dw-warn-fg);
-  font-size: 0.6em;
+  margin: var(--dw-space-sm) 0 0;
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border: 1px solid var(--dw-color-note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--dw-color-note-surface);
+  color: var(--dw-color-note-ink);
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-ui-size);
 }
 
 /* fitDiagrams sizes each SVG to the slide; hosts still clip as a last resort, and the measurement pass checks each host. */
 .docwalk-diagram {
-  margin: 0.5em 0;
+  margin: var(--dw-space-sm) 0;
   overflow: hidden;
   cursor: zoom-in;
 }
@@ -152,8 +336,11 @@ section[data-docwalk-id] {
   display: inline-block;
   min-width: 8em;
   min-height: 2em;
-  border: 1px dashed var(--dw-border);
+  border: 1px dashed var(--dw-color-border-strong);
+  border-radius: var(--dw-radius-sm);
 }
+
+/* ---- Diagram focus ------------------------------------------------------- */
 
 .docwalk-focus {
   position: fixed;
@@ -161,7 +348,8 @@ section[data-docwalk-id] {
   z-index: 1000;
   display: grid;
   grid-template-rows: 1fr auto;
-  background: var(--dw-bg);
+  background: var(--surface);
+  color: var(--fg);
 }
 
 .docwalk-focus-stage {
@@ -173,13 +361,20 @@ section[data-docwalk-id] {
 
 .docwalk-focus-toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  gap: 0.5rem;
-  padding: 0.5rem;
+  gap: var(--dw-space-sm);
+  padding: var(--dw-space-md);
+  border-top: 1px solid var(--border);
 }
 
 .docwalk-focus-toolbar button {
-  min-width: 2.75rem;
-  min-height: 2.75rem;
-  font-size: 1rem;
+  min-width: var(--dw-space-target);
+  min-height: var(--dw-space-target);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-lg);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
 }

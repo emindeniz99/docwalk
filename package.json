@@ -16,15 +16,21 @@
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
     "test:all": "vitest run",
-    "check": "pnpm typecheck && pnpm lint && pnpm fmt:check && pnpm test:all && pnpm build"
+    "check": "pnpm typecheck && pnpm lint && pnpm lint:design && pnpm fmt:check && pnpm test:all && pnpm build",
+    "lint:design": "design.md lint DESIGN.md"
   },
   "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "5.3.0",
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@panzoom/panzoom": "4.6.2",
     "dompurify": "3.4.17",
     "github-slugger": "2.0.0",
+    "lucide-react": "1.64.0",
     "mdast-util-to-string": "4.0.0",
     "mermaid": "12.2.0",
     "react": "19.3.1",
+    "react-aria-components": "1.22.1",
     "react-dom": "19.3.1",
     "rehype-sanitize": "6.0.0",
     "rehype-stringify": "10.0.1",
@@ -37,6 +43,8 @@
   },
   "devDependencies": {
     "@fast-check/vitest": "0.5.0",
+    "@google/design.md": "0.4.0",
+    "@react-aria/optimize-locales-plugin": "2.1.0",
     "@types/hast": "3.0.5",
     "@types/mdast": "4.0.4",
     "@types/node": "24.19.2",
@@ -50,7 +58,8 @@
     "playwright": "1.64.1",
     "typescript": "7.0.2",
     "vite": "8.3.5",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "yaml": "2.9.1"
   },
   "devEngines": {
     "runtime": {

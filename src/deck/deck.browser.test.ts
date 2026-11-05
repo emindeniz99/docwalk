@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from "vitest";
 import fixture from "../../fixtures/ledger-redesign.md?raw";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
+// Same fonts as the app, so measurements and pagination match what users see.
+import "@fontsource-variable/bricolage-grotesque";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
+import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { BLOCKED_IMAGE_CLASS } from "../render/toHtml";
 import { fitDiagrams, measureBody, measureOffscreen, settled, slideBodySize } from "./measure";

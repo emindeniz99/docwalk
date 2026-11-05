@@ -6,11 +6,11 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-Spike plus smart pagination done: AST sections, H3 fallback, semantic
-pagination (items, rows, blocks), sanitized reveal.js deck, Mermaid strict +
-pre-pass, diagram fitting and focus view, off-screen measurement. `pnpm
-check` passes (23 unit + 18 browser tests). Next: presenter window
-(BroadcastChannel), slide addresses in the URL, then the CodeMirror editor.
+Design system in place: `DESIGN.md` (linter clean) mirrored by
+`src/design/tokens.ts`, CSS variables built by `tooling/tokens-plugin.ts`,
+self-hosted fonts, Stage look on the deck. `pnpm check` passes (48 tests).
+Next: app shell on React Aria (outline, ⌘K palette, view switch), then the
+presenter window, URL slide addresses, editor, pen and laser.
 
 Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
 pnpm@12.16.1 --dir <project> <script>`; browser tests need
@@ -25,6 +25,9 @@ pnpm@12.16.1 --dir <project> <script>`; browser tests need
 
 ## Learnings
 
+- 2026-11-05: Vite loads TS configs natively now and warns on extensionless relative imports; config-side files import with `.ts` (tsconfig `allowImportingTsExtensions`).
+- 2026-11-05: Vitest inline projects ignore root `plugins` unless each project sets `extends: true`.
+- 2026-11-05: reveal.js paints `.reveal`/`.reveal-viewport` backgrounds; make them transparent or the stage colour never shows.
 - 2026-11-05: Paginate before reveal.js initializes; otherwise its slide count, progress bar and overview describe the unsplit deck.
 - 2026-11-05: reveal.js's notes plugin opens previews of `location.href`; for an app whose deck comes from pasted input, the previews show the wrong thing. Build the presenter window on BroadcastChannel instead.
 - 2026-11-05: reveal.js hides distant slides with `display: none`, so they measure as empty; measure clones in an off-screen box with `visibility: hidden`.
@@ -39,6 +42,7 @@ pnpm@12.16.1 --dir <project> <script>`; browser tests need
 
 ## Done
 
+- 2026-11-05: Design: three directions on a Claude Design canvas, mix chosen (decision 49), DESIGN.md + tokens + parity test, Stage look applied.
 - 2026-11-05: Semantic pagination: fixture 23 slides/10 overflowing -> 47 slides/1 (atomic), no text lost (browser test).
 - 2026-11-05: Week-1 spike: reveal.js deck, Mermaid focus, overflow diagnostics; fixture shows 23 slides, 0 diagram errors, 10 honestly flagged overflows.
 - 2026-11-05: Acceptance fixture `fixtures/ledger-redesign.md` (809 lines, 7 Mermaid diagrams, all parse with Mermaid 11.12).

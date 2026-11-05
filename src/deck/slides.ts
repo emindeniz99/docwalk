@@ -29,7 +29,10 @@ export function buildSlide(section: Section, options: HtmlOptions = {}): HTMLEle
     // A part after a thematic break keeps its section's title.
     const title = document.createElement("h2");
     title.className = "docwalk-part-title";
-    title.textContent = `${section.title} · continued`;
+    const marker = document.createElement("span");
+    marker.className = "docwalk-continued";
+    marker.textContent = " · continued";
+    title.append(section.title, marker);
     body.append(title);
   }
   const nodes = section.heading ? [section.heading, ...section.nodes] : section.nodes;

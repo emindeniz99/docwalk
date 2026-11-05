@@ -1,0 +1,117 @@
+/**
+ * docwalk design tokens: the single source in code. DESIGN.md mirrors these
+ * values in its front matter; src/design/tokens.test.ts fails when the two
+ * differ in either direction. Hex literals live only in this file.
+ * Components are described in DESIGN.md and implemented in CSS from these
+ * tokens, so they are not repeated here.
+ */
+export const tokens = {
+  colors: {
+    canvas: "#f4f4f2",
+    surface: "#ffffff",
+    border: "#e3e3df",
+    "border-strong": "#d6d6d1",
+    ink: "#17181c",
+    "ink-muted": "#5c5e66",
+    primary: "#e5532d",
+    "on-primary": "#1a0702",
+    "primary-ink": "#b8381a",
+    focus: "#2457d6",
+    "note-surface": "#fff4d6",
+    "note-border": "#e0b54a",
+    "note-ink": "#6b4400",
+    stage: "#15171c",
+    "stage-raised": "#22252d",
+    "stage-border": "#3a3d47",
+    "stage-ink": "#e9eaee",
+    "stage-muted": "#b9bcc6",
+    "stage-note-surface": "#2a2412",
+    "stage-note-border": "#5a4a16",
+    "stage-note-ink": "#fde9a8",
+    slide: "#ffffff",
+    "slide-ink": "#17181c",
+    "slide-muted": "#5c5e66",
+    "slide-shadow": "rgba(0, 0, 0, 0.35)",
+    "canvas-dark": "#0f1115",
+    "surface-dark": "#17191f",
+    "border-dark": "#2c2f38",
+    "ink-dark": "#eceef2",
+    "ink-muted-dark": "#a1a5b0",
+    "primary-ink-dark": "#ff8a6b",
+    "focus-dark": "#7aa2ff",
+    "note-surface-dark": "#2a2412",
+    "note-ink-dark": "#fde9a8",
+  },
+  typography: {
+    "slide-title": {
+      fontFamily: "Bricolage Grotesque Variable",
+      fontSize: "56px",
+      fontWeight: 800,
+      lineHeight: 1.05,
+      letterSpacing: "-0.02em",
+    },
+    "slide-body": {
+      fontFamily: "Inter Variable",
+      fontSize: "26px",
+      fontWeight: 400,
+      lineHeight: 1.5,
+    },
+    heading: {
+      fontFamily: "Bricolage Grotesque Variable",
+      fontSize: "22px",
+      fontWeight: 800,
+      lineHeight: 1.2,
+      letterSpacing: "-0.02em",
+    },
+    body: {
+      fontFamily: "Inter Variable",
+      fontSize: "16px",
+      fontWeight: 400,
+      lineHeight: 1.55,
+    },
+    ui: {
+      fontFamily: "Inter Variable",
+      fontSize: "14px",
+      fontWeight: 500,
+      lineHeight: 1.4,
+    },
+    caption: {
+      fontFamily: "Inter Variable",
+      fontSize: "12px",
+      fontWeight: 400,
+      lineHeight: 1.4,
+    },
+    overline: {
+      fontFamily: "Inter Variable",
+      fontSize: "11px",
+      fontWeight: 600,
+      lineHeight: 1.3,
+      letterSpacing: "0.08em",
+    },
+    mono: {
+      fontFamily: "JetBrains Mono Variable",
+      fontSize: "13px",
+      fontWeight: 400,
+      lineHeight: 1.7,
+    },
+  },
+  rounded: {
+    sm: "4px",
+    md: "8px",
+    lg: "10px",
+    xl: "14px",
+    full: "999px",
+  },
+  spacing: {
+    xs: "4px",
+    sm: "8px",
+    md: "12px",
+    lg: "16px",
+    xl: "24px",
+    "2xl": "32px",
+    "3xl": "48px",
+    target: "44px",
+  },
+} as const;
+
+export type ColorToken = keyof typeof tokens.colors;

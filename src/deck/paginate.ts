@@ -204,7 +204,10 @@ function setBreadcrumb(slide: HTMLElement, breadcrumb: string[]): void {
 function continuedHeading(title: string): HTMLElement {
   const h = document.createElement("h2");
   h.className = "docwalk-part-title";
-  h.textContent = `${title} · continued`;
+  const marker = document.createElement("span");
+  marker.className = "docwalk-continued";
+  marker.textContent = " · continued";
+  h.append(title, marker);
   return h;
 }
 

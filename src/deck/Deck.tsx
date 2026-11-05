@@ -84,7 +84,8 @@ export function Deck({ plan, onReport }: DeckProps) {
         keyboardCondition: "focused",
         width: SLIDE_SIZE.width,
         height: SLIDE_SIZE.height,
-        margin: 0.04,
+        // Leave a visible stage around the slide (DESIGN.md, Colors).
+        margin: 0.1,
         center: false,
         controls: true,
         progress: true,

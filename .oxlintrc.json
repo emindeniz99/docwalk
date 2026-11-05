@@ -8,7 +8,7 @@
   "rules": {
     "vitest/no-standalone-expect": ["error", { "additionalTestBlockFunctions": ["fcTest.prop"] }],
     "react/react-in-jsx-scope": "off",
-    "import/no-unassigned-import": ["warn", { "allow": ["**/*.css"] }]
+    "import/no-unassigned-import": ["warn", { "allow": ["**/*.css", "@fontsource-variable/*"] }]
   },
   "ignorePatterns": ["dist/**", "fixtures/**"]
 }

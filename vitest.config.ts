@@ -1,14 +1,17 @@
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
+import { docwalkTokens } from "./tooling/tokens-plugin.ts";
 
 // Layout and pagination tests must run in a real browser: jsdom has no layout
 // engine, so every measurement there reads 0 (AGENTS.md rule 9).
 const chromiumPath = process.env.DOCWALK_CHROMIUM_PATH;
 
 export default defineConfig({
+  plugins: [docwalkTokens()],
   test: {
     projects: [
       {
+        extends: true,
         test: {
           name: "unit",
           include: ["src/**/*.test.ts"],
@@ -17,6 +20,7 @@ export default defineConfig({
         },
       },
       {
+        extends: true,
         test: {
           name: "browser",
           include: ["src/**/*.browser.test.ts"],

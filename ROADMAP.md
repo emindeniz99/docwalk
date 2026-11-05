@@ -57,7 +57,8 @@ with a custom shell (overview grid, keyboard, fullscreen).
 - CI: static build, Playwright on three engines, axe, size-limit, Lighthouse
   CI, sanitizer corpus, nightly Stryker.
 - Cloudflare deploy with the `_headers` CSP; static build with the meta CSP.
-- `DESIGN.md` once the first themes exist.
+- Done 2026-11-05: `DESIGN.md`, token module, parity test, self-hosted fonts, Stage look on the deck.
+- App shell on React Aria: outline with page counts and note badges, ⌘K command palette, view switch (edit/document/present), settings; light/dark toggle.
 
 ## v1.1
 
