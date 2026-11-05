@@ -1,4 +1,4 @@
-import GithubSlugger from "github-slugger";
+import GithubSlugger, { slug } from "github-slugger";
 import type { Heading, Root, RootContent } from "mdast";
 import { toString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
@@ -39,6 +39,14 @@ export interface SectionPlan {
   /** The heading treated as the document title, if any. */
   titleHeading: Heading | null;
   sections: Section[];
+  /** The anchor of every top-level heading, slide-opening or not (see `headingIds`). */
+  headingIds: ReadonlyMap<Heading, string>;
+  /**
+   * Link reference and footnote definitions, wherever they appear. They are
+   * not slide content: a slide that uses one gets it at render time, since
+   * the definition usually sits in another section (often the last).
+   */
+  definitions: RootContent[];
 }
 
 /**
@@ -104,19 +112,69 @@ function resolveLevels(
   return [...new Set(option)].toSorted((a, b) => a - b);
 }
 
+/** Longest run of code points a fallback anchor spells out; longer headings are cut there. */
+const FALLBACK_CODE_POINTS = 8;
+
+/**
+ * The address of a heading whose GitHub anchor is empty, because its text
+ * has nothing the slugger keeps (`## 🚀`, `## ???`). GitHub gives such a
+ * heading the anchor `#`, which cannot address a slide. The fallback spells
+ * the text's code points in hex (`heading-1f680`): it depends on that
+ * heading's own text only, like a slug, so it survives edits elsewhere and
+ * never depends on the viewport.
+ */
+export function fallbackHeadingId(text: string): string {
+  const points = [...text.replace(/\s+/g, "")]
+    .slice(0, FALLBACK_CODE_POINTS)
+    .map((c) => (c.codePointAt(0) as number).toString(16));
+  return points.length > 0 ? `heading-${points.join("-")}` : "heading";
+}
+
+/**
+ * The anchor of every top-level heading: GitHub's own (github-slugger, with
+ * its duplicate numbering counted over every heading in document order, deep
+ * ones included), or a `fallbackHeadingId` when GitHub's would be empty. The
+ * sections take their ids from here, and the renderer writes them as
+ * `id="user-content-<anchor>"`, so a link to a sub-heading can find the
+ * slide that holds it.
+ */
+export function headingIds(root: Root): Map<Heading, string> {
+  const slugger = new GithubSlugger();
+  const ids = new Map<Heading, string>();
+  const empty: Heading[] = [];
+  for (const node of root.children) {
+    if (node.type !== "heading") continue;
+    const text = headingText(node);
+    // Keep the slugger counting, so later duplicates get GitHub's numbers.
+    const id = slugger.slug(text);
+    // The counter turns a second empty slug into "-1"; the static slug says
+    // whether the text itself had anything to keep.
+    if (slug(text) === "") empty.push(node);
+    else ids.set(node, id);
+  }
+  const used = new Set(ids.values());
+  for (const node of empty) {
+    const base = fallbackHeadingId(headingText(node));
+    let id = base;
+    for (let n = 2; used.has(id); n++) id = `${base}-${n}`;
+    used.add(id);
+    ids.set(node, id);
+  }
+  // Document order, so callers iterating the map see headings as written.
+  return new Map(root.children.flatMap((n) => (n.type === "heading" ? [[n, ids.get(n)!]] : [])));
+}
+
+const isDefinition = (node: RootContent): boolean =>
+  node.type === "definition" || node.type === "footnoteDefinition";
+
 /** Split a parsed document into sections. Never splits with a regex: setext headings and fences are already nodes. */
 export function sectionize(root: Root, option: LevelOption = "auto"): SectionPlan {
   const titleHeading = option === "auto" ? findTitleHeading(root) : null;
   const levels = resolveLevels(option, root, titleHeading);
   const minLevel = levels.length > 0 ? Math.min(...levels) : Number.POSITIVE_INFINITY;
 
-  // GitHub numbers duplicate anchors across every heading in document order,
-  // so slug all of them, deep ones included, to stay link-compatible.
-  const slugger = new GithubSlugger();
-  const slugs = new Map<Heading, string>();
-  for (const node of root.children) {
-    if (node.type === "heading") slugs.set(node, slugger.slug(headingText(node)));
-  }
+  const slugs = headingIds(root);
+  const definitions = root.children.filter(isDefinition);
   const usedIds = new Set(slugs.values());
   const uniqueId = (base: string): string => {
     let id = base;
@@ -206,12 +264,16 @@ export function sectionize(root: Root, option: LevelOption = "auto"): SectionPla
       continue;
     }
 
+    // Definitions render nothing where they stand; kept in `definitions`, so
+    // a block of them after a break never becomes an empty slide.
+    if (isDefinition(node)) continue;
+
     appendContent(node);
   }
 
   // A title-level heading with no content of its own is a breadcrumb only.
   const kept = sections.filter((s) => s.kind !== "title" || s.nodes.length > 0);
-  return { levels, titleHeading, sections: kept };
+  return { levels, titleHeading, sections: kept, headingIds: slugs, definitions };
 }
 
 function lineOf(node: RootContent): number {

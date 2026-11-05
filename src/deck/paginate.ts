@@ -235,7 +235,9 @@ function continuedHeading(title: string): HTMLElement {
 }
 
 function sectionTitle(slide: HTMLElement): string {
-  const heading = bodyOf(slide).querySelector("h1, h2, h3, h4, h5, h6");
+  // Only a top-level heading titles the slide: one nested in a footnote list
+  // (its hidden "Footnotes" label), a quote or <details> is content.
+  const heading = bodyOf(slide).querySelector(":scope > :is(h1, h2, h3, h4, h5, h6)");
   return (heading?.textContent ?? "").replace(/\s*· continued$/, "").trim();
 }
 

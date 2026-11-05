@@ -40,7 +40,9 @@ for overflow, run in the order of decision 22.
 
 **Section**: the part of the AST between two slide starts at the base level.
 One section yields one or more **slides**. Its id comes from the heading
-slug and is stable across viewports (21).
+slug and is stable across viewports (21); a heading with an empty slug
+gets a **fallback address**, `heading-<hex code points>` (62). Code:
+`headingIds`.
 
 **Slide**: one screen in presentation mode, addressed as `<section-id>/<n>`
 (21).

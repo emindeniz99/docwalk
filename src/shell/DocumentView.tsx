@@ -2,8 +2,11 @@ import { useEffect, useRef } from "react";
 import type { Root } from "mdast";
 import { purifyHtml } from "../deck/purify";
 import { renderDiagrams } from "../deck/mermaid";
+import "../render/content.css";
+import { focusTarget, fragmentTarget } from "../render/fragments";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import { nodesToHtml } from "../render/toHtml";
+import { headingIds } from "../sectioning/sectionize";
 
 /**
  * Document mode: the whole file as one scrolling page, close to how GitHub
@@ -15,8 +18,21 @@ export function DocumentView({ root }: { root: Root }) {
   useEffect(() => {
     const el = host.current;
     if (!el) return;
-    el.replaceChildren(purifyHtml(nodesToHtml(root.children, { loadRemoteImages })));
+    el.replaceChildren(
+      purifyHtml(nodesToHtml(root.children, { loadRemoteImages, headingIds: headingIds(root) })),
+    );
     const stopClickToLoad = enableClickToLoad(el);
+    // Content ids carry GitHub's `user-content-` prefix and links do not, so
+    // `#retry-budget` and footnote links are resolved here, as GitHub's page
+    // script does. A link with no target here keeps its default behaviour.
+    const onClick = (event: MouseEvent) => {
+      const link = (event.target as Element).closest<HTMLAnchorElement>('a[href^="#"]');
+      const target = link && fragmentTarget(el, link.getAttribute("href") ?? "");
+      if (!target) return;
+      event.preventDefault();
+      focusTarget(target);
+    };
+    el.addEventListener("click", onClick);
     void renderDiagrams(el);
     // Wide tables and code blocks scroll on their own; a keyboard user can
     // only scroll one that takes focus (WCAG 2.1.1). Only those that scroll
@@ -34,6 +50,7 @@ export function DocumentView({ root }: { root: Root }) {
     const observer = new ResizeObserver(markScrollable);
     observer.observe(el);
     return () => {
+      el.removeEventListener("click", onClick);
       observer.disconnect();
       stopClickToLoad();
     };
