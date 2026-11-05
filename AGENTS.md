@@ -46,7 +46,9 @@ plan are in [`ROADMAP.md`](./ROADMAP.md).
    (Vitest Browser Mode or Playwright), never jsdom. Property tests guard
    the pagination invariants: no content lost, none duplicated, every slide
    fits or carries a diagnostic.
-10. **Dependencies:** newest versions at least 7 days old (the repo's pnpm
-    `minimumReleaseAge`). No personal data anywhere in this project,
-    fixtures included.
-11. Commit scope is `docwalk` (`feat(docwalk): …`), English everywhere.
+10. **Dependencies:** newest versions at least 7 days old (pnpm
+    `minimumReleaseAge: 10080`), as a guard against freshly published
+    malicious releases. No personal data anywhere in the project, fixtures
+    included.
+11. Conventional Commits with a scope (`feat(docwalk): …`), English
+    everywhere. The body explains why.

@@ -24,7 +24,9 @@ Status: design settled, no code yet. The spike plan is in
 - **Out of scope:** a new Markdown dialect, a collaborative whiteboard,
   storing documents on a server, rewriting the source to make it fit.
 
-The settled list is [`docs/decisions.md`](./docs/decisions.md).
+[`docs/prior-art.md`](./docs/prior-art.md) surveys the existing tools and
+explains why none of them fits. [`docs/decisions.md`](./docs/decisions.md)
+lists every settled design decision.
 
 ## How it will run
 

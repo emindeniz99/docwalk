@@ -1,0 +1,201 @@
+# Prior art
+
+This survey covers tools that present Markdown and Mermaid documents as slides. Facts were checked on 2026-11-05. No existing tool combines heading-based slides from unmodified GitHub Markdown, full Mermaid.js with zoom, honest overflow handling and static hosting. docwalk builds a thin layer on reveal.js, Mermaid, drauu and unified.
+
+## Answers
+
+**Is there a ready-made tool today?** No. Nothing turns a plain GitHub `.md` file into slides at its H2 headings and renders full Mermaid.js with zoom and pan. Nothing also reports overflow honestly while running as a static page. Every mature tool misses at least two of those. Slidev and deckrun split only on `---`. Slidekick splits on H1. Marp's stable release has no Mermaid. HedgeDoc needs a server. As a stopgap, you can present the GitHub page itself. GitHub already adds pan and zoom controls to Mermaid diagrams ([GitHub community #137171](https://github.com/orgs/community/discussions/137171)). That route gives you no slides, pen or overview.
+
+**How big is the gap?** The building blocks are mature. Only the glue and the overflow logic are new. Reveal.js provides the presentation shell, Mermaid 12 renders the diagrams and drauu provides the pen. remark-gfm with rehype-sanitize parses Markdown the way GitHub does. d3-zoom or @panzoom/panzoom handles zoom. The new work is an AST-based H2 and `---` splitter (about 100 lines), a diagram focus viewer, a laser pointer, and overflow diagnostics that wait for fonts and Mermaid before they measure. Semantic auto-pagination is the one novel part. No browser Markdown slide tool combines post-render measurement with structure-aware splitting. md2slides (3 days old) is the only partial exception found.
+
+**Which approach fits?** A thin browser viewer on mature libraries. Forking Slidekick gives a weak base. A Marp Core build rests on a release candidate and still needs the whole UI. Slidev with WebContainer brings a proprietary runtime that needs a paid licence for employee use.
+
+**Effort for the thin viewer:** about 1 to 3 weeks for one developer for the MVP, or 3 to 7 weeks with semantic auto-pagination. The deciding factor is the v1 overflow scope. Warnings only sits at the low end. Auto-splitting tables and lists with repeated headers sits at the high end. These numbers are estimates anchored on the code sizes below. No prototype backs them.
+
+## Slidekick and Marp are weaker than they first look
+
+Most common assumptions about these tools hold up. Two do not, and both change the decision.
+
+**Slidekick does not split on H2.** Its parser starts a slide only at H1 or `***`. It treats `---` as a two-column divider, and its own README contradicts the code ([parser.ts](https://github.com/chraltro/slidekick/blob/main/src/slides/parser.ts), [README](https://github.com/chraltro/slidekick/blob/main/README.md)). Its overflow answer is a silent scale-down to as small as 22%, and its overflow badge is an empty stub ([fit.ts](https://github.com/chraltro/slidekick/blob/main/src/slides/layouts/fit.ts), [OverflowBadge.tsx](https://github.com/chraltro/slidekick/blob/main/src/editor/OverflowBadge.tsx)). It also turns on markdown-it's `breaks: true`, which GitHub does not do, and it adds its own syntax. A fork would replace the splitter, the parser config, the fit pipeline and the drawing layer. That is most of the product.
+
+**Marp Core v5 is a release candidate.** npm `latest` is 4.4.0, which has no Mermaid at all. v5 (5.0.2) sits on the `next` tag ([npm](https://registry.npmjs.org/@marp-team/marp-core), [CHANGELOG](https://raw.githubusercontent.com/marp-team/marp-core/main/CHANGELOG.md)). Its Mermaid plugin uses beautiful-mermaid, which covers only six diagram types ([README](https://raw.githubusercontent.com/lukilabs/beautiful-mermaid/main/README.md)). On an unsupported diagram, it logs a console warning and quietly shows a code block. Marp's presenter view and overview live in Marp CLI's template, outside Core ([marp-cli README](https://raw.githubusercontent.com/marp-team/marp-cli/main/README.md)). A Marp-based viewer would still need the whole presentation UI.
+
+### Common assumptions about these tools
+
+| Assumption | Verdict | Evidence |
+|---|---|---|
+| Slidev has real Mermaid, drauu drawing, presenter mode, overview, static build | CONFIRMED | [mermaid.md](https://raw.githubusercontent.com/slidevjs/slidev/main/docs/features/mermaid.md), [drawing.md](https://raw.githubusercontent.com/slidevjs/slidev/main/docs/features/drawing.md), [ui.md](https://raw.githubusercontent.com/slidevjs/slidev/main/docs/guide/ui.md), [hosting.md](https://raw.githubusercontent.com/slidevjs/slidev/main/docs/guide/hosting.md) |
+| Slidev is compile/Vite/Vue oriented, with no `render(markdownString)` API | CONFIRMED | Docs route in-browser use through StackBlitz (sli.dev/new). `@slidev/cli` 53.0.0 depends on Vite and Vue ([npm](https://registry.npmjs.org/@slidev/cli)) |
+| Slidev boundaries are explicit `---` | CONFIRMED | [syntax.md](https://raw.githubusercontent.com/slidevjs/slidev/main/docs/guide/syntax.md). No heading-divider option was found |
+| Slidev overflow can sit silently outside the slide | CONFIRMED | Only a manual `zoom` per slide and `<Transform>` exist ([zoom-slide.md](https://raw.githubusercontent.com/slidevjs/slidev/main/docs/features/zoom-slide.md)). Third-party checkers exist for exactly this ([slidev-check](https://github.com/WillBooster/slidev-check)) |
+| Slidev has no semantic pagination | CONFIRMED | No auto-split or auto-fit in the docs read |
+| WebContainer can run real Slidev + Vite in the browser | CONFIRMED | sli.dev/new already does it ([Slidev docs](https://raw.githubusercontent.com/slidevjs/slidev/main/docs/guide/index.md)) |
+| WebContainer's runtime is a self-hostable OSS Node | WRONG | The `@webcontainer/api` client is MIT, but it loads its runtime from `stackblitz.com/headless` (tarball inspection, [npm](https://registry.npmjs.org/@webcontainer/api)). Self-hosting is Enterprise-only ([webcontainers.io/enterprise](https://webcontainers.io/enterprise)) |
+| WebContainer licensing is a minor concern | WRONG, it is strict | A licence is needed for "production usage… in a commercial, for-profit setting", including use for "employees". Prototypes are exempt. No public price; the `/pricing` page returned 404 ([enterprise](https://webcontainers.io/enterprise)) |
+| Marp Core renders in the browser | CONFIRMED | `./browser` helper export, browser ESM build sizes in the [README](https://raw.githubusercontent.com/marp-team/marp-core/main/README.md) |
+| `headingDivider` solves the missing-separator problem | CONFIRMED | Marpit directive modelled on Pandoc `--slide-level`, "useful when you want to create a slide deck from a plain Markdown" ([directives.md](https://raw.githubusercontent.com/marp-team/marpit/main/docs/directives.md)) |
+| Marp has overflow diagnostics | PARTLY | Only Marp for VS Code has one, an experimental `slide-content-overflow` check that runs while the preview is open ([marp-vscode README](https://raw.githubusercontent.com/marp-team/marp-vscode/main/README.md)). Core and CLI only auto-shrink headings, code and math |
+| Marp v5's built-in Mermaid uses beautiful-mermaid, a subset | PARTLY | True, but v5 is a release candidate. Stable 4.4.0 has no Mermaid. The subset is 6 types ([CHANGELOG](https://raw.githubusercontent.com/marp-team/marp-core/main/CHANGELOG.md)) |
+| Marp Mermaid can be replaced with real Mermaid.js | CONFIRMED (mechanism) | The v5 Mermaid plugin is opt-in. Without it, ` ```mermaid ` stays a plain fence ([migration-v5.md](https://raw.githubusercontent.com/marp-team/marp-core/main/docs/migration-v5.md)). No documented recipe for running mermaid.js afterwards |
+| A Marp-based viewer could be very small | PARTLY | Core gives splitting and themes only. Presenter, overview, notes, zoom and drawing must be built |
+| Reveal.js gives navigation, overview, speaker view, notes, fragments, touch and keyboard | CONFIRMED | [6.0.0 release notes](https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/hakimel%2Freveal.js/releases). Progress bar, slide numbers and transitions were not re-checked |
+| With reveal.js, custom code is mainly sectioning and pagination | PARTLY | A viewer also needs the diagram focus viewer, laser, overflow measurement and annotation glue. Reveal's Markdown plugin cannot split on `## ` safely: it throws away the matched text and is not fence-aware ([plugin.js](https://raw.githubusercontent.com/hakimel/reveal.js/master/plugin/markdown/plugin.js)) |
+| The reveal chalkboard plugin is a drawing option | PARTLY | Last release and push 2025-06-23, before reveal.js 6 moved plugin paths. Compatibility with reveal.js 6 is untested ([npm](https://registry.npmjs.org/reveal.js-plugins)) |
+| Drauu is an MIT headless SVG drawing library used by Slidev | CONFIRMED | [LICENSE](https://github.com/antfu/drauu/blob/main/LICENSE), [drawing.md](https://raw.githubusercontent.com/slidevjs/slidev/main/docs/features/drawing.md). It has no laser mode and no tests |
+| Slidekick is a browser PWA with editor, Mermaid, presenter window, notes, overview, drawing, static build | CONFIRMED | [package.json](https://github.com/chraltro/slidekick/blob/main/package.json), [src/editor](https://github.com/chraltro/slidekick/tree/main/src/editor) |
+| Slidekick has heading-based slides | PARTLY (WRONG for H2) | Splits on H1 and `***` only. `---` is a column divider ([parser.ts](https://github.com/chraltro/slidekick/blob/main/src/slides/parser.ts)) |
+| Slidekick is very new with little adoption | CONFIRMED | 0 stars, no releases, 43 commits over 7 active days. 18 commits are authored as "Claude" ([GitHub](https://github.com/chraltro/slidekick)) |
+| Slidekick needs a security review | CONFIRMED | Uses a hand-rolled denylist sanitizer, not DOMPurify, then `dangerouslySetInnerHTML` ([parser.ts](https://github.com/chraltro/slidekick/blob/main/src/slides/parser.ts)). Mermaid runs in `strict` mode, which is good |
+| Slidekick's smart overflow still needs work | CONFIRMED | Silent fit-scale down to 0.22. The badge is a stub ([fit.ts](https://github.com/chraltro/slidekick/blob/main/src/slides/layouts/fit.ts)) |
+| Forking Slidekick is the lowest-effort route | WRONG (judgment) | It needs a new splitter, GitHub-faithful parsing, a new fit policy, zoom/pan and a new drawing layer, on 13.5k LOC written by someone else |
+| deckrun has Mermaid, live editor, drawing/laser, presenter, lint | CONFIRMED | [README](https://github.com/arpitbbhayani/deckrun/blob/master/README.md) |
+| deckrun measures overflow after async diagram rendering | CONFIRMED | `reportOverflow()` runs after the render promise and one animation frame, for the visible slide only ([preview.ts](https://github.com/arpitbbhayani/deckrun/blob/master/src/preview.ts)) |
+| deckrun has CI-oriented checks | PARTLY | `deckrun lint` is purely textual (10 rules, no layout measurement) ([lint.ts](https://github.com/arpitbbhayani/deckrun/blob/master/src/lint.ts)). Nothing measures overflow in CI |
+| deckrun is local-server oriented, with no semantic pagination | CONFIRMED | Binds to 127.0.0.1. Splits on `---` only ([parser.ts](https://github.com/arpitbbhayani/deckrun/blob/master/src/parser.ts)) |
+| Quarkdown introduces a custom language | CONFIRMED | "Quarkdown Flavor" adds function syntax. It is GPL-3.0 (CLI AGPL-3.0) and compiles with its own CLI ([README](https://raw.githubusercontent.com/iamgio/quarkdown/main/README.md)) |
+| Quarto and Pandoc are compile-first | CONFIRMED | Quarto already splits on `##` by default (`slide-level`), which is good prior art ([quarto.org](https://quarto.org/docs/presentations/revealjs/)) |
+| remark.js and impress.js are worth using as primitives | PARTLY | remark.js is dormant: v0.15.0 (2020), last push 2024-06, bundles `marked` 0.3.9 ([package.json](https://raw.githubusercontent.com/gnab/remark/develop/package.json)). impress.js is HTML-authored 3D decks, last release 2022 ([ecosyste.ms](https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/impress%2Fimpress.js)). Both are reference designs only |
+| Reveal.js is a stronger shell than remark or impress | CONFIRMED | Active, MIT, ESM-first in v6, with bundled TypeScript types |
+| Mermaid can expose stable node metadata | CONFIRMED for flowchart/state | The Mermaid 12.3.0 bundle emits `data-id` (the author's node id) on node groups and `LS_<start> LE_<end>` classes on edges ([mermaid.min.js](https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.min.js)). Other diagram types were not checked |
+
+## The market splits into toolchains, editors and fresh experiments
+
+Three groups show up. Mature toolchains (Slidev, Quarto, Marp CLI, reveal-md) are healthy. They need a build or a server and use their own separators. Editor-hosted tools (Markdown Preview Enhanced, HedgeDoc, Obsidian Slides Extended) work only inside their host app. They use `<!-- slide -->` or `---` separators. A wave of 2026 projects (Slidekick, deckrun, md2slides, margo, mdslides) is small, single-maintainer and heavily AI-assisted. Several were abandoned within days. For these, star count and commit span tell you more than feature lists.
+
+Overflow handling follows the same pattern. Most tools **clip** (Marp, deckrun), **scroll** (Quarto `.scrollable`, reveal.js scroll view) or **shrink** (Marp `fit`, Quarto `.smaller`, Slidekick). Only deckrun detects and warns. margo has a written policy: detect, warn, then split with approval. md2slides auto-splits. Beamer's own manual calls its auto-split option "evil" and its shrink option "very evil" ([beamerug-frames.tex](https://softlibre.unizar.es/ctan/macros/latex/contrib/beamer/doc/beamerug-frames.tex)). That supports a rule against global shrink-to-fit.
+
+### Presentation tools and candidates
+
+Stars and push dates come from ecosyste.ms and ungh.cc mirrors (synced October to November 2026). Versions come from npm.
+
+| Tool | Latest version (date) | Stars | License | Maintenance | Fit for docwalk |
+|---|---|---|---|---|---|
+| [Slidev](https://registry.npmjs.org/@slidev/cli) | 53.0.0 (2026-09-16) | 49,310 | MIT | Active, push 2026-10-23 | UX reference. Compile toolchain |
+| [reveal.js](https://registry.npmjs.org/reveal.js) | 6.0.2 (2026-09-10) | 72,496 | MIT | Active, push 2026-09-30 | **Best shell** |
+| [Marp Core](https://registry.npmjs.org/@marp-team/marp-core) | 4.4.0 stable (2026-07-17); 5.0.2 RC (2026-09-04) | 1,164 | MIT | Active | Splitter and themes only |
+| [Marp CLI](https://registry.npmjs.org/@marp-team/marp-cli) | 4.5.1 (2026-09-06) | 3,901 | MIT | Active | Has presenter/overview, but CLI-side |
+| [Slidekick](https://github.com/chraltro/slidekick) | 0.1.0, no releases | 0 | MIT | Last push 2026-07-24 | Reference only |
+| [deckrun](https://github.com/arpitbbhayani/deckrun) | 1.6.0 (npm, 2026-08-31) | 179 | MIT | Push 2026-09-02, 24 open issues | Study overflow code |
+| [Quarkdown](https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/iamgio%2Fquarkdown) | v2.6.3 (2026-10-01) | 16,342 | GPL-3.0 / AGPL-3.0 | Active | No: custom dialect, copyleft |
+| [Quarto CLI](https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/quarto-dev%2Fquarto-cli/releases) | v1.11.7 (2026-10-27) | 6,142 | "other" (unchecked) | Active | No: compile-first |
+| [remark.js](https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/gnab%2Fremark) | v0.15.0 (2020-01-18) | 13,005 | MIT | Dormant, push 2024-06-19 | Architecture reference |
+| [impress.js](https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/impress%2Fimpress.js) | v2.0.0 (2022-07-22) | 38,156 | MIT | Low activity | No |
+| [Spectacle](https://registry.npmjs.org/spectacle) | 10.2.4 (2026-10-27) | 10,185 | MIT | Active | No: React decks, build needed |
+| [mdx-deck](https://registry.npmjs.org/mdx-deck) | 4.1.1 (2020-03-12) | 11,493 | MIT | Dormant | No |
+| [WebSlides](https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/webslides%2FWebSlides) | none | 6,326 | MIT | Dormant, push 2022-12 | No |
+| [@webcontainer/api](https://registry.npmjs.org/@webcontainer/api) | 1.6.4 (2026-04-14) | 4,653 (core repo) | MIT client, proprietary runtime | Core repo push 2025-04-22 | No (Slidev + WebContainer) |
+
+### Tools that people often miss
+
+| Tool | State | Why it matters |
+|---|---|---|
+| [md2slides](https://github.com/wenlanstudio/md2slides) | 0.1.0, 0 stars, created 2026-11-02, MIT | The only project found with **browser-measured semantic pagination**. It continues tables by row with the header repeated and lists by item. Mine the algorithm and skip the dependency |
+| [margo](https://github.com/jjanuszczak/margo) | 2 stars, Apache-2.0, push 2026-11-03, Go + Tauri | The most thorough written **overflow policy** ([slide-overflow-validation.md](https://github.com/jjanuszczak/margo/blob/main/docs/product/slide-overflow-validation.md)) |
+| [Markdown Preview Enhanced](https://raw.githubusercontent.com/shd101wyy/markdown-preview-enhanced/master/docs/presentation.md) / crossnote | 2,114 / 569 stars, active | VS Code reveal.js slides. Uses `<!-- slide -->` separators |
+| [HedgeDoc](https://docs.hedgedoc.org/references/slide-options/) | 7,505 stars, active | Server-hosted reveal.js slide mode. Uses `---` separators |
+| [Obsidian Slides Extended](https://github.com/ebullient/obsidian-slides-extended) | 280 stars, MIT. Successor to Advanced Slides (discontinued 2024-06) | Annotations and notes, but needs Obsidian |
+| [reveal-md](https://ungh.cc/repos/webpro/reveal-md) | 3,907 stars, push 2026-02-14 | Needs Node |
+| [mdslides](https://github.com/SXsid/mdslides) | 1 star, Go, abandoned after 3 days | Splits on H1, needs a local server |
+| [Mermaid Slides](https://github.com/kanad13/mermaid-slides) | 3 stars, MIT, React | Makes one slide per diagram and drops the prose. Proof that a static paste-and-view Mermaid page works |
+| [Paged.js](https://github.com/pagedjs/pagedjs) | `latest` 0.4.3, 1.6k stars, MIT, low maintenance | DOM paginator for print. Copy its ideas and skip the dependency |
+| [Vivliostyle](https://npmjs.com/package/vivliostyle) | AGPL-3.0 | Licence rules out embedding |
+| [Touying](https://touying-typ.github.io/docs/reference/components/page-container) | Typst | Opt-in `detect-overflow`: prior art for warnings |
+| Mermaid zoom plugins: [Docusaurus](https://unpkg.com/@r74tech/docusaurus-plugin-panzoom@2.4.2/README.md), [VitePress](https://kassaila.github.io/vitepress-mermaid-viewer/index.md), [MkDocs](https://pypi.org/project/mkdocs-panzoom-plugin), [Obsidian](https://github.com/xiaozhuang0433/mermaid-zoom), [VS Code](https://github.com/hanzlamateen/markdown-mermaid-zoom) | Various | UX lessons: zoom only on Ctrl/Cmd+wheel, zoom at the cursor, fit on open, keep the toolbar off the diagram |
+| [@excalidraw/mermaid-to-excalidraw](https://cdn.jsdelivr.net/npm/@excalidraw/mermaid-to-excalidraw@3.6.0/README.md) | 3.6.0 (2026-11-04), MIT | For a later canvas mode. Converts 8 diagram types to editable shapes. tldraw's converter needs a production licence key ([tldraw licence](https://tldraw.dev/community/license)) |
+
+## A thin viewer wins because the custom part is small and new
+
+A thin viewer builds only what nobody else ships. Everything else comes from active, MIT-family packages. The hard part is the readiness barrier and the measurement. The shell is easy. deckrun's code comments explain a trap that a simple `scrollHeight` check misses. Mermaid and KaTeX hosts "deliberately hide their own overflow", so a viewer must also measure each diagram host on its own, or a clipped diagram passes the check ([preview.ts](https://github.com/arpitbbhayani/deckrun/blob/master/src/preview.ts)). Mermaid also warns that labels render out of bounds if fonts are not loaded first ([mermaid usage](https://mermaid.js.org/config/usage.html)). So the order is `document.fonts.ready`, then `mermaid.run()`, then images, then one animation frame, then measure.
+
+Splitting must happen on the Markdown AST. A regex gets it wrong. In CommonMark, a `---` line directly under a paragraph turns that paragraph into an H2 (a setext heading). It is not a slide break ([CommonMark spec](https://spec.commonmark.org/0.31.2/#setext-headings)). A `---` inside a code fence is also no break. reveal.js's Markdown plugin and deckrun's splitter both use plain regexes, so both get these cases wrong. md2slides avoids the problem by splitting rendered HTML after parsing, in 96 lines ([sectionize.js](https://github.com/wenlanstudio/md2slides/blob/main/core/split/sectionize.js)). The viewer can therefore feed reveal.js pre-split `<section>` HTML and skip its Markdown plugin.
+
+| Approach | Verdict | Main reason |
+|---|---|---|
+| Fork Slidekick | Reject | Wrong split rule, silent 22% scale-down, non-GitHub parser settings, denylist sanitizer. 13.5k LOC with no upstream to track. Use it as a reference |
+| **Thin viewer on mature libraries** | **Choose** | Every block is mature and MIT-family. Custom code covers exactly the differentiators |
+| Marp Core + Mermaid.js | Reject as base | v5 is a release candidate. Core gives only splitting (about 100 lines to write yourself) and themes. The presenter UI must still be built |
+| Slidev + WebContainer | Reject | Proprietary hosted runtime, quote-only licence for employee use, boots a Node toolchain. Still splits on `---` and still has no overflow detection |
+
+### Recommended stack
+
+| Concern | Package (version checked 2026-11-05) | Notes |
+|---|---|---|
+| Build and host | TypeScript + Vite, static output | Any static host works. Versions not researched |
+| Parse (GitHub fidelity) | [remark-gfm](https://registry.npmjs.org/remark-gfm) 4.0.1 in a unified pipeline (remark-parse → remark-rehype → rehype-sanitize 6.0.0) plus [rehype-github-alert](https://cdn.jsdelivr.net/npm/rehype-github-alert@1.0.0/readme.md) 1.0.0 | hast-util-sanitize's default schema "follows GitHub style sanitation", including `user-content-` id prefixing ([readme](https://cdn.jsdelivr.net/npm/hast-util-sanitize@5.0.2/readme.md)). Smaller alternative: [marked](https://registry.npmjs.org/marked) 18.1.3 + [DOMPurify](https://registry.npmjs.org/dompurify) 3.4.17 (11.7 KB gz) |
+| Split | Custom, about 100 lines over the AST: `##` and thematic breaks | Fence-safe and setext-safe by design |
+| Shell | [reveal.js](https://registry.npmjs.org/reveal.js) 6.0.2 core + notes plugin | Gives overview, speaker view, notes, keyboard and touch. Skip its Markdown plugin |
+| Diagrams | [mermaid](https://registry.npmjs.org/mermaid) 12.3.0, ESM build, loaded lazily, `startOnLoad: false`, `securityLevel: 'strict'` | ESM entry is 11.5 KB gz plus a chunk per diagram type, against 1.58 MB gz for the IIFE ([jsDelivr](https://data.jsdelivr.com/v1/packages/npm/mermaid@12.3.0)). v12 targets ES2024 / Safari 17.4+ |
+| Zoom/pan | [d3-zoom](https://registry.npmjs.org/d3-zoom) 3.0.1 (already inside Mermaid's d3 dependency) or [@panzoom/panzoom](https://registry.npmjs.org/@panzoom%2Fpanzoom) 4.6.2 (3.9 KB gz) | Click to focus, then fit, zoom, pan, reset and fullscreen. A minimap is custom in every library |
+| Pen | [@drauu/core](https://registry.npmjs.org/drauu) 1.0.0 | SVG with undo/redo and `dump()`/`load()`. Put it in the same transform as the diagram so strokes zoom with it |
+| Laser | Custom, about 100 lines on [perfect-freehand](https://registry.npmjs.org/perfect-freehand) 1.2.3 (2.0 KB gz) | Fading strokes. No maintained standalone laser library exists |
+| Overflow diagnostics | Custom, following the deckrun pattern | Measure the slide and each Mermaid host. Re-check with ResizeObserver |
+| Later: auto-pagination | Custom, from md2slides and Paged.js ideas | Binary search over whole blocks. Atomic blocks taller than a slide get a diagnostic and no split |
+| Later: canvas mode | Excalidraw + mermaid-to-excalidraw 3.6.0 | MIT. Load only in canvas mode |
+
+### Effort range and what decides it
+
+Size anchors: deckrun is about 13.1k LOC and Slidekick about 13.5k LOC ([deckrun](https://github.com/arpitbbhayani/deckrun/blob/master/package.json), [Slidekick](https://github.com/chraltro/slidekick/tree/main/src)). That is what a full product costs. The custom pieces of a thin viewer are much smaller. md2slides' splitter is 96 lines, deckrun's overflow check is about 20 lines, and md2slides' physical paginator is 957 lines ([overflow.js](https://github.com/wenlanstudio/md2slides/blob/main/core/paginate/overflow.js)). The estimate for the MVP is roughly **1k to 2k lines of custom code, about 1 to 3 weeks for one developer**. That covers the splitter, input, document mode, reveal glue, focus viewer, pen, laser, overview and diagnostics. Semantic auto-pagination adds about **2 to 4 more weeks**, mostly tuning against a long acceptance document. Table header repetition has known edge cases: an orphaned header, or a page holding only a header ([jsreport forum](https://forum.jsreport.net/post/8590)). The low end means shipping warnings only. The high end means auto-splitting in v1.
+
+## Code worth reusing, by file
+
+All sources below are MIT unless noted, so you may copy with attribution. Read the policy before copying code, because several of these files encode decisions docwalk rejects.
+
+| Purpose | File | Use it for |
+|---|---|---|
+| Post-render overflow check | deckrun [`src/preview.ts`](https://github.com/arpitbbhayani/deckrun/blob/master/src/preview.ts) (~L203–232, `reportOverflow`) | Await render, one rAF, 6px tolerance, measure self-clipping hosts separately |
+| Overflow UI | deckrun [`src/editor.ts`](https://github.com/arpitbbhayani/deckrun/blob/master/src/editor.ts) (~L1232 badge, ~L2126 nudge) | Diagnostic wording ("split it with `---`") |
+| Text lint rules | deckrun [`src/lint.ts`](https://github.com/arpitbbhayani/deckrun/blob/master/src/lint.ts) | Cheap static checks: unclosed fence, dense slide, missing alt |
+| Heading split after parse | md2slides [`core/split/sectionize.js`](https://github.com/wenlanstudio/md2slides/blob/main/core/split/sectionize.js) | Fence-safe sectioning |
+| Semantic pagination | md2slides [`core/paginate/overflow.js`](https://github.com/wenlanstudio/md2slides/blob/main/core/paginate/overflow.js), [`PAGINATION.md`](https://github.com/wenlanstudio/md2slides/blob/main/PAGINATION.md) | Table/list continuation algorithm. Docs mostly in Chinese |
+| Overflow policy | margo [`docs/product/slide-overflow-validation.md`](https://github.com/jjanuszczak/margo/blob/main/docs/product/slide-overflow-validation.md) (Apache-2.0) | "Observation-only first; never rewrite authored content" |
+| Break tokens, atomic blocks | Paged.js [`src/chunker/layout.js`](https://raw.githubusercontent.com/pagedjs/pagedjs/main/src/chunker/layout.js) | `mustSplit` for blocks taller than a page. Round bounds inward and content outward |
+| Repeated table header | [gist RepeatTableHeadersHandler](https://gist.github.com/theinvensi/e1aacc43bb5a3d852e2e85b08cf85c8a) | Includes a known duplicate-header bug to avoid |
+| Presenter sync | Slidekick [`src/sync/`](https://github.com/chraltro/slidekick/tree/main/src) | BroadcastChannel with a localStorage fallback |
+| Mermaid theming and cache | Slidekick [`src/diagrams/mermaid.ts`](https://github.com/chraltro/slidekick/blob/main/src/diagrams/mermaid.ts) | Theme from CSS variables, `strict`, 50-entry SVG cache |
+| Measurement technique | Slidekick [`src/slides/layouts/fit.ts`](https://github.com/chraltro/slidekick/blob/main/src/slides/layouts/fit.ts) | Worst-descendant rect measurement. Skip its scale-down policy |
+| Stress fixtures | Slidekick `tests/e2e/stress-160.spec.ts`, `mermaid-types.spec.ts` ([tests](https://github.com/chraltro/slidekick/tree/main/tests)) | Ideas for Playwright acceptance tests |
+| Drawing API | drauu [`packages/core/src/drauu.ts`](https://github.com/antfu/drauu/blob/main/packages/core/src/drauu.ts), [`types.ts`](https://github.com/antfu/drauu/blob/main/packages/core/src/types.ts) | Modes, `arrowEnd`, undo/redo |
+| Why reveal's Markdown plugin fails | reveal.js [`plugin/markdown/plugin.js`](https://raw.githubusercontent.com/hakimel/reveal.js/master/plugin/markdown/plugin.js) (`slidify`) | It discards the separator match. A zero-width lookahead loops forever |
+| Marp fence-to-token pattern | `lib/mermaid-*.mjs` in the [marp-core 5.0.2 tarball](https://registry.npmjs.org/@marp-team/marp-core/-/marp-core-5.0.2.tgz) | How to intercept ` ```mermaid ` in markdown-it |
+
+## Pasted Markdown is an XSS surface
+
+A viewer renders documents written by other people, so every input is hostile. Mermaid integrations produced a run of XSS CVEs in 2025 and 2026. Most came from apps that used `securityLevel: 'loose'` or let a diagram's `%%{init}%%` block override it. Examples are OneUptime CVE-2026-32308 ([GHSA-wvh5-6vjm-23qh](https://github.com/advisories/GHSA-wvh5-6vjm-23qh)), Docmost CVE-2026-23630 ([GHSA-r4hj-mc62-jmwj](https://github.com/docmost/docmost/security/advisories/GHSA-r4hj-mc62-jmwj)) and the Mermaid Live Editor ([GHSA-f44h-f757-c5wx](https://github.com/mermaid-js/mermaid-live-editor/security/advisories/GHSA-f44h-f757-c5wx)). Mermaid itself had CVE-2025-54881, sequence-diagram labels, fixed after 11.9.0 ([SentinelOne](https://www.sentinelone.com/vulnerability-database/cve-2025-54881/)). Pinning 12.3.0 covers it. SiYuan CVE-2026-40322 escalated a `javascript:` link from Mermaid output to code execution ([GHSA-x63q-3rcj-hhp5](https://github.com/siyuan-note/siyuan/security/advisories/GHSA-x63q-3rcj-hhp5)).
+
+The rules follow from that record:
+
+- Run Mermaid in `strict` mode, which encodes HTML and disables clicks ([usage](https://mermaid.js.org/config/usage.html)).
+- Strip or ignore `%%{init}%%` and frontmatter keys that touch `securityLevel` or `htmlLabels`.
+- Never call the `bindFunctions` that `mermaid.render()` returns.
+- Pass the SVG through DOMPurify before inserting it.
+- Sanitize the Markdown HTML with rehype-sanitize's GitHub-style schema, and either sanitize raw HTML or turn it off by default.
+- Block `javascript:`, `vbscript:` and `data:text/html` URLs.
+- Avoid deckrun's setup: it runs Mermaid in `loose` mode with no sanitizer ([rich-content.ts](https://github.com/arpitbbhayani/deckrun/blob/master/src/rich-content.ts)). That is acceptable on 127.0.0.1 and wrong for a hosted page. Slidekick's denylist sanitizer is another pattern to avoid.
+
+Two further points are inferences and have no source. First, remote images in a pasted doc fetch from third-party hosts, so a strict Content-Security-Policy (set in a `<meta>` tag on a static host) helps keep "content stays local" true. Second, `sandbox` mode breaks DOM access to diagram nodes, so `strict` is the practical choice.
+
+## Open gaps
+
+- No prototype was built, so every effort figure is judgment.
+- The full bundle size of the recommended stack is unmeasured.
+- It is unverified whether the chalkboard plugin loads under reveal.js 6. Reveal's `r-fit-text` and `r-stretch` docs were not fetched.
+- reveal.js scales slides with a CSS transform. The expectation is that `scrollHeight` and `clientHeight` stay in unscaled layout units, which would help measurement. This is untested.
+- Touch and pinch behavior of the pan/zoom libraries was not checked against current READMEs.
+- `data-id` output was confirmed only for the flowchart and state renderer, not for sequence, gantt or others.
+- Mermaid v12's breaking changes beyond the ES2024 target are unknown, because no changelog was retrievable.
+- WebContainer pricing is unpublished, and its COOP/COEP header needs were not verified.
+- Typora, StackEdit and Dillinger were not checked.
+- GitHub topic search could not run, so other small 2026 projects are probably missing.
+- Whether GitHub's Mermaid viewer has a fullscreen button in 2026 is unconfirmed.
+
+## What docwalk took from this
+
+| Finding | Design choice |
+|---|---|
+| `---` under a paragraph is a setext heading, and `---` in a fence is no break. reveal.js and deckrun split with regexes | docwalk splits on the Markdown AST at `##` and thematic breaks, and feeds reveal.js pre-split sections |
+| Mermaid and KaTeX hosts hide their own overflow. Fonts and diagrams change size after render | docwalk measures each host on its own, after fonts, Mermaid and images are ready, then re-checks with ResizeObserver |
+| Hosted Markdown viewers keep producing XSS CVEs. Slidekick's denylist and deckrun's `loose` mode are the patterns to avoid | The sanitizer acts as the gate for every image and raw HTML element, with a GitHub-style schema and blocked URL schemes |
+| Mermaid CVEs came from `loose` mode and `%%{init}%%` overrides | Mermaid runs in `strict` mode, and a pre-pass strips init directives and risky frontmatter keys before rendering. SVG output goes through DOMPurify |
+| reveal.js is the strongest shell, but its Markdown plugin splits unsafely | docwalk embeds reveal.js with an exit rule: the viewer owns splitting and content, and reveal.js handles navigation, overview, speaker view and notes. If reveal.js stops fitting, the shell can change without touching the document model |
+| Beamer calls shrink-to-fit "very evil". Slidekick shrinks to 22% in silence, and Marp clips | docwalk applies no global shrink. It reports overflow, and later splits at semantic boundaries such as table rows and list items |
+| Tool projects in this space appear in days and often go quiet within weeks | docwalk stays a thin layer over long-lived libraries (reveal.js, Mermaid, drauu, unified), so the documents lose nothing if the viewer disappears |

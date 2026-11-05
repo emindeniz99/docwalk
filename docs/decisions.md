@@ -1,6 +1,8 @@
 # Decision index
 
-Settled 2026-11-05 after a prior-art study and two independent reviews.
+Settled 2026-11-05 after a prior-art study and two independent design
+reviews. [`prior-art.md`](./prior-art.md) holds the survey, the rejected
+alternatives and the evidence behind most rows.
 
 Reversing or narrowing a row needs an ADR in `docs/adr/` that names the row it
 supersedes. Mark the row `superseded` and link the ADR; never rewrite a row in
