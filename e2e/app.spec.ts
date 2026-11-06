@@ -136,6 +136,9 @@ for (const view of ["remote", "presenter"]) {
 }
 
 test("the presenter window mirrors the deck and can drive it", async ({ page, context }) => {
+  // Two renders of the fixture: the deck, then the presenter's previews; on
+  // WebKit under load that is 25-35 s here and about twice that on CI.
+  test.setTimeout(120_000);
   await ready(page);
   const popupPromise = context.waitForEvent("page");
   await page.keyboard.press("Control+k");
@@ -143,6 +146,10 @@ test("the presenter window mirrors the deck and can drive it", async ({ page, co
   await page.getByRole("menuitem", { name: "Open presenter view" }).click();
   const presenter = await popupPromise;
   await expect(presenter.getByText("Now", { exact: true })).toBeVisible({ timeout: 30_000 });
+  // The previews are built after "Now" shows, in long tasks on a main thread
+  // the popup shares with this page in WebKit. A click before they are done
+  // waits behind them, and so does this page's answer to it.
+  await expect(presenter.getByRole("status")).toBeEmpty({ timeout: 60_000 });
   const before = await page.locator(".docwalk-preview-head strong").textContent();
   await presenter.getByRole("button", { name: /next/i }).first().click();
   await expect(page.locator(".docwalk-preview-head strong")).not.toHaveText(before ?? "");
