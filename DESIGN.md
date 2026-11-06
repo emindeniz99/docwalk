@@ -338,7 +338,10 @@ phone controls. Pills (`full`) are only for status chips.
   references, under a thin rule in smaller `slide-muted` text; in document
   mode, one list at the end, as on GitHub.
 - **Stage controls**: 44px square buttons on `stage-raised`, icon plus
-  accessible label; a per-section progress bar along the bottom.
+  accessible label; a per-section progress bar along the bottom. While
+  presenting they fade out after three idle seconds and the slide takes
+  their room (decision 75); the first time, a `stage-raised` pill at the
+  bottom of the stage says how to bring them back.
 - **Slide overview** (O, or the grid button beside the slide counter): every
   page as a white thumbnail on the stage, numbered, with a `stage-note`
   "Note" chip on flagged pages. The current slide has an accent border and a

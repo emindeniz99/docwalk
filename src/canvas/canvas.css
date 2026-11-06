@@ -5,6 +5,9 @@
   inset: 0;
   /* Above the diagram focus view (1000), which it replaces. */
   z-index: 1100;
+  /* Full screen under viewport-fit=cover: keep the sketch off a phone's notch and home indicator. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
   display: grid;
   background: var(--dw-color-slide-shadow);
 }

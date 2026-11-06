@@ -6,10 +6,19 @@ headings, lets you zoom into any diagram, draw on it and point at it, and
 tells you when content does not fit instead of clipping it. The file stays
 plain GitHub Markdown.
 
-Status: the first version is feature-complete and not yet released. The
-CI workflows have not run on GitHub yet, and `docwalk-mcp` is not on npm.
-[`ROADMAP.md`](./ROADMAP.md) lists what is open and
-[`CHANGELOG.md`](./CHANGELOG.md) what the first release holds.
+**Try it:** <https://emindeniz99.github.io/docwalk/>. It opens with a
+sample design doc; paste your own Markdown or drop a `.md` file on the
+page. Nothing is uploaded.
+
+![The editor with its outline, the Markdown source and a live slide preview of a state diagram](docs/images/editor.png)
+
+![Presentation mode: the slide on a dark stage with drawing tools](docs/images/present.png)
+
+Status: beta. The first version is feature-complete and runs as a static
+site on GitHub Pages; no version is tagged yet, and `docwalk-mcp` is not
+on npm. Sign-in, the phone remote and agents need the Cloudflare Worker,
+which the Pages site does not run. [`ROADMAP.md`](./ROADMAP.md) lists what
+is open and [`CHANGELOG.md`](./CHANGELOG.md) what the first release holds.
 
 ## Why
 
@@ -43,6 +52,12 @@ lists every settled design decision.
 - Three views: an editor with a live slide preview and an outline, a
   document view that renders the file as GitHub would, and presentation
   mode. ⌘K or Ctrl+K opens a command palette; O opens a slide overview.
+- While you present, the slide counter, the drawing tools and the arrows
+  fade out after three idle seconds and the slide grows to fill the screen.
+  Move the mouse, tap beside the slide or press Tab to bring them back, or
+  keep them with More actions › Always show presenting controls. Safari on
+  iPhone cannot show a web page full screen: tap Share › Add to Home Screen
+  and present from the home-screen icon for a full-screen deck.
 - Diagram focus: click a Mermaid diagram to fit, zoom, pan, draw on it with
   a pen or point with a laser.
 - A presenter window with the current and next slide and a timer, synced
@@ -81,7 +96,17 @@ deck and, once the presenter allows it, edit the document through
 [`docwalk-mcp`](./mcp/README.md), a local MCP server that joins the room with
 its encrypted link.
 
-## Quick start
+## Use it
+
+Open <https://emindeniz99.github.io/docwalk/> in a current browser. Paste
+Markdown into the editor, drop a `.md` file on the page, or open
+`https://emindeniz99.github.io/docwalk/?src=<raw GitHub URL>`. Press
+**Present** to start. Install it from the browser's menu to use it offline;
+on an iPhone, Safari's **Share › Add to Home Screen** also gives a deck
+without the browser bars, since iPhone Safari has no full-screen mode for
+pages.
+
+## Develop
 
 You need Node 24.22.1 and pnpm 12.16.1 (with [mise](https://mise.jdx.dev),
 `mise install` reads both from `package.json`).

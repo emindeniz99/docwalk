@@ -117,6 +117,10 @@ Later rounds:
 - While presenting in real fullscreen, Escape with a dialog open closes the
   dialog and leaves fullscreen (browsers keep the key); presenting goes on
   windowed until a second Escape.
+- Presenting controls (decision 75): check on a real iPhone, in Safari and
+  from the Home Screen, since Playwright's WebKit emulates no notch or
+  safe-area insets. The update toast and the centred dialogs do not pad for
+  the safe area yet; only the app and its full-screen layers do.
 
 ## Later
 

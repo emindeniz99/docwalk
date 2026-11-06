@@ -1,4 +1,4 @@
-import { Check, Ellipsis, ImageOff, type LucideIcon } from "lucide-react";
+import { Check, Ellipsis, ImageOff, PanelTopDashed, type LucideIcon } from "lucide-react";
 import {
   Header,
   Menu,
@@ -13,6 +13,7 @@ import { chooseLocale, localeName, locales, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { setLoadRemoteImages, useLoadRemoteImages } from "../render/remoteImages";
 import { IconButton } from "./IconButton";
+import { setKeepChromeVisible, useKeepChromeVisible } from "./presentChrome";
 import { useMediaQuery } from "./useMediaQuery";
 
 export interface MoreAction {
@@ -23,10 +24,12 @@ export interface MoreAction {
 }
 
 const LOAD_REMOTE_IMAGES = "load-remote-images";
+const KEEP_CONTROLS = "keep-present-controls";
 
 /** Secondary header actions in one React Aria menu, so the header fits a phone. */
 export function MoreMenu({ actions }: { actions: MoreAction[] }) {
   const loadRemoteImages = useLoadRemoteImages();
+  const keepControls = useKeepChromeVisible();
   const editor = useStoredEditorChoice();
   const coarse = useMediaQuery(COARSE_POINTER);
   const locale = useLocale();
@@ -49,13 +52,20 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
               </MenuItem>
             )}
           </MenuSection>
-          {/* A checkbox item (decision 33's "always load" setting), so its state is announced. */}
+          {/* Checkbox items (decision 33's "always load" setting, decision 75's
+              presenting controls), so their state is announced. */}
           <MenuSection
             selectionMode="multiple"
-            selectedKeys={loadRemoteImages ? [LOAD_REMOTE_IMAGES] : []}
-            onSelectionChange={(keys) =>
-              setLoadRemoteImages(keys === "all" || keys.has(LOAD_REMOTE_IMAGES))
-            }
+            selectedKeys={[
+              ...(loadRemoteImages ? [LOAD_REMOTE_IMAGES] : []),
+              ...(keepControls ? [KEEP_CONTROLS] : []),
+            ]}
+            onSelectionChange={(keys) => {
+              const on = (key: string) => keys === "all" || keys.has(key);
+              if (on(LOAD_REMOTE_IMAGES) !== loadRemoteImages)
+                setLoadRemoteImages(on(LOAD_REMOTE_IMAGES));
+              if (on(KEEP_CONTROLS) !== keepControls) setKeepChromeVisible(on(KEEP_CONTROLS));
+            }}
           >
             <MenuItem
               id={LOAD_REMOTE_IMAGES}
@@ -70,6 +80,22 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
                     <ImageOff size={16} aria-hidden="true" />
                   )}
                   {m.more_remote_images()}
+                </>
+              )}
+            </MenuItem>
+            <MenuItem
+              id={KEEP_CONTROLS}
+              textValue={m.more_keep_controls()}
+              className="docwalk-menu-item"
+            >
+              {({ isSelected }) => (
+                <>
+                  {isSelected ? (
+                    <Check size={16} aria-hidden="true" />
+                  ) : (
+                    <PanelTopDashed size={16} aria-hidden="true" />
+                  )}
+                  {m.more_keep_controls()}
                 </>
               )}
             </MenuItem>
