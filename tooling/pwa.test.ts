@@ -221,6 +221,30 @@ describe("selectPrecache", () => {
     expect(runtime.has("Monaco.js")).toBe(true);
   });
 
+  // Decision 76: the highlighter itself is small and precached, so every
+  // grammar a deck used while online works offline; the 24 grammars are
+  // cached when a document first needs one, not at install.
+  test("precaches the highlighter but leaves each grammar to the runtime cache", () => {
+    const { precache, runtime } = selectPrecache([
+      chunk("index.js", { isEntry: true, dynamicImports: ["shiki.js"] }),
+      chunk("shiki.js", {
+        moduleIds: [
+          "/app/src/render/shiki.ts",
+          "/app/node_modules/.pnpm/@shikijs+primitive@4.5.0/node_modules/@shikijs/primitive/dist/index.mjs",
+        ],
+        dynamicImports: ["typescript.js"],
+      }),
+      chunk("typescript.js", {
+        moduleIds: [
+          "/app/node_modules/.pnpm/@shikijs+langs@4.5.0/node_modules/@shikijs/langs/dist/typescript.mjs",
+        ],
+      }),
+    ]);
+    expect(precache.has("shiki.js")).toBe(true);
+    expect(precache.has("typescript.js")).toBe(false);
+    expect(runtime.has("typescript.js")).toBe(true);
+  });
+
   test("fails loudly when the graph names a chunk the build did not emit", () => {
     expect(() =>
       selectPrecache([chunk("index.js", { isEntry: true, imports: ["gone.js"] })]),

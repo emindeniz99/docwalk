@@ -26,7 +26,8 @@ Naming goes through [`CONTEXT.md`](./CONTEXT.md). The roadmap is in
    silent clipping. Code blocks, diagrams and images stay whole; one taller
    than an empty slide gets a visible diagnostic.
 4. **Measure only after everything has rendered:** `document.fonts.ready`,
-   then `mermaid.run()`, then image decode, then one animation frame.
+   then code highlighting and `mermaid.run()`, then image decode, then one
+   animation frame.
    Measure each Mermaid host on its own as well as the slide, because
    diagram hosts hide their own overflow.
 5. **Every input is hostile.** Markdown goes through rehype-sanitize with
