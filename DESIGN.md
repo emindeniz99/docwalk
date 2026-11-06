@@ -47,6 +47,26 @@ colors:
   alert-important-dark: "#ab7df8"
   alert-warning-dark: "#d29922"
   alert-caution-dark: "#f85149"
+  code-keyword: "#cf222e"
+  code-string: "#0a3069"
+  code-comment: "#57606a"
+  code-constant: "#0550ae"
+  code-function: "#6639ba"
+  code-parameter: "#953800"
+  code-inserted: "#116329"
+  code-inserted-surface: "#dafbe1"
+  code-deleted: "#82071e"
+  code-deleted-surface: "#ffebe9"
+  code-keyword-dark: "#ff7b72"
+  code-string-dark: "#a5d6ff"
+  code-comment-dark: "#8b949e"
+  code-constant-dark: "#79c0ff"
+  code-function-dark: "#d2a8ff"
+  code-parameter-dark: "#ffa657"
+  code-inserted-dark: "#aff5b4"
+  code-inserted-surface-dark: "#033a16"
+  code-deleted-dark: "#ffdcd7"
+  code-deleted-surface-dark: "#67060c"
 typography:
   slide-title:
     fontFamily: Bricolage Grotesque Variable
@@ -226,6 +246,54 @@ components:
   alert-caution-title-dark:
     backgroundColor: "{colors.surface-dark}"
     textColor: "{colors.alert-caution-dark}"
+  code-keyword:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.code-keyword}"
+  code-string:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.code-string}"
+  code-comment:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.code-comment}"
+  code-constant:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.code-constant}"
+  code-function:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.code-function}"
+  code-parameter:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.code-parameter}"
+  code-inserted:
+    backgroundColor: "{colors.code-inserted-surface}"
+    textColor: "{colors.code-inserted}"
+  code-deleted:
+    backgroundColor: "{colors.code-deleted-surface}"
+    textColor: "{colors.code-deleted}"
+  code-keyword-dark:
+    backgroundColor: "{colors.canvas-dark}"
+    textColor: "{colors.code-keyword-dark}"
+  code-string-dark:
+    backgroundColor: "{colors.canvas-dark}"
+    textColor: "{colors.code-string-dark}"
+  code-comment-dark:
+    backgroundColor: "{colors.canvas-dark}"
+    textColor: "{colors.code-comment-dark}"
+  code-constant-dark:
+    backgroundColor: "{colors.canvas-dark}"
+    textColor: "{colors.code-constant-dark}"
+  code-function-dark:
+    backgroundColor: "{colors.canvas-dark}"
+    textColor: "{colors.code-function-dark}"
+  code-parameter-dark:
+    backgroundColor: "{colors.canvas-dark}"
+    textColor: "{colors.code-parameter-dark}"
+  code-inserted-dark:
+    backgroundColor: "{colors.code-inserted-surface-dark}"
+    textColor: "{colors.code-inserted-dark}"
+  code-deleted-dark:
+    backgroundColor: "{colors.code-deleted-surface-dark}"
+    textColor: "{colors.code-deleted-dark}"
 ---
 
 # docwalk design
@@ -274,6 +342,15 @@ gains a border, so colour-blind readers see the state too.
   mode switches to the `-dark` set with the theme. Every title passes 4.5:1
   on its surface (lowest: `alert-warning` on white, 4.9:1; computed
   2026-11-05).
+- `code-*` colours are GitHub's own syntax colours for fenced code blocks
+  (decision 76): keyword, string, comment, constant, function and parameter,
+  plus added and removed lines in a diff, each on its own tinted surface.
+  Like alerts, slides always use the light set on the `canvas` block and
+  document mode switches to the `-dark` set on `canvas-dark`. Colour only:
+  no bold or italic, so a highlighted block keeps the metrics pagination
+  measured. A diff line keeps its `+` or `-`, so colour is not the only cue.
+  Every token passes 4.5:1 on its surface (lowest: `code-keyword` on
+  `canvas`, 4.9:1; `src/design/contrast.test.ts` computes them).
 - Every text pair passes WCAG 2.2 AA: 4.5:1 for body text, 3:1 for text
   24px and larger. The lowest pair in the file is `primary` on `stage`
   (4.8:1), used only for the progress bar, not text. Ratios were computed
