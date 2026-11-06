@@ -4,6 +4,7 @@ import { purifyHtml } from "../deck/purify";
 import { renderDiagrams } from "../deck/mermaid";
 import "../render/content.css";
 import { anchorTarget, focusTarget, fragmentTarget } from "../render/fragments";
+import { highlightCode } from "../render/highlight";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
@@ -83,6 +84,9 @@ export function DocumentView({
     };
     el.addEventListener("click", onClick);
     let live = true;
+    // Beside the diagrams, not before them: colours change no height, so a
+    // pending scroll target needs no second pass for them.
+    void highlightCode(el, { stop: () => !live });
     drawn.current = false;
     void renderDiagrams(el).then(() => {
       if (!live) return;

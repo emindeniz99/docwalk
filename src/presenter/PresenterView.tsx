@@ -8,6 +8,7 @@ import { flagPages, SLIDE_SIZE, slideAddress } from "../deck/pages";
 import { buildSlides } from "../deck/slides";
 import { ariaLocale, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
+import { highlightCode } from "../render/highlight";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
 import {
   connectPresenter,
@@ -330,7 +331,7 @@ async function buildPreviews(
   box.append(...slides);
   document.body.append(box);
   try {
-    await renderDiagrams(box);
+    await Promise.all([highlightCode(box), renderDiagrams(box)]);
     fitDiagrams(box, slideBodySize(SLIDE_SIZE));
     await settled(box);
     const pages = slides.flatMap((s) => paginateSlide(s, { size: SLIDE_SIZE }));
