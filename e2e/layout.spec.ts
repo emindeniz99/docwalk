@@ -101,3 +101,27 @@ test("on a phone the edit view switches between source and a visible slide previ
   await expect(page.locator(".cm-content")).toBeInViewport();
   await expect(page.locator(".docwalk-deck-pane")).toBeHidden();
 });
+
+test("with the comments panel open at 1440 px the annotation toolbar stays on one row", async ({
+  page,
+}) => {
+  // The comments panel narrows the deck pane. The toolbar used to wrap its
+  // undo and clear buttons onto a row of their own, pushing the slide down
+  // and splitting a group the presenter reads as one strip.
+  await ready(page);
+  await page.getByRole("button", { name: /^Comments/ }).click();
+  await expect(page.getByRole("complementary", { name: "Comments" })).toBeVisible();
+  const tops = await page
+    .locator(".docwalk-preview-head .docwalk-stage-tools")
+    .locator(".docwalk-annotate-button, .docwalk-annotate-swatch")
+    .evaluateAll((els) =>
+      els
+        .filter((el) => el.getBoundingClientRect().height > 0)
+        .map((el) => Math.round(el.getBoundingClientRect().top)),
+    );
+  expect(tops.length).toBeGreaterThan(5);
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(2);
+  // The whole head is at most two control rows: counter and address, then the tools.
+  const head = await page.locator(".docwalk-preview-head").boundingBox();
+  expect(head?.height ?? Infinity).toBeLessThanOrEqual(2 * 38 + 8 + 12 + 1);
+});

@@ -638,18 +638,43 @@ kbd {
   display: none;
 }
 
+/*
+ * One row: counter, address, overview, comments chip, Exit and the tools.
+ * The address gives way first (it truncates), so the tools only drop to a
+ * second row when the pane is too narrow for them (the comments panel open
+ * at 1440 px), and stay one strip there; only a phone splits their groups.
+ */
 .docwalk-preview-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--dw-space-md);
+  gap: var(--dw-space-sm) var(--dw-space-md);
   padding: var(--dw-space-md) var(--dw-space-xl) 0;
   color: var(--dw-color-stage-muted);
   font-size: var(--dw-type-caption-size);
 }
 
 .docwalk-preview-head strong {
+  flex: none;
   color: var(--dw-color-stage-ink);
+}
+
+.docwalk-preview-address {
+  flex: 1 1 0;
+  min-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* With a mouse, the edit preview's stage controls share the header's control height. */
+@media (pointer: fine) and (min-width: 641px) {
+  .docwalk-app:not([data-view="present"])
+    .docwalk-preview-head
+    :is(.docwalk-annotate-button, .docwalk-annotate-swatch) {
+    min-width: var(--dw-space-control);
+    min-height: var(--dw-space-control);
+  }
 }
 
 .docwalk-preview-head[hidden] {

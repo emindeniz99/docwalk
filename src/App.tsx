@@ -769,7 +769,7 @@ export function App() {
         <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document" && !follow}>
           <div className="docwalk-preview-head">
             <strong>{current ? `${current.index + 1} / ${slides.length}` : "…"}</strong>
-            <span>{current?.address ?? ""}</span>
+            <span className="docwalk-preview-address">{current?.address ?? ""}</span>
             {!follow && (
               <IconButton
                 label="Slide overview"
