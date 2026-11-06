@@ -64,6 +64,14 @@ docs(mcp): explain why the follow link cannot steer the deck
 
 ## Merging
 
+The maintainer and agents working for them commit small, safe changes
+(docs, test-only fixes, one-file bug fixes with a passing gate) straight to
+`main`. Larger or independent work goes on a branch: a feature, a
+dependency or toolchain change, anything touching security or the Worker.
+That branch merges into `main` with a real merge commit, either through a
+pull request or locally with `git merge --no-ff`, once the full gate
+passes.
+
 Pull requests merge with a real merge commit. Never squash or rebase-merge:
 the per-commit history records how each part was built and why, and a
 squash on `main` cannot be undone. Do not delete the branch as part of the

@@ -63,5 +63,9 @@ Naming goes through [`CONTEXT.md`](./CONTEXT.md). The roadmap is in
     - A commit you wrote ends with a `Co-Authored-By:` trailer naming your
       agent and current model with the vendor's attribution address. Never
       leave an agent-written commit looking human-only.
-    - Pull requests merge with a real merge commit. Never squash or
-      rebase-merge, and do not delete the branch unless asked.
+    - Small, safe changes (docs, test-only fixes, one-file bug fixes with
+      a passing gate) go straight to `main`. Features and risky changes
+      use a branch.
+    - Branches merge with a real merge commit, by pull request or
+      `git merge --no-ff`. Never squash or rebase-merge, and do not delete
+      the branch unless asked.
