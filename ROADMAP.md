@@ -32,9 +32,6 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
 Still open in v1:
 
 - Decision row 8 needs a later row or an ADR (remote control moved into v1).
-- Decision 31's notice for browsers below the floor is not built: an old
-  browser gets a blank page. Build an inline feature check in `index.html`,
-  or narrow the row.
 - Decision 39's screenshot and ARIA-snapshot assertions are not written
   (screenshots are optional review captures). Write them, or narrow the row.
 - Decision 43's 1.5 s open budget: `e2e/perf.spec.ts` measured about 2.5 s
