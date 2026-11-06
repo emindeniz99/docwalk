@@ -1,4 +1,4 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["fixtures/**", "docs/design/directions/**"]
+  "ignorePatterns": ["fixtures/**", "docs/design/directions/**", "src/paraglide/**"]
 }

@@ -30,3 +30,6 @@ reports/mutation/
 .DS_Store
 .lighthouseci/
 .stryker-tmp/
+
+# Paraglide output (pnpm i18n, or the Vite plugin), compiled from messages/
+src/paraglide/

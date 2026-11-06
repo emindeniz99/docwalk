@@ -20,5 +20,5 @@
       }
     ]
   },
-  "ignorePatterns": ["dist/**", "fixtures/**"]
+  "ignorePatterns": ["dist/**", "fixtures/**", "src/paraglide/**"]
 }

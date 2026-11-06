@@ -1,5 +1,7 @@
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
+import { paraglideOptions } from "./tooling/paraglide.ts";
 import { docwalkTokens } from "./tooling/tokens-plugin.ts";
 
 // Layout and pagination tests must run in a real browser: jsdom has no layout
@@ -7,7 +9,7 @@ import { docwalkTokens } from "./tooling/tokens-plugin.ts";
 const chromiumPath = process.env.DOCWALK_CHROMIUM_PATH;
 
 export default defineConfig({
-  plugins: [docwalkTokens()],
+  plugins: [docwalkTokens(), paraglideVitePlugin(paraglideOptions)],
   test: {
     projects: [
       {
