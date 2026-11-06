@@ -93,3 +93,37 @@ content (15).
 the browser's origin private file system (autosaved) or in a **local
 folder**. The file panel above the outline shows it (57, 66). Code:
 `src/workspace/`, document source `{ kind: "workspace" }`.
+
+## Turkish UI terms
+
+The Turkish catalogue (`messages/tr.json`, decision 56) uses one word per
+concept. Add a row here before introducing a new one.
+
+| English                     | Turkish                     | Note                                       |
+| --------------------------- | --------------------------- | ------------------------------------------ |
+| slide                       | slayt                       | "slayt düzeyi" for the base level          |
+| deck                        | slayt destesi               | screen-reader role only; elsewhere "sunum" |
+| present (button)            | Sunum yap                   |                                            |
+| presenter view              | sunucu görünümü             |                                            |
+| presenter (the person)      | sunumu yapan kişi           | not "sunucu", which also means server      |
+| audience window             | izleyici penceresi          |                                            |
+| follower, follow along      | izleyici, sunumu izle       |                                            |
+| phone remote                | telefon kumandası           |                                            |
+| remote control              | uzaktan kumanda             |                                            |
+| outline                     | ana hat                     |                                            |
+| section                     | bölüm                       |                                            |
+| slide overview              | slaytlara genel bakış       |                                            |
+| diagram, node               | diyagram, düğüm             |                                            |
+| sketch                      | çizim                       |                                            |
+| comment, resolved, orphaned | yorum, çözüldü, sahipsiz    |                                            |
+| workspace, local folder     | çalışma alanı, yerel klasör |                                            |
+| draft                       | taslak                      |                                            |
+| token                       | erişim anahtarı             | "anahtar" once the context is clear        |
+| agent, room                 | ajan, oda                   |                                            |
+| export, import              | dışa aktar, içe aktar       |                                            |
+
+Style: address the reader as "siz" ("açın", "deneyin"). Never attach a
+suffix to an interpolated value, because its vowel harmony is unknown:
+put the value after a colon ("Kaydedilemedi: {path}") or before a word
+that carries the suffix ("{path} klasörü", "{name} için"). Turkish nouns
+stay singular after a number, so plurals need only an `other` branch.
