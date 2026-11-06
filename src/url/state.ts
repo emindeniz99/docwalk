@@ -143,3 +143,15 @@ export function formatViewerUrl(base: URL, state: Partial<ViewerUrlState>): URL 
   }
   return url;
 }
+
+/**
+ * `base` without what names a document: `?src=`, `?repo=` with its `path`
+ * and `ref`, and a reserved hash (`#doc=…`, `#c=…`). Viewer settings
+ * (`?level`, `?view`) and a slide address stay.
+ */
+export function withoutDocumentLink(base: URL): URL {
+  const url = new URL(base);
+  for (const name of ["src", "repo", "path", "ref"]) setQueryParam(url, name, null);
+  if (isReservedHash(url.hash)) url.hash = "";
+  return url;
+}

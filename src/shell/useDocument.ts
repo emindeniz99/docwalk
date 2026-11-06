@@ -21,6 +21,7 @@ import {
 } from "../share/draft";
 import { isDocHash, readFragment } from "../share/fragment";
 import { m } from "../paraglide/messages.js";
+import { withoutDocumentLink } from "../url/state";
 import { rememberedFile } from "../workspace/store";
 
 export const SAMPLE: LoadedDocument = { markdown: sample, source: { kind: "sample" } };
@@ -61,6 +62,16 @@ function initialDocument(follow: boolean): LoadedDocument | null {
   // Only a browser that has opened a workspace file waits here; everyone else starts as before.
   if (rememberedFile() !== null) return null;
   return openDraft() ?? SAMPLE;
+}
+
+/**
+ * Another document replaced a linked one: the address stops naming the
+ * link, so a reload shows what is on screen (a link is loaded before the
+ * workspace file and the draft, decision 66).
+ */
+function leaveLink(): void {
+  const next = withoutDocumentLink(new URL(location.href));
+  if (next.href !== location.href) history.replaceState(history.state, "", next);
 }
 
 /** The saved draft, which this page then holds (src/share/draft.ts). */
@@ -142,6 +153,7 @@ export function useDocument({ follow }: { follow: boolean }) {
               action: { label: m.doc_replace_draft(), run: replaceDraft },
             });
           } else holdDraft();
+          leaveLink();
         } else releaseDraft();
         show(result.doc);
         return;
@@ -266,9 +278,16 @@ export function useDocument({ follow }: { follow: boolean }) {
   // for every other way of replacing the document).
   useEffect(() => {
     if (follow) return;
-    const onHashChange = () => {
+    const onHashChange = (event: HashChangeEvent) => {
       const hash = location.hash;
-      if (isDocHash(hash)) replaceGuard.current(() => void loadFragment(hash));
+      if (!isDocHash(hash)) return;
+      // The address names the link only once it is loaded: declined, the old
+      // document stays under its own address.
+      history.replaceState(history.state, "", event.oldURL);
+      replaceGuard.current(() => {
+        history.replaceState(history.state, "", event.newURL);
+        void loadFragment(hash);
+      });
     };
     globalThis.addEventListener("hashchange", onHashChange);
     return () => globalThis.removeEventListener("hashchange", onHashChange);
@@ -364,6 +383,7 @@ export function useDocument({ follow }: { follow: boolean }) {
       setConfirm(null);
       setNotice(null);
       releaseDraft();
+      leaveLink();
       show(next);
     },
     [show],
@@ -373,6 +393,7 @@ export function useDocument({ follow }: { follow: boolean }) {
   const closeDocument = useCallback(() => {
     generation.current++;
     releaseDraft();
+    leaveLink();
     show(openDraft() ?? SAMPLE);
   }, [show]);
 
@@ -384,6 +405,7 @@ export function useDocument({ follow }: { follow: boolean }) {
     generation.current++;
     setConfirm(null);
     setNotice(null);
+    leaveLink();
     show(draft);
   }, [show]);
 

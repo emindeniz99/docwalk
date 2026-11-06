@@ -16,7 +16,9 @@ export type DocumentSource =
   /** `#doc=...`: a share fragment (src/share). */
   | { kind: "fragment" }
   /** A file in the workspace (decisions 57, 58): the browser's private file system or a picked folder. */
-  | { kind: "workspace"; root: "opfs" | "folder"; path: string };
+  | { kind: "workspace"; root: "opfs"; path: string }
+  /** `folder`: which picked folder, by its id in this browser (src/workspace/store.ts `folderId`). */
+  | { kind: "workspace"; root: "folder"; folder: string; path: string };
 
 export interface LoadedDocument {
   markdown: string;

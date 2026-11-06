@@ -69,6 +69,52 @@ export async function saveFolderHandle(handle: FileSystemDirectoryHandle): Promi
   }
 }
 
+/** Keys of the folders picked so far, each holding that folder's handle. */
+const KNOWN_PREFIX = "known:";
+/** The folder id lookup running now, which the next one waits for. */
+let lookups: Promise<unknown> = Promise.resolve();
+
+/**
+ * Which picked folder this is, as an id that stays the same in this browser:
+ * the id of the same folder picked before (`isSameEntry`), else a new random
+ * one. Comments and sketches of local files are keyed by it, so two folders
+ * that both hold README.md never share them, and a folder picked again after
+ * another one, or after "Close folder", finds its own. The name cannot serve:
+ * two projects may share it. Known handles stay in IndexedDB; a handle grants
+ * no access by itself, and reading a file needs the permission again.
+ */
+export function folderId(handle: FileSystemDirectoryHandle): Promise<string> {
+  // One at a time: start-up looks up the remembered folder twice at once
+  // (src/workspace/restore.ts and the workspace hook), and two lookups that
+  // both found nothing would give one folder two ids.
+  const id = lookups.then(() => lookUpFolderId(handle));
+  lookups = id.catch(() => undefined);
+  return id;
+}
+
+async function lookUpFolderId(handle: FileSystemDirectoryHandle): Promise<string> {
+  try {
+    const keys = await run("readonly", (s) =>
+      s.getAllKeys(IDBKeyRange.bound(KNOWN_PREFIX, `${KNOWN_PREFIX}\uffff`)),
+    );
+    for (const key of keys) {
+      const known: unknown = await run("readonly", (s) => s.get(key));
+      if (known instanceof FileSystemHandle && (await known.isSameEntry(handle))) {
+        return String(key).slice(KNOWN_PREFIX.length);
+      }
+    }
+  } catch {
+    // Without IndexedDB the folder gets an id for this visit only.
+  }
+  const id = crypto.randomUUID();
+  try {
+    await run("readwrite", (s) => s.put(handle, KNOWN_PREFIX + id));
+  } catch {
+    // As above.
+  }
+  return id;
+}
+
 export async function forgetFolderHandle(): Promise<void> {
   try {
     await run("readwrite", (s) => s.delete(FOLDER_KEY));

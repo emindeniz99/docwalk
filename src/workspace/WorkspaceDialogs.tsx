@@ -228,7 +228,9 @@ function Confirm({
 export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
   const d = w.dialog;
   if (!d) return null;
-  const dismiss = () => w.setDialog(null);
+  // Only this dialog: a form's action may already have asked the next
+  // question (the unsaved-changes one), which its closing must not wipe.
+  const dismiss = () => w.setDialog((current) => (current === d ? null : current));
   const where = (dir: string) =>
     dir
       ? m.ws_where_dir({ dir })
@@ -247,8 +249,8 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
               title={m.ws_new_file()}
               Icon={FilePlus}
               label={m.ws_file_name()}
+              // All of it is selected: people type a whole name, extension included.
               initial={m.ws_file_default_name()}
-              selectStem
               submitLabel={m.ws_create_file()}
               hint={m.ws_file_hint({ where: where(d.dir) })}
               onSubmit={(name) => w.newFile(d.dir, name)}

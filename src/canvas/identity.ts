@@ -15,8 +15,11 @@ export function documentKey(source: DocumentSource): string {
       return `repo:${source.repo}:${source.ref ?? ""}:${source.path}`;
     case "file":
       return `file:${source.name}`;
+    // A local file's key names its folder, as its comments' key does (src/comments/identity.ts).
     case "workspace":
-      return `workspace:${source.root}:${source.path}`;
+      return source.root === "folder"
+        ? `workspace:folder:${source.folder}:${source.path}`
+        : `workspace:opfs:${source.path}`;
     default:
       return source.kind;
   }

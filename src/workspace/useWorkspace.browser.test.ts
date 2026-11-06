@@ -1,6 +1,6 @@
 import { act, createElement as h, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
@@ -15,9 +15,9 @@ import { useDocument } from "../shell/useDocument";
 import { workspaceCommands } from "./commands";
 import { FilesPanel } from "./FilesPanel";
 import { writeText } from "./fs";
-import { opfsRoot } from "./store";
+import { folderId, opfsRoot, rememberedFile, rememberFile, saveFolderHandle } from "./store";
 import type { WorkspaceNode } from "./types";
-import { useWorkspace, type Workspace } from "./useWorkspace";
+import { AUTOSAVE_MS, useWorkspace, type Workspace } from "./useWorkspace";
 import { WorkspaceDialogs } from "./WorkspaceDialogs";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -64,8 +64,78 @@ afterEach(async () => {
   root = null;
   document.body.replaceChildren();
   localStorage.clear();
+  delete (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+  // Chromium aborts when another document reads an OPFS handle back from
+  // IndexedDB (MEMORY.md), so no picked folder outlives the test.
+  await new Promise((resolve) => {
+    const request = indexedDB.deleteDatabase("docwalk-workspace");
+    for (const event of ["success", "error", "blocked"]) request.addEventListener(event, resolve);
+  });
   await (await opfsRoot()).removeEntry(dir, { recursive: true }).catch(() => undefined);
 });
+
+/**
+ * Chromium aborts (SIGTRAP) when a document reads back an OPFS directory
+ * handle another document stored in IndexedDB (MEMORY.md), and test files
+ * run side by side on one origin. As in e2e/workspace.spec.ts, handles go
+ * into IndexedDB as markers that only this document maps back.
+ */
+const putHandle = IDBObjectStore.prototype.put;
+const resultOf = Object.getOwnPropertyDescriptor(IDBRequest.prototype, "result")!;
+beforeAll(() => {
+  const kept = new Map<string, FileSystemDirectoryHandle>();
+  IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+    if (!(value instanceof FileSystemDirectoryHandle)) return putHandle.call(this, value, key);
+    const marker = `docwalk-test:handle:${crypto.randomUUID()}`;
+    kept.set(marker, value);
+    return putHandle.call(this, marker, key);
+  };
+  Object.defineProperty(IDBRequest.prototype, "result", {
+    configurable: true,
+    get(this: IDBRequest) {
+      const value: unknown = resultOf.get!.call(this);
+      return typeof value === "string" && kept.has(value) ? kept.get(value) : value;
+    },
+  });
+});
+afterAll(() => {
+  IDBObjectStore.prototype.put = putHandle;
+  Object.defineProperty(IDBRequest.prototype, "result", resultOf);
+});
+
+/** OPFS directory `dir/<name>`, which stands in for a folder on disk. */
+async function disk(name: string): Promise<FileSystemDirectoryHandle> {
+  const top = await (await opfsRoot()).getDirectoryHandle(dir, { create: true });
+  return top.getDirectoryHandle(name, { create: true });
+}
+const readDisk = async (name: string, path: string) =>
+  (await (await (await disk(name)).getFileHandle(path)).getFile()).text();
+
+/**
+ * `showDirectoryPicker` handing out `dir/<name>`, as e2e/workspace.spec.ts
+ * stubs it; set before mount, since support is read once. OPFS handles report
+ * write permission as granted.
+ */
+function pickNext(name: string) {
+  (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker = () => disk(name);
+}
+
+/** Picks `name` through "Open folder…" and opens its `path`. */
+async function openInFolder(wired: { current: Wired | null }, name: string, path: string) {
+  pickNext(name);
+  await act(() => wired.current!.workspace.openFolder());
+  await vi.waitFor(() => expect(wired.current!.workspace.folderName).toBe(name));
+  await vi.waitFor(() =>
+    expect(wired.current!.workspace.listing?.nodes.map((n) => n.path)).toContain(path),
+  );
+  act(() => wired.current!.workspace.openFile(path));
+  await vi.waitFor(() => expect(wired.current!.workspace.source?.path).toBe(path));
+}
+
+const alertButton = (name: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(
+    (b) => b.textContent === name,
+  )!;
 
 function showDiscard(save: () => Promise<boolean>) {
   const proceed = vi.fn<() => void>();
@@ -130,7 +200,7 @@ describe("the unsaved-changes dialog (review finding 8)", () => {
     act(() =>
       wired.current!.inputs.openDocument({
         markdown: "# Edited\n",
-        source: { kind: "workspace", root: "folder", path: "notes.md" },
+        source: { kind: "workspace", root: "folder", folder: "f1", path: "notes.md" },
       }),
     );
     // No folder permission: the write cannot happen, and the caller must hear so.
@@ -212,5 +282,274 @@ describe("the draft stays reachable (review finding 15)", () => {
     expect(workspaceCommands(wired.current!.workspace).map((c) => c.id)).not.toContain(
       "open-draft",
     );
+  });
+});
+
+/** Two folders that both hold README.md, as two projects usually do; fa/README.md open. */
+async function twoProjects() {
+  await writeText(await disk("fa"), "README.md", "# Project A\n");
+  await writeText(await disk("fb"), "README.md", "# Project B\n");
+  pickNext("fa");
+  const wired = await mount();
+  await openInFolder(wired, "fa", "README.md");
+  return wired;
+}
+
+describe("opening another local folder (review pass 2, finding 3)", () => {
+  test("with unsaved edits it asks first, and Save writes them to the folder they came from", async () => {
+    // The open file used to be pointed at fb/README.md: a false "changed on
+    // disk" question, then Save overwrote project B's README with A's text.
+    const wired = await twoProjects();
+    act(() => wired.current!.inputs.edit("# Project A, edited\n"));
+    pickNext("fb");
+    await act(() => wired.current!.workspace.openFolder());
+    expect(wired.current!.workspace.dialog?.kind).toBe("discard");
+    expect(wired.current!.workspace.folderName).toBe("fa");
+
+    await userEvent.click(alertButton("Save"));
+    await vi.waitFor(() => expect(wired.current!.workspace.folderName).toBe("fb"));
+    expect(await readDisk("fa", "README.md")).toBe("# Project A, edited\n");
+    expect(await readDisk("fb", "README.md")).toBe("# Project B\n");
+    // No file of the old folder stays open against the new one.
+    expect(wired.current!.workspace.source).toBeNull();
+  });
+
+  test("Cancel keeps the folder and the edits; Discard closes the file, writing nothing", async () => {
+    const wired = await twoProjects();
+    act(() => wired.current!.inputs.edit("# Project A, edited\n"));
+    pickNext("fb");
+    await act(() => wired.current!.workspace.openFolder());
+    await userEvent.click(alertButton("Cancel"));
+    await vi.waitFor(() => expect(wired.current!.workspace.dialog).toBeNull());
+    expect(wired.current!.workspace.folderName).toBe("fa");
+    expect(wired.current!.inputs.doc?.markdown).toBe("# Project A, edited\n");
+
+    await act(() => wired.current!.workspace.openFolder());
+    await userEvent.click(alertButton("Discard changes"));
+    await vi.waitFor(() => expect(wired.current!.workspace.folderName).toBe("fb"));
+    expect(wired.current!.workspace.source).toBeNull();
+    expect(await readDisk("fa", "README.md")).toBe("# Project A\n");
+    expect(await readDisk("fb", "README.md")).toBe("# Project B\n");
+  });
+
+  test("without edits the file closes, and never turns into the other folder's file", async () => {
+    // With no edits the disk poll used to swap B's README in under A's name.
+    const wired = await twoProjects();
+    pickNext("fb");
+    await act(() => wired.current!.workspace.openFolder());
+    expect(wired.current!.workspace.dialog).toBeNull();
+    await vi.waitFor(() => expect(wired.current!.workspace.folderName).toBe("fb"));
+    expect(wired.current!.workspace.source).toBeNull();
+    await act(() => new Promise((r) => setTimeout(r, 1500)));
+    expect(wired.current!.inputs.doc?.markdown).not.toBe("# Project B\n");
+  });
+
+  test("picking the same folder again keeps its open file", async () => {
+    const wired = await twoProjects();
+    act(() => wired.current!.inputs.edit("# Project A, edited\n"));
+    pickNext("fa");
+    await act(() => wired.current!.workspace.openFolder());
+    expect(wired.current!.workspace.dialog).toBeNull();
+    expect(wired.current!.workspace.source?.path).toBe("README.md");
+    expect(wired.current!.inputs.doc?.markdown).toBe("# Project A, edited\n");
+  });
+});
+
+describe("comments and sketches of local folders (review pass 2, finding 4)", () => {
+  test("README.md in two folders has two sets of comments, and each folder finds its own again", async () => {
+    // Keyed by path alone, project A's private notes showed on project B's
+    // README (and travelled in B's share links), and deleting or renaming
+    // B's README dropped or moved A's comments.
+    await writeText(await disk("fa"), "README.md", "# Project A\n");
+    await writeText(await disk("fb"), "README.md", "# Project B\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "README.md");
+    const a = wired.current!.workspace.source!;
+    await (await openCommentStore()).save(sourceKey(a)!, [comment]);
+
+    await openInFolder(wired, "fb", "README.md");
+    const b = wired.current!.workspace.source!;
+    expect(sourceKey(b)).not.toBe(sourceKey(a));
+    expect(documentKey(b)).not.toBe(documentKey(a));
+    const readme: WorkspaceNode = { path: "README.md", name: "README.md", kind: "file" };
+    expect(await act(() => wired.current!.workspace.renameEntry(readme, "INDEX"))).toBeNull();
+    expect(await (await openCommentStore()).load(sourceKey(a)!)).toEqual([comment]);
+
+    // The identity is the folder, not the visit: picking A again finds A's comments.
+    await openInFolder(wired, "fa", "README.md");
+    expect(sourceKey(wired.current!.workspace.source!)).toBe(sourceKey(a));
+  });
+});
+
+describe("a folder's id", () => {
+  test("is one id even when start-up looks it up twice at once", async () => {
+    // restore.ts and the workspace hook both ask at start-up; two ids for one
+    // folder left the restored file unsaveable (its folder "not the open one").
+    const [one, same] = [await disk("fa"), await disk("fa")];
+    const [a, b] = await Promise.all([folderId(one), folderId(same)]);
+    expect(a).toBe(b);
+    expect(await folderId(await disk("fb"))).not.toBe(a);
+  });
+});
+
+describe("a form that needs the unsaved-changes question (review pass 2, finding 5)", () => {
+  test("New file over unsaved local edits asks Save or Discard, then opens the new file", async () => {
+    // The form's own close wiped the question it had just raised: the file
+    // was created, nothing opened and nothing was asked.
+    await writeText(await disk("fa"), "a.md", "# File A\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "a.md");
+    act(() => wired.current!.inputs.edit("# File A, edited\n"));
+    act(() => wired.current!.workspace.setDialog({ kind: "new-file", dir: "" }));
+    const field = await vi.waitFor(() =>
+      document.querySelector<HTMLInputElement>("dialog input, [role=dialog] input")!,
+    );
+    await userEvent.clear(field);
+    await userEvent.type(field, "second{Enter}");
+    await vi.waitFor(() => expect(wired.current!.workspace.dialog?.kind).toBe("discard"));
+    expect(document.querySelectorAll('[role="alertdialog"]')).toHaveLength(1);
+    await userEvent.click(alertButton("Discard changes"));
+    await vi.waitFor(() => expect(wired.current!.workspace.source?.path).toBe("second.md"));
+  });
+});
+
+describe("New file takes a full name (review pass 2, finding 11)", () => {
+  test("typing notes.md over the default name makes notes.md, not notes.md.md", async () => {
+    // The hint talks about extensions, so people type one; only "untitled"
+    // used to be selected, and the default ".md" stayed after what they typed.
+    const wired = await mount();
+    act(() => wired.current!.workspace.setDialog({ kind: "new-file", dir }));
+    const field = await vi.waitFor(() =>
+      document.querySelector<HTMLInputElement>("[role=dialog] input")!,
+    );
+    await vi.waitFor(() => expect(document.activeElement).toBe(field));
+    await userEvent.keyboard(`notes.md{Enter}`);
+    await vi.waitFor(() => expect(wired.current!.workspace.source?.path).toBe(`${dir}/notes.md`));
+  });
+});
+
+const row = (path: string) =>
+  document.querySelector<HTMLElement>(`[role="row"][data-key="${CSS.escape(path)}"]`);
+const rowMenu = (name: string) =>
+  document.querySelector<HTMLElement>(`button[aria-label="Actions for ${name}"]`)!;
+
+describe("focus after a dialog changes the tree (review pass 2, finding 10)", () => {
+  test("creating a project from the empty folder's button focuses the new file's row", async () => {
+    // The button that opened the dialog is replaced by the tree, so focus fell
+    // to <body> and keyboard users had to Tab through the header again (WCAG 2.4.3).
+    await disk("empty");
+    pickNext("empty");
+    const wired = await mount();
+    pickNext("empty");
+    await act(() => wired.current!.workspace.openFolder());
+    const start = await vi.waitFor(() => {
+      const button = [...document.querySelectorAll<HTMLElement>(".docwalk-files-note button")].find(
+        (b) => b.textContent === "New project",
+      );
+      expect(button).toBeDefined();
+      return button!;
+    });
+    start.focus();
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(document.querySelector("[role=dialog] input")).not.toBeNull());
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(wired.current!.workspace.source).not.toBeNull());
+    const opened = wired.current!.workspace.source!.path;
+    await vi.waitFor(() => expect(document.activeElement).toBe(row(opened)));
+  });
+
+  test("renaming focuses the renamed row; deleting focuses its neighbour", async () => {
+    await writeText(await opfsRoot(), `${dir}/a.md`, "# A\n");
+    await writeText(await opfsRoot(), `${dir}/notes.md`, "# Notes\n");
+    await writeText(await opfsRoot(), `${dir}/z.md`, "# Z\n");
+    const wired = await mount();
+    act(() => wired.current!.workspace.setExpanded(new Set([dir])));
+    await vi.waitFor(() => expect(row(`${dir}/notes.md`)).not.toBeNull());
+
+    await userEvent.click(rowMenu("notes.md"));
+    await userEvent.click(
+      await vi.waitFor(() =>
+        document.querySelector<HTMLElement>('[role="menuitem"][data-key="rename"]')!,
+      ),
+    );
+    await vi.waitFor(() => expect(document.querySelector("[role=dialog] input")).not.toBeNull());
+    await userEvent.keyboard("ideas{Enter}");
+    await vi.waitFor(() => expect(row(`${dir}/ideas.md`)).not.toBeNull());
+    await vi.waitFor(() => expect(document.activeElement).toBe(row(`${dir}/ideas.md`)));
+
+    await userEvent.click(rowMenu("ideas.md"));
+    await userEvent.click(
+      await vi.waitFor(() =>
+        document.querySelector<HTMLElement>('[role="menuitem"][data-key="delete"]')!,
+      ),
+    );
+    await userEvent.click(await vi.waitFor(() => alertButton("Delete")));
+    await vi.waitFor(() => expect(row(`${dir}/ideas.md`)).toBeNull());
+    await vi.waitFor(() => expect(document.activeElement).toBe(row(`${dir}/z.md`)));
+  });
+});
+
+describe("the last keystrokes of a browser-workspace file (review pass 2, finding 7)", () => {
+  test("reach OPFS when another kind of document replaces the file inside the autosave delay", async () => {
+    // The pending save lost its timer and waited for pagehide, whose async
+    // write a closing tab does not wait for.
+    await writeText(await opfsRoot(), `${dir}/plan.md`, "# Plan\n");
+    const wired = await mount();
+    act(() => wired.current!.workspace.setExpanded(new Set([dir])));
+    act(() => wired.current!.workspace.openFile(`${dir}/plan.md`));
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+    act(() => wired.current!.inputs.edit("# Plan, last words\n"));
+    act(() =>
+      wired.current!.inputs.apply({
+        ok: true,
+        doc: { markdown: "# Dropped\n", source: { kind: "file", name: "dropped.md" } },
+      }),
+    );
+    await act(() => new Promise((r) => setTimeout(r, AUTOSAVE_MS + 400)));
+    const file = await (await opfsRoot()).getDirectoryHandle(dir);
+    expect(await (await (await file.getFileHandle("plan.md")).getFile()).text()).toBe(
+      "# Plan, last words\n",
+    );
+  });
+});
+
+describe("a folder file waiting for Reconnect (review pass 2, finding 8)", () => {
+  test("stays the file a plain visit reopens until the user opens something else", async () => {
+    // It was forgotten as soon as the fallback document showed, so a second
+    // reload before "Reconnect" lost it.
+    const proto = FileSystemHandle.prototype as unknown as Record<string, unknown>;
+    const query = Object.getOwnPropertyDescriptor(proto, "queryPermission");
+    Object.defineProperty(proto, "queryPermission", {
+      configurable: true,
+      value: async () => "prompt",
+    });
+    try {
+      await writeText(await disk("fa"), "README.md", "# Project A\n");
+      await saveFolderHandle(await disk("fa"));
+      rememberFile({ root: "folder", path: "README.md" });
+      localStorage.setItem("docwalk.workspace.root", JSON.stringify("opfs"));
+      pickNext("fa");
+      const wired = await mount();
+      await vi.waitFor(() => expect(wired.current!.workspace.folderPermission).toBe("prompt"));
+      await vi.waitFor(() => expect(wired.current!.inputs.doc).not.toBeNull());
+      await act(() => new Promise((r) => setTimeout(r, 100)));
+      expect(rememberedFile()).toEqual({ root: "folder", path: "README.md" });
+
+      // Opening a file is the user moving on: that file is remembered instead.
+      await writeText(await opfsRoot(), `${dir}/other.md`, "# Other\n");
+      act(() => wired.current!.workspace.setExpanded(new Set([dir])));
+      await vi.waitFor(() =>
+        expect(wired.current!.workspace.listing?.nodes.map((n) => n.path)).toContain(dir),
+      );
+      act(() => wired.current!.workspace.openFile(`${dir}/other.md`));
+      await vi.waitFor(() =>
+        expect(rememberedFile()).toEqual({ root: "opfs", path: `${dir}/other.md` }),
+      );
+    } finally {
+      if (query) Object.defineProperty(proto, "queryPermission", query);
+      else delete proto["queryPermission"];
+    }
   });
 });

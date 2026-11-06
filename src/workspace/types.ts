@@ -7,8 +7,13 @@
  * reloads when the file changes on disk.
  */
 
+import type { DocumentSource } from "../inputs/types";
+
 /** Where workspace files live: the browser's private file system, or a folder on disk. */
 export type WorkspaceRoot = "opfs" | "folder";
+
+/** A workspace file as a document source; a local one names its folder. */
+export type WorkspaceSource = Extract<DocumentSource, { kind: "workspace" }>;
 
 export interface WorkspaceNode {
   /** Slash-separated path from the root, e.g. `notes/plan.md`. Also the tree key. */

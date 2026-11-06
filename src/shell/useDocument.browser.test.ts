@@ -278,3 +278,68 @@ describe("replacing the document (review findings 9, 11)", () => {
     expect(inputs.current!.docId).not.toBe(first);
   });
 });
+
+describe("the address bar follows the open document (review pass 2, finding 6)", () => {
+  const SRC = `?src=${encodeURIComponent("https://raw.githubusercontent.com/a/b/main/c.md")}&level=2`;
+  const linked = async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("# From a link\n", { headers: { "content-type": "text/plain" } }),
+    );
+    openAt(SRC, "#from-a-link/1");
+    const inputs = mount();
+    await vi.waitFor(() => expect(inputs.current!.doc?.source.kind).toBe("url"));
+    return inputs;
+  };
+
+  test("opening a workspace file drops ?src=, so a reload reopens the file, not the link", async () => {
+    // Start-up puts a link before the remembered workspace file (decision 66):
+    // with ?src= left in place, every reload went back to the shared document.
+    const inputs = await linked();
+    act(() =>
+      inputs.current!.openDocument({
+        markdown: "# Kept\n",
+        source: { kind: "workspace", root: "opfs", path: "kept/README.md" },
+      }),
+    );
+    // The viewer's own settings stay; only the link goes.
+    expect(location.search).toBe("?level=2");
+    expect(location.hash).toBe("#from-a-link/1");
+  });
+
+  test("opening a local file or the draft drops a #doc= share link", async () => {
+    // Under #doc= the hash is reserved, so the file's slide address was never written either.
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(PASTED));
+    openAt("", `#doc=${await encodeDoc(SHARED)}`);
+    const inputs = mount();
+    await vi.waitFor(() => expect(inputs.current!.doc?.source.kind).toBe("fragment"));
+    act(() => inputs.current!.reopenDraft());
+    expect(inputs.current!.doc).toEqual(PASTED);
+    expect(location.hash).toBe("");
+
+    openAt("", `#doc=${await encodeDoc(SHARED)}`);
+    act(() =>
+      inputs.current!.apply({
+        ok: true,
+        doc: { markdown: "# Some file\n", source: { kind: "file", name: "some.md" } },
+      }),
+    );
+    expect(location.hash).toBe("");
+  });
+
+  test("a pasted share link the user then declines to load leaves the address as it was", async () => {
+    // Cancelling the unsaved-changes question kept the old document on screen
+    // under the new link, which a reload would then open.
+    openAt("?level=2", "#intro/1");
+    const inputs = mount();
+    const asked: (() => void)[] = [];
+    act(() => inputs.current!.setReplaceGuard((proceed) => asked.push(proceed)));
+    const link = `#doc=${await encodeDoc(SHARED)}`;
+    window.location.hash = link;
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    expect(location.hash).toBe("#intro/1");
+    // Agreeing later loads it and puts the link back in the address bar.
+    act(() => asked[0]!());
+    expect(location.hash).toBe(link);
+    await vi.waitFor(() => expect(inputs.current!.doc?.source.kind).toBe("fragment"));
+  });
+});

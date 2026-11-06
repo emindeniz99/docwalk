@@ -2,7 +2,7 @@ import { fc, test as fcTest } from "@fast-check/vitest";
 import GithubSlugger from "github-slugger";
 import { describe, expect, test } from "vitest";
 import { fallbackHeadingId, type HeadingDepth } from "../sectioning/sectionize";
-import { formatViewerUrl, parseViewerUrl } from "./state";
+import { formatViewerUrl, parseViewerUrl, withoutDocumentLink } from "./state";
 import type { ViewerUrlState } from "./types";
 
 const BASE = "https://docwalk.example/";
@@ -243,4 +243,21 @@ describe("format then parse round-trips every valid state", () => {
       expect(parseViewerUrl(formatViewerUrl(new URL(BASE), s))).toEqual(s);
     },
   );
+});
+
+describe("withoutDocumentLink", () => {
+  test("drops what names a document and keeps the viewer's settings and slide address", () => {
+    // A reload of a page whose link was replaced by a workspace file must reopen
+    // that file (decision 66), in the level and view the viewer chose.
+    const src = "https%3A%2F%2Fraw.githubusercontent.com%2Fa%2Fb%2Fmain%2Fc.md";
+    expect(
+      withoutDocumentLink(new URL(`https://d.test/?level=2&src=${src}&view=edit#intro/2`)).href,
+    ).toBe("https://d.test/?level=2&view=edit#intro/2");
+    expect(
+      withoutDocumentLink(new URL("https://d.test/?repo=o/r&path=a.md&ref=main#doc=abc&c=x")).href,
+    ).toBe("https://d.test/");
+    expect(withoutDocumentLink(new URL("https://d.test/?level=3#c=abc")).href).toBe(
+      "https://d.test/?level=3",
+    );
+  });
 });

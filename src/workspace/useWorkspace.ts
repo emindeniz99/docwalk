@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { downloadBlob } from "../export/download";
-import type { DocumentSource, LoadedDocument } from "../inputs/types";
+import type { LoadedDocument } from "../inputs/types";
 import { m } from "../paraglide/messages.js";
 import type { Notice, ReplaceGuard } from "../shell/useDocument";
 import {
@@ -36,6 +36,7 @@ import {
   requestWrite,
 } from "./platform";
 import {
+  folderId,
   forgetFolderHandle,
   loadFolderHandle,
   opfsRoot,
@@ -46,20 +47,18 @@ import {
   saveFolderHandle,
 } from "./store";
 import { starter, TEMPLATES, type ProjectTemplate } from "./templates";
-import type { WorkspaceListing, WorkspaceNode, WorkspaceRoot } from "./types";
+import type { WorkspaceListing, WorkspaceNode, WorkspaceRoot, WorkspaceSource } from "./types";
 
 /** The browser workspace saves this long after the last keystroke. */
 export const AUTOSAVE_MS = 500;
 /** A local folder without `FileSystemObserver` is checked this often for changes on disk. */
 export const POLL_MS = 1000;
 
-type WorkspaceSource = Extract<DocumentSource, { kind: "workspace" }>;
-
 export interface WorkspaceInputs {
   doc: LoadedDocument | null;
   openDocument: (doc: LoadedDocument) => void;
   closeDocument: () => void;
-  retarget: (source: DocumentSource) => void;
+  retarget: (source: WorkspaceSource) => void;
   setNotice: (notice: Notice | null) => void;
   /** Whether a saved draft exists that is not the open document. */
   draftAvailable: boolean;
@@ -86,6 +85,8 @@ export type SaveState = "saved" | "saving" | "unsaved" | "missing" | "error";
 
 interface FolderState {
   handle: FileSystemDirectoryHandle;
+  /** Which folder this is (src/workspace/store.ts `folderId`); a local file's source names it. */
+  id: string;
   permission: PermissionState;
 }
 
@@ -98,9 +99,22 @@ interface Baseline {
   declined?: string;
 }
 
-const keyOf = (s: WorkspaceSource) => `${s.root}:${s.path}`;
+const keyOf = (s: WorkspaceSource) =>
+  s.root === "folder" ? `folder:${s.folder}:${s.path}` : `opfs:${s.path}`;
 const workspaceSource = (doc: LoadedDocument | null): WorkspaceSource | null =>
   doc?.source.kind === "workspace" ? doc.source : null;
+
+/**
+ * The row that takes focus when `path` is deleted: the next row beside it,
+ * else the one before, else its folder; "" (the panel) for the last top-level
+ * entry; `null` when `path` is not listed.
+ */
+function neighbourOf(nodes: WorkspaceNode[], path: string, parent = ""): string | null {
+  const i = nodes.findIndex((n) => n.path === path);
+  if (i >= 0) return (nodes[i + 1] ?? nodes[i - 1])?.path ?? parent;
+  const holder = nodes.find((n) => n.children && isWithin(path, n.path));
+  return holder ? neighbourOf(holder.children!, path, holder.path) : null;
+}
 
 function message(error: unknown, fallback: string): string {
   if (error instanceof WorkspaceError) return error.message;
@@ -163,6 +177,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   // Playwright's WebKit) reject getDirectory(). Then there is no workspace.
   const [opfsRefused, setOpfsRefused] = useState(false);
   const [folder, setFolder] = useState<FolderState | null>(null);
+  /** Whether the folder remembered from an earlier visit has been looked up. */
+  const [folderChecked, setFolderChecked] = useState(!supported.folder);
   // A browser without the folder picker always shows the browser workspace.
   const [root, setRoot] = useState<WorkspaceRoot>(() =>
     supported.folder ? rememberedRoot() : "opfs",
@@ -178,6 +194,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   const [failed, setFailed] = useState(false);
   /** The key of an open local file that was deleted or moved on disk. */
   const [missingKey, setMissingKey] = useState<string | null>(null);
+  /**
+   * The tree row (its path; "" for the panel) that takes focus once the
+   * dialog that changed the tree has closed: the element that opened the
+   * dialog may be gone, and focus must not fall to the page (WCAG 2.4.3).
+   */
+  const [focusTarget, setFocusTarget] = useState<{ path: string } | null>(null);
 
   const docRef = useRef(doc);
   const baselineRef = useRef(baseline);
@@ -202,6 +224,32 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       r === "opfs" ? opfs : folder?.permission === "granted" ? folder.handle : null,
     [opfs, folder],
   );
+  /**
+   * The directory a workspace file lives in. A local file resolves only
+   * against its own folder, never against another one picked since, where
+   * the same path is a different file.
+   */
+  const handleOf = useCallback(
+    (s: WorkspaceSource): FileSystemDirectoryHandle | null =>
+      s.root === "opfs" ? opfs : folder?.id === s.folder ? handleFor("folder") : null,
+    [opfs, folder, handleFor],
+  );
+  /** The source of `path` under root `r`; `null` for a folder when none is picked. */
+  const sourceFor = useCallback(
+    (r: WorkspaceRoot, path: string): WorkspaceSource | null =>
+      r === "opfs"
+        ? { kind: "workspace", root: "opfs", path }
+        : folder
+          ? { kind: "workspace", root: "folder", folder: folder.id, path }
+          : null,
+    [folder],
+  );
+  /** Whether `s` is a file of the tree on screen. */
+  const inView = useCallback(
+    (s: WorkspaceSource | null): s is WorkspaceSource =>
+      s !== null && s.root === root && (s.root === "opfs" || s.folder === folder?.id),
+    [root, folder],
+  );
   const active = handleFor(root);
   const listing = listed && listed.handle === active ? listed.listing : null;
   const folderName = folder?.handle.name ?? null;
@@ -220,10 +268,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         if (!live) return;
         if (!handle) {
           setRoot("opfs");
+          setFolderChecked(true);
           return;
         }
         const permission = await queryWrite(handle).catch((): PermissionState => "prompt");
-        if (live) setFolder({ handle, permission });
+        const id = await folderId(handle);
+        if (!live) return;
+        setFolder({ handle, id, permission });
+        setFolderChecked(true);
       });
     }
     return () => {
@@ -250,7 +302,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   }, [refresh]);
 
   // The open file's folders stay expanded, so the selection is visible.
-  const openPath = sourceRoot === root ? sourcePath : null;
+  const openPath = inView(source) ? source.path : null;
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
   if (openPath !== expandedFor) {
     // Adjusting state while rendering (React's pattern for "when a prop changes").
@@ -262,25 +314,31 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   // ---- Which file a plain visit reopens ------------------------------------
   // Nothing is remembered before the first document is known (start-up may still be restoring it).
   const docKnown = enabled && doc !== null;
+  // A local file that could not be reopened for want of permission stays
+  // remembered until a workspace file is opened, so "Reconnect" still finds
+  // it after another reload.
+  const folderWaiting = !folderChecked || (folder !== null && folder.permission !== "granted");
   useEffect(() => {
     if (!docKnown) return;
+    if (sourceRoot === null && folderWaiting && rememberedFile()?.root === "folder") return;
     rememberFile(sourceRoot && sourcePath !== null ? { root: sourceRoot, path: sourcePath } : null);
-  }, [docKnown, sourceRoot, sourcePath]);
+  }, [docKnown, sourceRoot, sourcePath, folderWaiting]);
 
   // ---- The text the open file holds on disk --------------------------------
   useEffect(() => {
     // A file restored at start-up (src/workspace/restore.ts) arrives without a baseline.
-    if (sourceRoot === null || sourcePath === null || sourceKey === null) return;
+    const src = workspaceSource(docRef.current);
+    if (src === null || sourceKey === null || keyOf(src) !== sourceKey) return;
     if (baselineRef.current?.key === sourceKey) return;
-    const handle = handleFor(sourceRoot);
+    const handle = handleOf(src);
     if (!handle) return;
     const text = docRef.current?.markdown ?? "";
-    void lastModified(handle, sourcePath).then((lm) => {
+    void lastModified(handle, src.path).then((lm) => {
       if (baselineRef.current?.key !== sourceKey) {
         setBaseline({ key: sourceKey, text, lastModified: lm });
       }
     });
-  }, [sourceRoot, sourcePath, sourceKey, handleFor, setBaseline]);
+  }, [sourceKey, handleOf, setBaseline]);
 
   const base = baseline && sourceKey === baseline.key ? baseline : null;
   const dirty = source !== null && base !== null && doc !== null && doc.markdown !== base.text;
@@ -312,7 +370,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   const markdown = doc?.markdown;
   const baseText = base?.text;
   useEffect(() => {
-    if (sourceRoot !== "opfs" || sourcePath === null || baseText === undefined) return;
+    if (sourceRoot !== "opfs" || sourcePath === null || baseText === undefined) {
+      // Another kind of document replaced the file: its last edits go now,
+      // not at pagehide, whose write a closing tab does not wait for.
+      if (pending.current) void flush();
+      return;
+    }
     if (markdown === undefined || markdown === baseText) return;
     const target: WorkspaceSource = { kind: "workspace", root: "opfs", path: sourcePath };
     // Switching files saves the previous one at once instead of dropping its last edits.
@@ -345,7 +408,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     const src = workspaceSource(current);
     if (!src || !current) return false;
     if (src.root === "opfs") return flush();
-    const handle = handleFor("folder");
+    const handle = handleOf(src);
     if (!handle) {
       setNotice({ message: message(new DOMException("", "NotAllowedError"), ""), tone: "error" });
       return false;
@@ -364,14 +427,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       setNotice({ message: message(error, m.ws_err_save({ path: src.path })), tone: "error" });
       return false;
     }
-  }, [flush, handleFor, setBaseline, setNotice]);
+  }, [flush, handleOf, setBaseline, setNotice]);
 
   const checking = useRef(false);
   const checkDisk = useCallback(async () => {
     const src = workspaceSource(docRef.current);
-    const handle = folder?.permission === "granted" ? folder.handle : null;
+    const handle = src?.root === "folder" ? handleOf(src) : null;
     const known = baselineRef.current;
-    if (!src || src.root !== "folder" || !handle || checking.current) return;
+    if (!src || !handle || checking.current) return;
     if (known?.key !== keyOf(src)) return;
     checking.current = true;
     const open = dialogRef.current;
@@ -385,11 +448,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     const key = keyOf(src);
     const current = docRef.current;
     // The user opened something else while the disk was read.
-    if (
-      !change ||
-      baselineRef.current?.key !== key ||
-      workspaceSource(current)?.path !== src.path
-    ) {
+    const now = workspaceSource(current);
+    if (!change || baselineRef.current?.key !== key || !now || keyOf(now) !== key) {
       return;
     }
     if (change.kind === "missing") {
@@ -408,10 +468,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
       openDocument({ markdown: disk.text, source: src });
     }
-  }, [folder, openDocument, setBaseline]);
+  }, [handleOf, openDocument, setBaseline]);
 
   const folderHandle = handleFor("folder");
-  const watchedPath = sourceRoot === "folder" ? sourcePath : null;
+  const watchedPath =
+    source?.root === "folder" && source.folder === folder?.id ? source.path : null;
   useEffect(() => {
     if (!enabled || !folderHandle || watchedPath === null) return;
     let stop: (() => void) | null = null;
@@ -500,12 +561,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   // ---- Actions behind the panel ----------------------------------------------
   const load = useCallback(
     async (r: WorkspaceRoot, path: string): Promise<boolean> => {
-      const handle = handleFor(r);
-      if (!handle) return false;
+      const next = sourceFor(r, path);
+      const handle = next && handleOf(next);
+      if (!next || !handle) return false;
       try {
         await flush();
         const { text, lastModified: lm } = await readText(handle, path);
-        const next: WorkspaceSource = { kind: "workspace", root: r, path };
         setBaseline({ key: keyOf(next), text, lastModified: lm });
         setFailed(false);
         openDocument({ markdown: text, source: next });
@@ -515,15 +576,15 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         return false;
       }
     },
-    [handleFor, flush, openDocument, setBaseline, setNotice],
+    [sourceFor, handleOf, flush, openDocument, setBaseline, setNotice],
   );
 
   const openFile = useCallback(
     (path: string) => {
-      if (sourceRoot === root && sourcePath === path) return;
+      if (openPath === path) return;
       guard(() => void load(root, path));
     },
-    [sourceRoot, sourcePath, root, guard, load],
+    [openPath, root, guard, load],
   );
 
   const expand = useCallback((paths: string[]) => {
@@ -545,6 +606,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       }
       await refresh();
       expand(ancestorsOf(path));
+      setFocusTarget({ path });
       guard(() => void load(root, path));
       return null;
     },
@@ -564,6 +626,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       }
       await refresh();
       expand([...ancestorsOf(path), path]);
+      setFocusTarget({ path });
       return null;
     },
     [active, refresh, expand],
@@ -585,6 +648,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       }
       await refresh();
       expand([name]);
+      setFocusTarget({ path: joinPath(name, template.main) });
       guard(() => void load(root, joinPath(name, template.main)));
       return null;
     },
@@ -607,13 +671,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       // Comments and sketches are keyed by path; they move with the file,
       // before the open document is retargeted and reloads them.
       const { filePaths, moveAnnotations } = await import("./annotations");
+      const at = (p: string) => sourceFor(root, p)!;
       await moveAnnotations(
-        root,
-        filePaths(node).map((p) => [p, next + p.slice(node.path.length)] as const),
+        filePaths(node).map((p) => [at(p), at(next + p.slice(node.path.length))] as const),
       );
       // The open file, or the folder holding it, moved: same text, new address.
       const current = workspaceSource(docRef.current);
-      if (current && current.root === root && isWithin(current.path, node.path)) {
+      if (inView(current) && isWithin(current.path, node.path)) {
         const moved: WorkspaceSource = {
           ...current,
           path: next + current.path.slice(node.path.length),
@@ -629,17 +693,18 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         return out;
       });
       await refresh();
+      setFocusTarget({ path: next });
       return null;
     },
-    [active, flush, root, setBaseline, retarget, refresh],
+    [active, flush, root, sourceFor, inView, setBaseline, retarget, refresh],
   );
 
   const removeEntry = useCallback(
     async (node: WorkspaceNode): Promise<void> => {
       if (!active) return;
       const current = workspaceSource(docRef.current);
-      const openInside =
-        current !== null && current.root === root && isWithin(current.path, node.path);
+      const openInside = inView(current) && isWithin(current.path, node.path);
+      const neighbour = neighbourOf(listing?.nodes ?? [], node.path);
       // A pending autosave of a file being deleted must not bring it back.
       if (openInside) pending.current = null;
       else await flush();
@@ -651,14 +716,26 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       }
       // A new file at the same path later must not inherit them.
       const { dropAnnotations, filePaths } = await import("./annotations");
-      await dropAnnotations(root, filePaths(node));
+      await dropAnnotations(filePaths(node).map((p) => sourceFor(root, p)!));
       if (openInside) {
         setBaseline(null);
         closeDocument();
       }
       await refresh();
+      if (neighbour !== null) setFocusTarget({ path: neighbour });
     },
-    [active, root, flush, setBaseline, closeDocument, refresh, setNotice],
+    [
+      active,
+      root,
+      listing,
+      inView,
+      sourceFor,
+      flush,
+      setBaseline,
+      closeDocument,
+      refresh,
+      setNotice,
+    ],
   );
 
   const importZip = useCallback(
@@ -756,19 +833,35 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     try {
       const handle = await pickFolder();
       if (!handle) return;
-      await saveFolderHandle(handle);
+      const id = await folderId(handle);
       const permission = await queryWrite(handle).catch((): PermissionState => "granted");
-      setFolder({ handle, permission });
-      switchRoot("folder");
+      const show = () => {
+        void saveFolderHandle(handle);
+        setFolder({ handle, id, permission });
+        switchRoot("folder");
+      };
+      const open = workspaceSource(docRef.current);
+      if (open?.root !== "folder" || open.folder === id) {
+        show();
+        return;
+      }
+      // A file of the other folder is open. Its edits are saved or dropped
+      // first, and it closes: the new folder may hold a different file at
+      // the same path, which a save would overwrite.
+      guard(() => {
+        setBaseline(null);
+        closeDocument();
+        show();
+      });
     } catch (error) {
       setNotice({ message: message(error, m.ws_err_open_folder()), tone: "error" });
     }
-  }, [switchRoot, setNotice]);
+  }, [switchRoot, setNotice, guard, setBaseline, closeDocument]);
 
   const reconnect = useCallback(async () => {
     if (!folder) return;
     const permission = await requestWrite(folder.handle).catch((): PermissionState => "denied");
-    setFolder({ handle: folder.handle, permission });
+    setFolder({ ...folder, permission });
     if (permission !== "granted") {
       setNotice({
         message: m.ws_err_denied({ name: folder.handle.name }),
@@ -783,7 +876,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     if (last?.root === "folder" && !workspaceSource(docRef.current)) {
       try {
         const { text, lastModified: lm } = await readText(folder.handle, last.path);
-        const next: WorkspaceSource = { kind: "workspace", root: "folder", path: last.path };
+        const next: WorkspaceSource = {
+          kind: "workspace",
+          root: "folder",
+          folder: folder.id,
+          path: last.path,
+        };
         setBaseline({ key: keyOf(next), text, lastModified: lm });
         openDocument({ markdown: text, source: next });
       } catch {
@@ -828,6 +926,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     [setBaseline, openDocument],
   );
 
+  /** The panel moved focus to `target`, or found nothing to focus. */
+  const focusDone = useCallback(
+    (target: { path: string }) => setFocusTarget((t) => (t === target ? null : t)),
+    [],
+  );
+
   let saveState: SaveState | null = null;
   if (source) {
     if (missingKey === sourceKey) saveState = "missing";
@@ -855,6 +959,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     saveState,
     dialog,
     setDialog,
+    focusTarget,
+    focusDone,
     openFile,
     /** Runs a replacement of the open document after any unsaved local edits are saved or dropped. */
     guard,

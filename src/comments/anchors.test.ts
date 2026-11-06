@@ -169,8 +169,16 @@ describe("document identity", () => {
     expect(sourceKey({ kind: "workspace", root: "opfs", path: "talks/plan.md" })).toBe(
       "workspace:opfs:talks/plan.md",
     );
-    expect(sourceKey({ kind: "workspace", root: "folder", path: "talks/plan.md" })).not.toBe(
-      sourceKey({ kind: "workspace", root: "opfs", path: "talks/plan.md" }),
+    const inF1 = sourceKey({
+      kind: "workspace",
+      root: "folder",
+      folder: "f1",
+      path: "talks/plan.md",
+    });
+    expect(inF1).not.toBe(sourceKey({ kind: "workspace", root: "opfs", path: "talks/plan.md" }));
+    // Two picked folders that both hold talks/plan.md are two documents.
+    expect(inF1).not.toBe(
+      sourceKey({ kind: "workspace", root: "folder", folder: "f2", path: "talks/plan.md" }),
     );
   });
 

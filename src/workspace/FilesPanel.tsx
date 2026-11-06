@@ -17,7 +17,7 @@ import {
   Upload,
   type LucideIcon,
 } from "lucide-react";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Button,
   Collection,
@@ -116,6 +116,31 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
   const isExpanded = choice ?? (nodes.length > 0 || w.root === "folder");
   const rootLabel = w.folderName ?? m.ws_local_folder();
   const locale = useLocale();
+
+  // After a dialog changed the tree, focus goes to the row it made, renamed
+  // or left beside a deletion, else to the panel (WCAG 2.4.3). One frame
+  // later than the modal's own restore, which aims at an element that may
+  // be gone.
+  const panel = useRef<HTMLDivElement>(null);
+  const { focusTarget, focusDone } = w;
+  const settled = w.dialog === null && listing !== null;
+  useEffect(() => {
+    if (!focusTarget || !settled) return;
+    const frame = requestAnimationFrame(() => {
+      const row = focusTarget.path
+        ? panel.current?.querySelector<HTMLElement>(
+            `[role="row"][data-key="${CSS.escape(focusTarget.path)}"]`,
+          )
+        : null;
+      const target = row ?? panel.current?.querySelector<HTMLElement>(".docwalk-files-trigger");
+      // Scrolled only as far as needed: a centring scroll on a phone pushes
+      // the outline below the file panel out of the sidebar.
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "nearest" });
+      focusDone(focusTarget);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusTarget, settled, focusDone]);
 
   const hasFolder = w.folderName !== null;
   const menu: Action[] = [
@@ -266,7 +291,12 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
   );
 
   return (
-    <Disclosure className="docwalk-files" isExpanded={isExpanded} onExpandedChange={setChoice}>
+    <Disclosure
+      ref={panel}
+      className="docwalk-files"
+      isExpanded={isExpanded}
+      onExpandedChange={setChoice}
+    >
       <div className="docwalk-files-head">
         <Heading level={2} className="docwalk-files-heading">
           <Button slot="trigger" className="docwalk-files-trigger">

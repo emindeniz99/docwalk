@@ -1,6 +1,6 @@
 /**
  * Comments (decision 65) and sketches (decision 64) of a workspace file are
- * keyed by its root and path, so they follow the file through a rename or
+ * keyed by its root (and folder) and path, so they follow the file through a rename or
  * move and go with it on delete. Without this a renamed file lost both, and
  * a new file created later at a deleted file's path showed the old file's
  * comments and sketches.
@@ -13,7 +13,7 @@ import { documentKey } from "../canvas/identity";
 import { moveSketches } from "../canvas/store";
 import { sourceKey } from "../comments/identity";
 import { openCommentStore } from "../comments/store";
-import type { WorkspaceNode, WorkspaceRoot } from "./types";
+import type { WorkspaceNode, WorkspaceSource } from "./types";
 
 /** The node's own path when it is a file, else every file path listed under it. */
 export function filePaths(node: WorkspaceNode): string[] {
@@ -21,39 +21,31 @@ export function filePaths(node: WorkspaceNode): string[] {
   return (node.children ?? []).flatMap(filePaths);
 }
 
-const keysOf = (root: WorkspaceRoot, path: string) => {
-  const source = { kind: "workspace", root, path } as const;
-  return { comments: sourceKey(source)!, sketches: documentKey(source) };
-};
+const keysOf = (source: WorkspaceSource) => ({
+  comments: sourceKey(source)!,
+  sketches: documentKey(source),
+});
 
-/** Moves comments and sketches from each old path to its new one. */
+/** Moves comments and sketches from each old file to its new one. */
 export async function moveAnnotations(
-  root: WorkspaceRoot,
-  moves: readonly (readonly [from: string, to: string])[],
+  moves: readonly (readonly [from: WorkspaceSource, to: WorkspaceSource])[],
 ): Promise<void> {
-  await rekey(root, moves);
+  await rekey(moves);
 }
 
-/** Deletes the comments and sketches of these paths. */
-export async function dropAnnotations(
-  root: WorkspaceRoot,
-  paths: readonly string[],
-): Promise<void> {
-  await rekey(
-    root,
-    paths.map((path) => [path, null] as const),
-  );
+/** Deletes the comments and sketches of these files. */
+export async function dropAnnotations(files: readonly WorkspaceSource[]): Promise<void> {
+  await rekey(files.map((file) => [file, null] as const));
 }
 
 async function rekey(
-  root: WorkspaceRoot,
-  moves: readonly (readonly [string, string | null])[],
+  moves: readonly (readonly [WorkspaceSource, WorkspaceSource | null])[],
 ): Promise<void> {
   if (moves.length === 0) return;
   const store = await openCommentStore().catch(() => null);
   for (const [from, to] of moves) {
-    const old = keysOf(root, from);
-    const next = to === null ? null : keysOf(root, to);
+    const old = keysOf(from);
+    const next = to === null ? null : keysOf(to);
     try {
       if (store) {
         const comments = await store.load(old.comments);

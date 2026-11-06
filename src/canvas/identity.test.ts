@@ -18,6 +18,10 @@ describe("sketch identity (decision 54)", () => {
     const a = documentKey({ kind: "workspace", root: "opfs", path: "a.md" });
     expect(a).toBe("workspace:opfs:a.md");
     expect(documentKey({ kind: "workspace", root: "opfs", path: "b.md" })).not.toBe(a);
+    // The same path in two picked folders is two documents.
+    expect(documentKey({ kind: "workspace", root: "folder", folder: "f1", path: "a.md" })).not.toBe(
+      documentKey({ kind: "workspace", root: "folder", folder: "f2", path: "a.md" }),
+    );
   });
 
   test("documents with no address share one key per kind", () => {
