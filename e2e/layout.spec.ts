@@ -179,8 +179,11 @@ test("in dark mode a focused diagram keeps the white ground it was drawn for", a
   // Mermaid draws dark lines and labels for the white slide. On the dark
   // app canvas the focus view showed them black on near-black.
   await page.emulateMedia({ colorScheme: "dark" });
-  await ready(page, "/#proposed-architecture/1");
-  await page.locator(".reveal .present .docwalk-diagram").first().click();
+  await ready(page);
+  // Its own one-slide document: the fixture's pagination decides which page
+  // holds a diagram, and that is not what this test is about.
+  await replaceSource(page, "## Diagram\n\n```mermaid\nflowchart LR\n  A --> B\n```\n");
+  await page.locator(".reveal .present .docwalk-diagram svg").first().click();
   await expect(page.getByRole("dialog", { name: "Diagram, full screen" })).toBeVisible();
   const ground = await page
     .locator(".docwalk-focus-stage")
