@@ -100,6 +100,11 @@ test("open join dialog", async ({ page, context }) => {
 
 test("presenter window", async ({ page, context }) => {
   // A separate page with its own landmarks, timer and controls.
+  // The fixture is rendered twice, as the audience deck and again as the
+  // presenter's previews (decision 8), on top of a second page load and the
+  // audit. On WebKit that took 25-33 s on a loaded 4-core machine and 50-66 s
+  // on the CI runner, so the default 60 s is too tight for this one test.
+  test.setTimeout(120_000);
   await ready(page);
   const popup = context.waitForEvent("page");
   await page.keyboard.press("Control+k");
@@ -107,6 +112,10 @@ test("presenter window", async ({ page, context }) => {
   await page.getByRole("menuitem", { name: "Open presenter view" }).click();
   const presenter = await popup;
   await expect(presenter.getByText("Now", { exact: true })).toBeVisible({ timeout: 30_000 });
+  // "Now" shows as soon as the deck's state arrives; the previews come from
+  // the whole slide pipeline afterwards. Audit the page they make, not one
+  // still being built while the audit competes with it for the main thread.
+  await expect(presenter.getByRole("status")).toBeEmpty({ timeout: 60_000 });
   await expectNoSeriousViolations(presenter);
 });
 
