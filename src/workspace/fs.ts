@@ -7,6 +7,7 @@
  * same size cap and strict UTF-8 check as a dropped one.
  */
 import { describeLoadError, loadFromFile } from "../inputs/load";
+import { m } from "../paraglide/messages.js";
 import { WorkspaceError } from "./errors";
 import { isDocumentName, joinPath, validateName } from "./names";
 import { MAX_LISTED_ENTRIES, type WorkspaceListing, type WorkspaceNode } from "./types";
@@ -17,7 +18,7 @@ function segments(path: string): string[] {
   const parts = path.split("/").filter((p) => p !== "");
   for (const part of parts) {
     const problem = validateName(part);
-    if (problem) throw new WorkspaceError(`“${part}”: ${problem}`);
+    if (problem) throw new WorkspaceError(m.ws_err_bad_segment({ name: part, problem }));
   }
   return parts;
 }
@@ -36,7 +37,7 @@ export async function directoryAt(
 function split(path: string): { dir: string; name: string } {
   const parts = segments(path);
   const name = parts.pop();
-  if (name === undefined) throw new WorkspaceError("A file needs a name.");
+  if (name === undefined) throw new WorkspaceError(m.ws_err_needs_name());
   return { dir: parts.join("/"), name };
 }
 
@@ -113,10 +114,11 @@ export async function readText(root: FileSystemDirectoryHandle, path: string): P
   try {
     file = await (await fileAt(root, path)).getFile();
   } catch {
-    throw new WorkspaceError(`${path} could not be read. It may have been moved or deleted.`);
+    throw new WorkspaceError(m.ws_err_unreadable({ path }));
   }
   const result = await loadFromFile(file);
-  if (!result.ok) throw new WorkspaceError(`${path}: ${describeLoadError(result.error)}`);
+  if (!result.ok)
+    throw new WorkspaceError(m.ws_err_load({ path, reason: describeLoadError(result.error) }));
   return { text: result.doc.markdown, lastModified: file.lastModified };
 }
 
@@ -157,13 +159,13 @@ export async function createFile(
   path: string,
   text: string,
 ): Promise<void> {
-  if ((await kindAt(root, path)) !== null) throw new WorkspaceError(`${path} already exists.`);
+  if ((await kindAt(root, path)) !== null) throw new WorkspaceError(m.ws_err_exists({ path }));
   await writeText(root, path, text);
 }
 
 /** Creates a folder that must not exist yet. */
 export async function createFolder(root: FileSystemDirectoryHandle, path: string): Promise<void> {
-  if ((await kindAt(root, path)) !== null) throw new WorkspaceError(`${path} already exists.`);
+  if ((await kindAt(root, path)) !== null) throw new WorkspaceError(m.ws_err_exists({ path }));
   await directoryAt(root, path, true);
 }
 
@@ -210,11 +212,11 @@ export async function rename(
   const existing = await kindAt(root, target);
   // A case-only rename (plan.md -> Plan.md) is the same entry on case-insensitive disks.
   if (existing !== null && name.toLowerCase() !== newName.toLowerCase()) {
-    throw new WorkspaceError(`${target} already exists.`);
+    throw new WorkspaceError(m.ws_err_exists({ path: target }));
   }
   let source: FileSystemHandle | null = null;
   for await (const [entry, handle] of parent.entries()) if (entry === name) source = handle;
-  if (!source) throw new WorkspaceError(`${path} no longer exists.`);
+  if (!source) throw new WorkspaceError(m.ws_err_gone({ path }));
   if (existing !== null) {
     // Case-only: go through a temporary name so the copy never lands on the original.
     const temp = `${name}.docwalk-rename`;

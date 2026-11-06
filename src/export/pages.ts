@@ -1,5 +1,6 @@
 import DOMPurify, { type Config } from "dompurify";
 import { rewriteCssUrls } from "./cssText";
+import { m } from "../paraglide/messages.js";
 import rawPageCss from "./page.css?raw";
 import type { ExportOptions, ExportSlide } from "./types";
 
@@ -135,7 +136,10 @@ export function buildPage(
 ): HTMLElement {
   const page = inert.createElement("article");
   page.className = "docwalk-export-page";
-  page.setAttribute("aria-label", `Slide ${index + 1} of ${options.slides.length}`);
+  page.setAttribute(
+    "aria-label",
+    m.export_page_label({ current: index + 1, total: options.slides.length }),
+  );
   page.style.width = `${options.size.width}px`;
   page.style.height = `${options.size.height}px`;
   page.append(prepareSlide(slide.element, policy));
