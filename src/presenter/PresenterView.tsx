@@ -316,31 +316,22 @@ async function buildPreviews(
   level: LevelOption,
 ): Promise<Map<string, HTMLElement>> {
   const slides = buildSlides(sectionize(parseMarkdown(markdown), level));
-  // Attached but invisible, like the audience deck while it renders.
+  // Kept off the page. Nothing here needs the slides laid out where they
+  // are: diagrams are fitted from their viewBox, and pagination and the
+  // overflow notes measure clones in boxes of their own. Attached (hidden,
+  // off-screen), the slides made every one of those measurements lay them
+  // out again in WebKit: 4.7 s of pagination and notes for the fixture,
+  // against 0.8 s with them detached.
   const box = document.createElement("div");
-  Object.assign(box.style, {
-    position: "fixed",
-    left: "-100000px",
-    top: "0",
-    visibility: "hidden",
-    pointerEvents: "none",
-    width: `${SLIDE_SIZE.width}px`,
-    height: `${SLIDE_SIZE.height}px`,
-  });
   box.append(...slides);
-  document.body.append(box);
-  try {
-    await renderDiagrams(box);
-    fitDiagrams(box, slideBodySize(SLIDE_SIZE));
-    await settled(box);
-    const pages = slides.flatMap((s) => paginateSlide(s, { size: SLIDE_SIZE }));
-    // The presenter must see the same notes the audience deck shows, or a
-    // clipped slide or an unreadable diagram looks fine in the preview.
-    flagPages(pages, SLIDE_SIZE);
-    return new Map(pages.map((p) => [slideAddress(p), p]));
-  } finally {
-    box.remove();
-  }
+  await renderDiagrams(box);
+  fitDiagrams(box, slideBodySize(SLIDE_SIZE));
+  await settled(box);
+  const pages = slides.flatMap((s) => paginateSlide(s, { size: SLIDE_SIZE }));
+  // The presenter must see the same notes the audience deck shows, or a
+  // clipped slide or an unreadable diagram looks fine in the preview.
+  flagPages(pages, SLIDE_SIZE);
+  return new Map(pages.map((p) => [slideAddress(p), p]));
 }
 
 function titleOf(address: string, pages: Map<string, HTMLElement> | null): string {
