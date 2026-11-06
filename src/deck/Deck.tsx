@@ -3,6 +3,8 @@ import "reveal.js/reveal.css";
 import { useEffect, useRef, useState } from "react";
 import { focusTarget, fragmentAddress, fragmentTarget } from "../render/fragments";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
+import type { Locale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import type { SectionPlan } from "../sectioning/sectionize";
 import { createDeckController, type DeckController } from "./controller";
 import { openDiagramFocus } from "./focus";
@@ -27,6 +29,13 @@ export interface DeckReport {
 
 interface DeckProps {
   plan: SectionPlan;
+  /**
+   * The UI language. Slide chrome (breadcrumb label, "continued", overflow
+   * notes) is built into the deck's DOM, so a switch rebuilds the deck; URL
+   * sync puts the viewer back on the same slide, as after an edit. The text
+   * itself is read from Paraglide when the deck builds.
+   */
+  locale?: Locale;
   onReport?: (report: DeckReport) => void;
   /** Receives the controller once the deck is ready, and `null` when it is torn down. */
   onReady?: (controller: DeckController | null) => void;
@@ -37,7 +46,7 @@ interface DeckProps {
  * with DOM APIs and handed to reveal.js, which mutates it freely; React
  * reconciling that subtree would fight reveal (decision 27).
  */
-export function Deck({ plan, onReport, onReady }: DeckProps) {
+export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
   const host = useRef<HTMLDivElement>(null);
   const loadRemoteImages = useLoadRemoteImages();
   // The first plan builds at once; later plans (keystrokes) wait for a pause,
@@ -61,8 +70,8 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
     // inside its own element, so that element is the deck's tab stop.
     revealEl.tabIndex = 0;
     revealEl.setAttribute("role", "region");
-    revealEl.setAttribute("aria-roledescription", "slide deck");
-    revealEl.setAttribute("aria-label", "Slides");
+    revealEl.setAttribute("aria-roledescription", m.deck_roledescription());
+    revealEl.setAttribute("aria-label", m.deck_label());
     const slidesEl = document.createElement("div");
     slidesEl.className = "slides";
     const slides = buildSlides(built, { loadRemoteImages });
@@ -146,9 +155,10 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
       if (cancelled) return;
 
       const overflowing: DeckReport["overflowing"] = [];
-      flagPages(pages, SLIDE_SIZE).forEach((m, i) => {
+      flagPages(pages, SLIDE_SIZE).forEach((measured, i) => {
         const slide = pages[i];
-        if (m.overflows && slide) overflowing.push({ id: slideAddress(slide), measurement: m });
+        if (measured.overflows && slide)
+          overflowing.push({ id: slideAddress(slide), measurement: measured });
       });
       const report: DeckReport = {
         slides: pages.length,
@@ -169,7 +179,9 @@ export function Deck({ plan, onReport, onReady }: DeckProps) {
       deck?.destroy();
       root.replaceChildren();
     };
-  }, [built, onReport, onReady, loadRemoteImages]);
+    // `locale` is read through Paraglide while building; it is here to rebuild on a switch.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [built, locale, onReport, onReady, loadRemoteImages]);
 
   return (
     <div className="docwalk-deck">

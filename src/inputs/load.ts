@@ -4,6 +4,7 @@
  * not fit becomes a typed `LoadError`, never an exception and never HTML.
  */
 import * as v from "valibot";
+import { m } from "../paraglide/messages.js";
 import { MAX_DOCUMENT_BYTES, type DocumentSource, type LoadError, type LoadResult } from "./types";
 
 /** `fetch` as the loaders use it; tests pass a fake. */
@@ -84,20 +85,20 @@ export function isTrustedUrl(url: URL): boolean {
  * the confirmation prompt, which shows the ASCII host.
  */
 export function checkUrlPolicy(raw: string): UrlCheck {
-  if (raw.length > MAX_URL_LENGTH) return { ok: false, message: "The address is too long." };
+  if (raw.length > MAX_URL_LENGTH) return { ok: false, message: m.load_url_too_long() };
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return { ok: false, message: "That is not a valid web address." };
+    return { ok: false, message: m.load_url_invalid() };
   }
   if (url.protocol !== "https:") {
-    return { ok: false, message: "Only https:// addresses can be loaded." };
+    return { ok: false, message: m.load_url_https() };
   }
   if (url.username !== "" || url.password !== "") {
-    return { ok: false, message: "Addresses with a user name or password are not loaded." };
+    return { ok: false, message: m.load_url_credentials() };
   }
-  if (url.hostname === "") return { ok: false, message: "The address has no host." };
+  if (url.hostname === "") return { ok: false, message: m.load_url_no_host() };
   return { ok: true, url, trusted: isTrustedUrl(url) };
 }
 
@@ -126,10 +127,10 @@ export function parseInputUrl(input: string | URL): ParsedInput {
   const [src, repo, path, ref] = [all("src"), all("repo"), all("path"), all("ref")];
   if (src.length === 0 && repo.length === 0 && path.length === 0) return null;
   if ([src, repo, path, ref].some((values) => values.length > 1)) {
-    return { kind: "invalid", message: "The link repeats a document parameter." };
+    return { kind: "invalid", message: m.load_link_repeats() };
   }
   if (src.length > 0 && (repo.length > 0 || path.length > 0)) {
-    return { kind: "invalid", message: "The link names both an address and a repository." };
+    return { kind: "invalid", message: m.load_link_both() };
   }
   if (src[0] !== undefined) {
     const check = checkUrlPolicy(src[0]);
@@ -139,13 +140,13 @@ export function parseInputUrl(input: string | URL): ParsedInput {
   }
   const [r, p, f] = [repo[0], path[0], ref[0] || null];
   if (!valid(RepoSchema, r)) {
-    return { kind: "invalid", message: "The repository must look like owner/name." };
+    return { kind: "invalid", message: m.load_repo_shape() };
   }
   if (!valid(PathSchema, p)) {
-    return { kind: "invalid", message: "The file path in the link is not valid." };
+    return { kind: "invalid", message: m.load_link_path() };
   }
   if (f !== null && !valid(RefSchema, f)) {
-    return { kind: "invalid", message: "The branch or tag in the link is not valid." };
+    return { kind: "invalid", message: m.load_link_ref() };
   }
   return { kind: "repo", repo: r, path: p, ref: f };
 }
@@ -219,19 +220,18 @@ async function finish(response: Response, source: DocumentSource): Promise<LoadR
   const body = await readCapped(response);
   if (!body.ok) return fail({ kind: "too-large", bytes: body.bytes });
   const markdown = decodeUtf8(body.bytes);
-  if (markdown === null)
-    return fail({ kind: "invalid", message: "The document is not UTF-8 text." });
+  if (markdown === null) return fail({ kind: "invalid", message: m.load_not_utf8_document() });
   return { ok: true, doc: { markdown, source } };
 }
 
 function networkError(error: unknown): LoadResult {
   if (error instanceof DOMException && error.name === "AbortError") {
-    return fail({ kind: "network", message: "Loading was cancelled." });
+    return fail({ kind: "network", message: m.load_cancelled() });
   }
   // A cross-origin server without CORS headers lands here too; the browser hides which it was.
   return fail({
     kind: "network",
-    message: "The document could not be fetched (offline, or the server does not allow it).",
+    message: m.load_fetch_failed(),
   });
 }
 
@@ -243,12 +243,12 @@ function statusError(response: Response): LoadResult | null {
     if (response.headers.get("x-ratelimit-remaining") === "0") {
       return fail({
         kind: "network",
-        message: "GitHub's rate limit was reached. Add a token or try again later.",
+        message: m.load_rate_limit(),
       });
     }
     return fail({ kind: "unauthorized" });
   }
-  return fail({ kind: "network", message: `The server answered HTTP ${response.status}.` });
+  return fail({ kind: "network", message: m.load_http_status({ status: response.status }) });
 }
 
 /** Calls the global fetch with its own receiver, wherever it was looked up. */
@@ -288,7 +288,7 @@ export async function loadFromUrl(
   const final = response.url ? new URL(response.url) : url;
   if (final.protocol !== "https:") {
     await response.body?.cancel().catch(() => {});
-    return fail({ kind: "invalid", message: "The address redirected away from https." });
+    return fail({ kind: "invalid", message: m.load_redirect_http() });
   }
   if (!options.confirmed && !isTrustedUrl(final)) {
     await response.body?.cancel().catch(() => {});
@@ -298,7 +298,7 @@ export async function loadFromUrl(
   if (status) return status;
   if (!isTextual(mediaType(response))) {
     await response.body?.cancel().catch(() => {});
-    return fail({ kind: "invalid", message: "The address does not serve a text file." });
+    return fail({ kind: "invalid", message: m.load_not_text() });
   }
   return finish(response, { kind: "url", url: final.href, trusted: isTrustedUrl(final) });
 }
@@ -318,16 +318,16 @@ export async function loadFromRepo(
 ): Promise<LoadResult> {
   const { repo, path, ref, token } = request;
   if (!valid(RepoSchema, repo)) {
-    return fail({ kind: "invalid", message: "The repository must look like owner/name." });
+    return fail({ kind: "invalid", message: m.load_repo_shape() });
   }
   if (!valid(PathSchema, path)) {
-    return fail({ kind: "invalid", message: "The file path is not valid." });
+    return fail({ kind: "invalid", message: m.load_path_invalid() });
   }
   if (ref !== null && !valid(RefSchema, ref)) {
-    return fail({ kind: "invalid", message: "The branch or tag is not valid." });
+    return fail({ kind: "invalid", message: m.load_ref_invalid() });
   }
   if (token != null && !valid(TokenSchema, token)) {
-    return fail({ kind: "invalid", message: "The saved token is not a GitHub token." });
+    return fail({ kind: "invalid", message: m.load_token_invalid() });
   }
   const [owner, name] = repo.split("/") as [string, string];
   const encodedPath = path.split("/").map(encodeURIComponent).join("/");
@@ -356,7 +356,7 @@ export async function loadFromRepo(
   // A directory comes back as a JSON listing even with the raw media type.
   if (!isTextual(type) && !type.startsWith("application/vnd.github.raw")) {
     await response.body?.cancel().catch(() => {});
-    return fail({ kind: "invalid", message: "That path is a folder, not a file." });
+    return fail({ kind: "invalid", message: m.load_is_folder() });
   }
   return finish(response, { kind: "repo", repo, path, ref });
 }
@@ -367,7 +367,7 @@ const ACCEPTED_FILE = /\.(md|markdown|txt)$/i;
 /** A local file from the picker or a drop, with the same size cap and UTF-8 check as a fetch. */
 export async function loadFromFile(file: File): Promise<LoadResult> {
   if (!ACCEPTED_FILE.test(file.name)) {
-    return fail({ kind: "invalid", message: "Choose a .md, .markdown or .txt file." });
+    return fail({ kind: "invalid", message: m.load_file_type() });
   }
   if (file.size > MAX_DOCUMENT_BYTES) return fail({ kind: "too-large", bytes: file.size });
   let bytes: Uint8Array;
@@ -375,10 +375,10 @@ export async function loadFromFile(file: File): Promise<LoadResult> {
     bytes = new Uint8Array(await file.arrayBuffer());
   } catch {
     // The file was moved, deleted or blocked between picking and reading.
-    return fail({ kind: "invalid", message: "The file could not be read." });
+    return fail({ kind: "invalid", message: m.load_file_unreadable() });
   }
   const markdown = decodeUtf8(bytes);
-  if (markdown === null) return fail({ kind: "invalid", message: "The file is not UTF-8 text." });
+  if (markdown === null) return fail({ kind: "invalid", message: m.load_file_not_utf8() });
   return { ok: true, doc: { markdown, source: { kind: "file", name: file.name } } };
 }
 
@@ -386,13 +386,13 @@ export async function loadFromFile(file: File): Promise<LoadResult> {
 export function describeLoadError(error: LoadError): string {
   switch (error.kind) {
     case "needs-confirmation":
-      return `Load a document from ${error.host}?`;
+      return m.source_confirm_title({ host: error.host });
     case "not-found":
-      return "The document was not found. A private repository needs a token.";
+      return m.load_not_found();
     case "unauthorized":
-      return "GitHub refused access. Check that the token can read this repository.";
+      return m.load_unauthorized();
     case "too-large":
-      return `The document is larger than ${MAX_DOCUMENT_BYTES / 1024 / 1024} MB.`;
+      return m.load_too_large({ mb: MAX_DOCUMENT_BYTES / 1024 / 1024 });
     case "network":
     case "invalid":
       return error.message;

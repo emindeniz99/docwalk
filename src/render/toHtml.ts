@@ -7,6 +7,7 @@ import rehypeStringify from "rehype-stringify";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
+import { m } from "../paraglide/messages.js";
 
 /** Class on an image whose remote `src` was moved to `data-src` until the viewer allows it. */
 export const BLOCKED_IMAGE_CLASS = "docwalk-blocked-image";
@@ -87,8 +88,8 @@ export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
         : [];
       node.properties["className"] = [...classes, BLOCKED_IMAGE_CLASS];
       const alt = typeof node.properties["alt"] === "string" ? node.properties["alt"] : "";
-      const host = URL.canParse(remote) ? new URL(remote).host : "another site";
-      const label = `Load image${alt ? ` "${alt}"` : ""} from ${host}`;
+      const host = URL.canParse(remote) ? new URL(remote).host : m.render_another_site();
+      const label = alt ? m.render_load_image_alt({ alt, host }) : m.render_load_image({ host });
       node.properties["role"] = "button";
       node.properties["tabIndex"] = 0;
       node.properties["ariaLabel"] = label;
@@ -141,11 +142,21 @@ export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): 
     const processor = unified()
       // The sanitizer adds the `user-content-` prefix; remark-rehype's own
       // default prefix would double it and break every footnote link.
-      .use(remarkRehype, { allowDangerousHtml: true, clobberPrefix: footnotePrefix })
+      .use(remarkRehype, {
+        allowDangerousHtml: true,
+        clobberPrefix: footnotePrefix,
+        // GitHub's footnote chrome, in the UI language; the footnotes themselves are content.
+        footnoteLabel: m.render_footnotes(),
+        footnoteBackLabel: (reference, rereference) =>
+          m.render_footnote_back({
+            reference: `${reference + 1}${rereference > 1 ? `-${rereference}` : ""}`,
+          }),
+      })
       .use(rawHtml)
       .use(rehypePrefixFootnoteLabel, footnotePrefix)
       .use(rehypeSanitize, SANITIZE_SCHEMA)
       .use(rehypeGithubAlert)
+      .use(rehypeLocalizeAlertTitles)
       .use(rehypeBlockRemoteImages, options)
       .use(rehypeStringify);
     // remark-rehype builds a new tree, so a failed run leaves `root` intact for the retry.
@@ -159,6 +170,38 @@ export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): 
     // render keeps the Markdown and drops the raw HTML.
     return render(rehypeDropRaw);
   }
+}
+
+/** The alert titles rehype-github-alert writes in English, in the UI language. */
+const ALERT_TITLES: Record<string, () => string> = {
+  note: m.alert_note,
+  tip: m.alert_tip,
+  important: m.alert_important,
+  warning: m.alert_warning,
+  caution: m.alert_caution,
+};
+
+/**
+ * rehype-github-alert has no option for its titles, so the title text it
+ * added (the last child of `.markdown-alert-title`) is replaced here. It runs
+ * right after that plugin, so the markup is the plugin's, never the author's.
+ */
+function rehypeLocalizeAlertTitles() {
+  return (tree: HastRoot) => {
+    visit(tree, "element", (node: Element) => {
+      const classes = node.properties["className"];
+      if (!Array.isArray(classes) || !classes.includes("markdown-alert")) return;
+      const kind =
+        classes
+          .map(String)
+          .find((c) => c !== "markdown-alert")
+          ?.slice(15) ?? "";
+      const title = ALERT_TITLES[kind];
+      const head = node.children[0];
+      const text = head?.type === "element" ? head.children.at(-1) : undefined;
+      if (title && text?.type === "text") text.value = title();
+    });
+  };
 }
 
 /** Removes raw HTML nodes: the fallback when parsing them fails. */

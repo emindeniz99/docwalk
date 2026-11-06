@@ -13,20 +13,18 @@ import {
 } from "react-aria-components";
 import type { ShareComments } from "../comments/useCommentsUi";
 import type { DocumentSource } from "../inputs/types";
+import { m } from "../paraglide/messages.js";
 import { buildShareLink, type ShareLinkResult } from "./link";
 import "./share.css";
 
-export const PRIVACY_NOTE =
-  "The document is inside the link. It is never sent to a server, but stays in browser history.";
+// Message functions, so each render reads the current UI language.
+export const PRIVACY_NOTE = m.share_privacy;
 
-export const COMMENTS_PRIVACY_NOTE =
-  "The comments are inside the link too: never sent to a server, but kept in browser history.";
+export const COMMENTS_PRIVACY_NOTE = m.share_comments_privacy;
 
-export const COMMENTS_DROPPED =
-  "The comments did not fit in the link, so it carries the document only. Export them from the Comments panel and send the file along.";
+export const COMMENTS_DROPPED = m.share_comments_dropped;
 
-const COPIED = "Link copied.";
-const COPY_MANUALLY = "Copying is blocked here. The link is selected: press Ctrl+C (⌘C on a Mac).";
+type CopyStatus = "" | "copied" | "manual";
 
 export interface ShareDialogProps {
   isOpen: boolean;
@@ -56,9 +54,9 @@ export function ShareDialog({ isOpen, onOpenChange, ...body }: ShareDialogProps)
             <>
               <div className="docwalk-share-header">
                 <Heading slot="title" className="docwalk-share-title">
-                  Share this document
+                  {m.share_title()}
                 </Heading>
-                <Button aria-label="Close" className="docwalk-share-close" onPress={close}>
+                <Button aria-label={m.close()} className="docwalk-share-close" onPress={close}>
                   <X aria-hidden size={20} />
                 </Button>
               </div>
@@ -82,7 +80,7 @@ function ShareBody({
   const [withComments, setWithComments] = useState(true);
   const hasComments = (comments?.count ?? 0) > 0;
   const includeComments = hasComments && withComments;
-  const [copyStatus, setCopyStatus] = useState("");
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -98,7 +96,7 @@ function ShareBody({
       )
       .catch((): ShareLinkResult => ({
         ok: false,
-        message: "docwalk could not build a link here.",
+        message: m.share_build_failed(),
       }))
       .then((result) => {
         if (!cancelled) setState(result);
@@ -112,13 +110,13 @@ function ShareBody({
     try {
       if (!navigator.clipboard) throw new Error("no clipboard");
       await navigator.clipboard.writeText(url);
-      setCopyStatus(COPIED);
+      setCopyStatus("copied");
     } catch {
       // Clipboard access is denied in some browsers and frames: leave the
       // link selected so the keyboard shortcut copies it.
       inputRef.current?.focus();
       inputRef.current?.select();
-      setCopyStatus(COPY_MANUALLY);
+      setCopyStatus("manual");
     }
   };
 
@@ -133,15 +131,15 @@ function ShareBody({
           <span className="docwalk-share-checkbox-box" aria-hidden="true">
             {withComments && <Check size={14} />}
           </span>
-          Include {comments?.count === 1 ? "1 comment" : `${comments?.count} comments`}
+          {m.share_include_comments({ count: comments?.count ?? 0 })}
         </Checkbox>
       )}
       {"status" in state ? (
-        <p className="docwalk-share-muted">Preparing the link…</p>
+        <p className="docwalk-share-muted">{m.share_preparing()}</p>
       ) : state.ok ? (
         <>
           <TextField isReadOnly value={state.link.url} className="docwalk-share-field">
-            <Label className="docwalk-overline">Link</Label>
+            <Label className="docwalk-overline">{m.share_link()}</Label>
             <div className="docwalk-share-row">
               <Input
                 ref={inputRef}
@@ -149,19 +147,19 @@ function ShareBody({
                 onFocus={(e) => e.currentTarget.select()}
               />
               <Button className="docwalk-share-copy" onPress={() => void copy(state.link.url)}>
-                {copyStatus === COPIED ? (
+                {copyStatus === "copied" ? (
                   <Check aria-hidden size={18} />
                 ) : (
                   <Copy aria-hidden size={18} />
                 )}
-                Copy link
+                {m.share_copy()}
               </Button>
             </div>
           </TextField>
           {state.link.commentsDropped && (
             <p className="docwalk-share-warning">
               <TriangleAlert aria-hidden size={18} />
-              <span>{COMMENTS_DROPPED}</span>
+              <span>{COMMENTS_DROPPED()}</span>
             </p>
           )}
           {state.link.warning && (
@@ -173,13 +171,13 @@ function ShareBody({
           {state.link.kind === "fragment" && (
             <p className="docwalk-share-muted docwalk-share-privacy">
               <Info aria-hidden size={16} />
-              <span>{PRIVACY_NOTE}</span>
+              <span>{PRIVACY_NOTE()}</span>
             </p>
           )}
           {includeComments && !state.link.commentsDropped && (
             <p className="docwalk-share-muted docwalk-share-privacy">
               <Info aria-hidden size={16} />
-              <span>{COMMENTS_PRIVACY_NOTE}</span>
+              <span>{COMMENTS_PRIVACY_NOTE()}</span>
             </p>
           )}
         </>
@@ -190,7 +188,11 @@ function ShareBody({
         </p>
       )}
       <p role="status" className="docwalk-share-status">
-        {copyStatus}
+        {copyStatus === "copied"
+          ? m.share_copied()
+          : copyStatus === "manual"
+            ? m.share_copy_manually()
+            : ""}
       </p>
     </>
   );

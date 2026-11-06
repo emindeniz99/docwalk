@@ -40,6 +40,7 @@ import { clonePages, type DeckController, type SlideInfo } from "./deck/controll
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
 import { useOverviewShortcut } from "./deck/useOverviewShortcut";
 import { useEditorChoice } from "./editor/choice";
+import { chooseLocale, localeName, locales, useLocale, type Locale } from "./i18n/locale";
 import type { EditorDiagnostic } from "./editor/types";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
@@ -61,6 +62,7 @@ import { useDocument } from "./shell/useDocument";
 import { useMediaQuery } from "./shell/useMediaQuery";
 import type { FollowUpdate } from "./shell/RemoteFollower";
 import { useUrlSync } from "./url/useUrlSync";
+import { m } from "./paraglide/messages.js";
 import { workspaceCommands } from "./workspace/commands";
 import { FilesPanel } from "./workspace/FilesPanel";
 import { useWorkspace } from "./workspace/useWorkspace";
@@ -71,40 +73,39 @@ type View = "edit" | "document" | "present";
 
 // CodeMirror is the largest single dependency; load it after the deck is up.
 const SourceEditor = lazy(() =>
-  import("./editor/SourceEditor").then((m) => ({ default: m.SourceEditor })),
+  import("./editor/SourceEditor").then((mod) => ({ default: mod.SourceEditor })),
 );
 // Monaco (decision 53) is larger still and loads only for viewers who pick it.
 const MonacoEditor = lazy(() =>
-  import("./editor/monaco/MonacoEditor").then((m) => ({ default: m.MonacoEditor })),
+  import("./editor/monaco/MonacoEditor").then((mod) => ({ default: mod.MonacoEditor })),
 );
 // Dialogs and the exporters (modern-screenshot, the HTML sanitizer, the QR
 // encoder) stay out of the first-load bundle (decision 43).
 const ShareDialog = lazy(() =>
-  import("./share/ShareDialog").then((m) => ({ default: m.ShareDialog })),
+  import("./share/ShareDialog").then((mod) => ({ default: mod.ShareDialog })),
 );
 const TokenDialog = lazy(() =>
-  import("./inputs/TokenDialog").then((m) => ({ default: m.TokenDialog })),
+  import("./inputs/TokenDialog").then((mod) => ({ default: mod.TokenDialog })),
 );
 // Remote control (decision 8) loads only once a presenter turns it on, or on a follower page.
 const RemotePresenter = lazy(() =>
-  import("./shell/RemotePresenter").then((m) => ({ default: m.RemotePresenter })),
+  import("./shell/RemotePresenter").then((mod) => ({ default: mod.RemotePresenter })),
 );
 const RemoteFollower = lazy(() =>
-  import("./shell/RemoteFollower").then((m) => ({ default: m.RemoteFollower })),
+  import("./shell/RemoteFollower").then((mod) => ({ default: mod.RemoteFollower })),
 );
 const ExportMenu = lazy(() =>
-  import("./export/ExportMenu").then((m) => ({ default: m.ExportMenu })),
+  import("./export/ExportMenu").then((mod) => ({ default: mod.ExportMenu })),
 );
 const SlideOverview = lazy(() =>
-  import("./deck/SlideOverview").then((m) => ({ default: m.SlideOverview })),
+  import("./deck/SlideOverview").then((mod) => ({ default: mod.SlideOverview })),
 );
 // Canvas mode pulls in Excalidraw (several MB); it loads when a diagram is opened as a sketch.
 const SketchDialog = lazy(() =>
-  import("./canvas/SketchDialog").then((m) => ({ default: m.SketchDialog })),
+  import("./canvas/SketchDialog").then((mod) => ({ default: mod.SketchDialog })),
 );
 
 const LEVELS: { label: string; value: LevelOption }[] = [
-  { label: "Auto", value: "auto" },
   { label: "H1", value: 1 },
   { label: "H2", value: 2 },
   { label: "H3", value: 3 },
@@ -116,11 +117,11 @@ const NEXT_THEME: Record<ThemeChoice, ThemeChoice> = {
   dark: "system",
 };
 
-const FOLLOW_STATUS: Record<RemoteStatus, string> = {
-  connecting: "Connecting to the presenter…",
-  open: "Following the presenter",
-  reconnecting: "Reconnecting to the presenter…",
-  closed: "Not connected",
+const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
+  connecting: m.follow_connecting,
+  open: m.follow_open,
+  reconnecting: m.follow_reconnecting,
+  closed: m.follow_closed,
 };
 
 /** Narrow screens move the palette trigger and theme into the overflow menu. */
@@ -141,6 +142,9 @@ export function App() {
   // ?view=follow: a read-only screen that follows a presenter (decision 8).
   const [follow] = useState(() => new URLSearchParams(location.search).get("view") === "follow");
 
+  // Every string below follows the UI language; a switch re-renders from here
+  // down and keeps the draft, the deck and the open panels (decision 30).
+  const locale = useLocale();
   const inputs = useDocument({ follow });
   const { doc, notice, setNotice } = inputs;
   // Files in OPFS or a local folder (decisions 57, 58); an empty workspace changes nothing else.
@@ -170,7 +174,7 @@ export function App() {
   useEffect(() => {
     let live = true;
     void import("./inputs/oauth")
-      .then((m) => m.fetchApiHealth())
+      .then((mod) => mod.fetchApiHealth())
       .then((h) => {
         if (live) setHealth(h);
       });
@@ -197,12 +201,12 @@ export function App() {
 
   const root = useMemo(() => parseMarkdown(markdown), [markdown]);
   const plan = useMemo(() => sectionize(root, level), [root, level]);
-  const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : "breaks only";
+  const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : m.app_breaks_only();
   const docTitle = !doc
-    ? "Loading document…"
+    ? m.app_loading_document()
     : plan.titleHeading
       ? (plan.sections[0]?.title ?? "")
-      : (plan.sections[0]?.title ?? "Untitled");
+      : (plan.sections[0]?.title ?? m.app_untitled());
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
 
   const onReport = useCallback((r: DeckReport) => setReport(r), []);
@@ -235,11 +239,7 @@ export function App() {
   const onFollowDocument = useCallback(
     (link: string | null) => {
       if (link) void loadFromLink(link);
-      else
-        setNotice({
-          message: "The presenter's document is too long to send here. Open it yourself.",
-          tone: "error",
-        });
+      else setNotice({ message: m.follow_doc_too_long(), tone: "error" });
     },
     [loadFromLink, setNotice],
   );
@@ -251,11 +251,7 @@ export function App() {
       setLevel((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
   }, []);
   useEffect(() => {
-    if (followUpdate.incomplete)
-      setNotice({
-        message: "This follow link is incomplete. Ask the presenter for the link again.",
-        tone: "error",
-      });
+    if (followUpdate.incomplete) setNotice({ message: m.follow_link_incomplete(), tone: "error" });
   }, [followUpdate.incomplete, setNotice]);
 
   // Source line of every section, for the editor's reveal, cursor sync and notes.
@@ -352,10 +348,13 @@ export function App() {
         .filter((sl) => sl.flagged)
         .map((sl) => ({
           line: sectionLines.get(sl.sectionId) ?? 1,
-          message: `Slide ${sl.index + 1} (${sl.address}): ${sl.note ?? "has a note"}`,
+          message: m.app_slide_diagnostic(
+            { number: sl.index + 1, address: sl.address, note: sl.note ?? m.app_slide_has_note() },
+            { locale },
+          ),
           severity: "warning" as const,
         })),
-    [slides, sectionLines],
+    [slides, sectionLines, locale],
   );
 
   // The preview follows the cursor while editing.
@@ -371,11 +370,7 @@ export function App() {
 
   const openPresenter = useCallback(() => {
     if (!openPresenterWindow()) {
-      setNotice({
-        message:
-          "The browser blocked the presenter window. Allow pop-ups for this site and try again.",
-        tone: "error",
-      });
+      setNotice({ message: m.app_presenter_blocked(), tone: "error" });
       return;
     }
     startedAt.current = Date.now();
@@ -488,13 +483,8 @@ export function App() {
   const signIn = useCallback(() => {
     if (!oauthClientId) return;
     import("./inputs/oauth")
-      .then((m) => m.startLogin(oauthClientId))
-      .catch(() =>
-        setNotice({
-          message: "Sign-in needs session storage, which this browser blocks.",
-          tone: "error",
-        }),
-      );
+      .then((mod) => mod.startLogin(oauthClientId))
+      .catch(() => setNotice({ message: m.app_sign_in_storage(), tone: "error" }));
   }, [oauthClientId, setNotice]);
   const openRemote = useCallback(() => {
     setRemoteOn(true);
@@ -502,26 +492,39 @@ export function App() {
   }, [join]);
 
   const commands: Command[] = [
-    { id: "present", label: "Present", run: () => void present() },
-    { id: "presenter", label: "Open presenter view", run: openPresenter },
-    { id: "overview", label: "Slide overview", hint: "O", run: overview.open },
-    { id: "view-edit", label: "Show editor", run: () => show("edit") },
-    { id: "view-document", label: "Show document", run: () => show("document") },
-    { id: "share", label: "Share link", run: share.open },
+    { id: "present", label: m.cmd_present(), run: () => void present() },
+    { id: "presenter", label: m.cmd_presenter(), run: openPresenter },
+    { id: "overview", label: m.cmd_overview(), hint: "O", run: overview.open },
+    { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
+    { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
+    { id: "share", label: m.cmd_share(), run: share.open },
     ...(comments.command ? [comments.command] : []),
-    { id: "token", label: "GitHub token…", run: () => inputs.setTokenOpen(true) },
-    ...(oauthClientId ? [{ id: "sign-in", label: "Sign in with GitHub", run: signIn }] : []),
-    ...(remoteAvailable ? [{ id: "remote", label: "Remote and followers…", run: openRemote }] : []),
+    { id: "token", label: m.cmd_token(), run: () => inputs.setTokenOpen(true) },
+    ...(oauthClientId ? [{ id: "sign-in", label: m.cmd_sign_in(), run: signIn }] : []),
+    ...(remoteAvailable ? [{ id: "remote", label: m.cmd_remote(), run: openRemote }] : []),
     {
       id: "theme",
-      label: `Theme: switch to ${NEXT_THEME[theme]}`,
+      label: m.theme_switch({ next: NEXT_THEME[theme] }),
       run: () => setTheme(NEXT_THEME[theme]),
+    },
+    {
+      id: "level-auto",
+      label: m.level_command({ level: m.level_auto_resolved({ resolved }) }),
+      run: () => setLevel("auto"),
     },
     ...LEVELS.map((l) => ({
       id: `level-${String(l.value)}`,
-      label: `Slides start at ${l.value === "auto" ? `auto (${resolved})` : l.label}`,
+      label: m.level_command({ level: l.label }),
       run: () => setLevel(l.value),
     })),
+    // The language switch (decision 56) offers the languages not in use, each named in itself.
+    ...locales
+      .filter((l) => l !== locale)
+      .map((l: Locale) => ({
+        id: `locale-${l}`,
+        label: m.cmd_language({ language: localeName(l) }),
+        run: () => chooseLocale(l),
+      })),
     ...workspaceCommands(workspace),
   ];
 
@@ -531,26 +534,24 @@ export function App() {
       ? [
           {
             id: "palette",
-            label: "Jump to slide or command",
+            label: m.cmd_palette(),
             Icon: Search,
             run: () => setPaletteOpen(true),
           },
         ]
       : []),
-    { id: "token", label: "GitHub token…", Icon: KeyRound, run: () => inputs.setTokenOpen(true) },
-    ...(oauthClientId
-      ? [{ id: "sign-in", label: "Sign in with GitHub", Icon: LogIn, run: signIn }]
-      : []),
+    { id: "token", label: m.cmd_token(), Icon: KeyRound, run: () => inputs.setTokenOpen(true) },
+    ...(oauthClientId ? [{ id: "sign-in", label: m.cmd_sign_in(), Icon: LogIn, run: signIn }] : []),
     ...(remoteAvailable
-      ? [{ id: "remote", label: "Remote and followers…", Icon: Cast, run: openRemote }]
+      ? [{ id: "remote", label: m.cmd_remote(), Icon: Cast, run: openRemote }]
       : []),
-    { id: "presenter", label: "Open presenter view", Icon: MonitorPlay, run: openPresenter },
+    { id: "presenter", label: m.cmd_presenter(), Icon: MonitorPlay, run: openPresenter },
     ...(comments.moreAction ? [comments.moreAction] : []),
     ...(phone
       ? [
           {
             id: "theme",
-            label: `Theme: switch to ${NEXT_THEME[theme]}`,
+            label: m.theme_switch({ next: NEXT_THEME[theme] }),
             Icon: ThemeIcon,
             run: () => setTheme(NEXT_THEME[theme]),
           },
@@ -566,12 +567,15 @@ export function App() {
 
   const subline = follow ? (
     <p className="docwalk-source-banner" role="status">
-      {followUpdate.incomplete ? FOLLOW_STATUS.closed : FOLLOW_STATUS[followUpdate.status]}
+      {followUpdate.incomplete ? FOLLOW_STATUS.closed() : FOLLOW_STATUS[followUpdate.status]()}
     </p>
   ) : !doc ? null : doc.source.kind === "workspace" ? (
     <WorkspaceBanner workspace={workspace} />
   ) : doc.source.kind === "sample" ? (
-    <p className="docwalk-source-banner">Sample document · nothing uploaded</p>
+    <p className="docwalk-source-banner">
+      {/* Truncated like every other source line, so a longer translation never wraps the header. */}
+      <span className="docwalk-source-label">{m.app_sample_banner()}</span>
+    </p>
   ) : (
     <SourceBanner source={doc.source} />
   );
@@ -593,7 +597,7 @@ export function App() {
         </div>
         {!follow && !phone && (
           <Button className="docwalk-palette-trigger" onPress={() => setPaletteOpen(true)}>
-            Jump to slide or command…
+            {m.cmd_palette_trigger()}
             <kbd>
               <CommandIcon size={11} aria-hidden="true" />K
             </kbd>
@@ -602,7 +606,7 @@ export function App() {
         {!follow && (
           <div className="docwalk-toolbar-actions">
             <ToggleButtonGroup
-              aria-label="View"
+              aria-label={m.app_view_group()}
               selectionMode="single"
               disallowEmptySelection
               selectedKeys={[view === "present" ? "edit" : view]}
@@ -612,19 +616,19 @@ export function App() {
               }}
               className="docwalk-segmented"
             >
-              <ToggleButton id="edit">Edit</ToggleButton>
-              <ToggleButton id="document">Document</ToggleButton>
+              <ToggleButton id="edit">{m.app_view_edit()}</ToggleButton>
+              <ToggleButton id="document">{m.app_document()}</ToggleButton>
             </ToggleButtonGroup>
             <OpenFileButton onLoad={(r) => workspace.guard(() => inputs.apply(r))} />
             <Button className="docwalk-button" isDisabled={!doc} onPress={share.open}>
               <Share2 size={16} aria-hidden="true" />
-              <span className="docwalk-button-label">Share</span>
+              <span className="docwalk-button-label">{m.app_share()}</span>
             </Button>
             <Suspense
               fallback={
                 <Button className="docwalk-button docwalk-export-trigger" isDisabled>
                   <Download size={16} aria-hidden="true" />
-                  <span className="docwalk-button-label">Export</span>
+                  <span className="docwalk-button-label">{m.app_export()}</span>
                 </Button>
               }
             >
@@ -634,7 +638,7 @@ export function App() {
             <MoreMenu actions={moreActions} />
             {!phone && (
               <IconButton
-                label={`Theme: ${theme}. Switch to ${NEXT_THEME[theme]}`}
+                label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
                 onPress={() => setTheme(NEXT_THEME[theme])}
               >
                 <ThemeIcon size={18} aria-hidden="true" />
@@ -644,7 +648,7 @@ export function App() {
         )}
         {follow ? (
           <IconButton
-            label={`Theme: ${theme}. Switch to ${NEXT_THEME[theme]}`}
+            label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
             onPress={() => setTheme(NEXT_THEME[theme])}
           >
             <ThemeIcon size={18} aria-hidden="true" />
@@ -656,7 +660,7 @@ export function App() {
             isDisabled={!doc}
             onPress={() => void present()}
           >
-            <Play size={16} aria-hidden="true" /> Present
+            <Play size={16} aria-hidden="true" /> {m.app_present()}
           </Button>
         )}
       </header>
@@ -680,7 +684,7 @@ export function App() {
                   {notice.action.label}
                 </Button>
               )}
-              <IconButton label="Dismiss" onPress={() => setNotice(null)}>
+              <IconButton label={m.app_dismiss()} onPress={() => setNotice(null)}>
                 <X size={16} aria-hidden="true" />
               </IconButton>
             </div>
@@ -704,25 +708,25 @@ export function App() {
           </aside>
         )}
         {view === "edit" && !follow && (
-          <section className="docwalk-source" aria-label="Markdown source">
+          <section className="docwalk-source" aria-label={m.app_markdown_source()}>
             {doc ? (
-              <Suspense fallback={<p className="docwalk-loading">Loading editor…</p>}>
+              <Suspense fallback={<p className="docwalk-loading">{m.app_loading_editor()}</p>}>
                 <Editor
                   value={markdown}
                   onChange={onEdit}
                   onCursorLine={onCursorLine}
                   revealLine={revealLine}
                   diagnostics={diagnostics}
-                  label="Markdown source"
+                  label={m.app_markdown_source()}
                 />
               </Suspense>
             ) : (
-              <p className="docwalk-loading">Loading document…</p>
+              <p className="docwalk-loading">{m.app_loading_document()}</p>
             )}
           </section>
         )}
         {view === "document" && !follow && (
-          <section className="docwalk-document-pane" aria-label="Document">
+          <section className="docwalk-document-pane" aria-label={m.app_document()}>
             <DocumentView root={root} onRendered={comments.onDocumentRendered} />
           </section>
         )}
@@ -732,7 +736,7 @@ export function App() {
             <span>{current?.address ?? ""}</span>
             {!follow && (
               <IconButton
-                label="Slide overview"
+                label={m.cmd_overview()}
                 aria-keyshortcuts="O"
                 className="docwalk-annotate-button docwalk-overview-trigger"
                 isDisabled={!controller}
@@ -752,7 +756,7 @@ export function App() {
                   else show("edit");
                 }}
               >
-                Exit <kbd>Esc</kbd>
+                {m.app_exit()} <kbd>Esc</kbd>
               </Button>
             )}
             {!follow && (
@@ -769,22 +773,28 @@ export function App() {
             )}
           </div>
           {doc ? (
-            <Deck plan={plan} onReport={onReport} onReady={onReady} />
+            <Deck plan={plan} locale={locale} onReport={onReport} onReady={onReady} />
           ) : (
             <p className="docwalk-stage-wait">
-              {follow ? "Waiting for the presenter…" : "Loading document…"}
+              {follow ? m.follow_waiting() : m.app_loading_document()}
             </p>
           )}
         </div>
         {comments.panel}
       </main>
 
-      <footer className="docwalk-statusbar" aria-label="Status">
-        <span>Slides at {level === "auto" ? `auto (${resolved})` : `H${String(level)}`}</span>
-        <span>{report ? `${report.slides} slides` : "Rendering…"}</span>
-        <span>{report ? `${slides.filter((s) => s.flagged).length} notes` : ""}</span>
-        <span>{report ? `${report.diagramErrors} diagram errors` : ""}</span>
-        <span className="docwalk-statusbar-end">Nothing uploaded · works offline</span>
+      <footer className="docwalk-statusbar" aria-label={m.app_status()}>
+        <span>
+          {m.app_status_level({
+            level: level === "auto" ? m.level_auto_resolved({ resolved }) : `H${String(level)}`,
+          })}
+        </span>
+        <span>{report ? m.count_slides({ count: report.slides }) : m.app_status_rendering()}</span>
+        <span>
+          {report ? m.app_status_notes({ count: slides.filter((s) => s.flagged).length }) : ""}
+        </span>
+        <span>{report ? m.app_status_diagram_errors({ count: report.diagramErrors }) : ""}</span>
+        <span className="docwalk-statusbar-end">{m.app_status_offline()}</span>
       </footer>
 
       {!follow && (

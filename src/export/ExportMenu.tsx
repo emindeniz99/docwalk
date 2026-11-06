@@ -1,6 +1,7 @@
 import { Download, FileCode, Images, Printer } from "lucide-react";
 import { useState } from "react";
 import { Button, Menu, MenuItem, MenuTrigger, Popover, type Key } from "react-aria-components";
+import { m } from "../paraglide/messages.js";
 import { downloadBlob } from "./download";
 import "./export.css";
 import { htmlFileName } from "./filename";
@@ -19,9 +20,9 @@ export interface ExportMenuProps {
 }
 
 const ITEMS = [
-  { id: "pdf", label: "Print or save as PDF", Icon: Printer },
-  { id: "html", label: "Download HTML", Icon: FileCode },
-  { id: "png", label: "Download PNG images", Icon: Images },
+  { id: "pdf", label: m.export_pdf, Icon: Printer },
+  { id: "html", label: m.export_html, Icon: FileCode },
+  { id: "png", label: m.export_png, Icon: Images },
 ] as const;
 
 type Job = (typeof ITEMS)[number]["id"];
@@ -38,26 +39,26 @@ export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) 
       // Inside the try: collecting the slides can throw too, and the viewer must hear about it.
       const options = getOptions();
       if (!options || options.slides.length === 0) {
-        setStatus("Nothing to export yet: the deck has no slides.");
+        setStatus(m.export_empty());
       } else if (job === "pdf") {
-        setStatus("Preparing the print view…");
+        setStatus(m.export_preparing_print());
         await printDeck(options);
         setStatus("");
       } else if (job === "html") {
-        setStatus("Building the HTML file…");
+        setStatus(m.export_building_html());
         const name = htmlFileName(options.title);
         downloadBlob(await exportHtml(options), name);
-        setStatus(`Downloaded ${name}.`);
+        setStatus(m.export_downloaded({ name }));
       } else {
-        setStatus("Preparing images…");
+        setStatus(m.export_preparing_images());
         const files = await exportPng(options, {
-          onSlide: (current, total) => setStatus(`Rendering slide ${current} of ${total}…`),
+          onSlide: (current, total) => setStatus(m.export_rendering_slide({ current, total })),
         });
-        setStatus(`Downloaded ${files.length} PNG ${files.length === 1 ? "image" : "images"}.`);
+        setStatus(m.export_downloaded_png({ count: files.length }));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setStatus(`Export failed: ${message}`);
+      setStatus(m.export_failed({ reason: message }));
     } finally {
       setBusy(false);
     }
@@ -72,20 +73,20 @@ export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) 
           isPending={busy}
         >
           <Download size={16} aria-hidden="true" />
-          <span className="docwalk-button-label">Export</span>
+          <span className="docwalk-button-label">{m.app_export()}</span>
         </Button>
         <Popover className="docwalk-popover" placement="bottom end">
           <Menu
-            aria-label="Export"
+            aria-label={m.app_export()}
             className="docwalk-menu docwalk-export-menu"
             onAction={(key) => {
               if (isJob(key)) void run(key);
             }}
           >
             {ITEMS.map(({ id, label, Icon }) => (
-              <MenuItem key={id} id={id} textValue={label} className="docwalk-menu-item">
+              <MenuItem key={id} id={id} textValue={label()} className="docwalk-menu-item">
                 <Icon size={16} aria-hidden="true" />
-                {label}
+                {label()}
               </MenuItem>
             ))}
           </Menu>

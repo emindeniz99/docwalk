@@ -7,6 +7,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Button } from "react-aria-components";
+import { useLocale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
 import type { FollowState } from "./follower";
 import type { RemoteMessage, RoomCredentials } from "./types";
@@ -21,15 +23,15 @@ export const LASER_REPEAT_MS = 1000;
  */
 export const PRESENTER_REPLY_MS = 4000;
 
-export const STATUS_TEXT: Record<RemoteStatus, string> = {
-  connecting: "Connecting…",
-  open: "Connected",
-  reconnecting: "Reconnecting…",
-  closed: "Disconnected",
+export const STATUS_TEXT: Record<RemoteStatus, () => string> = {
+  connecting: m.phone_connecting,
+  open: m.phone_connected,
+  reconnecting: m.phone_reconnecting,
+  closed: m.phone_disconnected,
 };
 
 /** The relay is connected but the presenter does not answer. */
-export const PRESENTER_AWAY = "Presenter not connected";
+export const PRESENTER_AWAY = m.phone_presenter_away;
 
 export interface RemoteViewProps {
   /** From `parseJoinFragment(location.hash)`; null shows what is wrong with the link. */
@@ -164,7 +166,7 @@ function LaserPad({ send, disabled }: { send: (m: RemoteMessage) => void; disabl
       >
         <span id="docwalk-remote-pad-label" className="docwalk-remote-pad-label">
           <Crosshair aria-hidden size={20} />
-          Laser: touch and drag to point
+          {m.phone_laser()}
         </span>
         {point && (
           <span
@@ -181,16 +183,16 @@ function LaserPad({ send, disabled }: { send: (m: RemoteMessage) => void; disabl
 /** The phone remote (`?view=remote#room=..&k=..`). No document is loaded here: only the presenter's state. */
 export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
   const { status, state, presenterAway, send } = useRemoteControl(creds, socketFactory, base);
+  // A page root: its text follows a language switch made in another docwalk tab.
+  useLocale();
 
   if (!creds) {
     return (
       <main className="docwalk-remote" aria-labelledby="docwalk-remote-title">
         <h1 id="docwalk-remote-title" className="docwalk-remote-title">
-          This remote link is incomplete
+          {m.phone_incomplete_title()}
         </h1>
-        <p className="docwalk-remote-muted">
-          Scan the QR code again, or ask the presenter to send the phone remote link.
-        </p>
+        <p className="docwalk-remote-muted">{m.phone_incomplete_body()}</p>
       </main>
     );
   }
@@ -202,9 +204,9 @@ export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
     <main className="docwalk-remote" aria-labelledby="docwalk-remote-title">
       <header className="docwalk-remote-header">
         <div className="docwalk-remote-heading">
-          <span className="docwalk-remote-overline">Phone remote</span>
+          <span className="docwalk-remote-overline">{m.join_remote_title()}</span>
           <h1 id="docwalk-remote-title" className="docwalk-remote-title">
-            {state && !away ? state.title || state.current : "Waiting for the presenter…"}
+            {state && !away ? state.title || state.current : m.follow_waiting()}
           </h1>
         </div>
         <span
@@ -212,7 +214,7 @@ export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
           data-status={away ? "reconnecting" : status}
           role="status"
         >
-          {away ? PRESENTER_AWAY : STATUS_TEXT[status]}
+          {away ? PRESENTER_AWAY() : STATUS_TEXT[status]()}
         </span>
       </header>
       {/* A live region, so a screen reader confirms where a Next or Previous press landed (WCAG 4.1.3). */}
@@ -221,7 +223,9 @@ export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
           {state && !away ? `${state.index + 1} / ${state.total}` : "– / –"}
         </span>
         <span className="docwalk-remote-sr">
-          {state && !away ? `Slide ${state.index + 1} of ${state.total}` : "Slide unknown"}
+          {state && !away
+            ? m.phone_slide_of({ current: state.index + 1, total: state.total })
+            : m.phone_slide_unknown()}
         </span>
       </p>
       <LaserPad send={send} disabled={disabled} />
@@ -232,14 +236,14 @@ export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
           onPress={() => send({ type: "step", direction: -1 })}
         >
           <ChevronLeft aria-hidden size={22} />
-          Previous
+          {m.previous()}
         </Button>
         <Button
           className="docwalk-remote-button docwalk-remote-next"
           isDisabled={disabled}
           onPress={() => send({ type: "step", direction: 1 })}
         >
-          Next
+          {m.next()}
           <ChevronRight aria-hidden size={22} />
         </Button>
       </footer>

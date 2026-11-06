@@ -77,13 +77,13 @@ describe("share dialog", () => {
   test("shows a pasted document's fragment link with the privacy note", async () => {
     await open("# Pasted");
     expect(await readFragment(new URL(input().value).hash)).toBe("# Pasted");
-    expect(dialog().textContent).toContain(PRIVACY_NOTE);
+    expect(dialog().textContent).toContain(PRIVACY_NOTE());
   });
 
   test("a repo document shows its source link and no privacy note, since nothing is in the link", async () => {
     await open("# Repo", { kind: "repo", repo: "acme/docs", path: "README.md", ref: null });
     expect(input().value).toBe(`${BASE}?repo=acme%2Fdocs&path=README.md`);
-    expect(dialog().textContent).not.toContain(PRIVACY_NOTE);
+    expect(dialog().textContent).not.toContain(PRIVACY_NOTE());
   });
 
   test("Copy puts the link on the clipboard and says so", async () => {
@@ -107,13 +107,13 @@ describe("share dialog", () => {
 
   test("a long link carries the warning, and can still be copied", async () => {
     await open(incompressible(FRAGMENT_WARN_CHARS));
-    expect(dialog().textContent).toContain(LONG_LINK_WARNING);
+    expect(dialog().textContent).toContain(LONG_LINK_WARNING());
     expect(copyButton()).toBeDefined();
   });
 
   test("a document too long for a link shows why and offers nothing to copy", async () => {
     await open(incompressible(FRAGMENT_MAX_CHARS));
-    expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(TOO_LONG_MESSAGE);
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(TOO_LONG_MESSAGE());
     expect(copyButton()).toBeUndefined();
     expect(dialog().querySelector("input")).toBeNull();
   });

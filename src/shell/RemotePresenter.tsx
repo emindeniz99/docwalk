@@ -4,6 +4,7 @@ import type { LoadedDocument } from "../inputs/types";
 import type { LevelOption } from "../sectioning/sectionize";
 import { JoinDialog } from "../remote/JoinDialog";
 import { useRemoteHost } from "../remote/host";
+import { m } from "../paraglide/messages.js";
 import { buildShareLink } from "../share/link";
 import type { Notice } from "./useDocument";
 import { useStageLaser } from "./useStageLaser";
@@ -64,7 +65,7 @@ export function RemotePresenter({
   const onAgentEdit = useCallback(
     (markdown: string, name: string) => {
       // First, so the draft warning an edit can raise replaces it: that one asks for a decision.
-      setNotice({ message: `${name} changed the document.`, tone: "info" });
+      setNotice({ message: m.agent_changed({ name }), tone: "info" });
       edit(markdown);
     },
     [edit, setNotice],
@@ -72,9 +73,9 @@ export function RemotePresenter({
   const onAgentEditRefused = useCallback(
     (name: string) =>
       setNotice({
-        message: `${name} tried to change the document. Allow agent edits in Remote control to let it.`,
+        message: m.agent_refused({ name }),
         tone: "info",
-        action: { label: "Remote control", run: () => onOpenChange(true) },
+        action: { label: m.remote_control(), run: () => onOpenChange(true) },
       }),
     [setNotice, onOpenChange],
   );

@@ -6,6 +6,7 @@
  * never half-imported, and unknown fields are dropped.
  */
 import * as v from "valibot";
+import { m } from "../paraglide/messages.js";
 import {
   MAX_COMMENT_CHARS,
   MAX_COMMENTS,
@@ -56,11 +57,11 @@ const CommentsFileSchema = v.object({
 
 export type ParseResult = { ok: true; comments: DocComment[] } | { ok: false; message: string };
 
-export const NOT_A_COMMENTS_FILE = "This is not a docwalk comments file.";
-export const NEWER_VERSION =
-  "This comments file was written by a newer docwalk. Update and try again.";
-export const TOO_MANY = `A document keeps at most ${MAX_COMMENTS} comments; this file has more.`;
-export const DAMAGED_FILE = "This comments file is damaged: some comments are not valid.";
+// Message functions, read when a file is parsed, so they follow the UI language.
+export const NOT_A_COMMENTS_FILE = m.comments_not_a_file;
+export const NEWER_VERSION = m.comments_newer_version;
+export const TOO_MANY = (): string => m.comments_too_many({ max: MAX_COMMENTS });
+export const DAMAGED_FILE = m.comments_damaged_file;
 
 /** One comment per id: two copies of the same comment keep the one edited last. */
 export function dedupe(comments: readonly DocComment[]): DocComment[] {
@@ -77,17 +78,17 @@ export function parseCommentsFile(input: unknown): ParseResult {
   const result = v.safeParse(CommentsFileSchema, input);
   if (result.success) return { ok: true, comments: dedupe(result.output.comments) };
   if (typeof input !== "object" || input === null || !("format" in input)) {
-    return { ok: false, message: NOT_A_COMMENTS_FILE };
+    return { ok: false, message: NOT_A_COMMENTS_FILE() };
   }
   const file = input as Record<string, unknown>;
-  if (file["format"] !== SIDECAR_FORMAT) return { ok: false, message: NOT_A_COMMENTS_FILE };
+  if (file["format"] !== SIDECAR_FORMAT) return { ok: false, message: NOT_A_COMMENTS_FILE() };
   if (typeof file["version"] === "number" && file["version"] > SIDECAR_VERSION) {
-    return { ok: false, message: NEWER_VERSION };
+    return { ok: false, message: NEWER_VERSION() };
   }
   if (Array.isArray(file["comments"]) && file["comments"].length > MAX_COMMENTS) {
-    return { ok: false, message: TOO_MANY };
+    return { ok: false, message: TOO_MANY() };
   }
-  return { ok: false, message: DAMAGED_FILE };
+  return { ok: false, message: DAMAGED_FILE() };
 }
 
 /** Parses a sidecar's text (JSON). */
@@ -96,7 +97,7 @@ export function parseCommentsText(text: string): ParseResult {
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { ok: false, message: NOT_A_COMMENTS_FILE };
+    return { ok: false, message: NOT_A_COMMENTS_FILE() };
   }
   return parseCommentsFile(parsed);
 }

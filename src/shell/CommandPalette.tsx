@@ -12,6 +12,7 @@ import {
   useFilter,
 } from "react-aria-components";
 import type { SlideInfo } from "../deck/controller";
+import { m } from "../paraglide/messages.js";
 
 export interface Command {
   id: string;
@@ -59,22 +60,22 @@ export function CommandPalette({
       className="docwalk-palette-overlay"
     >
       <Modal className="docwalk-palette">
-        <Dialog aria-label="Command palette" className="docwalk-palette-dialog">
+        <Dialog aria-label={m.palette_label()} className="docwalk-palette-dialog">
           <Autocomplete filter={contains}>
             <SearchField
-              aria-label="Jump to a slide or run a command"
+              aria-label={m.palette_search()}
               autoFocus
               className="docwalk-palette-search"
             >
-              <Input placeholder="Jump to slide, command or setting…" />
+              <Input placeholder={m.palette_placeholder()} />
             </SearchField>
             <Menu
               onAction={run}
               className="docwalk-palette-menu"
-              renderEmptyState={() => <p className="docwalk-palette-empty">No match</p>}
+              renderEmptyState={() => <p className="docwalk-palette-empty">{m.palette_empty()}</p>}
             >
               <MenuSection className="docwalk-palette-section">
-                <Header className="docwalk-overline">Commands</Header>
+                <Header className="docwalk-overline">{m.palette_commands()}</Header>
                 {commands.map((c) => (
                   <MenuItem
                     key={c.id}
@@ -88,7 +89,7 @@ export function CommandPalette({
                 ))}
               </MenuSection>
               <MenuSection className="docwalk-palette-section">
-                <Header className="docwalk-overline">Slides</Header>
+                <Header className="docwalk-overline">{m.palette_slides()}</Header>
                 {slideItems.map((s) => (
                   <MenuItem
                     key={s.id}

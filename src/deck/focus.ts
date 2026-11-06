@@ -1,5 +1,6 @@
 import Panzoom, { type PanzoomObject } from "@panzoom/panzoom";
 import { requestSketch } from "../canvas/request";
+import { m } from "../paraglide/messages.js";
 
 /**
  * Diagram focus: a full-window view of one diagram with fit, zoom, pan,
@@ -16,7 +17,7 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
   overlay.className = "docwalk-focus";
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-modal", "true");
-  overlay.setAttribute("aria-label", "Diagram, full screen");
+  overlay.setAttribute("aria-label", m.focus_label());
   // A click on the stage focuses the overlay rather than <body>, so its keys still work.
   overlay.tabIndex = -1;
 
@@ -71,10 +72,10 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
     toolbar.append(b);
     return b;
   };
-  button("−", "Zoom out", () => panzoom.zoomOut());
-  button("+", "Zoom in", () => panzoom.zoomIn());
-  button("Fit", "Fit to screen", fit);
-  button("⛶", "Fullscreen", () => {
+  button("−", m.focus_zoom_out(), () => panzoom.zoomOut());
+  button("+", m.focus_zoom_in(), () => panzoom.zoomIn());
+  button(m.focus_fit(), m.focus_fit_title(), fit);
+  button("⛶", m.focus_fullscreen(), () => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void overlay.requestFullscreen?.();
   });
@@ -82,7 +83,7 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
   const source = diagram.dataset["source"];
   if (source !== undefined) {
     // A short label keeps the toolbar on one row at 390 px; the name says what it does.
-    button("Sketch", "Open as sketch", () => {
+    button(m.focus_sketch(), m.focus_sketch_title(), () => {
       const hosts = [
         ...(diagram.closest(".slides") ?? document).querySelectorAll(".docwalk-diagram"),
       ];
@@ -91,7 +92,7 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
       requestSketch({ source, index: at >= 0 ? at + 1 : null });
     });
   }
-  const closeButton = button("✕", "Close", () => close());
+  const closeButton = button("✕", m.close(), () => close());
 
   const onWheel = (event: WheelEvent) => {
     if (!event.ctrlKey && !event.metaKey) return;

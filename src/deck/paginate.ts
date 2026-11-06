@@ -1,3 +1,4 @@
+import { m } from "../paraglide/messages.js";
 import { OVERFLOW_TOLERANCE_PX } from "./measure";
 
 /**
@@ -250,7 +251,7 @@ function setBreadcrumb(slide: HTMLElement, breadcrumb: string[]): void {
   if (!nav) {
     nav = document.createElement("nav");
     nav.className = "docwalk-breadcrumb";
-    nav.setAttribute("aria-label", "Section path");
+    nav.setAttribute("aria-label", m.deck_section_path());
     slide.querySelector(".docwalk-slide")?.prepend(nav);
   }
   nav.textContent = breadcrumb.join(" › ");
@@ -261,7 +262,7 @@ function continuedHeading(title: string): HTMLElement {
   h.className = "docwalk-part-title";
   const marker = document.createElement("span");
   marker.className = "docwalk-continued";
-  marker.textContent = " · continued";
+  marker.textContent = ` · ${m.deck_continued()}`;
   h.append(title, marker);
   return h;
 }
@@ -270,7 +271,11 @@ function sectionTitle(slide: HTMLElement): string {
   // Only a top-level heading titles the slide: one nested in a footnote list
   // (its hidden "Footnotes" label), a quote or <details> is content.
   const heading = bodyOf(slide).querySelector(":scope > :is(h1, h2, h3, h4, h5, h6)");
-  return (heading?.textContent ?? "").replace(/\s*· continued$/, "").trim();
+  if (!heading) return "";
+  // The "· continued" marker is an element, so it is dropped in any language.
+  const copy = heading.cloneNode(true) as Element;
+  for (const marker of copy.querySelectorAll(".docwalk-continued")) marker.remove();
+  return (copy.textContent ?? "").trim();
 }
 
 function breadcrumbOf(slide: HTMLElement): string[] {

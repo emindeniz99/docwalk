@@ -1,3 +1,4 @@
+import { m } from "../paraglide/messages.js";
 import type { EditorDiagnostic } from "./types";
 
 /**
@@ -74,7 +75,7 @@ export function announceDiagnostics(groups: readonly LineNotes[]): string {
   const lines = groups.map((g) => g.line);
   const where =
     lines.length === 1
-      ? `line ${lines[0]}`
-      : `lines ${lines.slice(0, -1).join(", ")} and ${lines[lines.length - 1]}`;
-  return `${count} ${count === 1 ? "note" : "notes"} in the source, on ${where}.`;
+      ? m.editor_line({ line: lines[0] ?? 1 })
+      : m.editor_lines({ list: lines.slice(0, -1).join(", "), last: lines.at(-1) ?? 1 });
+  return m.editor_announce({ count, where });
 }

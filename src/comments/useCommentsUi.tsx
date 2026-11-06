@@ -3,6 +3,7 @@ import { MessageSquare } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DeckController, SlideInfo } from "../deck/controller";
 import type { LoadedDocument } from "../inputs/types";
+import { m } from "../paraglide/messages.js";
 import type { SectionPlan } from "../sectioning/sectionize";
 import type { Command } from "../shell/CommandPalette";
 import type { MoreAction } from "../shell/MoreMenu";
@@ -19,7 +20,7 @@ import { useComments } from "./useComments";
 
 // The panel (forms, lists, the sidecar writer) loads on first open, outside the first-load bundle.
 const CommentsPanel = lazy(() =>
-  import("./CommentsPanel").then((m) => ({ default: m.CommentsPanel })),
+  import("./CommentsPanel").then((mod) => ({ default: mod.CommentsPanel })),
 );
 
 /** Below this width the shell stacks its panes, so the panel becomes a sheet. */
@@ -90,7 +91,7 @@ export function useCommentsUi({
         setNotice({
           ...n,
           ...(n.tone === "info"
-            ? { action: { label: "Show comments", run: () => show(true) } }
+            ? { action: { label: m.comments_show(), run: () => show(true) } }
             : {}),
         }),
       [setNotice, show],
@@ -126,7 +127,7 @@ export function useCommentsUi({
       ? { kind: "heading", slug: current.sectionId }
       : null;
   const currentCount = current ? (counts.get(current.sectionId) ?? 0) : 0;
-  const label = open ? "Hide comments" : "Show comments";
+  const label = open ? m.comments_hide() : m.comments_show();
 
   const toggle: ReactNode =
     enabled && !phone ? (
@@ -136,7 +137,7 @@ export function useCommentsUi({
     enabled && phone
       ? {
           id: "comments",
-          label: openCount > 0 ? `Comments (${openCount} open)` : "Comments",
+          label: openCount > 0 ? m.comments_more_count({ count: openCount }) : m.comments_title(),
           Icon: MessageSquare,
           run: () => show(true),
         }

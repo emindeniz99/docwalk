@@ -6,6 +6,8 @@
  * a DOMException.
  */
 
+import { m } from "../paraglide/messages.js";
+
 /** Characters no workspace name may contain: separators, and what Windows forbids. */
 const FORBIDDEN = /[/\\:*?"<>|]/;
 // oxlint-disable-next-line no-control-regex
@@ -13,13 +15,13 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
 
 /** Why `name` cannot be a file or folder name, or `null` when it can. */
 export function validateName(name: string): string | null {
-  if (name.trim() === "") return "Enter a name.";
-  if (name !== name.trim()) return "A name cannot start or end with a space.";
-  if (name === "." || name === "..") return "That name is reserved.";
-  if (name.length > 255) return "Use a name of 255 characters or fewer.";
-  if (FORBIDDEN.test(name)) return 'A name cannot contain / \\ : * ? " < > or |.';
-  if (CONTROL.test(name)) return "A name cannot contain control characters.";
-  if (name.endsWith(".")) return "A name cannot end with a dot.";
+  if (name.trim() === "") return m.name_empty();
+  if (name !== name.trim()) return m.name_space();
+  if (name === "." || name === "..") return m.name_reserved();
+  if (name.length > 255) return m.name_too_long();
+  if (FORBIDDEN.test(name)) return m.name_forbidden();
+  if (CONTROL.test(name)) return m.name_control();
+  if (name.endsWith(".")) return m.name_dot();
   return null;
 }
 

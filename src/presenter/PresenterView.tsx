@@ -6,6 +6,8 @@ import { renderDiagrams } from "../deck/mermaid";
 import { paginateSlide } from "../deck/paginate";
 import { flagPages, SLIDE_SIZE, slideAddress } from "../deck/pages";
 import { buildSlides } from "../deck/slides";
+import { ariaLocale, useLocale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
 import {
   connectPresenter,
@@ -40,6 +42,8 @@ export function PresenterView({ channel }: PresenterViewProps) {
   const [previews, setPreviews] = useState<Previews | null>(null);
   const connection = useRef<PresenterConnection | null>(null);
   const now = useNow();
+  // The window's language follows the main tab's switch (a storage event).
+  const locale = useLocale();
 
   useEffect(() => {
     const c = connectPresenter(setState, {
@@ -55,7 +59,8 @@ export function PresenterView({ channel }: PresenterViewProps) {
 
   const markdown = state?.markdown;
   const levelKey = state ? JSON.stringify(state.level) : null;
-  const key = markdown === undefined ? null : `${levelKey}\n${markdown}`;
+  // Previews carry slide chrome and overflow notes, so a language switch rebuilds them too.
+  const key = markdown === undefined ? null : `${locale}\n${levelKey}\n${markdown}`;
 
   // Rebuild only when the document or level changes, not on every slide change or heartbeat.
   useEffect(() => {
@@ -85,11 +90,11 @@ export function PresenterView({ channel }: PresenterViewProps) {
   // screen-share picker; the presenter must not share this one by mistake.
   useEffect(() => {
     const previous = document.title;
-    document.title = "Presenter view · docwalk";
+    document.title = m.presenter_window_title({}, { locale });
     return () => {
       document.title = previous;
     };
-  }, []);
+  }, [locale]);
 
   // Clickers send PageUp/PageDown; arrows match the audience deck. Listen in
   // the capture phase so these keys step the deck even while focus sits in
@@ -129,38 +134,41 @@ export function PresenterView({ channel }: PresenterViewProps) {
   const status = !state
     ? null
     : !connected
-      ? "Disconnected: the audience window stopped answering. Showing the last slide it reported."
+      ? m.presenter_disconnected()
       : !ready
-        ? "Rendering previews…"
+        ? m.presenter_rendering()
         : previews.error
-          ? "Previews could not be rendered. Navigation still works."
+          ? m.presenter_previews_failed()
           : null;
 
   return (
     <div className="docwalk-presenter">
       <header className="docwalk-presenter-bar">
         <div className="docwalk-presenter-clock">
-          <span className="docwalk-presenter-label">Elapsed</span>
-          <span role="timer" aria-label="Elapsed time">
+          <span className="docwalk-presenter-label">{m.presenter_elapsed()}</span>
+          <span role="timer" aria-label={m.presenter_elapsed_time()}>
             {state ? formatElapsed(now - state.startedAt) : "0:00"}
           </span>
         </div>
         <div className="docwalk-presenter-clock">
-          <span className="docwalk-presenter-label">Time</span>
+          <span className="docwalk-presenter-label">{m.presenter_time()}</span>
           <time>
-            {new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            {new Date(now).toLocaleTimeString(ariaLocale(locale), {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
           </time>
         </div>
         <div className="docwalk-presenter-clock">
-          <span className="docwalk-presenter-label">Slide</span>
-          <span aria-label="Slide position">
+          <span className="docwalk-presenter-label">{m.presenter_slide()}</span>
+          <span aria-label={m.presenter_slide_position()}>
             {state ? `${index >= 0 ? index + 1 : "–"} / ${addresses.length}` : "– / –"}
           </span>
         </div>
         <div className="docwalk-presenter-nav">
           <Button
             className="docwalk-presenter-control"
-            aria-label="Previous slide"
+            aria-label={m.presenter_previous()}
             isDisabled={!state || index === 0}
             onPress={() => step(-1)}
           >
@@ -168,7 +176,7 @@ export function PresenterView({ channel }: PresenterViewProps) {
           </Button>
           <Button
             className="docwalk-presenter-control"
-            aria-label="Next slide"
+            aria-label={m.presenter_next()}
             isDisabled={!state || (index >= 0 && index >= addresses.length - 1)}
             onPress={() => step(1)}
           >
@@ -185,22 +193,22 @@ export function PresenterView({ channel }: PresenterViewProps) {
         <main className="docwalk-presenter-main">
           <SlidePreview
             className="docwalk-presenter-current"
-            label="Now"
+            label={m.presenter_now()}
             title={titleOf(state.current, pages)}
             page={pages?.get(state.current)}
-            empty={ready ? "No preview for this slide." : ""}
+            empty={ready ? m.presenter_no_preview() : ""}
           />
           <aside className="docwalk-presenter-side">
             <SlidePreview
               className="docwalk-presenter-next"
-              label="Next"
-              title={nextAddress ? titleOf(nextAddress, pages) : "End of the deck"}
+              label={m.presenter_up_next()}
+              title={nextAddress ? titleOf(nextAddress, pages) : m.presenter_end()}
               page={nextAddress ? pages?.get(nextAddress) : undefined}
-              empty={ready && nextAddress ? "No preview for this slide." : ""}
+              empty={ready && nextAddress ? m.presenter_no_preview() : ""}
             />
             <ListBox
               ref={list}
-              aria-label="Slides"
+              aria-label={m.deck_label()}
               className="docwalk-presenter-list"
               selectionMode="single"
               disallowEmptySelection
@@ -229,11 +237,8 @@ export function PresenterView({ channel }: PresenterViewProps) {
         </main>
       ) : (
         <main className="docwalk-presenter-waiting">
-          <h1>Waiting for the audience window</h1>
-          <p>
-            Keep the docwalk tab that opened this window open. Its slides appear here as soon as it
-            answers.
-          </p>
+          <h1>{m.presenter_waiting_title()}</h1>
+          <p>{m.presenter_waiting_body()}</p>
         </main>
       )}
     </div>
@@ -351,9 +356,9 @@ function titleOf(address: string, pages: Map<string, HTMLElement> | null): strin
 export function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
+  const min = Math.floor((total % 3600) / 60);
   const s = String(total % 60).padStart(2, "0");
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+  return h > 0 ? `${h}:${String(min).padStart(2, "0")}:${s}` : `${min}:${s}`;
 }
 
 function useNow(): number {

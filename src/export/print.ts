@@ -1,3 +1,4 @@
+import { m } from "../paraglide/messages.js";
 import { sameOriginRules } from "./css";
 import { escapeStyleText, rewriteCssUrls } from "./cssText";
 import "./export.css";
@@ -31,7 +32,7 @@ export async function printDeck(
   const frame = document.createElement("iframe");
   frame.setAttribute(FRAME_MARKER, "");
   frame.className = "docwalk-print-frame";
-  frame.title = "Print view";
+  frame.title = m.export_print_view();
   frame.tabIndex = -1;
   frame.setAttribute("aria-hidden", "true");
   // It can outlive the dialog (no afterprint); its links must not take focus meanwhile.
@@ -51,7 +52,7 @@ export async function printDeck(
   const doc = frame.contentDocument;
   if (!win || !doc) {
     frame.remove();
-    throw new Error("This browser does not allow printing from here.");
+    throw new Error(m.export_print_blocked());
   }
 
   try {

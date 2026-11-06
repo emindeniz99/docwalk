@@ -9,6 +9,8 @@ import {
   Separator,
 } from "react-aria-components";
 import { COARSE_POINTER, setEditorChoice, useStoredEditorChoice } from "../editor/choice";
+import { chooseLocale, localeName, locales, useLocale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import { setLoadRemoteImages, useLoadRemoteImages } from "../render/remoteImages";
 import { IconButton } from "./IconButton";
 import { useMediaQuery } from "./useMediaQuery";
@@ -27,14 +29,15 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
   const loadRemoteImages = useLoadRemoteImages();
   const editor = useStoredEditorChoice();
   const coarse = useMediaQuery(COARSE_POINTER);
+  const locale = useLocale();
   return (
     <MenuTrigger>
-      <IconButton label="More actions">
+      <IconButton label={m.more_actions()}>
         <Ellipsis size={18} aria-hidden="true" />
       </IconButton>
       <Popover className="docwalk-popover" placement="bottom end">
         <Menu
-          aria-label="More actions"
+          aria-label={m.more_actions()}
           className="docwalk-menu docwalk-more-menu"
           onAction={(key) => actions.find((a) => a.id === key)?.run()}
         >
@@ -56,7 +59,7 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
           >
             <MenuItem
               id={LOAD_REMOTE_IMAGES}
-              textValue="Always load remote images"
+              textValue={m.more_remote_images()}
               className="docwalk-menu-item"
             >
               {({ isSelected }) => (
@@ -66,7 +69,7 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
                   ) : (
                     <ImageOff size={16} aria-hidden="true" />
                   )}
-                  Always load remote images
+                  {m.more_remote_images()}
                 </>
               )}
             </MenuItem>
@@ -76,7 +79,7 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
           {!coarse && <Separator className="docwalk-menu-separator" />}
           {!coarse && (
             <MenuSection
-              aria-label="Editor"
+              aria-label={m.more_editor()}
               selectionMode="single"
               disallowEmptySelection
               selectedKeys={[editor]}
@@ -85,7 +88,7 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
                 if (key === "codemirror" || key === "monaco") setEditorChoice(key);
               }}
             >
-              <Header className="docwalk-menu-header">Editor</Header>
+              <Header className="docwalk-menu-header">{m.more_editor()}</Header>
               <MenuItem
                 id="codemirror"
                 textValue="CodeMirror"
@@ -102,6 +105,33 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
               </MenuItem>
             </MenuSection>
           )}
+          {/* Radio items (decision 56): the language in use is announced, and a
+              switch keeps the draft and the slide (decision 30). */}
+          <Separator className="docwalk-menu-separator" />
+          <MenuSection
+            aria-label={m.more_language()}
+            selectionMode="single"
+            disallowEmptySelection
+            selectedKeys={[locale]}
+            onSelectionChange={(keys) => {
+              const [key] = keys === "all" ? [] : [...keys];
+              const next = locales.find((l) => l === key);
+              if (next) chooseLocale(next);
+            }}
+          >
+            <Header className="docwalk-menu-header">{m.more_language()}</Header>
+            {locales.map((l) => (
+              <MenuItem
+                key={l}
+                id={l}
+                textValue={localeName(l)}
+                lang={l}
+                className="docwalk-menu-item docwalk-menu-item-inset"
+              >
+                {localeName(l)}
+              </MenuItem>
+            ))}
+          </MenuSection>
         </Menu>
       </Popover>
     </MenuTrigger>

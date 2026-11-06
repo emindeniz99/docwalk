@@ -6,11 +6,12 @@
  * `#doc=…&c=…`, or alone as `#c=…` on a `?src=` / `?repo=` link; a link
  * without it opens as before.
  */
+import { m } from "../paraglide/messages.js";
 import { COMMENTS_PARAM, decodeDoc, encodeDoc } from "../share/fragment";
 import { parseCommentsText, type ParseResult } from "./schema";
 import { SIDECAR_FORMAT, SIDECAR_VERSION, type DocComment } from "./types";
 
-export const DAMAGED_COMMENTS = "The comments in this link are damaged and were not imported.";
+export const DAMAGED_COMMENTS = m.comments_damaged_link;
 
 function params(hash: string): string[] {
   return (hash.startsWith("#") ? hash.slice(1) : hash).split("&");
@@ -41,7 +42,7 @@ export async function encodeComments(comments: readonly DocComment[]): Promise<s
 /** Comments from a link value; the same caps as the share fragment apply before any parsing. */
 export async function decodeComments(value: string): Promise<ParseResult> {
   const text = await decodeDoc(value);
-  if (text === null) return { ok: false, message: DAMAGED_COMMENTS };
+  if (text === null) return { ok: false, message: DAMAGED_COMMENTS() };
   const result = parseCommentsText(text);
-  return result.ok ? result : { ok: false, message: DAMAGED_COMMENTS };
+  return result.ok ? result : { ok: false, message: DAMAGED_COMMENTS() };
 }

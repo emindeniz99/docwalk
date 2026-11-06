@@ -28,6 +28,8 @@ import {
 import { prepareDiagramSource } from "../deck/mermaid";
 import { downloadBlob } from "../export/download";
 import { slugify } from "../export/filename";
+import { useLocale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import { IconButton } from "../shell/IconButton";
 import { useMediaQuery } from "../shell/useMediaQuery";
 import "./canvas.css";
@@ -67,10 +69,13 @@ type Load =
 type Saved = "saved" | "unsaved" | "blocked";
 
 const EXPORTS = [
-  { id: "excalidraw", label: "Excalidraw file (.excalidraw)", Icon: FileJson },
-  { id: "png", label: "PNG image", Icon: ImageIcon },
-  { id: "svg", label: "SVG image", Icon: FileImage },
+  { id: "excalidraw", label: m.sketch_export_excalidraw, Icon: FileJson },
+  { id: "png", label: m.sketch_export_png, Icon: ImageIcon },
+  { id: "svg", label: m.sketch_export_svg, Icon: FileImage },
 ] as const;
+
+/** Excalidraw ships its own translations; it follows the UI language too. */
+const EXCALIDRAW_LANG = { en: "en", tr: "tr-TR" } as const;
 
 /** The diagram type from its first line (`flowchart`, `sequenceDiagram`, …), for the title. */
 export function diagramKind(source: string): string {
@@ -128,6 +133,7 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
   const fresh = useRef(false);
   const live = useRef(true);
   const dark = useResolvedDark();
+  const locale = useLocale();
   const kind = diagramKind(source);
   const name = `${slugify(documentTitle) || "docwalk"}-diagram-${index ?? kind}`;
 
@@ -274,9 +280,9 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
       if (job === "excalidraw") {
         const json = serializeAsJSON(elements, appState, files, "local");
         downloadBlob(new Blob([json], { type: "application/json" }), `${name}.excalidraw`);
-        setExportStatus(`Downloaded ${name}.excalidraw.`);
+        setExportStatus(m.export_downloaded({ name: `${name}.excalidraw` }));
       } else if (job === "png") {
-        setExportStatus("Rendering the PNG image…");
+        setExportStatus(m.sketch_rendering_png());
         const blob = await exportToBlob({
           elements,
           appState: { ...appState, exportBackground: true },
@@ -284,31 +290,31 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
           mimeType: "image/png",
         });
         downloadBlob(blob, `${name}.png`);
-        setExportStatus(`Downloaded ${name}.png.`);
+        setExportStatus(m.export_downloaded({ name: `${name}.png` }));
       } else if (job === "svg") {
-        setExportStatus("Rendering the SVG image…");
+        setExportStatus(m.sketch_rendering_svg());
         const svg = await exportToSvg({
           elements,
           appState: { ...appState, exportBackground: true },
           files,
         });
         downloadBlob(new Blob([svg.outerHTML], { type: "image/svg+xml" }), `${name}.svg`);
-        setExportStatus(`Downloaded ${name}.svg.`);
+        setExportStatus(m.export_downloaded({ name: `${name}.svg` }));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setExportStatus(`Export failed: ${message}`);
+      setExportStatus(m.export_failed({ reason: message }));
     }
   };
 
   const subtitle = [
-    index ? `Diagram ${index}` : null,
+    index ? m.sketch_diagram({ number: index }) : null,
     kind,
     saved === "blocked"
-      ? "not saved: this browser blocks storage"
+      ? m.sketch_blocked()
       : saved === "unsaved"
-        ? "saving…"
-        : "saved in this browser only",
+        ? m.sketch_saving()
+        : m.sketch_saved(),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -328,7 +334,7 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
       >
         <div className="docwalk-sketch-heading">
           <Heading id="docwalk-sketch-title" slot="title" className="docwalk-sketch-title">
-            Sketch
+            {m.sketch_title()}
           </Heading>
           <span
             className="docwalk-sketch-subtitle"
@@ -343,31 +349,31 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
         <MenuTrigger>
           <Button className="docwalk-button" isDisabled={load.status !== "ready"}>
             <Download size={16} aria-hidden="true" />
-            Export
+            {m.app_export()}
           </Button>
           <Popover className="docwalk-popover docwalk-sketch-popover" placement="bottom end">
             <Menu
-              aria-label="Export sketch"
+              aria-label={m.sketch_export_label()}
               className="docwalk-menu"
               onAction={(job) => void runExport(job)}
             >
               {EXPORTS.map(({ id, label, Icon }) => (
-                <MenuItem key={id} id={id} textValue={label} className="docwalk-menu-item">
+                <MenuItem key={id} id={id} textValue={label()} className="docwalk-menu-item">
                   <Icon size={16} aria-hidden="true" />
-                  {label}
+                  {label()}
                 </MenuItem>
               ))}
             </Menu>
           </Popover>
         </MenuTrigger>
-        <IconButton label="Close sketch" onPress={onClose}>
+        <IconButton label={m.sketch_close()} onPress={onClose}>
           <X size={18} aria-hidden="true" />
         </IconButton>
       </div>
       <div className="docwalk-sketch-canvas">
         {load.status === "error" && (
           <p className="docwalk-diagnostic docwalk-sketch-wait">
-            This diagram could not be converted into a sketch: {load.message}
+            {m.sketch_convert_failed({ reason: load.message })}
           </p>
         )}
         {/* One element for both states, so Excalidraw stays mounted when the conversion lands. */}
@@ -375,6 +381,7 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
           <SketchCanvas
             data={load.data}
             dark={dark}
+            langCode={EXCALIDRAW_LANG[locale]}
             name={name}
             onChange={onChange}
             onApi={onApi}
@@ -382,7 +389,7 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
         )}
         {(load.status === "loading" || load.status === "converting") && (
           <p className="docwalk-sketch-wait" role="status">
-            Converting the diagram…
+            {m.sketch_converting()}
           </p>
         )}
       </div>
@@ -400,6 +407,7 @@ const noEmbeds = () => false;
 interface SketchCanvasProps {
   data: InitialData;
   dark: boolean;
+  langCode: string;
   name: string;
   onChange: OnChange;
   onApi: (api: Api) => void;
@@ -409,6 +417,7 @@ interface SketchCanvasProps {
 const SketchCanvas = memo(function SketchCanvas({
   data,
   dark,
+  langCode,
   name,
   onChange,
   onApi,
@@ -419,6 +428,7 @@ const SketchCanvas = memo(function SketchCanvas({
       excalidrawAPI={onApi}
       onChange={onChange}
       theme={dark ? "dark" : "light"}
+      langCode={langCode}
       name={name}
       autoFocus
       aiEnabled={false}

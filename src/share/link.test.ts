@@ -106,7 +106,7 @@ describe("other documents share as a #doc= fragment", () => {
     );
     expect(result.url.length).toBeGreaterThan(FRAGMENT_WARN_CHARS);
     expect(result.url.length).toBeLessThanOrEqual(FRAGMENT_MAX_CHARS);
-    expect(result.warning).toBe(LONG_LINK_WARNING);
+    expect(result.warning).toBe(LONG_LINK_WARNING());
   });
 
   test("above the maximum, no link is built and the message suggests what to do instead", async () => {
@@ -115,7 +115,7 @@ describe("other documents share as a #doc= fragment", () => {
       markdown: incompressible(FRAGMENT_MAX_CHARS),
       base: BASE,
     });
-    expect(result).toEqual({ ok: false, message: TOO_LONG_MESSAGE });
+    expect(result).toEqual({ ok: false, message: TOO_LONG_MESSAGE() });
   });
 });
 
@@ -147,7 +147,7 @@ describe("tokens never reach a link", () => {
     expect(new URL(result.url).searchParams.get("src")).toBe(
       "https://raw.githubusercontent.com/acme/private/main/plan.md",
     );
-    expect(result.warning).toBe(TOKEN_REMOVED_WARNING);
+    expect(result.warning).toBe(TOKEN_REMOVED_WARNING());
   });
 
   test("credentials in a ?src= URL's user info are removed", async () => {
@@ -183,7 +183,7 @@ describe("tokens never reach a link", () => {
       };
       const result = link(await buildShareLink({ source, markdown: "", base: BASE }));
       expect(result.url).not.toContain(TOKEN);
-      expect(result.warning).toBe(TOKEN_REMOVED_WARNING);
+      expect(result.warning).toBe(TOKEN_REMOVED_WARNING());
     },
   );
 

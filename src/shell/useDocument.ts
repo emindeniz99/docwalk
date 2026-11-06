@@ -18,14 +18,15 @@ import {
   saveDraft,
 } from "../share/draft";
 import { isDocHash, readFragment } from "../share/fragment";
+import { m } from "../paraglide/messages.js";
 import { rememberedFile } from "../workspace/store";
 
 export const SAMPLE: LoadedDocument = { markdown: sample, source: { kind: "sample" } };
 
-export const DAMAGED_LINK = "This share link is damaged or incomplete.";
+/** Message functions, read when a notice is raised, so they follow the UI language. */
+export const DAMAGED_LINK = m.doc_damaged_link;
 
-export const DRAFT_KEPT =
-  "Your edits are not saved in this browser: saving them would replace the draft you saved earlier.";
+export const DRAFT_KEPT = m.doc_draft_kept;
 
 export interface Notice {
   message: string;
@@ -107,7 +108,7 @@ export function useDocument({ follow }: { follow: boolean }) {
       message: describeLoadError(error),
       tone: "error",
       ...(privateRepo
-        ? { action: { label: "Add a GitHub token", run: () => setTokenOpen(true) } }
+        ? { action: { label: m.doc_add_token(), run: () => setTokenOpen(true) } }
         : {}),
     });
   }, []);
@@ -144,7 +145,7 @@ export function useDocument({ follow }: { follow: boolean }) {
       setDoc({ markdown, source: { kind: "fragment" } });
     } else {
       setDoc((prev) => prev ?? SAMPLE);
-      setNotice({ message: DAMAGED_LINK, tone: "error" });
+      setNotice({ message: DAMAGED_LINK(), tone: "error" });
     }
   }, []);
 
@@ -156,7 +157,7 @@ export function useDocument({ follow }: { follow: boolean }) {
     if (follow || started.current) return;
     started.current = true;
     const startedAt = generation.current;
-    const signedOut = () => setNotice({ message: "Signed out of GitHub.", tone: "info" });
+    const signedOut = () => setNotice({ message: m.doc_signed_out(), tone: "info" });
     void (async () => {
       // OAuth code loads only for a sign-in callback or a session to keep fresh.
       const callback = new URL(location.href).searchParams.get("oauth") === "callback";
@@ -167,7 +168,7 @@ export function useDocument({ follow }: { follow: boolean }) {
         const login = await completeLogin(location.href, {}, signedOut);
         if (login.kind === "error") setNotice({ message: login.message, tone: "error" });
         if (login.kind === "signed-in") {
-          setNotice({ message: "Signed in to GitHub.", tone: "info" });
+          setNotice({ message: m.doc_signed_in(), tone: "info" });
         } else {
           scheduleRefresh({}, signedOut);
         }
@@ -229,7 +230,7 @@ export function useDocument({ follow }: { follow: boolean }) {
       } else if (isDocHash(new URL(link).hash)) {
         await loadFragment(new URL(link).hash);
       } else {
-        setNotice({ message: "The presenter's link names no document.", tone: "error" });
+        setNotice({ message: m.doc_presenter_no_doc(), tone: "error" });
       }
     },
     [loadRequest, loadFragment],
@@ -278,9 +279,9 @@ export function useDocument({ follow }: { follow: boolean }) {
       const own = before === "paste" || before === "file";
       if (!own && draftWouldBeReplaced()) {
         setNotice({
-          message: DRAFT_KEPT,
+          message: DRAFT_KEPT(),
           tone: "info",
-          action: { label: "Replace my draft", run: replaceDraft },
+          action: { label: m.doc_replace_draft(), run: replaceDraft },
         });
       }
       setDoc((prev) => ({

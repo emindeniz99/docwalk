@@ -9,6 +9,8 @@ import {
   Modal,
   ModalOverlay,
 } from "react-aria-components";
+import { rich } from "../i18n/rich";
+import { m } from "../paraglide/messages.js";
 import { clonePages, type ClonedPage, type DeckController } from "./controller";
 import { SLIDE_SIZE } from "./pages";
 import "./overview.css";
@@ -94,18 +96,18 @@ function OverviewBody({
     <>
       <header className="docwalk-overview-head">
         <Heading slot="title" className="docwalk-overview-title">
-          Slide overview
+          {m.cmd_overview()}
         </Heading>
-        <span className="docwalk-overview-count">{slides.length} slides</span>
+        <span className="docwalk-overview-count">{m.count_slides({ count: slides.length })}</span>
         <p className="docwalk-overview-hint">
-          Arrow keys to move, <kbd>Enter</kbd> to open, <kbd>Esc</kbd> to close
+          {rich(m.overview_hint, { enter: <kbd>Enter</kbd>, esc: <kbd>Esc</kbd> })}
         </p>
-        <Button className="docwalk-overview-close" aria-label="Close overview" onPress={close}>
+        <Button className="docwalk-overview-close" aria-label={m.overview_close()} onPress={close}>
           <X size={18} aria-hidden="true" />
         </Button>
       </header>
       <GridList
-        aria-label="Slides"
+        aria-label={m.deck_label()}
         layout="grid"
         items={slides}
         onAction={(key) => onPick(String(key))}
@@ -122,10 +124,10 @@ function OverviewBody({
               // type-ahead still finds a slide by its first letters.
               textValue={[
                 info.title,
-                info.page > 1 ? `page ${info.page}` : "",
-                `slide ${info.index + 1} of ${slides.length}`,
-                info.flagged ? "has a note" : "",
-                isCurrent ? "current slide" : "",
+                info.page > 1 ? m.overview_row_page({ page: info.page }) : "",
+                m.overview_row_position({ current: info.index + 1, total: slides.length }),
+                info.flagged ? m.overview_row_note() : "",
+                isCurrent ? m.overview_row_current() : "",
               ]
                 .filter(Boolean)
                 .join(", ")}
@@ -137,8 +139,8 @@ function OverviewBody({
                 <span className="docwalk-overview-n">{info.index + 1}</span>
                 <span className="docwalk-overview-name">{info.title}</span>
                 {info.page > 1 && <span className="docwalk-overview-page">· {info.page}</span>}
-                {info.flagged && <span className="docwalk-overview-note">Note</span>}
-                {isCurrent && <span className="docwalk-overview-here">Current</span>}
+                {info.flagged && <span className="docwalk-overview-note">{m.overview_note()}</span>}
+                {isCurrent && <span className="docwalk-overview-here">{m.overview_current()}</span>}
               </span>
             </GridListItem>
           );

@@ -86,7 +86,7 @@ describe("the saved draft and linked documents", () => {
     await pause(DRAFT_DEBOUNCE_MS + 200);
     expect(stored()).toEqual(PASTED);
     expect(inputs.current!.doc?.markdown).toBe("# Shared, fixed\n");
-    expect(inputs.current!.notice?.message).toBe(DRAFT_KEPT);
+    expect(inputs.current!.notice?.message).toBe(DRAFT_KEPT());
 
     // Replacing is the user's explicit choice; from then on edits save.
     act(() => inputs.current!.notice!.action!.run());

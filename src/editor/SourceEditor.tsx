@@ -1,6 +1,8 @@
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLocale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import "./editor.css";
 import { editorExtensions, flashLine, fromParent, setDiagnostics } from "./extensions";
 import { announceDiagnostics, clampLine, groupDiagnostics, minimalChange } from "./sync";
@@ -10,6 +12,34 @@ import type { SourceEditorProps } from "./types";
 const REVEAL_MS = 1200;
 
 const labelAttrs = (label: string) => EditorView.contentAttributes.of({ "aria-label": label });
+
+/**
+ * CodeMirror's own strings (the search panel, go to line, screen-reader
+ * announcements) in the UI language, keyed by its English text. The
+ * language is read when this runs; the editor reconfigures it on a switch.
+ */
+const phrases = () =>
+  EditorState.phrases.of({
+    Find: m.cm_find(),
+    Replace: m.cm_replace(),
+    next: m.cm_next(),
+    previous: m.cm_previous(),
+    all: m.cm_all(),
+    "match case": m.cm_match_case(),
+    regexp: m.cm_regexp(),
+    "by word": m.cm_by_word(),
+    replace: m.cm_replace_one(),
+    "replace all": m.cm_replace_all(),
+    close: m.cm_close(),
+    "Go to line": m.cm_go_to_line(),
+    go: m.cm_go(),
+    "current match": m.cm_current_match(),
+    "on line": m.cm_on_line(),
+    "replaced $ matches": m.cm_replaced_matches(),
+    "replaced match on line $": m.cm_replaced_on_line(),
+    "Selection deleted": m.cm_selection_deleted(),
+    "Control character": m.cm_control_character(),
+  });
 
 /**
  * The Markdown source editor (decision 4): CodeMirror 6 behind the
@@ -28,6 +58,8 @@ export function SourceEditor({
   const viewRef = useRef<EditorView | null>(null);
   const statusRef = useRef<HTMLDivElement>(null);
   const [labelCompartment] = useState(() => new Compartment());
+  const [phraseCompartment] = useState(() => new Compartment());
+  const locale = useLocale();
   // The text the editor and the parent last agreed on; an echo of it is skipped
   // by an O(1) string comparison instead of serialising the document.
   const syncedRef = useRef(value);
@@ -59,10 +91,13 @@ export function SourceEditor({
       parent: host,
       state: EditorState.create({
         doc: initial.current.value,
-        extensions: editorExtensions({
-          label: labelCompartment.of(labelAttrs(initial.current.label)),
-          onUpdate,
-        }),
+        extensions: [
+          phraseCompartment.of(phrases()),
+          editorExtensions({
+            label: labelCompartment.of(labelAttrs(initial.current.label)),
+            onUpdate,
+          }),
+        ],
       }),
     });
     syncedRef.current = initial.current.value;
@@ -71,7 +106,7 @@ export function SourceEditor({
       view.destroy();
       viewRef.current = null;
     };
-  }, [labelCompartment]);
+  }, [labelCompartment, phraseCompartment]);
 
   // Apply the parent's value only when it differs from the document.
   useEffect(() => {
@@ -85,6 +120,12 @@ export function SourceEditor({
   useEffect(() => {
     viewRef.current?.dispatch({ effects: labelCompartment.reconfigure(labelAttrs(label)) });
   }, [label, labelCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: phraseCompartment.reconfigure(phrases()) });
+    // `locale` is not read here: phrases() reads the current language from Paraglide.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [locale, phraseCompartment]);
 
   // Diagnostics are rebuilt only when the parent sends new ones; between
   // updates they follow their lines through edits instead of jumping back.

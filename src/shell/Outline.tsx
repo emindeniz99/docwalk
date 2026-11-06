@@ -2,6 +2,8 @@ import { MessageSquare } from "lucide-react";
 import { useMemo } from "react";
 import { ListBox, ListBoxItem } from "react-aria-components";
 import type { SlideInfo } from "../deck/controller";
+import { useLocale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 
 interface OutlineProps {
   slides: SlideInfo[];
@@ -21,6 +23,7 @@ interface OutlineEntry {
 
 /** One entry per section: its title, how many slides it became, and whether any of them carries a note. */
 export function Outline({ slides, current, onSelect, commentCounts }: OutlineProps) {
+  const locale = useLocale();
   const entries = useMemo(() => {
     const map = new Map<string, OutlineEntry>();
     for (const s of slides) {
@@ -40,14 +43,16 @@ export function Outline({ slides, current, onSelect, commentCounts }: OutlinePro
   }, [slides, commentCounts]);
 
   return (
-    <nav className="docwalk-outline" aria-label="Outline">
+    <nav className="docwalk-outline" aria-label={m.outline_label()}>
       <div className="docwalk-overline docwalk-outline-head">
-        <span>Outline</span>
-        <span>{slides.length} slides</span>
+        <span>{m.outline_label()}</span>
+        <span>{m.count_slides({ count: slides.length })}</span>
       </div>
       <ListBox
-        aria-label="Sections"
+        aria-label={m.outline_sections()}
         items={entries}
+        // Row labels are in the UI language, so a switch renders the rows again.
+        dependencies={[locale]}
         selectionMode="single"
         selectedKeys={current ? [current.sectionId] : []}
         // With a selection mode, React Aria reports clicks and Enter as selection changes.
@@ -68,12 +73,12 @@ export function Outline({ slides, current, onSelect, commentCounts }: OutlinePro
                   <MessageSquare size={12} aria-hidden="true" />
                   {e.comments}
                   <span className="docwalk-visually-hidden">
-                    {e.comments === 1 ? " comment" : " comments"}
+                    {` ${m.outline_comments({ count: e.comments })}`}
                   </span>
                 </span>
               )}
               {e.flagged && (
-                <span className="docwalk-note-dot" aria-label="Has a note" role="img" />
+                <span className="docwalk-note-dot" aria-label={m.outline_has_note()} role="img" />
               )}
               <span>{e.pages}</span>
             </span>

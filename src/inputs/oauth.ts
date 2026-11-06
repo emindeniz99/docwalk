@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import * as v from "valibot";
+import { m } from "../paraglide/messages.js";
 import type { HealthResponse, RefreshRequest, TokenRequest, TokenResponse } from "../api/types";
 import { readCapped, type FetchLike } from "./load";
 import {
@@ -271,20 +272,17 @@ export async function completeLogin(
   if (params["error"] !== undefined) {
     return {
       kind: "error",
-      message:
-        params["error"] === "access_denied"
-          ? "GitHub sign-in was cancelled."
-          : "GitHub sign-in failed.",
+      message: params["error"] === "access_denied" ? m.oauth_cancelled() : m.oauth_failed(),
     };
   }
   const callback = v.safeParse(CallbackSchema, params);
-  if (!callback.success) return { kind: "error", message: "The sign-in link is malformed." };
+  if (!callback.success) return { kind: "error", message: m.oauth_malformed() };
   if (pending === null || full.now() - pending.createdAt > PENDING_MAX_AGE_MS) {
-    return { kind: "error", message: "The sign-in expired. Try again." };
+    return { kind: "error", message: m.oauth_expired() };
   }
   if (callback.output.state !== pending.state) {
     // Not ours: a forged or replayed callback. The code is never sent anywhere.
-    return { kind: "error", message: "The sign-in did not match this tab. Try again." };
+    return { kind: "error", message: m.oauth_mismatch() };
   }
 
   const body: TokenRequest = {
@@ -299,7 +297,7 @@ export async function completeLogin(
     // Offline or the Worker is down: report it, so the caller's start-up goes on.
     token = null;
   }
-  if (token === null) return { kind: "error", message: "GitHub sign-in failed. Try again." };
+  if (token === null) return { kind: "error", message: m.oauth_failed_retry() };
   return {
     kind: "signed-in",
     token,

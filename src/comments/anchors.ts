@@ -8,6 +8,7 @@
 import GithubSlugger from "github-slugger";
 import type { Code, Heading, Root, RootContent } from "mdast";
 import { visit } from "unist-util-visit";
+import { m } from "../paraglide/messages.js";
 import { headingText, type SectionPlan } from "../sectioning/sectionize";
 import type { Anchor, DocComment } from "./types";
 
@@ -124,9 +125,11 @@ export type Resolved =
 
 /** How an anchor reads when its target is gone: what it pointed at, as written. */
 export function describeAnchor(anchor: Anchor): string {
-  if (anchor.kind === "heading") return `Heading #${anchor.slug}`;
-  const where = anchor.heading ? ` under #${anchor.heading}` : "";
-  return `Node ${anchor.node} in diagram ${anchor.diagram + 1}${where}`;
+  if (anchor.kind === "heading") return m.anchor_heading({ slug: anchor.slug });
+  const number = anchor.diagram + 1;
+  return anchor.heading
+    ? m.anchor_node_under({ node: anchor.node, number, heading: anchor.heading })
+    : m.anchor_node({ node: anchor.node, number });
 }
 
 /**
@@ -156,7 +159,7 @@ export function resolveAnchor(anchor: Anchor, index: AnchorIndex, nodes: Diagram
   return {
     status: "attached",
     sectionId: d.sectionId,
-    label: `Diagram node ${shown}`,
+    label: m.anchor_diagram_node({ node: shown }),
     // After its heading, before the next one.
     order: headingAt * 1000 + 1 + at,
   };

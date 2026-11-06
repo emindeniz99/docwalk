@@ -11,6 +11,7 @@
  * UTF-8 and sanitized when it is opened, like any other.
  */
 import { MAX_DOCUMENT_BYTES } from "../inputs/types";
+import { m } from "../paraglide/messages.js";
 import { WorkspaceError } from "./errors";
 import { isDocumentName, safeArchivePath } from "./names";
 
@@ -47,7 +48,7 @@ function concat(chunks: Uint8Array[], size: number): Uint8Array<ArrayBuffer> {
 
 export async function readArchive(bytes: Uint8Array): Promise<ArchiveContents> {
   if (bytes.length > MAX_ARCHIVE_BYTES) {
-    throw new WorkspaceError(`The zip file is larger than ${MAX_ARCHIVE_BYTES / 1024 / 1024} MB.`);
+    throw new WorkspaceError(m.ws_zip_too_large({ mb: MAX_ARCHIVE_BYTES / 1024 / 1024 }));
   }
   const { Unzip, UnzipInflate } = await import("fflate");
   const result: ArchiveContents = { files: [], folders: [], skipped: 0 };
@@ -58,7 +59,7 @@ export async function readArchive(bytes: Uint8Array): Promise<ArchiveContents> {
   const unzip = new Unzip((entry) => {
     if (failure) return;
     if (++entries > MAX_ARCHIVE_ENTRIES) {
-      failure = new WorkspaceError(`The zip file has more than ${MAX_ARCHIVE_ENTRIES} entries.`);
+      failure = new WorkspaceError(m.ws_zip_too_many({ count: MAX_ARCHIVE_ENTRIES }));
       return;
     }
     const isFolder = entry.name.endsWith("/") || entry.name.endsWith("\\");
@@ -81,14 +82,14 @@ export async function readArchive(bytes: Uint8Array): Promise<ArchiveContents> {
     entry.ondata = (error, chunk, final) => {
       if (failure || dropped) return;
       if (error) {
-        failure = new WorkspaceError("The zip file is damaged.");
+        failure = new WorkspaceError(m.ws_zip_damaged());
         return;
       }
       size += chunk.length;
       unpacked += chunk.length;
       if (unpacked > MAX_UNPACKED_BYTES) {
         failure = new WorkspaceError(
-          `The zip file unpacks to more than ${MAX_UNPACKED_BYTES / 1024 / 1024} MB.`,
+          m.ws_zip_unpacked_too_large({ mb: MAX_UNPACKED_BYTES / 1024 / 1024 }),
         );
         entry.terminate();
         return;
@@ -113,7 +114,7 @@ export async function readArchive(bytes: Uint8Array): Promise<ArchiveContents> {
       unzip.push(bytes.subarray(i, i + SLICE), i + SLICE >= bytes.length);
     }
   } catch {
-    throw new WorkspaceError("The file is not a zip archive, or it is damaged.");
+    throw new WorkspaceError(m.ws_zip_not_zip());
   }
   if (failure) throw failure;
   return result;

@@ -4,6 +4,8 @@ import { purifyHtml } from "../deck/purify";
 import { renderDiagrams } from "../deck/mermaid";
 import "../render/content.css";
 import { focusTarget, fragmentTarget } from "../render/fragments";
+import { useLocale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import { nodesToHtml } from "../render/toHtml";
 import { headingIds } from "../sectioning/sectionize";
@@ -22,6 +24,8 @@ export function DocumentView({
 }) {
   const host = useRef<HTMLElement>(null);
   const loadRemoteImages = useLoadRemoteImages();
+  // Footnote labels, image buttons and diagram notes are rendered in the UI language.
+  const locale = useLocale();
   const rendered = useRef(onRendered);
   useLayoutEffect(() => {
     rendered.current = onRendered;
@@ -69,6 +73,7 @@ export function DocumentView({
       observer.disconnect();
       stopClickToLoad();
     };
-  }, [root, loadRemoteImages]);
-  return <article ref={host} className="docwalk-document" aria-label="Document" />;
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [root, loadRemoteImages, locale]);
+  return <article ref={host} className="docwalk-document" aria-label={m.app_document()} />;
 }

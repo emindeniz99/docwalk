@@ -15,6 +15,7 @@ import {
   Text,
   TextField,
 } from "react-aria-components";
+import { m } from "../paraglide/messages.js";
 import { TEMPLATES, type ProjectTemplate } from "./templates";
 import type { Workspace } from "./useWorkspace";
 import "./workspace.css";
@@ -125,7 +126,7 @@ function NameForm({
             {submitLabel}
           </Button>
           <Button slot="close" className="docwalk-button">
-            Cancel
+            {m.cancel()}
           </Button>
         </div>
       </Form>
@@ -140,7 +141,7 @@ function ProjectForm({
   onSubmit: (name: string, template: ProjectTemplate["id"]) => Promise<string | null>;
   close: () => void;
 }) {
-  const [name, setName] = useState("New project");
+  const [name, setName] = useState<string>(() => m.ws_project_default_name());
   const [template, setTemplate] = useState<ProjectTemplate["id"]>("design");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -156,7 +157,7 @@ function ProjectForm({
     <>
       <Heading slot="title">
         <LayoutTemplate size={20} aria-hidden="true" />
-        New project
+        {m.ws_new_project()}
       </Heading>
       <Form onSubmit={(e) => void submit(e)} className="docwalk-ws-form">
         <TextField
@@ -169,10 +170,10 @@ function ProjectForm({
           autoFocus
           className="docwalk-ws-field"
         >
-          <Label>Project name</Label>
+          <Label>{m.ws_project_name()}</Label>
           <Input spellCheck={false} autoComplete="off" />
           <Text slot="description" className="docwalk-ws-hint">
-            A new folder with this name.
+            {m.ws_project_hint()}
           </Text>
           <FieldError className="docwalk-ws-error">{error}</FieldError>
         </TextField>
@@ -181,20 +182,20 @@ function ProjectForm({
           onChange={(v) => setTemplate(v as ProjectTemplate["id"])}
           className="docwalk-ws-templates"
         >
-          <Label>Template</Label>
+          <Label>{m.ws_template()}</Label>
           {TEMPLATES.map((t) => (
             <Radio key={t.id} value={t.id} className="docwalk-ws-template">
-              <span className="docwalk-ws-template-label">{t.label}</span>
-              <span className="docwalk-ws-template-description">{t.description}</span>
+              <span className="docwalk-ws-template-label">{t.label()}</span>
+              <span className="docwalk-ws-template-description">{t.description()}</span>
             </Radio>
           ))}
         </RadioGroup>
         <div className="docwalk-ws-actions">
           <Button type="submit" data-variant="primary" className="docwalk-button" isDisabled={busy}>
-            Create project
+            {m.ws_create_project()}
           </Button>
           <Button slot="close" className="docwalk-button">
-            Cancel
+            {m.cancel()}
           </Button>
         </div>
       </Form>
@@ -230,8 +231,12 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
   const dismiss = () => w.setDialog(null);
   const where = (dir: string) =>
     dir
-      ? `In ${dir}/`
-      : `At the top of ${w.root === "folder" ? (w.folderName ?? "the folder") : "the workspace"}`;
+      ? m.ws_where_dir({ dir })
+      : w.root !== "folder"
+        ? m.ws_where_top_workspace()
+        : w.folderName
+          ? m.ws_where_top_folder({ name: w.folderName })
+          : m.ws_where_top_the_folder();
 
   switch (d.kind) {
     case "new-file":
@@ -239,13 +244,13 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
         <Shell onClose={dismiss}>
           {(close) => (
             <NameForm
-              title="New file"
+              title={m.ws_new_file()}
               Icon={FilePlus}
-              label="File name"
-              initial="untitled.md"
+              label={m.ws_file_name()}
+              initial={m.ws_file_default_name()}
               selectStem
-              submitLabel="Create file"
-              hint={`${where(d.dir)}. Without an extension it becomes a .md file.`}
+              submitLabel={m.ws_create_file()}
+              hint={m.ws_file_hint({ where: where(d.dir) })}
               onSubmit={(name) => w.newFile(d.dir, name)}
               close={close}
             />
@@ -257,12 +262,12 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
         <Shell onClose={dismiss}>
           {(close) => (
             <NameForm
-              title="New folder"
+              title={m.ws_new_folder()}
               Icon={FolderPlus}
-              label="Folder name"
-              initial="New folder"
-              submitLabel="Create folder"
-              hint={`${where(d.dir)}.`}
+              label={m.ws_folder_name()}
+              initial={m.ws_folder_default_name()}
+              submitLabel={m.ws_create_folder()}
+              hint={m.ws_folder_hint({ where: where(d.dir) })}
               onSubmit={(name) => w.newFolder(d.dir, name)}
               close={close}
             />
@@ -280,12 +285,12 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
         <Shell onClose={dismiss}>
           {(close) => (
             <NameForm
-              title={`Rename ${d.node.name}`}
+              title={m.ws_rename_title({ name: d.node.name })}
               Icon={Pencil}
-              label="New name"
+              label={m.ws_new_name()}
               initial={d.node.name}
               selectStem={d.node.kind === "file"}
-              submitLabel="Rename"
+              submitLabel={m.ws_rename()}
               onSubmit={(name) => w.renameEntry(d.node, name)}
               close={close}
             />
@@ -294,11 +299,12 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
       );
     case "delete": {
       const folder = d.node.kind === "directory";
+      const disk = w.root === "folder";
       return (
         <Shell role="alertdialog" onClose={dismiss}>
           {(close) => (
             <Confirm
-              title={`Delete ${d.node.name}?`}
+              title={m.ws_delete_title({ name: d.node.name })}
               actions={
                 <>
                   <Button
@@ -307,20 +313,22 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
                     onPress={() => void w.removeEntry(d.node).then(close)}
                   >
                     <Trash size={16} aria-hidden="true" />
-                    Delete
+                    {m.ws_delete()}
                   </Button>
                   <Button slot="close" className="docwalk-button" autoFocus>
-                    Cancel
+                    {m.cancel()}
                   </Button>
                 </>
               }
             >
               <p>
-                {folder
-                  ? `The folder ${d.node.path} and everything in it will be deleted`
-                  : `${d.node.path} will be deleted`}
-                {w.root === "folder" ? " from your disk." : " from this browser."} This cannot be
-                undone.
+                {(folder
+                  ? disk
+                    ? m.ws_delete_folder_disk
+                    : m.ws_delete_folder_browser
+                  : disk
+                    ? m.ws_delete_file_disk
+                    : m.ws_delete_file_browser)({ path: d.node.path })}
               </p>
             </Confirm>
           )}
@@ -332,7 +340,7 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
         <Shell role="alertdialog" onClose={dismiss}>
           {(close) => (
             <Confirm
-              title={`Save changes to ${d.path}?`}
+              title={m.ws_discard_title({ path: d.path })}
               actions={
                 <>
                   <Button
@@ -346,7 +354,7 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
                       })
                     }
                   >
-                    Save
+                    {m.ws_save()}
                   </Button>
                   <Button
                     className="docwalk-button"
@@ -355,15 +363,15 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
                       d.proceed();
                     }}
                   >
-                    Discard changes
+                    {m.ws_discard_changes()}
                   </Button>
                   <Button slot="close" className="docwalk-button">
-                    Cancel
+                    {m.cancel()}
                   </Button>
                 </>
               }
             >
-              <p>The file has edits that are not saved to disk yet.</p>
+              <p>{m.ws_discard_body()}</p>
             </Confirm>
           )}
         </Shell>
@@ -374,7 +382,7 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
         <Shell role="alertdialog" onClose={() => w.resolveConflict("mine")}>
           {() => (
             <Confirm
-              title={`${d.path} changed on disk`}
+              title={m.ws_conflict_title({ path: d.path })}
               actions={
                 <>
                   <Button
@@ -383,19 +391,15 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
                     autoFocus
                     onPress={() => w.resolveConflict("mine")}
                   >
-                    Keep my edits
+                    {m.ws_keep_mine()}
                   </Button>
                   <Button className="docwalk-button" onPress={() => w.resolveConflict("disk")}>
-                    Load the disk version
+                    {m.ws_load_disk()}
                   </Button>
                 </>
               }
             >
-              <p>
-                Another program changed this file while you have unsaved edits here. Keep your edits
-                (saving then replaces the disk version), or load the version on disk (your edits are
-                lost).
-              </p>
+              <p>{m.ws_conflict_body()}</p>
             </Confirm>
           )}
         </Shell>

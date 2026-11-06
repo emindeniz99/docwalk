@@ -212,7 +212,7 @@ a {
 section[data-docwalk-id] {
   height: 100%;
   padding: 0;
-  text-align: left;
+  text-align: start;
 }
 
 /* The slide stays white in both themes: it is the projected page (DESIGN.md, Colors). */
@@ -284,7 +284,7 @@ section[data-docwalk-id] {
 .docwalk-slide-body th {
   padding: var(--dw-space-sm) var(--dw-space-md);
   border-bottom: 2px solid var(--dw-color-slide-ink);
-  text-align: left;
+  text-align: start;
 }
 
 .docwalk-slide-body td {
@@ -472,7 +472,7 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
+  margin-inline-start: auto;
   padding: 1px var(--dw-space-xs);
   border: 1px solid var(--border-strong);
   border-radius: var(--dw-radius-sm);
@@ -500,7 +500,7 @@ kbd {
 }
 
 .docwalk-segmented button + button {
-  border-left: 1px solid var(--border-strong);
+  border-inline-start: 1px solid var(--border-strong);
 }
 
 .docwalk-segmented button[data-selected] {
@@ -528,7 +528,7 @@ kbd {
 }
 
 .docwalk-statusbar-end {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 /* ---- Sidebar: outline and level ------------------------------------------ */
@@ -537,7 +537,7 @@ kbd {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   background: var(--surface);
 }
 
@@ -620,7 +620,7 @@ kbd {
 .docwalk-source {
   display: flex;
   min-height: 0;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   background: var(--surface);
 }
 
@@ -780,7 +780,7 @@ kbd {
 }
 
 .docwalk-palette-hint {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--muted);
   font-family: var(--dw-type-mono-family);
   font-size: var(--dw-type-caption-size);
@@ -802,7 +802,7 @@ kbd {
   --border: var(--dw-color-stage-border);
   --border-strong: var(--dw-color-stage-border);
   --muted: var(--dw-color-stage-muted);
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 /* The overview button beside the slide counter: a stage control like the annotation tools. */
@@ -956,7 +956,7 @@ kbd {
 
 .docwalk-menu-item[data-selected]::after {
   content: "✓";
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .docwalk-menu-item[data-focus-visible] {
@@ -1052,7 +1052,7 @@ kbd {
 .docwalk-toolbar .docwalk-export-status:not(:empty) {
   position: absolute;
   top: calc(100% + var(--dw-space-xs));
-  right: 0;
+  inset-inline-end: 0;
   z-index: 50;
   padding: var(--dw-space-xs) var(--dw-space-sm);
   border: 1px solid var(--border-strong);

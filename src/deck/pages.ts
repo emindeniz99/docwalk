@@ -1,3 +1,4 @@
+import { m as msg } from "../paraglide/messages.js";
 import { measureOffscreen, type SlideMeasurement } from "./measure";
 
 /**
@@ -17,17 +18,13 @@ export function slideAddress(slide: HTMLElement): string {
 
 export function describeOverflow(m: SlideMeasurement): string {
   const parts: string[] = [];
-  if (m.body.y > 0) parts.push(`${Math.round(m.body.y)} px too tall`);
-  if (m.body.x > 0) parts.push(`${Math.round(m.body.x)} px too wide`);
+  if (m.body.y > 0) parts.push(msg.deck_overflow_tall({ px: Math.round(m.body.y) }));
+  if (m.body.x > 0) parts.push(msg.deck_overflow_wide({ px: Math.round(m.body.x) }));
   const clipped = m.diagrams.filter((d) => d.x > 0 || d.y > 0).length;
-  if (clipped > 0) parts.push(`${clipped} diagram${clipped > 1 ? "s" : ""} clipped`);
+  if (clipped > 0) parts.push(msg.deck_overflow_clipped({ count: clipped }));
   const notes: string[] = [];
-  if (parts.length > 0) notes.push(`Does not fit: ${parts.join(", ")}. Scroll inside the slide.`);
-  if (m.tooSmall > 0) {
-    notes.push(
-      `${m.tooSmall} diagram${m.tooSmall > 1 ? "s are" : " is"} too small to read here. Click to open full screen.`,
-    );
-  }
+  if (parts.length > 0) notes.push(msg.deck_overflow_note({ parts: parts.join(", ") }));
+  if (m.tooSmall > 0) notes.push(msg.deck_too_small({ count: m.tooSmall }));
   return notes.join(" ");
 }
 

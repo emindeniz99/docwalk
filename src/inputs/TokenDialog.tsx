@@ -14,6 +14,8 @@ import {
   Text,
   TextField,
 } from "react-aria-components";
+import { rich } from "../i18n/rich";
+import { m } from "../paraglide/messages.js";
 import "./inputs.css";
 import { clearToken, parseToken, readToken, storePastedToken } from "./token";
 
@@ -65,17 +67,17 @@ function TokenForm({
     event.preventDefault();
     const token = parseToken(value);
     if (token === null) {
-      setError("That does not look like a GitHub token. Paste the whole token.");
+      setError(m.token_invalid());
       return;
     }
     if (!storePastedToken(token)) {
-      setError("This browser blocks session storage, so the token cannot be kept.");
+      setError(m.token_storage_blocked());
       return;
     }
     setValue("");
     setError(null);
     setHasToken(true);
-    setStatus("Token saved for this tab. Closing the tab forgets it.");
+    setStatus(m.token_saved());
     onTokenChange?.(token);
   };
 
@@ -84,7 +86,7 @@ function TokenForm({
     setHasToken(false);
     // The pressed button is about to be disabled; keep keyboard focus inside the dialog.
     inputRef.current?.focus();
-    setStatus("Token forgotten. Revoke it on GitHub too if you no longer need it.");
+    setStatus(m.token_forgotten());
     onTokenChange?.(null);
   };
 
@@ -92,23 +94,18 @@ function TokenForm({
     <>
       <Heading slot="title">
         <KeyRound size={20} aria-hidden="true" />
-        GitHub access token
+        {m.token_title()}
       </Heading>
-      <p>
-        A token lets docwalk read Markdown from private repositories. It stays in this browser tab
-        (session storage) and is sent only to api.github.com.
-      </p>
+      <p>{m.token_intro()}</p>
+      {/* GitHub's own labels stay as GitHub shows them (in English). */}
       <ol>
+        <li>{rich(m.token_step_repo, { option: <strong>Only select repositories</strong> })}</li>
         <li>
-          Create a fine-grained token. Under Repository access choose{" "}
-          <strong>Only select repositories</strong>.
-        </li>
-        <li>
-          Under Permissions set <strong>Contents: Read-only</strong>. Nothing else is needed.
+          {rich(m.token_step_permissions, { permission: <strong>Contents: Read-only</strong> })}
         </li>
       </ol>
       <Link href={NEW_TOKEN_URL} target="_blank" rel="noreferrer noopener">
-        Create a token on GitHub
+        {m.token_create_link()}
         <ExternalLink size={14} aria-hidden="true" />
       </Link>
       <Form onSubmit={save} className="docwalk-inputs-form">
@@ -123,7 +120,7 @@ function TokenForm({
           autoComplete="off"
           className="docwalk-inputs-field"
         >
-          <Label>Fine-grained token</Label>
+          <Label>{m.token_field()}</Label>
           <Input
             ref={inputRef}
             spellCheck={false}
@@ -131,7 +128,7 @@ function TokenForm({
             placeholder="github_pat_…"
           />
           <Text slot="description" className="docwalk-inputs-hint">
-            {hasToken ? "A token is saved for this tab." : "No token saved."}
+            {hasToken ? m.token_saved_hint() : m.token_none_hint()}
           </Text>
           <FieldError className="docwalk-inputs-error">{error}</FieldError>
         </TextField>
@@ -141,17 +138,17 @@ function TokenForm({
             data-variant="primary"
             className="docwalk-button docwalk-inputs-target"
           >
-            Save token
+            {m.token_save()}
           </Button>
           <Button
             isDisabled={!hasToken}
             onPress={forget}
             className="docwalk-button docwalk-inputs-target"
           >
-            Forget token
+            {m.token_forget()}
           </Button>
           <Button slot="close" className="docwalk-button docwalk-inputs-target">
-            Close
+            {m.close()}
           </Button>
         </div>
       </Form>
@@ -159,7 +156,7 @@ function TokenForm({
         {status}
       </p>
       <Link href={TOKENS_URL} target="_blank" rel="noreferrer noopener">
-        Review or revoke your tokens on GitHub
+        {m.token_review_link()}
         <ExternalLink size={14} aria-hidden="true" />
       </Link>
     </>

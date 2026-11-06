@@ -118,7 +118,8 @@ test("touch screens keep CodeMirror and are not offered Monaco", async ({ browse
   // A finger taps; Firefox's mobile emulation does not open the menu on a mouse click.
   await page.getByRole("button", { name: "More actions" }).tap();
   await expect(page.getByRole("menu", { name: "More actions" })).toBeVisible();
-  await expect(page.getByRole("menuitemradio")).toHaveCount(0);
+  // The language radios (decision 56) stay; the editor's are gone.
+  await expect(page.getByRole("menuitemradio", { name: /CodeMirror|Monaco/ })).toHaveCount(0);
   await context.close();
 });
 

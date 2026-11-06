@@ -1,6 +1,6 @@
 import { MessageSquare } from "lucide-react";
 import { Button, ToggleButton, Tooltip, TooltipTrigger } from "react-aria-components";
-import { countLabel } from "./markers";
+import { m } from "../paraglide/messages.js";
 import "./controls.css";
 
 /** The header toggle: shows and hides the comments panel, with the open count as a badge. */
@@ -14,7 +14,7 @@ export function CommentsToggle({
   count: number;
 }) {
   // The badge shows the bare number, so the name carries it as a word too (WCAG 2.5.3).
-  const label = count > 0 ? `Comments, ${count} open` : "Comments";
+  const label = count > 0 ? m.comments_toggle_count({ count }) : m.comments_title();
   return (
     <TooltipTrigger delay={500}>
       <ToggleButton
@@ -44,7 +44,7 @@ export function CommentChip({ count, onPress }: { count: number; onPress: () => 
     <Button
       className="docwalk-comment-chip"
       onPress={onPress}
-      aria-label={`${countLabel(count)} on this section. Show comments`}
+      aria-label={m.comments_chip({ count })}
     >
       <MessageSquare size={14} aria-hidden="true" />
       {count}

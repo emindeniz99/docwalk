@@ -8,6 +8,7 @@ import {
   Select,
   SelectValue,
 } from "react-aria-components";
+import { m } from "../paraglide/messages.js";
 import type { LevelOption } from "../sectioning/sectionize";
 
 interface LevelSelectProps {
@@ -18,7 +19,7 @@ interface LevelSelectProps {
 }
 
 const OPTIONS: { id: string; label: string; value: LevelOption }[] = [
-  { id: "auto", label: "Auto", value: "auto" },
+  { id: "auto", label: "", value: "auto" },
   { id: "1", label: "H1", value: 1 },
   { id: "2", label: "H2", value: 2 },
   { id: "3", label: "H3", value: 3 },
@@ -30,7 +31,7 @@ const idOf = (v: LevelOption) => (typeof v === "object" ? v.join(",") : String(v
 export function LevelSelect({ value, onChange, resolved }: LevelSelectProps) {
   const items = OPTIONS.map((o) => ({
     ...o,
-    label: o.value === "auto" ? `Auto · ${resolved}` : o.label,
+    label: o.value === "auto" ? m.level_auto_option({ resolved }) : o.label,
   }));
   const selected = OPTIONS.some((o) => o.id === idOf(value)) ? idOf(value) : "auto";
   return (
@@ -42,7 +43,7 @@ export function LevelSelect({ value, onChange, resolved }: LevelSelectProps) {
         if (found) onChange(found.value);
       }}
     >
-      <Label className="docwalk-overline">Slides start at</Label>
+      <Label className="docwalk-overline">{m.level_label()}</Label>
       <Button className="docwalk-select-button">
         <SelectValue />
         <ChevronDown size={16} aria-hidden="true" />

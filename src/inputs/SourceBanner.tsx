@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { useId, type ReactNode } from "react";
 import { Button } from "react-aria-components";
+import { rich } from "../i18n/rich";
+import { m } from "../paraglide/messages.js";
 import "./inputs.css";
 import type { DocumentSource } from "./types";
 
@@ -38,46 +40,34 @@ function describe(source: DocumentSource): { Icon: LucideIcon; label: ReactNode 
     case "sample":
       return null;
     case "paste":
-      return { Icon: ClipboardPaste, label: "Pasted · saved in this browser" };
+      return { Icon: ClipboardPaste, label: m.source_paste() };
     case "file":
       return {
         Icon: FileText,
-        label: (
-          <>
-            Opened from file <strong>{source.name}</strong>
-          </>
-        ),
+        label: rich(m.source_file, { name: <strong>{source.name}</strong> }),
       };
     case "url":
       return {
         Icon: Globe,
-        label: (
-          <>
-            Loaded from <strong>{hostOf(source.url)}</strong>
-          </>
-        ),
+        label: rich(m.source_url, { host: <strong>{hostOf(source.url)}</strong> }),
       };
     case "repo":
       return {
         Icon: FolderGit2,
         label: (
           <>
-            From GitHub <strong>{source.repo}</strong> · {source.path}
+            {rich(m.source_repo, { repo: <strong>{source.repo}</strong>, path: source.path })}
             {source.ref === null ? null : ` @ ${source.ref}`}
           </>
         ),
       };
     case "fragment":
-      return { Icon: Share2, label: "Opened from a shared link" };
+      return { Icon: Share2, label: m.source_fragment() };
     // App shows workspace files with src/workspace/WorkspaceBanner (save state, Save button).
     case "workspace":
       return {
         Icon: FileText,
-        label: (
-          <>
-            Workspace file <strong>{source.path}</strong>
-          </>
-        ),
+        label: rich(m.source_workspace, { path: <strong>{source.path}</strong> }),
       };
   }
 }
@@ -95,12 +85,9 @@ export function SourceBanner({ source, confirm, onLoad, onCancel }: SourceBanner
       <section className="docwalk-source-confirm" aria-labelledby={titleId}>
         <h2 id={titleId} className="docwalk-source-confirm-title">
           <ShieldAlert size={18} aria-hidden="true" />
-          Load a document from {host}?
+          {m.source_confirm_title({ host })}
         </h2>
-        <p>
-          docwalk loads raw.githubusercontent.com and gist.githubusercontent.com directly. This link
-          points elsewhere; load it only if you trust where it came from.
-        </p>
+        <p>{m.source_confirm_body()}</p>
         <p>
           <code>{confirm.url}</code>
         </p>
@@ -112,10 +99,10 @@ export function SourceBanner({ source, confirm, onLoad, onCancel }: SourceBanner
             className="docwalk-button docwalk-inputs-target"
             onPress={() => onLoad?.()}
           >
-            Load
+            {m.source_load()}
           </Button>
           <Button className="docwalk-button docwalk-inputs-target" onPress={() => onCancel?.()}>
-            Cancel
+            {m.cancel()}
           </Button>
         </div>
       </section>

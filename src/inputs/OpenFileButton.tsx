@@ -1,6 +1,7 @@
 import { FileUp } from "lucide-react";
 import { Button, FileTrigger } from "react-aria-components";
 import "./inputs.css";
+import { m } from "../paraglide/messages.js";
 import { loadFromFile } from "./load";
 import type { LoadResult } from "./types";
 
@@ -21,7 +22,7 @@ export function OpenFileButton({ onLoad }: OpenFileButtonProps) {
     >
       <Button className="docwalk-button docwalk-inputs-target">
         <FileUp size={16} aria-hidden="true" />
-        <span className="docwalk-button-label">Open file</span>
+        <span className="docwalk-button-label">{m.open_file()}</span>
       </Button>
     </FileTrigger>
   );

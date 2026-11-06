@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { downloadBlob } from "../export/download";
 import type { DocumentSource, LoadedDocument } from "../inputs/types";
+import { m } from "../paraglide/messages.js";
 import type { Notice } from "../shell/useDocument";
 import {
   collectFiles,
@@ -98,10 +99,10 @@ const workspaceSource = (doc: LoadedDocument | null): WorkspaceSource | null =>
 function message(error: unknown, fallback: string): string {
   if (error instanceof WorkspaceError) return error.message;
   if (error instanceof DOMException && error.name === "NotAllowedError") {
-    return "docwalk no longer has access to this folder. Reconnect it in the file panel.";
+    return m.ws_err_no_access();
   }
   if (error instanceof DOMException && error.name === "QuotaExceededError") {
-    return "The browser's storage for this site is full.";
+    return m.ws_err_quota();
   }
   return fallback;
 }
@@ -292,7 +293,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     } catch (error) {
       setFailed(true);
       setNotice({
-        message: message(error, `${job.source.path} could not be saved in this browser.`),
+        message: message(error, m.ws_err_save_browser({ path: job.source.path })),
         tone: "error",
       });
     }
@@ -347,7 +348,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       if (error instanceof DOMException && error.name === "NotAllowedError") {
         setFolder((f) => (f ? { ...f, permission: "prompt" } : f));
       }
-      setNotice({ message: message(error, `${src.path} could not be saved.`), tone: "error" });
+      setNotice({ message: message(error, m.ws_err_save({ path: src.path })), tone: "error" });
     }
   }, [flush, handleFor, setBaseline, setNotice]);
 
@@ -487,7 +488,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         openDocument({ markdown: text, source: next });
         return true;
       } catch (error) {
-        setNotice({ message: message(error, `${path} could not be opened.`), tone: "error" });
+        setNotice({ message: message(error, m.ws_err_open({ path })), tone: "error" });
         return false;
       }
     },
@@ -511,13 +512,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     async (dir: string, rawName: string): Promise<string | null> => {
       const problem = validateName(rawName);
       if (problem) return problem;
-      if (!active) return "The workspace is not available.";
+      if (!active) return m.ws_err_unavailable();
       const name = withMarkdownExtension(rawName);
       const path = joinPath(dir, name);
       try {
         await createFile(active, path, starter(name.replace(/\.[^.]+$/, "")));
       } catch (error) {
-        return message(error, `${path} could not be created.`);
+        return message(error, m.ws_err_create({ path }));
       }
       await refresh();
       expand(ancestorsOf(path));
@@ -531,12 +532,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     async (dir: string, name: string): Promise<string | null> => {
       const problem = validateName(name);
       if (problem) return problem;
-      if (!active) return "The workspace is not available.";
+      if (!active) return m.ws_err_unavailable();
       const path = joinPath(dir, name);
       try {
         await createFolder(active, path);
       } catch (error) {
-        return message(error, `${path} could not be created.`);
+        return message(error, m.ws_err_create({ path }));
       }
       await refresh();
       expand([...ancestorsOf(path), path]);
@@ -550,14 +551,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       const problem = validateName(name);
       if (problem) return problem;
       const template = TEMPLATES.find((t) => t.id === templateId);
-      if (!active || !template) return "The workspace is not available.";
+      if (!active || !template) return m.ws_err_unavailable();
       try {
         await createFolder(active, name);
         for (const file of template.files(name)) {
           await writeText(active, joinPath(name, file.path), file.text);
         }
       } catch (error) {
-        return message(error, `${name} could not be created.`);
+        return message(error, m.ws_err_create({ path: name }));
       }
       await refresh();
       expand([name]);
@@ -571,14 +572,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     async (node: WorkspaceNode, rawName: string): Promise<string | null> => {
       const problem = validateName(rawName);
       if (problem) return problem;
-      if (!active) return "The workspace is not available.";
+      if (!active) return m.ws_err_unavailable();
       const name = node.kind === "file" ? withMarkdownExtension(rawName) : rawName;
       let next: string;
       try {
         await flush();
         next = await rename(active, node.path, name);
       } catch (error) {
-        return message(error, `${node.path} could not be renamed.`);
+        return message(error, m.ws_err_rename({ path: node.path }));
       }
       // The open file, or the folder holding it, moved: same text, new address.
       const current = workspaceSource(docRef.current);
@@ -615,7 +616,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       try {
         await remove(active, node.path);
       } catch (error) {
-        setNotice({ message: message(error, `${node.path} could not be deleted.`), tone: "error" });
+        setNotice({ message: message(error, m.ws_err_delete({ path: node.path })), tone: "error" });
         return;
       }
       if (openInside) {
@@ -633,13 +634,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       try {
         const { MAX_ARCHIVE_BYTES, readArchive } = await import("./zip");
         if (file.size > MAX_ARCHIVE_BYTES) {
-          throw new WorkspaceError(
-            `The zip file is larger than ${MAX_ARCHIVE_BYTES / 1024 / 1024} MB.`,
-          );
+          throw new WorkspaceError(m.ws_zip_too_large({ mb: MAX_ARCHIVE_BYTES / 1024 / 1024 }));
         }
         const contents = await readArchive(new Uint8Array(await file.arrayBuffer()));
         if (contents.files.length === 0) {
-          setNotice({ message: "That zip file holds no Markdown or text files.", tone: "error" });
+          setNotice({ message: m.ws_zip_empty(), tone: "error" });
           return;
         }
         // Imported files land in one new folder, so nothing in the workspace is overwritten.
@@ -652,7 +651,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
           ? [...tops][0]!
           : validateName(fromName) === null
             ? fromName
-            : "Imported";
+            : m.ws_imported_folder();
         const taken = new Set((listing?.nodes ?? []).map((n) => n.name));
         const target = uniqueName(wanted, taken);
         const strip = (p: string) => (single ? p.split("/").slice(1).join("/") : p);
@@ -672,10 +671,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         const count = contents.files.length;
         const report: Notice = {
           message:
-            `Imported ${count} ${count === 1 ? "file" : "files"} into ${target}.` +
-            (contents.skipped > 0
-              ? ` Left out ${contents.skipped} ${contents.skipped === 1 ? "entry" : "entries"} that docwalk cannot open.`
-              : ""),
+            m.ws_imported({ count, target }) +
+            (contents.skipped > 0 ? ` ${m.ws_skipped({ count: contents.skipped })}` : ""),
           tone: "info",
         };
         setNotice(report);
@@ -688,7 +685,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         );
       } catch (error) {
         setNotice({
-          message: message(error, "The zip file could not be imported."),
+          message: message(error, m.ws_err_import()),
           tone: "error",
         });
       }
@@ -707,13 +704,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       ]);
       const folders = folderPaths(tree.nodes);
       if (files.length === 0 && folders.length === 0) {
-        setNotice({ message: "The workspace is empty: there is nothing to export.", tone: "info" });
+        setNotice({ message: m.ws_export_empty(), tone: "info" });
         return;
       }
       const name = root === "folder" && folderName ? folderName : "docwalk-workspace";
       downloadBlob(await buildArchive(files, folders), `${name}.zip`);
     } catch (error) {
-      setNotice({ message: message(error, "The workspace could not be exported."), tone: "error" });
+      setNotice({ message: message(error, m.ws_err_export()), tone: "error" });
     }
   }, [active, flush, root, folderName, setNotice]);
 
@@ -731,7 +728,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       setFolder({ handle, permission });
       switchRoot("folder");
     } catch (error) {
-      setNotice({ message: message(error, "The folder could not be opened."), tone: "error" });
+      setNotice({ message: message(error, m.ws_err_open_folder()), tone: "error" });
     }
   }, [switchRoot, setNotice]);
 
@@ -741,7 +738,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     setFolder({ handle: folder.handle, permission });
     if (permission !== "granted") {
       setNotice({
-        message: `docwalk was not given access to ${folder.handle.name}.`,
+        message: m.ws_err_denied({ name: folder.handle.name }),
         tone: "error",
       });
       return;

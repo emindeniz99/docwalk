@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedDocument } from "../inputs/types";
+import { m } from "../paraglide/messages.js";
 import { draftWouldBeReplaced } from "../share/draft";
 import { contentKey, DRAFT_ALIAS, sourceKey } from "./identity";
 import { commentsParam, decodeComments, hashWithoutComments } from "./payload";
@@ -26,10 +27,9 @@ export interface CommentsApi {
   importFile: (file: File) => Promise<CommentNotice>;
 }
 
-export const IMPORT_TOO_LARGE = "This file is too large to be a comments file.";
-export const IMPORT_OVER_CAP = `A document keeps at most ${MAX_COMMENTS} comments; importing these would pass that.`;
-export const LINK_COMMENTS_IGNORED =
-  "This link carries comments but no document of its own, so they were not imported.";
+export const IMPORT_TOO_LARGE = m.comments_import_too_large;
+export const IMPORT_OVER_CAP = (): string => m.comments_import_over_cap({ max: MAX_COMMENTS });
+export const LINK_COMMENTS_IGNORED = m.comments_link_ignored;
 
 function newId(): string {
   return crypto.randomUUID();
@@ -120,7 +120,7 @@ export function useComments({
         .then(() => store.save(key, comments))
         .catch(() =>
           notify.current({
-            message: "Comments could not be saved in this browser. Export them to keep them.",
+            message: m.comments_store_failed(),
             tone: "error",
           }),
         );
@@ -136,12 +136,12 @@ export function useComments({
       pending.current = null;
       replaceHash(hashWithoutComments(location.hash));
       if (!linkDoc.current) {
-        notify.current({ message: LINK_COMMENTS_IGNORED, tone: "error" });
+        notify.current({ message: LINK_COMMENTS_IGNORED(), tone: "error" });
         return;
       }
       const merged = mergeComments(comments, entry.comments);
       if (!merged) {
-        notify.current({ message: IMPORT_OVER_CAP, tone: "error" });
+        notify.current({ message: IMPORT_OVER_CAP(), tone: "error" });
         return;
       }
       if (merged.changed > 0) {
@@ -151,7 +151,7 @@ export function useComments({
       }
       const n = entry.comments.length;
       notify.current({
-        message: `This link carries ${n} comment${n === 1 ? "" : "s"}; open Comments to read ${n === 1 ? "it" : "them"}.`,
+        message: m.comments_link_carries({ count: n }),
         tone: "info",
       });
     };
@@ -255,26 +255,23 @@ export function useComments({
 
   const importFile = useCallback(
     async (file: File): Promise<CommentNotice> => {
-      if (file.size > MAX_SIDECAR_BYTES) return { message: IMPORT_TOO_LARGE, tone: "error" };
+      if (file.size > MAX_SIDECAR_BYTES) return { message: IMPORT_TOO_LARGE(), tone: "error" };
       let text: string;
       try {
         text = await file.text();
       } catch {
-        return { message: "This file could not be read.", tone: "error" };
+        return { message: m.comments_file_unreadable(), tone: "error" };
       }
       const result = parseCommentsText(text);
       if (!result.ok) return { message: result.message, tone: "error" };
       const { key, comments } = stateRef.current;
-      if (key === null) return { message: "The document is still loading.", tone: "error" };
+      if (key === null) return { message: m.comments_doc_loading(), tone: "error" };
       const merged = mergeComments(comments, result.comments);
-      if (!merged) return { message: IMPORT_OVER_CAP, tone: "error" };
+      if (!merged) return { message: IMPORT_OVER_CAP(), tone: "error" };
       change(() => merged.comments);
       const n = merged.changed;
       return {
-        message:
-          n === 0
-            ? "Nothing new: every comment in the file is already here."
-            : `Imported ${n} comment${n === 1 ? "" : "s"}.`,
+        message: n === 0 ? m.comments_nothing_new() : m.comments_imported({ count: n }),
         tone: "info",
       };
     },

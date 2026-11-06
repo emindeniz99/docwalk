@@ -5,6 +5,7 @@
  * markers are added (and removed) after each render. Markers carry only
  * counts and heading titles set as text; no comment text reaches the DOM here.
  */
+import { m } from "../paraglide/messages.js";
 import { anchorKey, type AnchorIndex } from "./anchors";
 import { matchDiagramHosts, sourceNodeId } from "./diagramNodes";
 import type { DocComment } from "./types";
@@ -23,10 +24,6 @@ export function openCounts(comments: readonly DocComment[]): Map<string, number>
     out.set(k, (out.get(k) ?? 0) + 1);
   }
   return out;
-}
-
-export function countLabel(n: number): string {
-  return `${n} comment${n === 1 ? "" : "s"}`;
 }
 
 /** Lucide's message-square, drawn here because these buttons live outside React. */
@@ -79,7 +76,7 @@ export function markHeadings(
     const button = document.createElement("button");
     button.type = "button";
     button.className = MARKER_CLASS;
-    button.setAttribute("aria-label", `${countLabel(n)} on “${target.title}”`);
+    button.setAttribute("aria-label", m.comments_marker({ count: n, title: target.title }));
     button.append(icon(), document.createTextNode(String(n)));
     button.addEventListener("click", () => onOpen(target.slug));
     el.append(button);

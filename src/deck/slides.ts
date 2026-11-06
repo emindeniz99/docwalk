@@ -1,6 +1,7 @@
 import type { Section, SectionPlan } from "../sectioning/sectionize";
 import { nodesToHtml, type HtmlOptions, type RenderContext } from "../render/toHtml";
 import "../render/content.css";
+import { m } from "../paraglide/messages.js";
 import { purifyHtml } from "./purify";
 
 /**
@@ -20,7 +21,7 @@ export function buildSlide(section: Section, options: RenderContext = {}): HTMLE
   if (section.breadcrumb.length > 0) {
     const nav = document.createElement("nav");
     nav.className = "docwalk-breadcrumb";
-    nav.setAttribute("aria-label", "Section path");
+    nav.setAttribute("aria-label", m.deck_section_path());
     nav.textContent = section.breadcrumb.join(" › ");
     slide.append(nav);
   }
@@ -33,7 +34,7 @@ export function buildSlide(section: Section, options: RenderContext = {}): HTMLE
     title.className = "docwalk-part-title";
     const marker = document.createElement("span");
     marker.className = "docwalk-continued";
-    marker.textContent = " · continued";
+    marker.textContent = ` · ${m.deck_continued()}`;
     title.append(section.title, marker);
     body.append(title);
   }

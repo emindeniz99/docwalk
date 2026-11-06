@@ -43,18 +43,18 @@ describe("sidecar parsing", () => {
   });
 
   test("non-JSON and JSON that is not a comments file are refused as not ours", () => {
-    expect(parseCommentsText("not json")).toEqual({ ok: false, message: NOT_A_COMMENTS_FILE });
-    expect(parseCommentsText("[]")).toEqual({ ok: false, message: NOT_A_COMMENTS_FILE });
+    expect(parseCommentsText("not json")).toEqual({ ok: false, message: NOT_A_COMMENTS_FILE() });
+    expect(parseCommentsText("[]")).toEqual({ ok: false, message: NOT_A_COMMENTS_FILE() });
     expect(parseCommentsText(JSON.stringify({ format: "excalidraw" }))).toEqual({
       ok: false,
-      message: NOT_A_COMMENTS_FILE,
+      message: NOT_A_COMMENTS_FILE(),
     });
   });
 
   test("a file from a newer docwalk asks for an update instead of calling it damaged", () => {
     expect(parseCommentsText(file([], { version: 2 }))).toEqual({
       ok: false,
-      message: NEWER_VERSION,
+      message: NEWER_VERSION(),
     });
   });
 
@@ -63,7 +63,7 @@ describe("sidecar parsing", () => {
       comment(),
       { ...comment({ id: "c2" }), anchor: { kind: "heading", slug: "" } }, // empty anchor
     ];
-    expect(parseCommentsText(file(bad))).toEqual({ ok: false, message: DAMAGED_FILE });
+    expect(parseCommentsText(file(bad))).toEqual({ ok: false, message: DAMAGED_FILE() });
   });
 
   test.each([
@@ -80,7 +80,7 @@ describe("sidecar parsing", () => {
 
   test("more comments than a document keeps are refused with the cap in the message", () => {
     const many = Array.from({ length: MAX_COMMENTS + 1 }, (_, i) => comment({ id: `c${i}` }));
-    expect(parseCommentsText(file(many))).toEqual({ ok: false, message: TOO_MANY });
+    expect(parseCommentsText(file(many))).toEqual({ ok: false, message: TOO_MANY() });
   });
 
   test("unknown fields are dropped, so nothing unvalidated reaches storage", () => {

@@ -38,6 +38,8 @@ import {
   ToggleButtonGroup,
 } from "react-aria-components";
 import { downloadBlob } from "../export/download";
+import { ariaLocale, useLocale, type Locale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import { IconButton } from "../shell/IconButton";
 import {
   anchorKey,
@@ -76,14 +78,25 @@ interface Option {
   depth: number;
 }
 
-const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+/** Comment times in the UI language's format, one formatter per locale. */
+const DATES = new Map<Locale, Intl.DateTimeFormat>();
+function dateFormat(locale: Locale): Intl.DateTimeFormat {
+  let format = DATES.get(locale);
+  if (!format) {
+    format = new Intl.DateTimeFormat(ariaLocale(locale), {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    DATES.set(locale, format);
+  }
+  return format;
+}
 
 /** Every heading, then every node of every rendered diagram, as anchor choices. */
 function anchorOptions(
   index: AnchorIndex,
   nodes: DiagramNodes,
+  locale: Locale,
 ): { headings: Option[]; diagramNodes: Option[] } {
   const headings = index.headings.map((h) => {
     const anchor: Anchor = { kind: "heading", slug: h.slug };
@@ -100,12 +113,17 @@ function anchorOptions(
   for (const d of index.diagrams) {
     for (const n of nodes.get(diagramKey(d.heading, d.diagram)) ?? []) {
       const anchor: Anchor = { kind: "node", heading: d.heading, diagram: d.diagram, node: n.id };
-      const under = d.heading ? (titles.get(d.heading) ?? d.heading) : "the start";
+      const number = d.diagram + 1;
       diagramNodes.push({
         key: anchorKey(anchor),
         anchor,
         label: n.label === n.id ? n.id : `${n.label} (${n.id})`,
-        detail: `Diagram ${d.diagram + 1} under ${under}`,
+        detail: d.heading
+          ? m.comments_diagram_under(
+              { number, heading: titles.get(d.heading) ?? d.heading },
+              { locale },
+            )
+          : m.comments_diagram_at_start({ number }, { locale }),
         depth: 0,
       });
     }
@@ -188,16 +206,23 @@ function PanelBody({
     if (focusTitle) titleRef.current?.focus();
   }, [focusTitle]);
 
-  const { headings, diagramNodes } = useMemo(() => anchorOptions(index, nodes), [index, nodes]);
+  // Option details and anchor labels are in the UI language.
+  const locale = useLocale();
+  const { headings, diagramNodes } = useMemo(
+    () => anchorOptions(index, nodes, locale),
+    [index, nodes, locale],
+  );
   const options = useMemo(
     () => new Map([...headings, ...diagramNodes].map((o) => [o.key, o] as const)),
     [headings, diagramNodes],
   );
 
-  const resolved = useMemo(
-    () => api.comments.map((c) => ({ comment: c, where: resolveAnchor(c.anchor, index, nodes) })),
-    [api.comments, index, nodes],
-  );
+  // Not memoised: anchor labels are in the UI language, and resolving is a
+  // lookup per comment.
+  const resolved = api.comments.map((c) => ({
+    comment: c,
+    where: resolveAnchor(c.anchor, index, nodes),
+  }));
   const orphaned = resolved.filter((r) => r.where.status === "orphaned");
   const attached = resolved
     .filter((r) => r.where.status === "attached")
@@ -234,9 +259,11 @@ function PanelBody({
       <div className="docwalk-comments-head">
         <div className="docwalk-comments-heading">
           <h2 id={titleId} ref={titleRef} tabIndex={-1} className="docwalk-comments-title">
-            Comments
+            {m.comments_title()}
           </h2>
-          <span className="docwalk-comments-count">{plural(openCount, "open comment")}</span>
+          <span className="docwalk-comments-count">
+            {m.comments_open_count({ count: openCount })}
+          </span>
         </div>
         <div className="docwalk-comments-tools">
           <FileTrigger
@@ -246,24 +273,24 @@ function PanelBody({
               if (file) void api.importFile(file).then(announce);
             }}
           >
-            <IconButton label="Import comments file" isDisabled={!api.ready}>
+            <IconButton label={m.comments_import()} isDisabled={!api.ready}>
               <Upload size={16} aria-hidden="true" />
             </IconButton>
           </FileTrigger>
           <IconButton
-            label={`Export comments as ${sidecarName}`}
+            label={m.comments_export({ name: sidecarName })}
             isDisabled={api.comments.length === 0}
             onPress={() => {
               downloadBlob(
                 new Blob([serializeComments(api.comments)], { type: "application/json" }),
                 sidecarName,
               );
-              announce({ message: `Saved ${sidecarName}.`, tone: "info" });
+              announce({ message: m.comments_saved_file({ name: sidecarName }), tone: "info" });
             }}
           >
             <Download size={16} aria-hidden="true" />
           </IconButton>
-          <IconButton label="Close comments" onPress={onClose}>
+          <IconButton label={m.comments_close()} onPress={onClose}>
             <X size={16} aria-hidden="true" />
           </IconButton>
         </div>
@@ -272,10 +299,7 @@ function PanelBody({
       {!api.persistent && (
         <p className="docwalk-comments-warning">
           <TriangleAlert size={16} aria-hidden="true" />
-          <span>
-            This browser cannot keep comments, so they last until you close the page. Export them to
-            keep them.
-          </span>
+          <span>{m.comments_not_persistent()}</span>
         </p>
       )}
 
@@ -287,12 +311,12 @@ function PanelBody({
         initial={focusAnchor ?? defaultAnchor}
         onAdded={() => {
           setShow("open");
-          announce({ message: "Comment added.", tone: "info" });
+          announce({ message: m.comments_added(), tone: "info" });
         }}
       />
 
       <ToggleButtonGroup
-        aria-label="Show comments"
+        aria-label={m.comments_show()}
         selectionMode="single"
         disallowEmptySelection
         selectedKeys={[show]}
@@ -302,16 +326,18 @@ function PanelBody({
         }}
         className="docwalk-segmented docwalk-comments-filter"
       >
-        <ToggleButton id="open">Open ({openCount})</ToggleButton>
-        <ToggleButton id="resolved">Resolved ({resolvedCount})</ToggleButton>
+        <ToggleButton id="open">{m.comments_filter_open({ count: openCount })}</ToggleButton>
+        <ToggleButton id="resolved">
+          {m.comments_filter_resolved({ count: resolvedCount })}
+        </ToggleButton>
       </ToggleButtonGroup>
 
       <div className="docwalk-comments-list">
         {!api.ready ? (
-          <p className="docwalk-comments-empty">Loading comments…</p>
+          <p className="docwalk-comments-empty">{m.comments_loading()}</p>
         ) : groups.length === 0 ? (
           <p className="docwalk-comments-empty">
-            {show === "open" ? "No open comments." : "No resolved comments."}
+            {show === "open" ? m.comments_none_open() : m.comments_none_resolved()}
           </p>
         ) : (
           groups.map((g) => (
@@ -323,7 +349,7 @@ function PanelBody({
                   <Button
                     className="docwalk-comments-goto"
                     onPress={() => onGoTo(g.sectionId as string)}
-                    aria-label={`${g.label}: show on the slide`}
+                    aria-label={m.comments_show_on_slide({ label: g.label })}
                   >
                     {g.label}
                   </Button>
@@ -350,12 +376,9 @@ function PanelBody({
             aria-labelledby={`${titleId}-orphaned`}
           >
             <h3 id={`${titleId}-orphaned`} className="docwalk-comments-anchor">
-              Orphaned ({orphaned.length})
+              {m.comments_orphaned({ count: orphaned.length })}
             </h3>
-            <p className="docwalk-comments-note">
-              What these point at is no longer in the document. They stay here until you delete
-              them.
-            </p>
+            <p className="docwalk-comments-note">{m.comments_orphaned_note()}</p>
             <ul className="docwalk-comments-items">
               {orphaned.map(({ comment, where }) => (
                 <CommentItem
@@ -413,11 +436,7 @@ function AddComment({
   const target = key ? options.get(key) : undefined;
 
   if (options.size === 0) {
-    return (
-      <p className="docwalk-comments-note">
-        Comments attach to a heading or a diagram node, and this document has neither yet.
-      </p>
-    );
+    return <p className="docwalk-comments-note">{m.comments_no_anchors()}</p>;
   }
 
   const submit = () => {
@@ -441,7 +460,7 @@ function AddComment({
         selectedKey={key}
         onSelectionChange={(k) => setPicked(k === null ? null : String(k))}
       >
-        <Label className="docwalk-overline">About</Label>
+        <Label className="docwalk-overline">{m.comments_about()}</Label>
         <Button className="docwalk-select-button">
           {/* The label only: a node's "Diagram 1 under …" detail belongs to the list. */}
           <SelectValue>{({ selectedText }) => selectedText}</SelectValue>
@@ -450,7 +469,9 @@ function AddComment({
         <Popover className="docwalk-popover docwalk-comments-popover">
           <ListBox className="docwalk-menu">
             <ListBoxSection>
-              <Header className="docwalk-overline docwalk-comments-popover-head">Headings</Header>
+              <Header className="docwalk-overline docwalk-comments-popover-head">
+                {m.comments_headings()}
+              </Header>
               {headings.map((o) => (
                 <ListBoxItem
                   key={o.key}
@@ -466,7 +487,7 @@ function AddComment({
             {diagramNodes.length > 0 && (
               <ListBoxSection>
                 <Header className="docwalk-overline docwalk-comments-popover-head">
-                  Diagram nodes
+                  {m.comments_diagram_nodes()}
                 </Header>
                 {diagramNodes.map((o) => (
                   <ListBoxItem
@@ -489,11 +510,11 @@ function AddComment({
         value={text}
         onChange={setText}
         maxLength={MAX_COMMENT_CHARS}
-        aria-label="New comment"
+        aria-label={m.comments_new()}
       >
         <TextArea
           className="docwalk-comments-textarea"
-          placeholder="Write a comment"
+          placeholder={m.comments_placeholder()}
           rows={3}
           onKeyDown={(e) => {
             // ⌘/Ctrl+Enter posts, like most review tools.
@@ -510,7 +531,7 @@ function AddComment({
         data-variant="primary"
         isDisabled={!api.ready || text.trim() === "" || !target}
       >
-        Add comment
+        {m.comments_add()}
       </Button>
     </form>
   );
@@ -534,6 +555,7 @@ function CommentItem({
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
   const [draft, setDraft] = useState(comment.text);
   const edited = comment.updated > comment.created && !comment.resolved;
+  const locale = useLocale();
 
   let body: ReactNode;
   if (mode === "edit") {
@@ -545,21 +567,21 @@ function CommentItem({
           if (draft.trim() === "") return;
           api.update(comment.id, draft);
           setMode("view");
-          announce({ message: "Comment saved.", tone: "info" });
+          announce({ message: m.comments_saved(), tone: "info" });
         }}
       >
         <TextField
           value={draft}
           onChange={setDraft}
           maxLength={MAX_COMMENT_CHARS}
-          aria-label="Edit comment"
+          aria-label={m.comments_edit()}
           autoFocus
         >
           <TextArea className="docwalk-comments-textarea" rows={3} />
         </TextField>
         <div className="docwalk-comments-actions">
           <Button type="submit" className="docwalk-button" isDisabled={draft.trim() === ""}>
-            Save
+            {m.ws_save()}
           </Button>
           <Button
             className="docwalk-button"
@@ -568,7 +590,7 @@ function CommentItem({
               setMode("view");
             }}
           >
-            Cancel
+            {m.cancel()}
           </Button>
         </div>
       </form>
@@ -579,32 +601,36 @@ function CommentItem({
         <p className="docwalk-comments-text">{comment.text}</p>
         <p className="docwalk-comments-meta">
           <time dateTime={new Date(comment.created).toISOString()}>
-            {DATE.format(comment.created)}
+            {dateFormat(locale).format(comment.created)}
           </time>
-          {edited && <span> · edited</span>}
-          {comment.resolved && <span> · resolved</span>}
+          {edited && <span> · {m.comments_edited()}</span>}
+          {comment.resolved && <span> · {m.comments_resolved_mark()}</span>}
         </p>
         {mode === "delete" ? (
-          <div className="docwalk-comments-actions" role="group" aria-label="Delete this comment?">
-            <span className="docwalk-comments-confirm">Delete this comment?</span>
+          <div
+            className="docwalk-comments-actions"
+            role="group"
+            aria-label={m.comments_delete_confirm()}
+          >
+            <span className="docwalk-comments-confirm">{m.comments_delete_confirm()}</span>
             <Button
               className="docwalk-button docwalk-comments-danger"
               autoFocus
               onPress={() => {
                 api.remove(comment.id);
-                removed({ message: "Comment deleted.", tone: "info" });
+                removed({ message: m.comments_deleted(), tone: "info" });
               }}
             >
-              Delete
+              {m.ws_delete()}
             </Button>
             <Button className="docwalk-button" onPress={() => setMode("view")}>
-              Cancel
+              {m.cancel()}
             </Button>
           </div>
         ) : (
           <div className="docwalk-comments-actions">
             <IconButton
-              label="Edit comment"
+              label={m.comments_edit()}
               onPress={() => {
                 setDraft(comment.text);
                 setMode("edit");
@@ -613,12 +639,12 @@ function CommentItem({
               <Pencil size={16} aria-hidden="true" />
             </IconButton>
             <IconButton
-              label={comment.resolved ? "Reopen comment" : "Resolve comment"}
+              label={comment.resolved ? m.comments_reopen() : m.comments_resolve()}
               onPress={() => {
                 api.setResolved(comment.id, !comment.resolved);
                 // An orphaned comment stays where it is; any other moves to the other filter.
                 (anchorLabel ? announce : removed)({
-                  message: comment.resolved ? "Comment reopened." : "Comment resolved.",
+                  message: comment.resolved ? m.comments_reopened() : m.comments_resolved_notice(),
                   tone: "info",
                 });
               }}
@@ -629,7 +655,7 @@ function CommentItem({
                 <Check size={16} aria-hidden="true" />
               )}
             </IconButton>
-            <IconButton label="Delete comment" onPress={() => setMode("delete")}>
+            <IconButton label={m.comments_delete()} onPress={() => setMode("delete")}>
               <Trash2 size={16} aria-hidden="true" />
             </IconButton>
           </div>

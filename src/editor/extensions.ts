@@ -24,6 +24,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
+import { m } from "../paraglide/messages.js";
 import type { LineNotes } from "./sync";
 
 /** Marks a transaction that applies the parent's value, so it is not echoed back as an edit. */
@@ -85,7 +86,7 @@ class NoteText extends WidgetType {
   override toDOM() {
     const el = document.createElement("span");
     el.className = "dw-visually-hidden dw-note-text";
-    const kind = this.notes.severity === "warning" ? "Warning" : "Note";
+    const kind = this.notes.severity === "warning" ? m.editor_warning() : m.editor_note();
     el.textContent = ` (${kind}: ${this.notes.messages.join("; ")})`;
     return el;
   }

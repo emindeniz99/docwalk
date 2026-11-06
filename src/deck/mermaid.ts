@@ -1,4 +1,5 @@
 import type { Mermaid } from "mermaid";
+import { m } from "../paraglide/messages.js";
 import { purifySvg } from "./purify";
 
 let loaded: Promise<Mermaid> | null = null;
@@ -133,7 +134,9 @@ export async function renderDiagram(
     pre.textContent = source;
     const note = document.createElement("p");
     note.className = "docwalk-diagnostic";
-    note.textContent = `This diagram could not be rendered: ${message.split("\n")[0] ?? "unknown error"}`;
+    note.textContent = m.diagram_error({
+      reason: message.split("\n")[0] ?? m.diagram_error_unknown(),
+    });
     host.replaceChildren(note, pre);
     host.classList.add("docwalk-diagram-error");
     return { ok: false, error: message };
@@ -165,7 +168,7 @@ export async function renderDiagrams(
     // hid the diagram's own labels from screen readers, and its name would
     // have to contain all of that visible text (WCAG 2.5.3).
     host.setAttribute("role", "group");
-    host.setAttribute("aria-label", "Diagram. Press Enter to open it full screen.");
+    host.setAttribute("aria-label", m.diagram_label());
     const source = code.textContent ?? "";
     host.dataset["source"] = source;
     pre.replaceWith(host);

@@ -2,13 +2,18 @@
  * "New project" templates (decision 57). Each is plain GitHub Markdown, so a
  * project made from one reads the same on GitHub as in docwalk (rule 1).
  * The project name goes in as text only; it is never parsed as Markdown
- * syntax beyond being a heading.
+ * syntax beyond being a heading. The files a template writes are document
+ * content and stay as written; only the dialog's label and description follow
+ * the UI language.
  */
+
+import { m } from "../paraglide/messages.js";
 
 export interface ProjectTemplate {
   id: "blank" | "design" | "talk";
-  label: string;
-  description: string;
+  /** Message functions: the dialog shows them in the UI language. */
+  label: () => string;
+  description: () => string;
   /** The file opened after the project is created. */
   main: string;
   files: (title: string) => { path: string; text: string }[];
@@ -27,15 +32,15 @@ export function starter(title: string): string {
 export const TEMPLATES: readonly ProjectTemplate[] = [
   {
     id: "blank",
-    label: "Blank",
-    description: "One empty README.md.",
+    label: m.ws_template_blank,
+    description: m.ws_template_blank_description,
     main: "README.md",
     files: (title) => [{ path: "README.md", text: starter(title) }],
   },
   {
     id: "design",
-    label: "Design doc",
-    description: "Context, goals, a proposal with a diagram, alternatives and rollout.",
+    label: m.ws_template_design,
+    description: m.ws_template_design_description,
     main: "README.md",
     files: (title) => [
       {
@@ -87,8 +92,8 @@ flowchart LR
   },
   {
     id: "talk",
-    label: "Talk",
-    description: "Short slides: agenda, problem, idea, a sequence diagram, next steps.",
+    label: m.ws_template_talk,
+    description: m.ws_template_talk_description,
     main: "talk.md",
     files: (title) => [
       {

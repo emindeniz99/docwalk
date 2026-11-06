@@ -7,6 +7,8 @@ import {
   UNSTABLE_ToastQueue as ToastQueue,
   UNSTABLE_ToastRegion as ToastRegion,
 } from "react-aria-components";
+import { useLocale } from "../i18n/locale";
+import { m } from "../paraglide/messages.js";
 import { IconButton } from "../shell/IconButton";
 import "./update.css";
 
@@ -22,17 +24,19 @@ export interface UpdateToastContent {
  * user reloads or dismisses it, because the update is not urgent.
  */
 export function UpdateToast({ queue }: { queue: ToastQueue<UpdateToastContent> }) {
+  // Outside App, so it follows a language switch on its own.
+  useLocale();
   return (
-    <ToastRegion queue={queue} className="docwalk-toast-region" aria-label="Notifications">
+    <ToastRegion queue={queue} className="docwalk-toast-region" aria-label={m.pwa_notifications()}>
       {({ toast }) => (
         <Toast toast={toast} className="docwalk-toast">
           <RefreshCw className="docwalk-toast-icon" size={18} aria-hidden="true" />
           <ToastContent className="docwalk-toast-content">
             <Text slot="title" className="docwalk-toast-title">
-              Update ready
+              {m.pwa_update_title()}
             </Text>
             <Text slot="description" className="docwalk-toast-description">
-              Reload to use the new version of docwalk.
+              {m.pwa_update_body()}
             </Text>
           </ToastContent>
           <Button
@@ -40,9 +44,9 @@ export function UpdateToast({ queue }: { queue: ToastQueue<UpdateToastContent> }
             data-variant="primary"
             onPress={() => toast.content.apply()}
           >
-            Reload
+            {m.pwa_reload()}
           </Button>
-          <IconButton label="Dismiss" slot="close">
+          <IconButton label={m.app_dismiss()} slot="close">
             <X size={16} aria-hidden="true" />
           </IconButton>
         </Toast>

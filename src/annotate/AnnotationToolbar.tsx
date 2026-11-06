@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
   TooltipTriggerStateContext,
 } from "react-aria-components";
+import { m } from "../paraglide/messages.js";
 import "./toolbar.css";
 import type { AnnotationMode } from "./types";
 
@@ -28,9 +29,9 @@ import type { AnnotationMode } from "./types";
  * the source. Resolve one with `resolvePenColor` before `layer.setColor`.
  */
 export const PEN_COLORS = [
-  { variable: "--dw-color-primary", label: "Vermilion" },
-  { variable: "--dw-color-focus", label: "Blue" },
-  { variable: "--dw-color-ink", label: "Ink" },
+  { variable: "--dw-color-primary", label: m.pen_vermilion },
+  { variable: "--dw-color-focus", label: m.pen_blue },
+  { variable: "--dw-color-ink", label: m.pen_ink },
 ] as const;
 
 export type PenColor = (typeof PEN_COLORS)[number]["variable"];
@@ -45,11 +46,12 @@ export function resolvePenColor(
 
 type ToolMode = Exclude<AnnotationMode, "off">;
 
-const TOOLS: { mode: ToolMode; label: string; shortcut: string; Icon: LucideIcon }[] = [
-  { mode: "pen", label: "Pen", shortcut: "P", Icon: Pen },
-  { mode: "laser", label: "Laser pointer", shortcut: "L", Icon: LocateFixed },
-  { mode: "arrow", label: "Arrow", shortcut: "A", Icon: MoveUpRight },
-  { mode: "eraser", label: "Eraser", shortcut: "E", Icon: Eraser },
+// Shortcut keys stay the same in every language (P, L, A, E).
+const TOOLS: { mode: ToolMode; label: () => string; shortcut: string; Icon: LucideIcon }[] = [
+  { mode: "pen", label: m.tool_pen, shortcut: "P", Icon: Pen },
+  { mode: "laser", label: m.tool_laser, shortcut: "L", Icon: LocateFixed },
+  { mode: "arrow", label: m.tool_arrow, shortcut: "A", Icon: MoveUpRight },
+  { mode: "eraser", label: m.tool_eraser, shortcut: "E", Icon: Eraser },
 ];
 
 const isTool = (key: unknown): key is ToolMode => TOOLS.some((t) => t.mode === key);
@@ -87,7 +89,7 @@ function Swatch({ variable, label }: (typeof PEN_COLORS)[number]) {
       <Radio
         ref={ref}
         value={variable}
-        aria-label={label}
+        aria-label={label()}
         className="docwalk-annotate-swatch"
         onHoverChange={(hovered) => (hovered ? tooltip?.open() : tooltip?.close())}
       >
@@ -98,7 +100,7 @@ function Swatch({ variable, label }: (typeof PEN_COLORS)[number]) {
         />
       </Radio>
       <Tooltip className="docwalk-tooltip" offset={6} triggerRef={ref}>
-        {label}
+        {label()}
       </Tooltip>
     </>
   );
@@ -116,9 +118,9 @@ export interface AnnotationToolbarProps {
 export function AnnotationToolbar(props: AnnotationToolbarProps) {
   const { mode, onModeChange, color, onColorChange, onUndo, onClear } = props;
   return (
-    <Toolbar aria-label="Annotate" className="docwalk-annotate-toolbar">
+    <Toolbar aria-label={m.annotate_label()} className="docwalk-annotate-toolbar">
       <ToggleButtonGroup
-        aria-label="Tool"
+        aria-label={m.annotate_tool()}
         selectionMode="single"
         selectedKeys={mode === "off" ? [] : [mode]}
         onSelectionChange={(keys) => {
@@ -129,10 +131,10 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
         className="docwalk-annotate-group"
       >
         {TOOLS.map(({ mode: id, label, shortcut, Icon }) => (
-          <Tip key={id} label={label} shortcut={shortcut}>
+          <Tip key={id} label={label()} shortcut={shortcut}>
             <ToggleButton
               id={id}
-              aria-label={label}
+              aria-label={label()}
               aria-keyshortcuts={shortcut}
               className="docwalk-annotate-button"
             >
@@ -142,7 +144,7 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
         ))}
       </ToggleButtonGroup>
       <RadioGroup
-        aria-label="Pen colour"
+        aria-label={m.annotate_colour()}
         orientation="horizontal"
         value={color}
         onChange={(value) => {
@@ -159,7 +161,7 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
       </RadioGroup>
       <div className="docwalk-annotate-group">
         <Tip
-          label="Undo mark"
+          label={m.annotate_undo()}
           shortcut={
             <>
               <CommandIcon size={11} aria-hidden="true" />Z
@@ -167,7 +169,7 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
           }
         >
           <Button
-            aria-label="Undo mark"
+            aria-label={m.annotate_undo()}
             aria-keyshortcuts="Control+Z Meta+Z"
             className="docwalk-annotate-button"
             onPress={onUndo}
@@ -175,8 +177,12 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
             <Undo2 size={18} aria-hidden="true" />
           </Button>
         </Tip>
-        <Tip label="Clear marks">
-          <Button aria-label="Clear marks" className="docwalk-annotate-button" onPress={onClear}>
+        <Tip label={m.annotate_clear()}>
+          <Button
+            aria-label={m.annotate_clear()}
+            className="docwalk-annotate-button"
+            onPress={onClear}
+          >
             <Trash size={18} aria-hidden="true" />
           </Button>
         </Tip>

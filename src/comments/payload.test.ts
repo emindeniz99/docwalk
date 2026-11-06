@@ -115,14 +115,14 @@ describe("hostile link values", () => {
     ["base64 of garbage", "AAAA"],
     ["empty", ""],
   ])("%s is refused as damaged", async (_name, value) => {
-    expect(await decodeComments(value)).toEqual({ ok: false, message: DAMAGED_COMMENTS });
+    expect(await decodeComments(value)).toEqual({ ok: false, message: DAMAGED_COMMENTS() });
   });
 
   test("a valid deflate payload that is not a comments file is refused", async () => {
     const { encodeDoc } = await import("../share/fragment");
     expect(await decodeComments(await encodeDoc('{"format":"other"}'))).toEqual({
       ok: false,
-      message: DAMAGED_COMMENTS,
+      message: DAMAGED_COMMENTS(),
     });
   });
 });

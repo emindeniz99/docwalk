@@ -962,7 +962,7 @@ describe("phone remote view", () => {
       // phone showed "Connected" and silently dropped every press.
       const presenter = await setupRemoteView();
       await userEvent.click(button("Next"));
-      await vi.waitFor(() => expect(status()).toBe(PRESENTER_AWAY), {
+      await vi.waitFor(() => expect(status()).toBe(PRESENTER_AWAY()), {
         timeout: PRESENTER_REPLY_MS + 2000,
       });
       expect(button("Next").disabled).toBe(true);
@@ -1012,9 +1012,9 @@ describe("join dialog", () => {
       s.getAttribute("aria-label"),
     );
     expect(qrs).toEqual(["QR code for the phone remote link", "QR code for the follow along link"]);
-    expect(dialog().textContent).toContain(KEY_NOTE);
+    expect(dialog().textContent).toContain(KEY_NOTE());
     expect(dialog().textContent).toContain("1 remote and 2 followers joined");
-    expect(dialog().textContent).not.toContain(DOC_LINK_TOO_LONG);
+    expect(dialog().textContent).not.toContain(DOC_LINK_TOO_LONG());
     for (const b of dialog().querySelectorAll("button")) {
       const box = b.getBoundingClientRect();
       expect(box.height).toBeGreaterThanOrEqual(44);
@@ -1041,7 +1041,7 @@ describe("join dialog", () => {
         host: { ...host, docLinkTooLong: true },
       }),
     );
-    expect(dialog().textContent).toContain(DOC_LINK_TOO_LONG);
+    expect(dialog().textContent).toContain(DOC_LINK_TOO_LONG());
   });
 
   test("the QR code draws exactly the encoder's modules with a quiet zone, not transposed", () => {
@@ -1090,7 +1090,7 @@ describe("join dialog: agents", () => {
     expect(label.textContent).toBe("Allow agent edits");
     expect(label.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     expect(document.getElementById(toggle.getAttribute("aria-describedby")!)?.textContent).toBe(
-      AGENT_NOTE,
+      AGENT_NOTE(),
     );
     expect(dialog().textContent).toContain("1 agent connected");
     await userEvent.click(label);

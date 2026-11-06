@@ -33,6 +33,9 @@ import {
   TreeItem,
   TreeItemContent,
 } from "react-aria-components";
+import { useLocale } from "../i18n/locale";
+import { rich } from "../i18n/rich";
+import { m } from "../paraglide/messages.js";
 import { IconButton } from "../shell/IconButton";
 import type { WorkspaceNode } from "./types";
 import type { Workspace } from "./useWorkspace";
@@ -111,27 +114,28 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
   const needsPermission = w.root === "folder" && w.folderPermission !== "granted";
   const usable = w.listing !== null;
   const isExpanded = choice ?? (nodes.length > 0 || w.root === "folder");
-  const rootLabel = w.folderName ?? "Local folder";
+  const rootLabel = w.folderName ?? m.ws_local_folder();
+  const locale = useLocale();
 
   const hasFolder = w.folderName !== null;
   const menu: Action[] = [
     {
       id: "project",
-      label: "New project…",
+      label: m.ws_cmd_new_project(),
       Icon: LayoutTemplate,
       run: () => w.setDialog({ kind: "new-project" }),
       disabled: !usable,
     },
     {
       id: "import",
-      label: "Import zip…",
+      label: m.ws_import_zip(),
       Icon: Upload,
       run: () => document.getElementById(zipInputId)?.click(),
       disabled: !usable,
     },
     {
       id: "export",
-      label: "Export as zip",
+      label: m.ws_export_zip(),
       Icon: Download,
       run: () => void w.exportZip(),
       disabled: !usable,
@@ -145,7 +149,7 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
               ? [
                   {
                     id: "browser",
-                    label: "Show the browser workspace",
+                    label: m.ws_show_browser(),
                     Icon: Globe,
                     run: w.useBrowserWorkspace,
                     disabled: !w.supported.opfs,
@@ -154,19 +158,26 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
               : [
                   {
                     id: "folder",
-                    label: `Show folder ${w.folderName}`,
+                    label: m.ws_show_folder({ name: w.folderName ?? "" }),
                     Icon: HardDrive,
                     run: w.useFolder,
                   },
                 ]),
           {
             id: "open-folder",
-            label: hasFolder ? "Open another folder…" : "Open local folder…",
+            label: hasFolder ? m.ws_open_another_folder() : m.ws_cmd_open_folder(),
             Icon: FolderInput,
             run: () => void w.openFolder(),
           },
           ...(hasFolder
-            ? [{ id: "close-folder", label: "Close folder", Icon: FolderX, run: w.closeFolder }]
+            ? [
+                {
+                  id: "close-folder",
+                  label: m.ws_close_folder(),
+                  Icon: FolderX,
+                  run: w.closeFolder,
+                },
+              ]
             : []),
         ]
       : []),
@@ -177,13 +188,13 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
       ? [
           {
             id: "new-file",
-            label: "New file here…",
+            label: m.ws_new_file_here(),
             Icon: FilePlus,
             run: () => w.setDialog({ kind: "new-file", dir: node.path }),
           },
           {
             id: "new-folder",
-            label: "New folder here…",
+            label: m.ws_new_folder_here(),
             Icon: FolderPlus,
             run: () => w.setDialog({ kind: "new-folder", dir: node.path }),
           },
@@ -191,20 +202,21 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
       : []),
     {
       id: "rename",
-      label: "Rename…",
+      label: m.ws_rename_action(),
       Icon: Pencil,
       run: () => w.setDialog({ kind: "rename", node }),
     },
     {
       id: "delete",
-      label: "Delete…",
+      label: m.ws_delete_action(),
       Icon: Trash,
       run: () => w.setDialog({ kind: "delete", node }),
     },
   ];
 
   const unsaved = w.saveState === "unsaved";
-  const rowDependencies = [unsaved, w.openPath];
+  // Row labels are in the UI language, so a switch renders the rows again.
+  const rowDependencies = [unsaved, w.openPath, locale];
   const renderNode = (node: WorkspaceNode) => (
     <TreeItem
       id={node.path}
@@ -227,15 +239,15 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
               <Icon size={15} aria-hidden="true" className="docwalk-files-icon" />
               <span className="docwalk-files-name">{node.name}</span>
               {unsaved && node.path === w.openPath && (
-                <span className="docwalk-files-dirty" role="img" aria-label="Unsaved changes" />
+                <span className="docwalk-files-dirty" role="img" aria-label={m.ws_unsaved()} />
               )}
               <ActionMenu
-                label={`Actions for ${node.name}`}
+                label={m.ws_row_actions({ name: node.name })}
                 actions={rowActions(node)}
                 trigger={
                   <Button
                     className="docwalk-files-row-menu"
-                    aria-label={`Actions for ${node.name}`}
+                    aria-label={m.ws_row_actions({ name: node.name })}
                   >
                     <Ellipsis size={15} aria-hidden="true" />
                   </Button>
@@ -259,13 +271,13 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
         <Heading level={2} className="docwalk-files-heading">
           <Button slot="trigger" className="docwalk-files-trigger">
             <ChevronRight size={14} aria-hidden="true" className="docwalk-files-caret" />
-            <span className="docwalk-overline">Files</span>
+            <span className="docwalk-overline">{m.ws_files()}</span>
             {/* The browser workspace needs no name here; a folder's name says which folder. */}
             {w.root === "folder" && <span className="docwalk-files-root">{rootLabel}</span>}
           </Button>
         </Heading>
         <IconButton
-          label="New file"
+          label={m.ws_new_file()}
           className="docwalk-icon-button docwalk-files-action"
           isDisabled={!usable}
           onPress={() => {
@@ -276,7 +288,7 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
           <FilePlus size={16} aria-hidden="true" />
         </IconButton>
         <IconButton
-          label="New folder"
+          label={m.ws_new_folder()}
           className="docwalk-icon-button docwalk-files-action"
           isDisabled={!usable}
           onPress={() => {
@@ -287,13 +299,10 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
           <FolderPlus size={16} aria-hidden="true" />
         </IconButton>
         <ActionMenu
-          label="Workspace actions"
+          label={m.ws_actions()}
           actions={menu}
           trigger={
-            <IconButton
-              label="Workspace actions"
-              className="docwalk-icon-button docwalk-files-action"
-            >
+            <IconButton label={m.ws_actions()} className="docwalk-icon-button docwalk-files-action">
               <Ellipsis size={16} aria-hidden="true" />
             </IconButton>
           }
@@ -318,34 +327,36 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
       <DisclosurePanel className="docwalk-files-panel">
         {needsPermission ? (
           <div className="docwalk-files-note">
-            <p>
-              Allow docwalk to open <strong>{w.folderName}</strong> again to see its files.
-            </p>
+            <p>{rich(m.ws_reconnect_note, { name: <strong>{w.folderName}</strong> })}</p>
             <Button className="docwalk-button" onPress={() => void w.reconnect()}>
               <HardDrive size={16} aria-hidden="true" />
-              Reconnect
+              {m.ws_reconnect()}
             </Button>
           </div>
         ) : w.listing === null ? (
           <p className="docwalk-files-note">
-            {w.supported.opfs ? "Loading files…" : "This browser cannot keep files for docwalk."}
+            {w.supported.opfs ? m.ws_loading() : m.ws_unsupported()}
           </p>
         ) : nodes.length === 0 ? (
           <div className="docwalk-files-note">
             <p>
-              {w.root === "folder"
-                ? `No Markdown files in ${w.folderName ?? "this folder"}.`
-                : "Keep Markdown files in this browser. Nothing is uploaded."}
+              {w.root !== "folder"
+                ? m.ws_empty_browser()
+                : w.folderName
+                  ? m.ws_empty_folder({ name: w.folderName })
+                  : m.ws_empty_this_folder()}
             </p>
             <Button className="docwalk-button" onPress={() => w.setDialog({ kind: "new-project" })}>
               <LayoutTemplate size={16} aria-hidden="true" />
-              New project
+              {m.ws_new_project()}
             </Button>
           </div>
         ) : (
           <>
             <Tree
-              aria-label={w.root === "folder" ? `Files in ${rootLabel}` : "Files in this browser"}
+              aria-label={
+                w.root === "folder" ? m.ws_tree_folder({ name: rootLabel }) : m.ws_tree_browser()
+              }
               className="docwalk-files-tree"
               items={nodes}
               // React Aria caches rows by item; the unsaved dot depends on more than the item.
@@ -370,11 +381,7 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
             >
               {renderNode}
             </Tree>
-            {w.listing.truncated && (
-              <p className="docwalk-files-note">
-                This folder is very large: only the first entries are listed.
-              </p>
-            )}
+            {w.listing.truncated && <p className="docwalk-files-note">{m.ws_truncated()}</p>}
           </>
         )}
       </DisclosurePanel>

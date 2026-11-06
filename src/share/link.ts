@@ -9,6 +9,7 @@
  * carry `?token=`).
  */
 import type { DocumentSource } from "../inputs/types";
+import { m } from "../paraglide/messages.js";
 import { COMMENTS_PARAM, DOC_HASH_PREFIX, encodeDoc } from "./fragment";
 import { FRAGMENT_MAX_CHARS, FRAGMENT_WARN_CHARS, type ShareLink } from "./types";
 
@@ -27,14 +28,12 @@ export interface ShareLinkInput {
   comments?: string | null;
 }
 
-export const LONG_LINK_WARNING =
-  "This link is long. Some chat and email apps cut long links, so check that it opens before you rely on it.";
+// Message functions: a link's text is read in the UI language when the link is built.
+export const LONG_LINK_WARNING = m.share_long_link;
 
-export const TOO_LONG_MESSAGE =
-  "This document is too long to fit in a link. Export it as a file, or put it on GitHub and share that link.";
+export const TOO_LONG_MESSAGE = m.share_too_long;
 
-export const TOKEN_REMOVED_WARNING =
-  "The access key in the file's address was removed from this link. People who cannot open the file on GitHub will not be able to open it.";
+export const TOKEN_REMOVED_WARNING = m.share_token_removed;
 
 /** Query parameters that grant access and must not be shared. */
 const SECRET_PARAM =
@@ -78,7 +77,7 @@ function sourceLink(root: URL, source: Extract<DocumentSource, { kind: "url" | "
   if (source.kind === "url") {
     const { url, stripped } = publicSourceUrl(source.url);
     root.searchParams.set("src", url);
-    return { url: root.href, warning: stripped ? TOKEN_REMOVED_WARNING : null };
+    return { url: root.href, warning: stripped ? TOKEN_REMOVED_WARNING() : null };
   }
   root.searchParams.set("repo", source.repo);
   root.searchParams.set("path", source.path);
@@ -107,8 +106,8 @@ export async function buildShareLink({
     return { ok: true, link: { kind: "source", warning, ...withComments(url, "#") } };
   }
   const docUrl = `${root.href}${DOC_HASH_PREFIX}${await encodeDoc(markdown)}`;
-  if (docUrl.length > FRAGMENT_MAX_CHARS) return { ok: false, message: TOO_LONG_MESSAGE };
+  if (docUrl.length > FRAGMENT_MAX_CHARS) return { ok: false, message: TOO_LONG_MESSAGE() };
   const { url, commentsDropped } = withComments(docUrl, "&");
-  const warning = url.length > FRAGMENT_WARN_CHARS ? LONG_LINK_WARNING : null;
+  const warning = url.length > FRAGMENT_WARN_CHARS ? LONG_LINK_WARNING() : null;
   return { ok: true, link: { kind: "fragment", url, warning, commentsDropped } };
 }
