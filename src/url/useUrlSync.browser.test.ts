@@ -73,6 +73,7 @@ function openAt(search: string, hash: string) {
 
 const baseOptions: UrlSyncOptions = {
   controller: null,
+  documentId: 0,
   level: "auto",
   view: "edit",
   onLevel: () => {},
@@ -224,6 +225,43 @@ describe("useUrlSync", () => {
     const other = fakeController(["alpha/1", "beta/1", "gamma/1", "delta/1"]);
     render({ controller: other });
     expect(other.current()?.address).toBe("alpha/1");
+  });
+
+  test("another document opens on its first slide even when it shares section ids with the old one", () => {
+    // Two projects from one template, or two talks that both have a Summary:
+    // the old address named a slide in the new document too, which then
+    // opened mid-deck instead of on its cover.
+    openAt("", "");
+    const first = fakeController(DECK);
+    const render = mount({ controller: first, documentId: 1 });
+    act(() => first.goTo("failure-handling/2"));
+    expect(window.location.hash).toBe("#failure-handling/2");
+    render({ controller: null, documentId: 2 });
+    const other = fakeController(DECK);
+    render({ controller: other });
+    expect(other.current()?.address).toBe("intro/1");
+    expect(window.location.hash).toBe("#intro/1");
+  });
+
+  test("a document opened over a #doc= link starts on its first slide, not the old slide kept in memory", () => {
+    openAt("", "#doc=eJzLSM3JyQcABiwCFQ");
+    const first = fakeController(DECK);
+    const render = mount({ controller: first, documentId: 1 });
+    act(() => first.goTo("rollout/1"));
+    render({ controller: null, documentId: 2 });
+    const pasted = fakeController(DECK);
+    render({ controller: pasted });
+    expect(pasted.current()?.address).toBe("intro/1");
+  });
+
+  test("the first document of the page still opens on the link's slide", () => {
+    // A ?src= link or a reload: the address in the hash is the reason for the link.
+    openAt("", "#rollout/1");
+    const render = mount({ controller: null, documentId: 0 });
+    render({ documentId: 1 });
+    const controller = fakeController(DECK);
+    render({ controller });
+    expect(controller.current()?.address).toBe("rollout/1");
   });
 
   test("under a #doc= fragment a rebuilt deck stays on the viewer's slide, though the hash cannot hold it", () => {

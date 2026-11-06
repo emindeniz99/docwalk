@@ -12,7 +12,7 @@
 import { documentKey } from "../canvas/identity";
 import { moveSketches } from "../canvas/store";
 import { sourceKey } from "../comments/identity";
-import { openCommentStore } from "../comments/store";
+import { openCommentStore, type CommentStore } from "../comments/store";
 import type { WorkspaceNode, WorkspaceSource } from "./types";
 
 /** The node's own path when it is a file, else every file path listed under it. */
@@ -38,11 +38,26 @@ export async function dropAnnotations(files: readonly WorkspaceSource[]): Promis
   await rekey(files.map((file) => [file, null] as const));
 }
 
+/**
+ * One connection for every rename and delete in this tab: the store has no
+ * close(), so opening one per call left each open for the tab's life. A
+ * failed open is not kept, and a failed operation drops the connection (another
+ * tab's upgrade may have closed it), so the next call opens a fresh one.
+ */
+let commentStore: Promise<CommentStore | null> | null = null;
+function sharedCommentStore(): Promise<CommentStore | null> {
+  commentStore ??= openCommentStore().catch(() => {
+    commentStore = null;
+    return null;
+  });
+  return commentStore;
+}
+
 async function rekey(
   moves: readonly (readonly [WorkspaceSource, WorkspaceSource | null])[],
 ): Promise<void> {
   if (moves.length === 0) return;
-  const store = await openCommentStore().catch(() => null);
+  const store = await sharedCommentStore();
   for (const [from, to] of moves) {
     const old = keysOf(from);
     const next = to === null ? null : keysOf(to);
@@ -55,6 +70,7 @@ async function rekey(
       }
     } catch {
       // Comments stay where they were; the rename or delete itself succeeded.
+      commentStore = null;
     }
     await moveSketches(old.sketches, next?.sketches ?? null).catch(() => undefined);
   }

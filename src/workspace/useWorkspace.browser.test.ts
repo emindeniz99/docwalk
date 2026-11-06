@@ -553,3 +553,140 @@ describe("a folder file waiting for Reconnect (review pass 2, finding 8)", () =>
     }
   });
 });
+
+/**
+ * A FileSystemObserver whose change notices the test sends, so a notice can
+ * land exactly while a check of the disk is running. It also turns polling
+ * off, as a real observer does.
+ */
+function fakeObserver() {
+  const g = globalThis as { FileSystemObserver?: unknown };
+  const real = g.FileSystemObserver;
+  const live = new Set<(records: unknown[]) => void>();
+  g.FileSystemObserver = class {
+    #callback: (records: unknown[]) => void;
+    constructor(callback: (records: unknown[]) => void) {
+      this.#callback = callback;
+    }
+    async observe() {
+      live.add(this.#callback);
+    }
+    disconnect() {
+      live.delete(this.#callback);
+    }
+  };
+  return {
+    notify: () => act(() => [...live].forEach((callback) => callback([]))),
+    restore: () => {
+      if (real === undefined) delete g.FileSystemObserver;
+      else g.FileSystemObserver = real;
+    },
+  };
+}
+
+describe("an external change to an open local file (review pass 3, findings 5 and 7)", () => {
+  let observer: ReturnType<typeof fakeObserver>;
+  beforeEach(() => {
+    observer = fakeObserver();
+  });
+  afterEach(() => observer.restore());
+
+  test("a change notice that arrives while a check is reading the disk is not lost", async () => {
+    // With FileSystemObserver nothing polls, so a dropped notice stayed lost:
+    // an editor's temp-file-plus-rename sends two, and the second one landed
+    // while the first check was still reading the old text.
+    await writeText(await disk("fa"), "notes.md", "# V0\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "notes.md");
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+
+    const arrayBuffer = Blob.prototype.arrayBuffer;
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+    let reading = false;
+    Blob.prototype.arrayBuffer = async function (this: Blob) {
+      reading = true;
+      await gate;
+      return arrayBuffer.call(this);
+    };
+    try {
+      observer.notify();
+      await vi.waitFor(() => expect(reading).toBe(true));
+      await writeText(await disk("fa"), "notes.md", "# V1\n");
+      observer.notify();
+    } finally {
+      Blob.prototype.arrayBuffer = arrayBuffer;
+      release();
+    }
+    await vi.waitFor(() => expect(wired.current!.inputs.doc?.markdown).toBe("# V1\n"));
+  });
+
+  test("Save over an external change no check has seen asks, instead of overwriting it", async () => {
+    // save() wrote without looking, so the promise of decision 58 (a disk
+    // change over unsaved edits asks which to keep) rested on the watcher
+    // having seen the change first.
+    await writeText(await disk("fa"), "notes.md", "# V0\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "notes.md");
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+    act(() => wired.current!.inputs.edit("# V0, my edits\n"));
+    await writeText(await disk("fa"), "notes.md", "# V1 from an agent\n");
+
+    let saved: boolean | null = null;
+    await act(async () => {
+      saved = await wired.current!.workspace.save();
+    });
+    expect(saved).toBe(false);
+    expect(await readDisk("fa", "notes.md")).toBe("# V1 from an agent\n");
+    expect(wired.current!.workspace.dialog?.kind).toBe("conflict");
+
+    // "Keep my edits" is the user's answer; the next Save then writes them.
+    await userEvent.click(alertButton("Keep my edits"));
+    await act(async () => {
+      saved = await wired.current!.workspace.save();
+    });
+    expect(saved).toBe(true);
+    expect(await readDisk("fa", "notes.md")).toBe("# V0, my edits\n");
+  });
+
+  test("a disk change does not replace the Save-or-discard question, and the file the user clicked opens", async () => {
+    await writeText(await disk("fa"), "a.md", "# File A\n");
+    await writeText(await disk("fa"), "b.md", "# File B\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "a.md");
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+    act(() => wired.current!.inputs.edit("# File A, edited\n"));
+    act(() => wired.current!.workspace.openFile("b.md"));
+    expect(wired.current!.workspace.dialog?.kind).toBe("discard");
+
+    await writeText(await disk("fa"), "a.md", "# File A from an agent\n");
+    observer.notify();
+    await act(() => new Promise((r) => setTimeout(r, 200)));
+    // The conflict used to overwrite this dialog and drop its pending action.
+    expect(wired.current!.workspace.dialog?.kind).toBe("discard");
+    await userEvent.click(alertButton("Discard changes"));
+    await vi.waitFor(() => expect(wired.current!.workspace.source?.path).toBe("b.md"));
+    await act(() => new Promise((r) => setTimeout(r, 200)));
+    expect(wired.current!.workspace.dialog).toBeNull();
+  });
+
+  test("a disk change seen while a dialog was open is asked about once the user cancels it", async () => {
+    await writeText(await disk("fa"), "a.md", "# File A\n");
+    await writeText(await disk("fa"), "b.md", "# File B\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "a.md");
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+    act(() => wired.current!.inputs.edit("# File A, edited\n"));
+    act(() => wired.current!.workspace.openFile("b.md"));
+    await writeText(await disk("fa"), "a.md", "# File A from an agent\n");
+    observer.notify();
+    await act(() => new Promise((r) => setTimeout(r, 200)));
+
+    await userEvent.click(alertButton("Cancel"));
+    await vi.waitFor(() => expect(wired.current!.workspace.dialog?.kind).toBe("conflict"));
+    expect(wired.current!.workspace.source?.path).toBe("a.md");
+  });
+});

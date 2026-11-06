@@ -74,6 +74,17 @@ function leaveLink(): void {
   if (next.href !== location.href) history.replaceState(history.state, "", next);
 }
 
+/** Whether `next` is the open workspace file read again (a disk reload), not another document. */
+function sameWorkspaceFile(
+  open: LoadedDocument["source"] | undefined,
+  next: LoadedDocument["source"],
+): boolean {
+  if (open?.kind !== "workspace" || next.kind !== "workspace") return false;
+  if (open.path !== next.path) return false;
+  if (open.root === "opfs") return next.root === "opfs";
+  return next.root === "folder" && next.folder === open.folder;
+}
+
 /** The saved draft, which this page then holds (src/share/draft.ts). */
 function openDraft(): LoadedDocument | null {
   const draft = loadDraft();
@@ -99,10 +110,22 @@ export function useDocument({ follow }: { follow: boolean }) {
    * which then autosaves it).
    */
   const [docId, setDocId] = useState(0);
+  /**
+   * Bumped whenever another document is shown, but unlike `docId` not when the
+   * open workspace file is reloaded from disk: that is the same document, and
+   * the deck keeps the viewer's slide, which another document must not inherit
+   * (src/url/useUrlSync.ts).
+   */
+  const [openedId, setOpenedId] = useState(0);
   /** Counts "Replace my draft" choices: each makes the open document the draft. */
   const [draftChoices, setDraftChoices] = useState(0);
+  const docRef = useRef(doc);
+  useLayoutEffect(() => {
+    docRef.current = doc;
+  });
   const show = useCallback((next: LoadedDocument) => {
     setDocId((n) => n + 1);
+    if (!sameWorkspaceFile(docRef.current?.source, next.source)) setOpenedId((n) => n + 1);
     setDoc(next);
   }, []);
   /** Asked before a share link in the address bar replaces the document; the workspace sets it. */
@@ -117,10 +140,6 @@ export function useDocument({ follow }: { follow: boolean }) {
   const retryRepo = useRef<RepoRequest | null>(null);
   /** Bumped by every load; a load whose number is no longer current has been overtaken. */
   const generation = useRef(0);
-  const docRef = useRef(doc);
-  useLayoutEffect(() => {
-    docRef.current = doc;
-  });
 
   /** "Replace my draft": the user chose to make this document the saved draft. */
   const replaceDraft = useCallback(() => {
@@ -278,16 +297,29 @@ export function useDocument({ follow }: { follow: boolean }) {
   // for every other way of replacing the document).
   useEffect(() => {
     if (follow) return;
+    let replayed: Event | null = null;
     const onHashChange = (event: HashChangeEvent) => {
+      if (event === replayed) return;
       const hash = location.hash;
       if (!isDocHash(hash)) return;
       // The address names the link only once it is loaded: declined, the old
       // document stays under its own address.
       history.replaceState(history.state, "", event.oldURL);
+      let asked = false;
       replaceGuard.current(() => {
         history.replaceState(history.state, "", event.newURL);
         void loadFragment(hash);
+        // The other hashchange listeners (the link's comments, src/comments)
+        // ran while the old address was back. After the user agreed, they
+        // hear about the link again, as an unguarded paste lets them.
+        if (!asked) return;
+        replayed = new HashChangeEvent("hashchange", {
+          oldURL: event.oldURL,
+          newURL: event.newURL,
+        });
+        globalThis.dispatchEvent(replayed);
       });
+      asked = true;
     };
     globalThis.addEventListener("hashchange", onHashChange);
     return () => globalThis.removeEventListener("hashchange", onHashChange);
@@ -433,6 +465,7 @@ export function useDocument({ follow }: { follow: boolean }) {
   return {
     doc,
     docId,
+    openedId,
     draftAvailable,
     reopenDraft,
     setReplaceGuard,

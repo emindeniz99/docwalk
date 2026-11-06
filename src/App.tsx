@@ -11,6 +11,7 @@ import {
   Search,
   Share2,
   Sun,
+  TableOfContents,
   X,
 } from "lucide-react";
 import {
@@ -51,13 +52,13 @@ import type { RemoteStatus } from "./remote/client";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { useDraftAutosave } from "./share/draft";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
-import { DocumentView } from "./shell/DocumentView";
+import { DocumentView, sectionAnchor, type DocumentTarget } from "./shell/DocumentView";
 import { documentTitle } from "./shell/documentTitle";
 import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
 import { ModShortcut } from "./shell/ModShortcut";
 import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
-import { Outline } from "./shell/Outline";
+import { Outline, OutlineSheet } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
 import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
 import { useDocument } from "./shell/useDocument";
@@ -237,6 +238,21 @@ export function App() {
   const docTitle = !doc ? m.app_loading_document() : documentTitle(root, plan) || m.app_untitled();
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
 
+  // Document mode reads the whole file: the outline scrolls it to a section,
+  // and entering it opens at the section the outline marks as current.
+  const [documentTarget, setDocumentTarget] = useState<DocumentTarget | null>(null);
+  const [inDocument, setInDocument] = useState(view === "document");
+  // On a phone the reading view takes the screen and the outline is a sheet.
+  const outlineSheet = phone && view === "document" && !follow;
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  if (inDocument !== (view === "document")) {
+    setInDocument(view === "document");
+    setOutlineOpen(false);
+    setDocumentTarget(
+      view === "document" && current ? { anchor: sectionAnchor(plan, current.sectionId) } : null,
+    );
+  }
+
   const onReport = useCallback((r: DeckReport) => setReport(r), []);
   const onReady = useCallback((c: DeckController | null) => {
     setController(c);
@@ -291,6 +307,7 @@ export function App() {
   useUrlSync({
     // A follower shows the presenter's slide (RemoteFollower), never one the URL or a rebuild remembers.
     controller: follow ? null : controller,
+    documentId: inputs.openedId,
     level,
     view,
     onLevel: setLevel,
@@ -395,16 +412,37 @@ export function App() {
     [slides, sectionLines, locale],
   );
 
-  // The preview follows the cursor while editing.
-  const onCursorLine = useCallback(
-    (line: number) => {
-      if (!controller) return;
+  // The preview follows the cursor while editing. The editor reports a line
+  // only when it changes, and a heading just typed is not a section until the
+  // edit has been paginated and the deck rebuilt: the last line is matched
+  // again then, and followed if its section is not the one followed last
+  // (so a level switch or a write elsewhere leaves a browsed preview alone).
+  const cursor = useRef<{ line: number; section: string | null } | null>(null);
+  const followCursor = useCallback(
+    (moved: boolean) => {
+      const at = cursor.current;
+      if (!controller || !at) return;
       let target: string | null = null;
-      for (const sec of plan.sections) if (sec.line <= line) target = sec.id;
-      if (target && controller.current()?.sectionId !== target) controller.goTo(target);
+      for (const sec of plan.sections) if (sec.line <= at.line) target = sec.id;
+      if (!target || (!moved && target === at.section)) return;
+      if (controller.current()?.sectionId === target || controller.goTo(target)) {
+        at.section = target;
+      }
     },
     [controller, plan],
   );
+  const onCursorLine = useCallback(
+    (line: number) => {
+      cursor.current = { line, section: cursor.current?.section ?? null };
+      followCursor(true);
+    },
+    [followCursor],
+  );
+  useEffect(() => {
+    if (view === "edit") followCursor(false);
+    // The editor remounts on return to Edit and reports its line again.
+    else cursor.current = null;
+  }, [view, followCursor]);
 
   const openPresenter = useCallback(() => {
     if (!openPresenterWindow()) {
@@ -470,14 +508,19 @@ export function App() {
 
   const goTo = useCallback(
     (address: string) => {
-      if (view === "document") show("edit");
       controller?.goTo(address);
+      if (view === "document") {
+        // A reader stays in the reading view, which scrolls to the section.
+        setDocumentTarget({ anchor: sectionAnchor(plan, address.split("/")[0] ?? "") });
+        setOutlineOpen(false);
+        return;
+      }
       // Reset first, so revealing the same section twice scrolls again.
       const line = sectionLines.get(address.split("/")[0] ?? "");
       setRevealLine(null);
       if (line) requestAnimationFrame(() => setRevealLine(line));
     },
-    [controller, view, show, sectionLines],
+    [controller, view, plan, sectionLines, setOutlineOpen],
   );
 
   // Comments (decision 55): App only places the pieces the hook builds.
@@ -732,7 +775,7 @@ export function App() {
       </div>
 
       <main className="docwalk-main">
-        {view !== "present" && !follow && (
+        {view !== "present" && !follow && !outlineSheet && (
           <aside className="docwalk-sidebar">
             {workspace.available && <FilesPanel workspace={workspace} />}
             <Outline
@@ -745,6 +788,24 @@ export function App() {
               <LevelSelect value={level} onChange={setLevel} resolved={resolved} />
             </div>
           </aside>
+        )}
+        {outlineSheet && (
+          <div className="docwalk-document-bar">
+            <Button className="docwalk-button" onPress={() => setOutlineOpen(true)}>
+              <TableOfContents size={16} aria-hidden="true" />
+              {m.outline_label()}
+            </Button>
+            <span className="docwalk-document-bar-section">{current?.title ?? ""}</span>
+            <OutlineSheet isOpen={outlineOpen} onOpenChange={setOutlineOpen}>
+              {workspace.available && <FilesPanel workspace={workspace} />}
+              <Outline
+                slides={slides}
+                current={current}
+                onSelect={goTo}
+                commentCounts={comments.outlineCounts}
+              />
+            </OutlineSheet>
+          </div>
         )}
         {phone && view === "edit" && !follow && (
           <div ref={paneSwitchRef} className="docwalk-pane-switch">
@@ -787,7 +848,11 @@ export function App() {
         )}
         {view === "document" && !follow && (
           <section className="docwalk-document-pane" aria-label={m.app_document()}>
-            <DocumentView root={root} onRendered={comments.onDocumentRendered} />
+            <DocumentView
+              root={root}
+              onRendered={comments.onDocumentRendered}
+              scrollTarget={documentTarget}
+            />
           </section>
         )}
         <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document" && !follow}>

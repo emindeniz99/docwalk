@@ -37,7 +37,10 @@ function warmWhenControlled(sw: ServiceWorkerContainer): void {
  * and reloads this page once it has. Nothing reloads without that call, and
  * a first install (no previous worker) is not an update.
  */
-export function registerServiceWorker(onUpdate: (apply: () => void) => void): void {
+export function registerServiceWorker(
+  onUpdate: (apply: () => void) => void,
+  reload: () => void = () => location.reload(),
+): void {
   if (!("serviceWorker" in navigator)) return;
   const sw = navigator.serviceWorker;
   const base = import.meta.env.BASE_URL;
@@ -45,12 +48,18 @@ export function registerServiceWorker(onUpdate: (apply: () => void) => void): vo
 
   const offer = (worker: ServiceWorker) =>
     onUpdate(() => {
+      // Another tab applied this update already: the worker is active, no
+      // controllerchange is coming, and only a reload loads the new version.
+      if (worker.state !== "installed") {
+        reload();
+        return;
+      }
       reloading = true;
       tell(worker, { type: "SKIP_WAITING" });
     });
 
   sw.addEventListener("controllerchange", () => {
-    if (reloading) location.reload();
+    if (reloading) reload();
   });
   warmWhenControlled(sw);
 

@@ -1,6 +1,7 @@
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { commentsParam } from "../comments/payload";
 import { DRAFT_DEBOUNCE_MS, releaseDraft, useDraftAutosave } from "../share/draft";
 import { encodeDoc } from "../share/fragment";
 import { DRAFT_STORAGE_KEY } from "../share/types";
@@ -263,6 +264,31 @@ describe("replacing the document (review findings 9, 11)", () => {
     );
   });
 
+  test("a guarded share link hands its comments to the importer once the user agrees", async () => {
+    // The comments importer (src/comments/useComments.ts) reads location.hash
+    // on hashchange, after this hook, which App calls first. While the
+    // unsaved-changes dialog was up the hash had been put back, so the importer
+    // saw no `&c=`; Save or Discard then loaded the document without them.
+    openAt("", "");
+    const inputs = mount();
+    const asked: (() => void)[] = [];
+    act(() => inputs.current!.setReplaceGuard((proceed) => asked.push(proceed)));
+    const seen: (string | null)[] = [];
+    const importer = () => seen.push(commentsParam(location.hash));
+    globalThis.addEventListener("hashchange", importer);
+    try {
+      window.location.hash = `#doc=${await encodeDoc(SHARED)}&c=PAYLOAD`;
+      await vi.waitFor(() => expect(asked).toHaveLength(1));
+      // Not yet: declined, the link's comments must not reach the open document.
+      expect(seen.filter(Boolean)).toEqual([]);
+      act(() => asked[0]!());
+      expect(seen.filter(Boolean)).toEqual(["PAYLOAD"]);
+      await vi.waitFor(() => expect(inputs.current!.doc?.source.kind).toBe("fragment"));
+    } finally {
+      globalThis.removeEventListener("hashchange", importer);
+    }
+  });
+
   test("docId changes when another document is shown, never on an edit", () => {
     // The editor starts a fresh undo history on a new docId; an edit must keep it.
     const inputs = mount();
@@ -276,6 +302,26 @@ describe("replacing the document (review findings 9, 11)", () => {
       }),
     );
     expect(inputs.current!.docId).not.toBe(first);
+  });
+  test("openedId changes for another document, not when the open file is reloaded from disk", () => {
+    // The deck's slide address is reset when openedId changes (src/url/useUrlSync.ts).
+    // A disk reload is the same file rewritten, as by an agent, and must keep
+    // the presenter's slide; a rename keeps it too.
+    const inputs = mount();
+    const file = { kind: "workspace", root: "folder", folder: "f1", path: "talk.md" } as const;
+    act(() => inputs.current!.openDocument({ markdown: "# A\n", source: file }));
+    const opened = inputs.current!.openedId;
+    act(() => inputs.current!.openDocument({ markdown: "# A, rewritten\n", source: { ...file } }));
+    expect(inputs.current!.openedId).toBe(opened);
+    act(() => inputs.current!.retarget({ ...file, path: "renamed.md" }));
+    expect(inputs.current!.openedId).toBe(opened);
+    act(() =>
+      inputs.current!.openDocument({ markdown: "# B\n", source: { ...file, path: "b.md" } }),
+    );
+    expect(inputs.current!.openedId).not.toBe(opened);
+    const b = inputs.current!.openedId;
+    act(() => inputs.current!.closeDocument());
+    expect(inputs.current!.openedId).not.toBe(b);
   });
 });
 

@@ -12,6 +12,8 @@ import { m } from "../paraglide/messages.js";
 export function openDiagramFocus(diagram: HTMLElement): () => void {
   const svg = diagram.querySelector("svg");
   if (!svg) return () => undefined;
+  // React keeps this element across deck rebuilds; the `.reveal` inside it is replaced.
+  const deckHost = diagram.closest(".docwalk-deck-host");
 
   const overlay = document.createElement("div");
   overlay.className = "docwalk-focus";
@@ -130,7 +132,11 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
     if (document.fullscreenElement === overlay) void document.exitFullscreen();
     overlay.remove();
     for (const el of madeInert) el.inert = false;
-    diagram.focus();
+    // A rebuild while the view was open detached the diagram, and focusing it
+    // would leave focus on <body>, where reveal.js ignores the arrow keys and
+    // the clicker: the new deck takes focus instead.
+    if (diagram.isConnected) diagram.focus();
+    else deckHost?.querySelector<HTMLElement>(".reveal")?.focus({ preventScroll: true });
   }
 
   requestAnimationFrame(fit);

@@ -413,6 +413,21 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       setNotice({ message: message(new DOMException("", "NotAllowedError"), ""), tone: "error" });
       return false;
     }
+    // A change on disk that no check has seen yet (a notice still on its way,
+    // the poll not due) is asked about, never written over (decision 58).
+    // The version a conflict dialog still asks about is not an answer yet.
+    const known = baselineRef.current;
+    if (known?.key === keyOf(src)) {
+      const change = await diskChange(handle, src.path, known, null).catch(() => null);
+      if (
+        change?.kind === "changed" &&
+        change.disk.text !== known.text &&
+        change.disk.text !== current.markdown
+      ) {
+        setDialog({ kind: "conflict", path: src.path, disk: change.disk });
+        return false;
+      }
+    }
     try {
       const lm = await writeText(handle, src.path, current.markdown);
       setBaseline({ key: keyOf(src), text: current.markdown, lastModified: lm });
@@ -429,46 +444,72 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     }
   }, [flush, handleOf, setBaseline, setNotice]);
 
+  /**
+   * A conflict found while another dialog was open: asked once that dialog
+   * closes, since replacing it would drop what it holds (the action waiting
+   * on Save or Discard, a half-typed name).
+   */
+  const askAfterDialog = useRef(false);
   const checking = useRef(false);
+  const checkAgain = useRef(false);
+  /** Compares the open local file with the disk; a call while one runs is not dropped but runs after it. */
   const checkDisk = useCallback(async () => {
-    const src = workspaceSource(docRef.current);
-    const handle = src?.root === "folder" ? handleOf(src) : null;
-    const known = baselineRef.current;
-    if (!src || !handle || checking.current) return;
-    if (known?.key !== keyOf(src)) return;
+    if (checking.current) {
+      checkAgain.current = true;
+      return;
+    }
     checking.current = true;
-    const open = dialogRef.current;
-    const change = await diskChange(
-      handle,
-      src.path,
-      known,
-      open?.kind === "conflict" ? open.disk : null,
-    ).catch(() => null);
+    const checkOnce = async () => {
+      const src = workspaceSource(docRef.current);
+      const handle = src?.root === "folder" ? handleOf(src) : null;
+      const known = baselineRef.current;
+      if (!src || !handle) return;
+      if (known?.key !== keyOf(src)) return;
+      const open = dialogRef.current;
+      const change = await diskChange(
+        handle,
+        src.path,
+        known,
+        open?.kind === "conflict" ? open.disk : null,
+      ).catch(() => null);
+      const key = keyOf(src);
+      const current = docRef.current;
+      // The user opened something else while the disk was read.
+      const now = workspaceSource(current);
+      if (!change || baselineRef.current?.key !== key || !now || keyOf(now) !== key) {
+        return;
+      }
+      if (change.kind === "missing") {
+        setMissingKey(key);
+        return;
+      }
+      setMissingKey(null);
+      if (change.kind === "unchanged" || !current) return;
+      const { disk } = change;
+      // Our own save, or a change that matches what is on screen: nothing to ask.
+      if (disk.text === known.text || disk.text === current.markdown) {
+        setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
+      } else if (current.markdown !== known.text) {
+        const showing = dialogRef.current;
+        if (showing && showing.kind !== "conflict") askAfterDialog.current = true;
+        else setDialog({ kind: "conflict", path: src.path, disk });
+      } else {
+        setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
+        openDocument({ markdown: disk.text, source: src });
+      }
+    };
+    await checkOnce();
+    while (checkAgain.current) {
+      checkAgain.current = false;
+      await checkOnce();
+    }
     checking.current = false;
-    const key = keyOf(src);
-    const current = docRef.current;
-    // The user opened something else while the disk was read.
-    const now = workspaceSource(current);
-    if (!change || baselineRef.current?.key !== key || !now || keyOf(now) !== key) {
-      return;
-    }
-    if (change.kind === "missing") {
-      setMissingKey(key);
-      return;
-    }
-    setMissingKey(null);
-    if (change.kind === "unchanged" || !current) return;
-    const { disk } = change;
-    // Our own save, or a change that matches what is on screen: nothing to ask.
-    if (disk.text === known.text || disk.text === current.markdown) {
-      setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
-    } else if (current.markdown !== known.text) {
-      setDialog({ kind: "conflict", path: src.path, disk });
-    } else {
-      setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
-      openDocument({ markdown: disk.text, source: src });
-    }
   }, [handleOf, openDocument, setBaseline]);
+  useEffect(() => {
+    if (dialog !== null || !askAfterDialog.current) return;
+    askAfterDialog.current = false;
+    void checkDisk();
+  }, [dialog, checkDisk]);
 
   const folderHandle = handleFor("folder");
   const watchedPath =
@@ -543,7 +584,16 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   const guard = useCallback(
     (proceed: () => void) => {
       if (unsavedFolderEdits && sourcePath !== null) {
-        setDialog({ kind: "discard", path: sourcePath, proceed });
+        setDialog({
+          kind: "discard",
+          path: sourcePath,
+          // Saved or discarded, the edits are settled: a disk change found
+          // meanwhile has nothing left to ask about.
+          proceed: () => {
+            askAfterDialog.current = false;
+            proceed();
+          },
+        });
       } else proceed();
     },
     [unsavedFolderEdits, sourcePath],

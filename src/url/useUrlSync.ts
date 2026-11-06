@@ -7,6 +7,11 @@ import type { ViewerUrlState } from "./types";
 export interface UrlSyncOptions {
   /** The deck, once it has rendered; `null` while it is being built. */
   controller: DeckController | null;
+  /**
+   * Changes when another document is shown (useDocument's `openedId`), never
+   * on an edit, a level or language change, or a disk reload of the same file.
+   */
+  documentId: number;
   level: LevelOption | null;
   view: ViewerUrlState["view"];
   /** Called once on mount when the URL carries a valid `?level=`. */
@@ -90,10 +95,19 @@ function relocate({ slides, index }: Position, next: SlideInfo[]): string | null
  * Keeps the slide address (hash) and the viewer settings (query) in the URL
  * (decisions 20 and 21), so a link reopens the deck where it was shared.
  */
-export function useUrlSync({ controller, level, view, onLevel, onView }: UrlSyncOptions): void {
+export function useUrlSync({
+  controller,
+  documentId,
+  level,
+  view,
+  onLevel,
+  onView,
+}: UrlSyncOptions): void {
   const callbacks = useRef({ onLevel, onView });
+  const shownId = useRef(documentId);
   useLayoutEffect(() => {
     callbacks.current = { onLevel, onView };
+    shownId.current = documentId;
   });
 
   useEffect(() => {
@@ -114,10 +128,21 @@ export function useUrlSync({ controller, level, view, onLevel, onView }: UrlSync
   // The slide the viewer is on, kept across rebuilds: the hash cannot hold it
   // under a `#doc=` fragment or without history access.
   const position = useRef<Position | null>(null);
+  /** The document of the last deck shown; `null` before the page's first deck. */
+  const deckOf = useRef<number | null>(null);
   useEffect(() => {
     if (!controller) return;
-    // A new controller means a rebuilt deck (first render, an edit, a new
-    // level): the hash, or else memory, still names the slide the viewer was on.
+    // Another document opens on its first slide: the old address may name a
+    // section it shares (Summary, Overview), and opening there would land
+    // mid-deck. The page's first document keeps the link's address.
+    const id = shownId.current;
+    if (deckOf.current !== null && deckOf.current !== id) {
+      position.current = null;
+      replaceUrl({ address: null });
+    }
+    deckOf.current = id;
+    // A new controller of the same document means a rebuilt deck (an edit, a
+    // new level): the hash, or else memory, still names the slide the viewer was on.
     const previous = position.current;
     const initial = currentState()?.address ?? previous?.slides[previous.index]?.address;
     if (initial && !goTo(controller, initial) && previous) {
