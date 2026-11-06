@@ -875,6 +875,24 @@ kbd {
   color: var(--dw-color-stage-muted);
 }
 
+/* An empty deck says what makes a slide instead of leaving a blank stage. */
+.docwalk-deck-pane {
+  position: relative;
+}
+
+.docwalk-stage-empty {
+  position: absolute;
+  inset: 50% var(--dw-space-xl) auto;
+  margin: 0 auto;
+  max-width: 28rem;
+  translate: 0 -50%;
+  color: var(--dw-color-stage-muted);
+  font-size: var(--dw-type-body-size);
+  line-height: var(--dw-type-body-line-height);
+  text-align: center;
+  pointer-events: none;
+}
+
 /* A phone remote's laser point, inside reveal's scaled .slides box, above slides (10-12) and the pen (20). */
 .docwalk-remote-laser {
   position: absolute;

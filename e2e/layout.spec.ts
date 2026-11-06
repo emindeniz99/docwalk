@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ready } from "./helpers";
+import { ready, replaceSource } from "./helpers";
 
 /**
  * The header and the stage at the two widths the app is designed for
@@ -124,4 +124,16 @@ test("with the comments panel open at 1440 px the annotation toolbar stays on on
   // The whole head is at most two control rows: counter and address, then the tools.
   const head = await page.locator(".docwalk-preview-head").boundingBox();
   expect(head?.height ?? Infinity).toBeLessThanOrEqual(2 * 38 + 8 + 12 + 1);
+});
+
+test("an empty document says how to make a slide instead of showing a blank stage", async ({
+  page,
+}) => {
+  // A blank dark stage with a "…" counter reads as still loading; the empty
+  // state has to say it is empty and what to type.
+  await ready(page);
+  await replaceSource(page, "");
+  await expect(page.locator(".docwalk-statusbar")).toContainText("0 slides");
+  await expect(page.locator(".docwalk-stage-empty")).toBeVisible();
+  await expect(page.locator(".docwalk-preview-head strong")).toHaveText("0 / 0");
 });

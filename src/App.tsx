@@ -768,7 +768,13 @@ export function App() {
         )}
         <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document" && !follow}>
           <div className="docwalk-preview-head">
-            <strong>{current ? `${current.index + 1} / ${slides.length}` : "…"}</strong>
+            <strong>
+              {current
+                ? `${current.index + 1} / ${slides.length}`
+                : report?.slides === 0
+                  ? "0 / 0"
+                  : "…"}
+            </strong>
             <span className="docwalk-preview-address">{current?.address ?? ""}</span>
             {!follow && (
               <IconButton
@@ -813,6 +819,11 @@ export function App() {
           ) : (
             <p className="docwalk-stage-wait">
               {follow ? "Waiting for the presenter…" : "Loading document…"}
+            </p>
+          )}
+          {report?.slides === 0 && (
+            <p className="docwalk-stage-empty">
+              Nothing to show yet. Add text under a heading to make a slide.
             </p>
           )}
         </div>
