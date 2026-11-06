@@ -72,6 +72,11 @@ test("after one online visit the app reloads offline and still renders the sampl
   await expect(status).toContainText("0 diagram errors");
   await expect(page.locator(".docwalk-outline-item").first()).toBeVisible();
   await expect(page.locator(".reveal .slides section").first()).toBeAttached();
+  // The sample's TypeScript block: the highlighter is precached, and its
+  // grammar was cached when the online visit used it (decision 76).
+  await expect(
+    page.locator(".reveal .slides code.language-ts .dw-code-keyword").first(),
+  ).toHaveText("export");
 });
 
 test("the manifest parses without errors and Chromium finds the app installable", async ({
