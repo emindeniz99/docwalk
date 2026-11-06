@@ -49,6 +49,16 @@ test("present view", async ({ page }) => {
   await expectNoSeriousViolations(page);
 });
 
+test("present view in the card frame", async ({ page }) => {
+  // The fill frame is the default (decision 77); the card's dark stage and
+  // its controls must pass as well for those who choose it.
+  await page.addInitScript(() => localStorage.setItem("docwalk.presentCardFrame", "true"));
+  await ready(page);
+  await page.getByRole("button", { name: "Present" }).click();
+  await expect(page.locator(".docwalk-app")).toHaveAttribute("data-frame", "card");
+  await expectNoSeriousViolations(page);
+});
+
 test("present view with the controls hidden", async ({ page }) => {
   // Idle, the bar and tools fade out but stay in the page (decision 75): they
   // must still have names and roles, and nothing invisible may be left half-drawn.
