@@ -8,6 +8,7 @@ import { flagPages, SLIDE_SIZE, slideAddress } from "../deck/pages";
 import { buildSlides } from "../deck/slides";
 import { ariaLocale, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
+import { highlightCode } from "../render/highlight";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
 import {
   connectPresenter,
@@ -375,8 +376,12 @@ async function buildPreviews(
     // overflow notes measure clones in boxes of their own. Attached (hidden,
     // off-screen), the slides made every one of those measurements lay them
     // out again in WebKit: about 4.5 s of pagination and notes for the
-    // fixture, against about 1 s with them detached.
-    await renderDiagrams(slide, stopped, { seen, pause: yieldToEventLoop });
+    // fixture, against about 1 s with them detached. A stopped build
+    // colours no more code and renders no more diagrams.
+    await Promise.all([
+      highlightCode(slide, { stop: stopped }),
+      renderDiagrams(slide, stopped, { seen, pause: yieldToEventLoop }),
+    ]);
     fitDiagrams(slide, body);
     // Also a turn of the event loop: it waits for an animation frame.
     await settled(slide);

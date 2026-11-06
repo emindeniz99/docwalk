@@ -113,6 +113,12 @@ Later rounds:
   500 px and the annotation toolbar wraps to two rows; on a phone an
   expanded file panel leaves the outline about one row inside the 40dvh
   sidebar; overview thumbnails are clones and repeat the slides' ids.
+- Code colours (decision 76): a grammar that loads after the 5 s timeout
+  colours nothing until the next rebuild; the default view's first load
+  is 977 kB of the 1 MB limit, and Shiki's precompiled grammars with its
+  raw engine (experimental upstream) would save an estimated 18 kB; a language
+  outside the 24 stays plain, and Markdown bold and italic in a code block
+  get no colour (the theme marks them with weight only).
 - While presenting in real fullscreen, Escape with a dialog open closes the
   dialog and leaves fullscreen (browsers keep the key); presenting goes on
   windowed until a second Escape.

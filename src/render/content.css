@@ -162,3 +162,100 @@
   cursor: pointer;
   font-weight: 600;
 }
+
+/* ---- Code highlighting (decision 76) ---------------------------------------- */
+
+/*
+ * src/render/highlight.ts puts one of these classes on each coloured run of
+ * a fenced code block. Colour only: a weight or style change would move
+ * glyphs and change the line breaks pagination measured. Slides keep the
+ * light set (the code block is `canvas` on a white slide); document mode
+ * follows the theme, like alerts.
+ */
+:root {
+  --code-keyword: var(--dw-color-code-keyword);
+  --code-string: var(--dw-color-code-string);
+  --code-comment: var(--dw-color-code-comment);
+  --code-constant: var(--dw-color-code-constant);
+  --code-function: var(--dw-color-code-function);
+  --code-parameter: var(--dw-color-code-parameter);
+  --code-inserted: var(--dw-color-code-inserted);
+  --code-inserted-surface: var(--dw-color-code-inserted-surface);
+  --code-deleted: var(--dw-color-code-deleted);
+  --code-deleted-surface: var(--dw-color-code-deleted-surface);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --code-keyword: var(--dw-color-code-keyword-dark);
+    --code-string: var(--dw-color-code-string-dark);
+    --code-comment: var(--dw-color-code-comment-dark);
+    --code-constant: var(--dw-color-code-constant-dark);
+    --code-function: var(--dw-color-code-function-dark);
+    --code-parameter: var(--dw-color-code-parameter-dark);
+    --code-inserted: var(--dw-color-code-inserted-dark);
+    --code-inserted-surface: var(--dw-color-code-inserted-surface-dark);
+    --code-deleted: var(--dw-color-code-deleted-dark);
+    --code-deleted-surface: var(--dw-color-code-deleted-surface-dark);
+  }
+}
+
+:root[data-theme="dark"] {
+  --code-keyword: var(--dw-color-code-keyword-dark);
+  --code-string: var(--dw-color-code-string-dark);
+  --code-comment: var(--dw-color-code-comment-dark);
+  --code-constant: var(--dw-color-code-constant-dark);
+  --code-function: var(--dw-color-code-function-dark);
+  --code-parameter: var(--dw-color-code-parameter-dark);
+  --code-inserted: var(--dw-color-code-inserted-dark);
+  --code-inserted-surface: var(--dw-color-code-inserted-surface-dark);
+  --code-deleted: var(--dw-color-code-deleted-dark);
+  --code-deleted-surface: var(--dw-color-code-deleted-surface-dark);
+}
+
+.docwalk-slide-body {
+  --code-keyword: var(--dw-color-code-keyword);
+  --code-string: var(--dw-color-code-string);
+  --code-comment: var(--dw-color-code-comment);
+  --code-constant: var(--dw-color-code-constant);
+  --code-function: var(--dw-color-code-function);
+  --code-parameter: var(--dw-color-code-parameter);
+  --code-inserted: var(--dw-color-code-inserted);
+  --code-inserted-surface: var(--dw-color-code-inserted-surface);
+  --code-deleted: var(--dw-color-code-deleted);
+  --code-deleted-surface: var(--dw-color-code-deleted-surface);
+}
+
+.dw-code-keyword {
+  color: var(--code-keyword);
+}
+
+.dw-code-string {
+  color: var(--code-string);
+}
+
+.dw-code-comment {
+  color: var(--code-comment);
+}
+
+.dw-code-constant {
+  color: var(--code-constant);
+}
+
+.dw-code-function {
+  color: var(--code-function);
+}
+
+.dw-code-parameter {
+  color: var(--code-parameter);
+}
+
+.dw-code-inserted {
+  background: var(--code-inserted-surface);
+  color: var(--code-inserted);
+}
+
+.dw-code-deleted {
+  background: var(--code-deleted-surface);
+  color: var(--code-deleted);
+}
