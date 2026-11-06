@@ -28,7 +28,7 @@ import {
 import { prepareDiagramSource } from "../deck/mermaid";
 import { downloadBlob } from "../export/download";
 import { slugify } from "../export/filename";
-import { useLocale } from "../i18n/locale";
+import { getAppLocale, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { IconButton } from "../shell/IconButton";
 import { useMediaQuery } from "../shell/useMediaQuery";
@@ -422,6 +422,9 @@ const SketchCanvas = memo(function SketchCanvas({
   onChange,
   onApi,
 }: SketchCanvasProps) {
+  // Excalidraw writes its own language code ("tr-TR") into <html lang> and
+  // leaves it there; the page's language is the app's, so put it back.
+  useEffect(() => () => void (document.documentElement.lang = getAppLocale()), []);
   return (
     <Excalidraw
       initialData={data}

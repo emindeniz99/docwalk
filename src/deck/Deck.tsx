@@ -42,6 +42,22 @@ interface DeckProps {
 }
 
 /**
+ * reveal.js writes its arrow buttons' names and the pause overlay's button in
+ * English. The deck rebuilds on a locale switch, so naming them once after
+ * each initialize keeps them in the UI language.
+ */
+function localizeRevealChrome(revealEl: HTMLElement): void {
+  const name = (selector: string, label: string) =>
+    revealEl.querySelector(selector)?.setAttribute("aria-label", label);
+  name(".controls .navigate-left", m.deck_control_previous());
+  name(".controls .navigate-right", m.deck_control_next());
+  name(".controls .navigate-up", m.deck_control_above());
+  name(".controls .navigate-down", m.deck_control_below());
+  const resume = revealEl.querySelector(".pause-overlay .resume-button");
+  if (resume) resume.textContent = m.deck_resume();
+}
+
+/**
  * React owns only the outer element. Everything inside `.reveal` is built
  * with DOM APIs and handed to reveal.js, which mutates it freely; React
  * reconciling that subtree would fight reveal (decision 27).
@@ -153,6 +169,7 @@ export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
       });
       await deck.initialize();
       if (cancelled) return;
+      localizeRevealChrome(revealEl);
 
       const overflowing: DeckReport["overflowing"] = [];
       flagPages(pages, SLIDE_SIZE).forEach((measured, i) => {
