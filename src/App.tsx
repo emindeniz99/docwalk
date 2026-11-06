@@ -52,6 +52,7 @@ import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectio
 import { useDraftAutosave } from "./share/draft";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
 import { DocumentView } from "./shell/DocumentView";
+import { documentTitle } from "./shell/documentTitle";
 import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
 import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
@@ -198,11 +199,7 @@ export function App() {
   const root = useMemo(() => parseMarkdown(markdown), [markdown]);
   const plan = useMemo(() => sectionize(root, level), [root, level]);
   const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : "breaks only";
-  const docTitle = !doc
-    ? "Loading document…"
-    : plan.titleHeading
-      ? (plan.sections[0]?.title ?? "")
-      : (plan.sections[0]?.title ?? "Untitled");
+  const docTitle = !doc ? "Loading document…" : documentTitle(root, plan) || "Untitled";
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
 
   const onReport = useCallback((r: DeckReport) => setReport(r), []);
