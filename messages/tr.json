@@ -302,6 +302,7 @@
   "phone_reconnecting": "Yeniden bağlanılıyor…",
   "phone_slide_of": "Slayt {current}/{total}",
   "phone_slide_unknown": "Slayt bilinmiyor",
+  "present_controls_hint": "Düğmeleri göstermek için ekrana dokunun veya fareyi hareket ettirin",
   "presenter_disconnected": "Bağlantı kesildi: ana sunum penceresi yanıt vermiyor. Bildirdiği son slayt gösteriliyor.",
   "presenter_elapsed": "Geçen süre",
   "presenter_elapsed_time": "Geçen süre",

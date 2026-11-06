@@ -49,6 +49,18 @@ test("present view", async ({ page }) => {
   await expectNoSeriousViolations(page);
 });
 
+test("present view with the controls hidden", async ({ page }) => {
+  // Idle, the bar and tools fade out but stay in the page (decision 75): they
+  // must still have names and roles, and nothing invisible may be left half-drawn.
+  await ready(page);
+  await page.getByRole("button", { name: "Present" }).click();
+  await expect(page.locator(".docwalk-app")).toHaveAttribute("data-chrome", "hidden", {
+    timeout: 10_000,
+  });
+  await expect(page.locator(".docwalk-preview-head")).toHaveCSS("opacity", "0");
+  await expectNoSeriousViolations(page);
+});
+
 test("open command palette", async ({ page }) => {
   // The keyboard route to every command; a modal must hide the page behind it.
   await ready(page);
