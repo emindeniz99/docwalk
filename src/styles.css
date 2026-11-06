@@ -1075,8 +1075,14 @@ kbd {
   .docwalk-toolbar .docwalk-button.docwalk-inputs-target,
   .docwalk-segmented button,
   .docwalk-palette-trigger,
-  .docwalk-menu-item {
+  .docwalk-select-button,
+  .docwalk-menu-item,
+  .docwalk-outline-item {
     min-height: var(--dw-space-target);
+  }
+
+  .docwalk-outline-item {
+    align-items: center;
   }
 
   .docwalk-icon-button {
@@ -1126,5 +1132,96 @@ kbd {
   .docwalk-banners > .docwalk-source-confirm,
   .docwalk-notice {
     margin-inline: var(--dw-space-lg);
+  }
+}
+
+/* ---- Phone: edit view, sidebar and status bar ---------------------------- */
+
+/* Source or Preview: on a phone the edit view shows one pane at a time. */
+.docwalk-pane-switch {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  /*
+   * The switch sticks to the top of the scrolling main area, so once the
+   * outline scrolls away the chosen pane fills the screen under it.
+   */
+  .docwalk-app[data-pane] .docwalk-main {
+    container-type: size;
+    grid-auto-rows: auto;
+  }
+
+  .docwalk-app[data-pane] .docwalk-pane-switch {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    padding: var(--dw-space-sm) var(--dw-space-lg);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .docwalk-pane-switch .docwalk-segmented,
+  .docwalk-pane-switch .docwalk-segmented button {
+    flex: 1;
+  }
+
+  .docwalk-app[data-pane] :is(.docwalk-source, .docwalk-deck-pane) {
+    /* The main area less the switch row: a 44px control, its padding and its edge. */
+    min-height: max(320px, calc(100cqh - var(--dw-space-target) - 2 * var(--dw-space-sm) - 1px));
+  }
+
+  .docwalk-app[data-pane="source"] .docwalk-deck-pane,
+  .docwalk-app[data-pane="preview"] .docwalk-source {
+    display: none;
+  }
+
+  /* Auto rows would shrink the sidebar to nothing under a full-height pane. */
+  .docwalk-app[data-pane] .docwalk-sidebar {
+    height: 40dvh;
+  }
+
+  /*
+   * An open file tree takes room from the outline, so the sidebar grows
+   * with it and the tree is capped: the outline keeps three or more rows.
+   */
+  .docwalk-sidebar:has(.docwalk-files[data-expanded]) {
+    max-height: 50dvh;
+  }
+
+  .docwalk-app[data-pane] .docwalk-sidebar:has(.docwalk-files[data-expanded]) {
+    height: 50dvh;
+  }
+
+  .docwalk-sidebar .docwalk-files {
+    max-height: 40%;
+  }
+
+  /* "Slides start at" sits beside its select instead of above it. */
+  .docwalk-level {
+    padding: var(--dw-space-sm) var(--dw-space-lg);
+  }
+
+  .docwalk-level .docwalk-select {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--dw-space-md);
+  }
+
+  .docwalk-level .docwalk-select-button {
+    flex: 0 1 12rem;
+  }
+
+  /* Proportional figures and a tighter gap keep the counts on one line. */
+  .docwalk-statusbar {
+    gap: 0 var(--dw-space-sm);
+    padding: var(--dw-space-xs) var(--dw-space-lg);
+    font-family: var(--dw-type-caption-family);
+  }
+
+  .docwalk-statusbar-end {
+    margin-left: 0;
   }
 }

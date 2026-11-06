@@ -1,7 +1,7 @@
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "./styles.css";
 import { App } from "./App";
@@ -15,7 +15,10 @@ const DOC = "# Shell checks\n\n## First point\n\nAlpha.\n\n## Second point\n\nBe
 
 let root: Root | null = null;
 
-beforeEach(() => {
+beforeEach(async () => {
+  // These checks are about the desktop edit view, where source and deck sit
+  // side by side; a phone shows one of them at a time.
+  await page.viewport(1280, 800);
   localStorage.setItem(
     DRAFT_STORAGE_KEY,
     JSON.stringify({ markdown: DOC, source: { kind: "paste" } }),
@@ -69,6 +72,23 @@ describe("leaving present mode", () => {
       .toBe("edit");
     expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement?.closest(".docwalk-deck-pane")).not.toBeNull();
+  });
+
+  // A phone shows source or preview, not both. Coming back to the source pane
+  // would hide the deck that holds focus, and the talk the presenter just gave.
+  test("on a phone, leaving present mode shows the preview pane, where focus stays", async () => {
+    await page.viewport(390, 844);
+    const el = await mountApp();
+    const app = el.querySelector(".docwalk-app")!;
+    expect(app.getAttribute("data-pane")).toBe("source");
+    await userEvent.click(button(el, "Present"));
+    await expect.poll(() => app.getAttribute("data-view")).toBe("present");
+    await expect.poll(() => document.activeElement?.classList.contains("reveal")).toBe(true);
+    await userEvent.click(el.querySelector<HTMLElement>(".docwalk-exit")!);
+    await expect.poll(() => app.getAttribute("data-view")).toBe("edit");
+    expect(app.getAttribute("data-pane")).toBe("preview");
+    expect(document.activeElement?.closest(".docwalk-deck-pane")).not.toBeNull();
+    expect(el.querySelector<HTMLElement>(".docwalk-deck-pane")!.offsetHeight).toBeGreaterThan(0);
   });
 });
 

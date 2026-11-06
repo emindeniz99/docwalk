@@ -68,3 +68,36 @@ test("presenting on a phone scales the slide to the screen instead of reveal's s
     });
   await expect.poll(overhang).toBeLessThanOrEqual(0);
 });
+
+test("on a phone the edit view switches between source and a visible slide preview", async ({
+  page,
+}) => {
+  // A phone has no room for the source and the deck side by side, and the
+  // stacked layout used to leave the deck far below the editor, where nobody
+  // saw the slide they were writing. Preview must put the slide on screen.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await ready(page);
+  const app = page.locator(".docwalk-app");
+  await expect(app).toHaveAttribute("data-pane", "source");
+  await expect(page.locator(".cm-content")).toBeVisible();
+  await expect(page.locator(".docwalk-deck-pane")).toBeHidden();
+
+  await page.getByRole("radio", { name: "Preview" }).click();
+  await expect(app).toHaveAttribute("data-pane", "preview");
+  await expect(page.locator(".docwalk-source")).toBeHidden();
+  const slide = page.locator(".reveal .slides > section.present");
+  // Wholly inside the window and above the status bar, without scrolling.
+  await expect
+    .poll(async () => {
+      const box = await slide.boundingBox();
+      const bar = await page.locator(".docwalk-statusbar").boundingBox();
+      return !!box && !!bar && box.y >= 0 && box.y + box.height <= bar.y && box.width > 300;
+    })
+    .toBe(true);
+  // The switch stays reachable above the pane it controls.
+  await expect(page.getByRole("radio", { name: "Source" })).toBeInViewport();
+
+  await page.getByRole("radio", { name: "Source" }).click();
+  await expect(page.locator(".cm-content")).toBeInViewport();
+  await expect(page.locator(".docwalk-deck-pane")).toBeHidden();
+});

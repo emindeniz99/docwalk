@@ -494,6 +494,35 @@ test("on a 390 px phone a long workspace path does not widen the page, and panel
   await expect(banner(page)).toContainText("Saved to disk");
 });
 
+test("on a 390 px phone an open file tree leaves the outline at least three rows", async ({
+  page,
+}) => {
+  // Files, outline and the level picker share one sidebar on a phone. An
+  // expanded tree once took all of it but one outline row, so the outline,
+  // the way to jump to a section, was effectively gone.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await ready(page);
+  await newProject(page, "Phone outline", "Design doc");
+  await expect(page.locator(".docwalk-files[data-expanded]")).toHaveCount(1);
+  await expect(tree(page).getByRole("row")).not.toHaveCount(0);
+  // Clip each row by every ancestor that hides overflow, then by the window.
+  const visibleRows = await page.locator(".docwalk-outline-item").evaluateAll(
+    (items) =>
+      items.filter((el) => {
+        let { top, bottom } = el.getBoundingClientRect();
+        const height = bottom - top;
+        for (let a = el.parentElement; a; a = a.parentElement) {
+          if (getComputedStyle(a).overflowY === "visible") continue;
+          const r = a.getBoundingClientRect();
+          top = Math.max(top, r.top);
+          bottom = Math.min(bottom, r.bottom);
+        }
+        return Math.min(bottom, innerHeight) - Math.max(top, 0) >= height - 1;
+      }).length,
+  );
+  expect(visibleRows).toBeGreaterThanOrEqual(3);
+});
+
 test("axe: the file panel and its dialogs", async ({ page }) => {
   await ready(page);
   await newProject(page, "Accessible", "Design doc");

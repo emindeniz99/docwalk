@@ -151,6 +151,16 @@ export function App() {
 
   const [level, setLevel] = useState<LevelOption>("auto");
   const [view, setView] = useState<View>("edit");
+  // On a phone the edit view shows the source or the slide preview, not both.
+  const [phonePane, setPhonePane] = useState<"source" | "preview">("source");
+  // Leaving present mode on a phone lands on the deck just presented (and on
+  // the focus Exit and Escape keep there), not on the source pane.
+  const [lastView, setLastView] = useState(view);
+  const paneSwitchRef = useRef<HTMLDivElement>(null);
+  if (lastView !== view) {
+    setLastView(view);
+    if (lastView === "present") setPhonePane("preview");
+  }
   const [theme, setTheme] = useTheme();
   const [report, setReport] = useState<DeckReport | null>(null);
   const [controller, setController] = useState<DeckController | null>(null);
@@ -580,6 +590,7 @@ export function App() {
     <div
       className="docwalk-app"
       data-view={follow ? "follow" : view}
+      data-pane={phone && view === "edit" && !follow ? phonePane : undefined}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
@@ -702,6 +713,35 @@ export function App() {
               <LevelSelect value={level} onChange={setLevel} resolved={resolved} />
             </div>
           </aside>
+        )}
+        {phone && view === "edit" && !follow && (
+          <div ref={paneSwitchRef} className="docwalk-pane-switch">
+            <ToggleButtonGroup
+              aria-label="Pane"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[phonePane]}
+              onSelectionChange={(keys) => {
+                const [k] = [...keys];
+                if (k !== "source" && k !== "preview") return;
+                setPhonePane(k);
+                requestAnimationFrame(() => {
+                  // Scroll the outline away until the sticky switch reaches the
+                  // top, so the chosen pane fills the screen under it and the
+                  // slide is on screen, not below the outline.
+                  const main = paneSwitchRef.current?.parentElement;
+                  const bar = paneSwitchRef.current?.getBoundingClientRect();
+                  if (main && bar) main.scrollTop += bar.top - main.getBoundingClientRect().top;
+                  // The deck was display: none; reveal.js lays out again on resize.
+                  window.dispatchEvent(new Event("resize"));
+                });
+              }}
+              className="docwalk-segmented"
+            >
+              <ToggleButton id="source">Source</ToggleButton>
+              <ToggleButton id="preview">Preview</ToggleButton>
+            </ToggleButtonGroup>
+          </div>
         )}
         {view === "edit" && !follow && (
           <section className="docwalk-source" aria-label="Markdown source">
