@@ -40,6 +40,34 @@ interface DeckProps {
   onReport?: (report: DeckReport) => void;
   /** Receives the controller once the deck is ready, and `null` when it is torn down. */
   onReady?: (controller: DeckController | null) => void;
+  /**
+   * Present in the fill frame (decision 77): reveal.js scales the slide to
+   * the whole stage, with no margin. Only the scale changes; the slide stays
+   * 1280x720, so pagination and slide addresses are the same in both frames.
+   */
+  fill?: boolean;
+}
+
+/** reveal.js margin, as a fraction of the stage: the card frame leaves a visible stage around the slide (DESIGN.md, Colors). */
+const cardMargin = 0.1;
+/** reveal.js's own default, kept for the card frame. */
+const cardMaxScale = 2;
+
+/**
+ * reveal.js options for a frame. With no margin, reveal's rounding of the
+ * scale to the nearest 0.01 would push the slide past the stage by up to
+ * half a percent (1446 px on a 1440 px screen), so the fill frame caps the
+ * scale at the fit rounded down, which the rounding leaves as it is. The
+ * cap also lifts reveal's default limit of 2, which stopped the slide short
+ * of a screen wider than 2560 CSS px.
+ */
+function frameOptions(revealEl: HTMLElement, fill: boolean): { margin: number; maxScale: number } {
+  if (!fill) return { margin: cardMargin, maxScale: cardMaxScale };
+  const fit = Math.min(
+    revealEl.offsetWidth / SLIDE_SIZE.width,
+    revealEl.offsetHeight / SLIDE_SIZE.height,
+  );
+  return { margin: 0, maxScale: Math.floor(fit * 100) / 100 };
 }
 
 /**
@@ -63,8 +91,11 @@ function localizeRevealChrome(revealEl: HTMLElement): void {
  * with DOM APIs and handed to reveal.js, which mutates it freely; React
  * reconciling that subtree would fight reveal (decision 27).
  */
-export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
+export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProps) {
   const host = useRef<HTMLDivElement>(null);
+  const reveal = useRef<{ deck: InstanceType<typeof Reveal>; el: HTMLElement } | null>(null);
+  // Read when a deck initializes, so a rebuild while presenting keeps the frame.
+  const fillRef = useRef(fill);
   const loadRemoteImages = useLoadRemoteImages();
   // The first plan builds at once; later plans (keystrokes) wait for a pause,
   // and the last finished deck stays up meanwhile.
@@ -130,6 +161,9 @@ export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
       event.preventDefault();
       openDiagramFocus(diagram);
     };
+    const onResize = () => {
+      if (deck) Object.assign(deck.getConfig(), frameOptions(revealEl, fillRef.current));
+    };
     revealEl.addEventListener("click", onClick);
     revealEl.addEventListener("keydown", onKey);
     const stopClickToLoad = enableClickToLoad(revealEl);
@@ -167,8 +201,7 @@ export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
         keyboard: { 27: () => undefined, 79: () => undefined },
         width: SLIDE_SIZE.width,
         height: SLIDE_SIZE.height,
-        // Leave a visible stage around the slide (DESIGN.md, Colors).
-        margin: 0.1,
+        ...frameOptions(revealEl, fillRef.current),
         center: false,
         controls: true,
         progress: true,
@@ -181,8 +214,12 @@ export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
         // size. Pages are measured for the 1280x720 stage, so keep scaling it.
         scrollActivationWidth: 0,
       });
+      // Ahead of reveal's own resize listener (added by initialize), so the
+      // fill frame's cap is current before reveal lays the slide out.
+      window.addEventListener("resize", onResize);
       await deck.initialize();
       if (cancelled) return;
+      reveal.current = { deck, el: revealEl };
       localizeRevealChrome(revealEl);
 
       const overflowing: DeckReport["overflowing"] = [];
@@ -208,12 +245,23 @@ export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
       stopClickToLoad();
       onReady?.(null);
       hadFocus.current = revealEl.contains(document.activeElement);
+      window.removeEventListener("resize", onResize);
+      if (reveal.current?.deck === deck) reveal.current = null;
       deck?.destroy();
       root.replaceChildren();
     };
     // `locale` is read through Paraglide while building; it is here to rebuild on a switch.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [built, locale, onReport, onReady, loadRemoteImages]);
+
+  // Switching frames re-scales the slide in place; nothing is re-measured.
+  useEffect(() => {
+    fillRef.current = fill;
+    if (!reveal.current) return;
+    const { deck, el } = reveal.current;
+    deck.configure(frameOptions(el, fill));
+    deck.layout();
+  }, [fill]);
 
   return (
     <div className="docwalk-deck">

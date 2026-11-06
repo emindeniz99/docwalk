@@ -60,6 +60,11 @@ dropped (55).
 **Part**: one encrypted piece of an agent message too large for a relay
 frame, addressed to one participant (67). Code: `src/remote/parts.ts`.
 
+**Present frame**: how the presented slide sits on the screen (77). **Fill**,
+the default, gives it the whole screen up to its 16:9 fit and paints the
+rest in the slide's colour; **card** is the white slide on the dark stage.
+Code: `usePresentFrame`, `data-frame`.
+
 **Presenting controls**: the bar above the slide while presenting (counter,
 address, overview, Exit), the annotation tools and reveal.js's arrows. They
 hide when nobody touches anything and the slide grows into their room (75).
@@ -112,6 +117,7 @@ Add a row here before introducing a new one.
 | present (button)            | Sunum yap                   |                                            |
 | presenter view              | sunucu görünümü             |                                            |
 | presenting controls         | sunum düğmeleri             | not "kontrol", which also means check      |
+| fill the screen, card       | ekranı doldur, kart         | the two present frames                     |
 | presenter (the person)      | sunumu yapan kişi           | not "sunucu", which also means server      |
 | audience window             | ana sunum penceresi         | the presenter's own main tab               |
 | follower, follow along      | izleyici, sunumu izle       | "izleyici" names people, never a window    |

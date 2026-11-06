@@ -48,7 +48,7 @@ function Localized({ children }: { children: ReactNode }) {
 }
 
 // index.html's check found a browser below the floor and wrote its notice
-// into #root (decision 77); mounting would replace it with a page that fails.
+// into #root (decision 78); mounting would replace it with a page that fails.
 if (!root.hasAttribute("data-unsupported")) mount(root);
 
 function mount(container: HTMLElement) {

@@ -9,7 +9,7 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 v1 and the v2 workspace and agent work are built (2026-11-06): round 1's
 tracks (CI, deck, Markdown, PWA, Monaco, canvas, comments, workspace, MCP),
 then i18n with a Turkish UI and a design polish round, each merged with a
-real merge commit. Review pass 3 is being fixed. Decision rows run to 76.
+real merge commit. Review pass 3 is being fixed. Decision rows run to 77.
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
 1 MB gzip and times the fixture's open and repaginate against decision 43.
@@ -63,11 +63,14 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-06: A size budget built from the HTML and preload lists misses what the app fetches after mount (the editor chunk, Mermaid's diagram types, ELK): 398 kB counted against 1339 kB downloaded. Sum the real responses in Playwright.
 - 2026-11-06: Repository secrets reach every workflow on every branch; only environment secrets wait for the environment's branch rules and reviewers.
 - 2026-11-06: A history rewrite that edits only commit messages leaves old file revisions intact; README, decisions and MEMORY carried private links for two commits. `--replace-text` rewrites every revision, and `git log -p --format=%B | grep` proves the result.
+- 2026-11-06: reveal.js rounds its scale to 0.01 after `maxScale`; with `margin: 0` the slide overhung the screen by up to 0.5% (1446 px at 1440). Capping `maxScale` at the fit rounded down (set before reveal's own resize listener) keeps it inside. Its default `maxScale` of 2 also stops a slide short of screens wider than 2560 CSS px.
+- 2026-11-06: Chromium 1243 emulates safe-area insets through CDP `Emulation.setSafeAreaInsetsOverride` (present-frame.spec); Firefox and WebKit have no such switch.
 - 2026-11-06: Shiki: `@shikijs/primitive` (tokenizer only) is 6 kB gzip smaller than `@shikijs/core`'s highlighter; the JavaScript regex engine is about 20 kB of it. The CSS-variables theme's colours (`var(--prefix-token-…)`) work as lookup keys, and `fontStyle: false` drops weight and italics. Grammars imported from docwalk's own code are precached unless listed in `RUNTIME_CACHED_PACKAGES`. `DOMPurify` here forbids `style`, so colour must travel as classes.
 - 2026-11-06: At 1440×900 the presented slide is bound by width, so hiding the presenting controls (decision 75) does not grow it; a size test needs a phone-landscape viewport (844×390). Playwright's `devices["iPhone 15 landscape"]` is 734×343 and has no safe-area insets.
 
 ## Done
 
+- 2026-11-06: Present frame (decision 77): the slide fills the screen by default, the bar lies over it while it hides, the ground takes the slide's colour; the card stays as a More menu and palette option.
 - 2026-11-06: Code blocks coloured by language (decision 76): Shiki tokenizer as a lazy chunk, DOM colouring after both sanitizers, GitHub's colours as tokens with a contrast test, grammars cached on first use.
 - 2026-11-06: Presenting controls hide when idle and the slide takes the stage (decision 75); safe-area padding under `viewport-fit=cover`; Home Screen note for iPhone in the README.
 - 2026-11-05: Round 1 merged: CI on three engines with Lighthouse, Stryker and deploy workflows; slide overview and merged sub-heading pages; GitHub alerts, footnotes, raw HTML and heading anchors; offline PWA; Monaco; canvas mode; comments; workspace and local folders; docwalk-mcp.

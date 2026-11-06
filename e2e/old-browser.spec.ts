@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Decision 77: a browser below the floor (decision 31) gets a notice instead
+ * Decision 78: a browser below the floor (decision 31) gets a notice instead
  * of a blank page. A real old browser is not available here, so each test
  * takes away one built-in the floor brings before the page's scripts run.
  */

@@ -60,7 +60,7 @@ describe("static-mode CSP <meta> (decision 34)", () => {
     expect(docwalkCspMeta().apply).toBe("build");
   });
 
-  // Decision 77. A policy that blocks the browser check brings back the
+  // Decision 78. A policy that blocks the browser check brings back the
   // blank page the check exists to replace.
   test("the CSP allows index.html's one inline script by its hash, and nothing else inline", () => {
     const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");

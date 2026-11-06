@@ -63,7 +63,7 @@ import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
 import { ModShortcut } from "./shell/ModShortcut";
 import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
-import { usePresentChrome } from "./shell/presentChrome";
+import { setPresentFrame, usePresentChrome, usePresentFrame } from "./shell/presentChrome";
 import { Outline, OutlineSheet } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
 import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
@@ -401,12 +401,17 @@ export function App() {
     view === "present" ? undefined : deckRef,
   );
 
+  // Presenting, the slide fills the screen unless the viewer chose the card
+  // frame (decision 77).
+  const frame = usePresentFrame();
+  const fill = view === "present" && !follow && frame === "fill";
   // Presenting, the bar and tools step aside after a few idle seconds so the
   // slide can take the whole stage (decision 75); usePresentChrome has the rules.
   const chrome = usePresentChrome({
     active: view === "present" && !follow,
     pane: deckRef,
     toolActive: mode !== "off",
+    barIsStage: fill,
   });
 
   // O opens the slide overview: anywhere while presenting, from the deck pane while editing.
@@ -620,6 +625,9 @@ export function App() {
       label: m.theme_switch({ next: NEXT_THEME[theme] }),
       run: () => setTheme(NEXT_THEME[theme]),
     },
+    frame === "fill"
+      ? { id: "frame-card", label: m.cmd_present_card(), run: () => setPresentFrame("card") }
+      : { id: "frame-fill", label: m.cmd_present_fill(), run: () => setPresentFrame("fill") },
     {
       id: "level-auto",
       label: m.level_command({ level: m.level_auto_resolved({ resolved }) }),
@@ -698,7 +706,8 @@ export function App() {
       className="docwalk-app"
       data-view={follow ? "follow" : view}
       data-pane={phone && view === "edit" && !follow ? phonePane : undefined}
-      data-chrome={chrome.hidden ? "hidden" : undefined}
+      data-chrome={chrome.hidden ? "hidden" : chrome.hides ? "shown" : undefined}
+      data-frame={view === "present" && !follow ? frame : undefined}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
@@ -937,7 +946,7 @@ export function App() {
             )}
           </div>
           {doc ? (
-            <Deck plan={plan} locale={locale} onReport={onReport} onReady={onReady} />
+            <Deck plan={plan} locale={locale} onReport={onReport} onReady={onReady} fill={fill} />
           ) : (
             <p className="docwalk-stage-wait">
               {follow ? m.follow_waiting() : m.app_loading_document()}

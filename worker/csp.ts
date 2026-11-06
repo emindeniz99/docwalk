@@ -5,10 +5,10 @@
 
 /**
  * The one inline script, `index.html`'s check for browsers below the floor
- * (decision 77). `tooling/csp-plugin.test.ts` fails when it no longer hashes
+ * (decision 78). `tooling/csp-plugin.test.ts` fails when it no longer hashes
  * to this.
  */
-export const FLOOR_CHECK_HASH = "sha256-DNz1wH6T/JrzumOiZ1PT9iOmppM4EqS+4jSEjJlxJn0=";
+export const FLOOR_CHECK_HASH = "sha256-/hX6Z77myutN50zRgnI6mK8rddTu4yHOMnJxc2Xljjw=";
 
 /** decision 34; `img-src` per decision 33, `connect-src` per decision 6: any https host the viewer confirmed, plus the relay. */
 export const CONTENT_SECURITY_POLICY = [

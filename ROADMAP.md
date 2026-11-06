@@ -122,9 +122,25 @@ Later rounds:
 - Presenting controls (decision 75): check on a real iPhone, in Safari and
   from the Home Screen, since Playwright's WebKit emulates no notch or
   safe-area insets (Chromium's CDP override stands in for the tests).
+- Aspect-adaptive slides (decision 77): a slide sized to the screen's
+  aspect would leave no bars at all on a 16:10 or 4:3 screen, but its page
+  breaks would depend on the device, and followers, the presenter window
+  and links address slides as `<section-id>/<n>`. It needs one shared
+  aspect per talk (the presenter's, sent to followers) before it can be
+  considered.
+- Fill frame on follower screens (decision 77): a follow screen still shows
+  the card on the dark stage and keeps its bar; a room's second screen
+  would gain the same room the presenter's did.
 
 ## Later
 
+- Feature candidates from [`docs/feature-gaps.md`](./docs/feature-gaps.md),
+  ranked there: speaker notes from HTML comments; a focus view for code,
+  images and wide tables; laser, strokes and diagram focus mirrored to
+  followers; picking sections to present; saved annotations; countdown,
+  pacing bar and Wake Lock; math and emoji shortcodes; a Mermaid diagram
+  tour; full-text search; a blank whiteboard and shapes. Each needs a
+  decision row before code.
 - More locales after Turkish through Weblate; RTL with CSS logical
   properties.
 - GitHub Pages static deploy, once the repository is public.
