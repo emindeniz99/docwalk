@@ -48,6 +48,10 @@ test("a phone remote moves the presenter's deck and points its laser; a follower
   expect(remoteUrl).toMatch(/\?view=remote#room=[\w-]+&k=[\w-]+$/);
   await dialog.getByRole("button", { name: "Close" }).click();
 
+  // The preview follows the editor's cursor, and replaceSource leaves the
+  // cursor at the end of the document (slide 3). Start the remote from the
+  // first slide the way a presenter would: through the outline.
+  await presenter.locator(".docwalk-outline-item").first().click();
   const counter = presenter.locator(".docwalk-preview-head strong");
   await expect(counter).toHaveText("1 / 3");
 
