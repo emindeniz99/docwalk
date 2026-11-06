@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ready } from "./helpers";
+import { ready, replaceSource } from "./helpers";
 
 /**
  * The header and the stage at the two widths the app is designed for
@@ -67,4 +67,156 @@ test("presenting on a phone scales the slide to the screen instead of reveal's s
       return (slide?.getBoundingClientRect().width ?? Infinity) - innerWidth;
     });
   await expect.poll(overhang).toBeLessThanOrEqual(0);
+});
+
+test("on a phone the edit view switches between source and a visible slide preview", async ({
+  page,
+}) => {
+  // A phone has no room for the source and the deck side by side, and the
+  // stacked layout used to leave the deck far below the editor, where nobody
+  // saw the slide they were writing. Preview must put the slide on screen.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await ready(page);
+  const app = page.locator(".docwalk-app");
+  await expect(app).toHaveAttribute("data-pane", "source");
+  await expect(page.locator(".cm-content")).toBeVisible();
+  await expect(page.locator(".docwalk-deck-pane")).toBeHidden();
+
+  await page.getByRole("radio", { name: "Preview" }).click();
+  await expect(app).toHaveAttribute("data-pane", "preview");
+  await expect(page.locator(".docwalk-source")).toBeHidden();
+  const slide = page.locator(".reveal .slides > section.present");
+  // Wholly inside the window and above the status bar, without scrolling.
+  await expect
+    .poll(async () => {
+      const box = await slide.boundingBox();
+      const bar = await page.locator(".docwalk-statusbar").boundingBox();
+      return !!box && !!bar && box.y >= 0 && box.y + box.height <= bar.y && box.width > 300;
+    })
+    .toBe(true);
+  // The switch stays reachable above the pane it controls.
+  await expect(page.getByRole("radio", { name: "Source" })).toBeInViewport();
+
+  await page.getByRole("radio", { name: "Source" }).click();
+  await expect(page.locator(".cm-content")).toBeInViewport();
+  await expect(page.locator(".docwalk-deck-pane")).toBeHidden();
+});
+
+test("with the comments panel open at 1440 px the annotation toolbar stays on one row", async ({
+  page,
+}) => {
+  // The comments panel narrows the deck pane. The toolbar used to wrap its
+  // undo and clear buttons onto a row of their own, pushing the slide down
+  // and splitting a group the presenter reads as one strip.
+  await ready(page);
+  await page.getByRole("button", { name: /^Comments/ }).click();
+  await expect(page.getByRole("complementary", { name: "Comments" })).toBeVisible();
+  const tops = await page
+    .locator(".docwalk-preview-head .docwalk-stage-tools")
+    .locator(".docwalk-annotate-button, .docwalk-annotate-swatch")
+    .evaluateAll((els) =>
+      els
+        .filter((el) => el.getBoundingClientRect().height > 0)
+        .map((el) => Math.round(el.getBoundingClientRect().top)),
+    );
+  expect(tops.length).toBeGreaterThan(5);
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(2);
+  // The whole head is at most two control rows: counter and address, then the tools.
+  const head = await page.locator(".docwalk-preview-head").boundingBox();
+  expect(head?.height ?? Infinity).toBeLessThanOrEqual(2 * 38 + 8 + 12 + 1);
+});
+
+test("an empty document says how to make a slide instead of showing a blank stage", async ({
+  page,
+}) => {
+  // A blank dark stage with a "…" counter reads as still loading; the empty
+  // state has to say it is empty and what to type.
+  await ready(page);
+  // Select all and delete: Firefox refuses to insert an empty string.
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Delete");
+  await expect(page.locator(".docwalk-statusbar")).toContainText("0 slides");
+  await expect(page.locator(".docwalk-stage-empty")).toBeVisible();
+  await expect(page.locator(".docwalk-preview-head strong")).toHaveText("0 / 0");
+});
+
+test("the presenter window lines the current slide up with the next one, under its caption", async ({
+  page,
+  context,
+}) => {
+  // The current slide was centred in its tall column and floated 140 px
+  // below its "Now" caption, out of line with the next-slide preview, so
+  // the eye had to hunt for it between glances at the room.
+  await ready(page);
+  const popup = context.waitForEvent("page");
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("presenter");
+  await page.getByRole("menuitem", { name: "Open presenter view" }).click();
+  const presenter = await popup;
+  await expect(presenter.getByText("Now", { exact: true })).toBeVisible({ timeout: 30_000 });
+  // Each preview shows once its page arrives and is scaled into its frame
+  // once a ResizeObserver has run; measure after both.
+  const tops = () =>
+    presenter.evaluate(() =>
+      ["current", "next"].map((side) => {
+        const el = document.querySelector<HTMLElement>(
+          `.docwalk-presenter-${side} .docwalk-presenter-canvas`,
+        );
+        return el && !el.hidden && !el.style.transform.includes("scale(0)")
+          ? Math.round(el.getBoundingClientRect().top)
+          : null;
+      }),
+    );
+  await expect
+    .poll(async () => (await tops()).every((t) => t !== null), { timeout: 30_000 })
+    .toBe(true);
+  const [now, next] = await tops();
+  expect(Math.abs((now ?? 0) - (next ?? 0))).toBeLessThanOrEqual(2);
+});
+
+test("in dark mode a focused diagram keeps the white ground it was drawn for", async ({ page }) => {
+  // Mermaid draws dark lines and labels for the white slide. On the dark
+  // app canvas the focus view showed them black on near-black.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await ready(page, "/#proposed-architecture/1");
+  await page.locator(".reveal .present .docwalk-diagram").first().click();
+  await expect(page.getByRole("dialog", { name: "Diagram, full screen" })).toBeVisible();
+  const ground = await page
+    .locator(".docwalk-focus-stage")
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(ground).toBe("rgb(255, 255, 255)");
+});
+
+test("a diagram that fails to render is flagged in a yellow note, on the slide and in document mode", async ({
+  page,
+}) => {
+  // The failure message looked like any other sentence on the slide, so a
+  // presenter could miss that a diagram was missing. Diagnostics are the
+  // yellow note (DESIGN.md, Colors), themed in document mode.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await ready(page);
+  await replaceSource(page, "# Broken\n\n## Diagram\n\n```mermaid\nflowchart LR\n  A -->\n```\n");
+  await expect(page.locator(".docwalk-statusbar")).toContainText("1 diagram errors");
+  const note = (scope: string) =>
+    page
+      .locator(`${scope} .docwalk-diagram-error > .docwalk-diagnostic`)
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(await note(".reveal")).toBe("rgb(255, 244, 214)");
+  await page.getByRole("radio", { name: "Document" }).click();
+  await expect(page.locator(".docwalk-document .docwalk-diagram-error")).toBeVisible();
+  expect(await note(".docwalk-document")).toBe("rgb(42, 36, 18)");
+});
+
+test("while presenting, Exit is as tall as the other stage controls", async ({ page }) => {
+  // Exit kept the 38 px editor button height on a stage of 44 px controls,
+  // a visible step in the one row a presenter reaches for in a hurry.
+  await ready(page);
+  await page.getByRole("button", { name: "Present" }).click();
+  await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "present");
+  const exit = await page.locator(".docwalk-exit").boundingBox();
+  const pen = await page.getByRole("radio", { name: "Pen" }).boundingBox();
+  expect(exit?.height ?? 0).toBeGreaterThanOrEqual(44 - 0.01);
+  expect(Math.abs((exit?.height ?? 0) - (pen?.height ?? 0))).toBeLessThanOrEqual(0.5);
 });

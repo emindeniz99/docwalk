@@ -120,6 +120,7 @@ export const tokens = {
     xl: "24px",
     "2xl": "32px",
     "3xl": "48px",
+    control: "38px",
     target: "44px",
   },
 } as const;

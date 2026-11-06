@@ -53,11 +53,13 @@ import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectio
 import { useDraftAutosave } from "./share/draft";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
 import { DocumentView } from "./shell/DocumentView";
+import { documentTitle } from "./shell/documentTitle";
 import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
 import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
 import { Outline } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
+import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
 import { useDocument } from "./shell/useDocument";
 import { useMediaQuery } from "./shell/useMediaQuery";
 import type { FollowUpdate } from "./shell/RemoteFollower";
@@ -153,6 +155,16 @@ export function App() {
 
   const [level, setLevel] = useState<LevelOption>("auto");
   const [view, setView] = useState<View>("edit");
+  // On a phone the edit view shows the source or the slide preview, not both.
+  const [phonePane, setPhonePane] = useState<"source" | "preview">("source");
+  // Leaving present mode on a phone lands on the deck just presented (and on
+  // the focus Exit and Escape keep there), not on the source pane.
+  const [lastView, setLastView] = useState(view);
+  const paneSwitchRef = useRef<HTMLDivElement>(null);
+  if (lastView !== view) {
+    setLastView(view);
+    if (lastView === "present") setPhonePane("preview");
+  }
   const [theme, setTheme] = useTheme();
   const [report, setReport] = useState<DeckReport | null>(null);
   const [controller, setController] = useState<DeckController | null>(null);
@@ -168,6 +180,8 @@ export function App() {
   const [remoteOn, setRemoteOn] = useState(false);
   const sketch = useSketchRequest(!follow);
   const phone = useMediaQuery(PHONE);
+  // The update prompt (src/pwa/update.css) sits above the status bar, whose height varies.
+  const statusbarRef = useBlockSizeProperty<HTMLElement>("--docwalk-statusbar-size");
   const Editor = useEditorChoice() === "monaco" ? MonacoEditor : SourceEditor;
   // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -202,11 +216,7 @@ export function App() {
   const root = useMemo(() => parseMarkdown(markdown), [markdown]);
   const plan = useMemo(() => sectionize(root, level), [root, level]);
   const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : m.app_breaks_only();
-  const docTitle = !doc
-    ? m.app_loading_document()
-    : plan.titleHeading
-      ? (plan.sections[0]?.title ?? "")
-      : (plan.sections[0]?.title ?? m.app_untitled());
+  const docTitle = !doc ? m.app_loading_document() : documentTitle(root, plan) || m.app_untitled();
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
 
   const onReport = useCallback((r: DeckReport) => setReport(r), []);
@@ -584,6 +594,7 @@ export function App() {
     <div
       className="docwalk-app"
       data-view={follow ? "follow" : view}
+      data-pane={phone && view === "edit" && !follow ? phonePane : undefined}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
@@ -707,6 +718,35 @@ export function App() {
             </div>
           </aside>
         )}
+        {phone && view === "edit" && !follow && (
+          <div ref={paneSwitchRef} className="docwalk-pane-switch">
+            <ToggleButtonGroup
+              aria-label={m.app_pane_group()}
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[phonePane]}
+              onSelectionChange={(keys) => {
+                const [k] = [...keys];
+                if (k !== "source" && k !== "preview") return;
+                setPhonePane(k);
+                requestAnimationFrame(() => {
+                  // Scroll the outline away until the sticky switch reaches the
+                  // top, so the chosen pane fills the screen under it and the
+                  // slide is on screen, not below the outline.
+                  const main = paneSwitchRef.current?.parentElement;
+                  const bar = paneSwitchRef.current?.getBoundingClientRect();
+                  if (main && bar) main.scrollTop += bar.top - main.getBoundingClientRect().top;
+                  // The deck was display: none; reveal.js lays out again on resize.
+                  window.dispatchEvent(new Event("resize"));
+                });
+              }}
+              className="docwalk-segmented"
+            >
+              <ToggleButton id="source">{m.app_pane_source()}</ToggleButton>
+              <ToggleButton id="preview">{m.app_pane_preview()}</ToggleButton>
+            </ToggleButtonGroup>
+          </div>
+        )}
         {view === "edit" && !follow && (
           <section className="docwalk-source" aria-label={m.app_markdown_source()}>
             {doc ? (
@@ -732,8 +772,14 @@ export function App() {
         )}
         <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document" && !follow}>
           <div className="docwalk-preview-head">
-            <strong>{current ? `${current.index + 1} / ${slides.length}` : "…"}</strong>
-            <span>{current?.address ?? ""}</span>
+            <strong>
+              {current
+                ? `${current.index + 1} / ${slides.length}`
+                : report?.slides === 0
+                  ? "0 / 0"
+                  : "…"}
+            </strong>
+            <span className="docwalk-preview-address">{current?.address ?? ""}</span>
             {!follow && (
               <IconButton
                 label={m.cmd_overview()}
@@ -779,11 +825,12 @@ export function App() {
               {follow ? m.follow_waiting() : m.app_loading_document()}
             </p>
           )}
+          {report?.slides === 0 && <p className="docwalk-stage-empty">{m.app_stage_empty()}</p>}
         </div>
         {comments.panel}
       </main>
 
-      <footer className="docwalk-statusbar" aria-label={m.app_status()}>
+      <footer ref={statusbarRef} className="docwalk-statusbar" aria-label={m.app_status()}>
         <span>
           {m.app_status_level({
             level: level === "auto" ? m.level_auto_resolved({ resolved }) : `H${String(level)}`,

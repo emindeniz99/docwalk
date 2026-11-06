@@ -270,11 +270,9 @@ function SlidePreview({ className, label, title, page, empty }: SlidePreviewProp
         el.clientWidth / SLIDE_SIZE.width,
         el.clientHeight / SLIDE_SIZE.height,
       );
-      setFit({
-        scale,
-        x: (el.clientWidth - SLIDE_SIZE.width * scale) / 2,
-        y: (el.clientHeight - SLIDE_SIZE.height * scale) / 2,
-      });
+      // Centred across, but top-aligned: the slide stays under its caption,
+      // level with the next-slide preview beside it.
+      setFit({ scale, x: (el.clientWidth - SLIDE_SIZE.width * scale) / 2, y: 0 });
     });
     observer.observe(el);
     return () => observer.disconnect();

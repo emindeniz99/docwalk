@@ -89,6 +89,8 @@ test("the open overview passes axe (WCAG 2.2 AA)", async ({ page }) => {
 test("on a phone the overview fills the screen with two thumbnails per row", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await ready(page);
+  // A phone's edit view shows source or preview; the overview button is on the preview.
+  await page.getByRole("radio", { name: "Preview" }).click();
   await page.getByRole("button", { name: "Slide overview" }).click();
   const [a, b] = await Promise.all([
     rows(page).nth(0).boundingBox(),

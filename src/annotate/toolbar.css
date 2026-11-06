@@ -1,18 +1,18 @@
+/*
+ * Groups (tools, colours, undo and clear) are told apart by a wider gap, not
+ * by a rule between them: when a narrow screen wraps a group onto the next
+ * row, a rule would be left dangling at the start of that row.
+ */
 .docwalk-annotate-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--dw-space-sm);
+  gap: var(--dw-space-sm) var(--dw-space-lg);
 }
 
 .docwalk-annotate-group {
   display: flex;
   gap: var(--dw-space-xs);
-}
-
-.docwalk-annotate-group + .docwalk-annotate-group {
-  padding-left: var(--dw-space-sm);
-  border-left: 1px solid var(--border);
 }
 
 .docwalk-annotate-button,
