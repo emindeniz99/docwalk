@@ -1,5 +1,5 @@
 import { Download, FileCode, Images, Printer } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Menu, MenuItem, MenuTrigger, Popover, type Key } from "react-aria-components";
 import { m } from "../paraglide/messages.js";
 import { downloadBlob } from "./download";
@@ -28,10 +28,26 @@ const ITEMS = [
 type Job = (typeof ITEMS)[number]["id"];
 const isJob = (key: Key): key is Job => ITEMS.some((item) => item.id === key);
 
+/**
+ * How long a finished export's message stays. It floats over the controls
+ * under the header, so it must not stay for good; a screen reader has read
+ * the live region long before.
+ */
+export const STATUS_FADE_MS = 5000;
+
 /** Export the deck (decision 9). Progress and results are announced in a live region next to the button. */
 export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) {
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
+  // `fades`: the message reports a finished job and clears itself. Progress
+  // stays until the job ends; a failure stays until the next export.
+  const [status, setStatus] = useState({ text: "", fades: false });
+  const say = (text: string, fades = false) => setStatus({ text, fades });
+
+  useEffect(() => {
+    if (!status.fades) return;
+    const timer = window.setTimeout(() => setStatus({ text: "", fades: false }), STATUS_FADE_MS);
+    return () => window.clearTimeout(timer);
+  }, [status]);
 
   const run = async (job: Job) => {
     setBusy(true);
@@ -39,26 +55,26 @@ export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) 
       // Inside the try: collecting the slides can throw too, and the viewer must hear about it.
       const options = getOptions();
       if (!options || options.slides.length === 0) {
-        setStatus(m.export_empty());
+        say(m.export_empty(), true);
       } else if (job === "pdf") {
-        setStatus(m.export_preparing_print());
+        say(m.export_preparing_print());
         await printDeck(options);
-        setStatus("");
+        say("");
       } else if (job === "html") {
-        setStatus(m.export_building_html());
+        say(m.export_building_html());
         const name = htmlFileName(options.title);
         downloadBlob(await exportHtml(options), name);
-        setStatus(m.export_downloaded({ name }));
+        say(m.export_downloaded({ name }), true);
       } else {
-        setStatus(m.export_preparing_images());
+        say(m.export_preparing_images());
         const files = await exportPng(options, {
-          onSlide: (current, total) => setStatus(m.export_rendering_slide({ current, total })),
+          onSlide: (current, total) => say(m.export_rendering_slide({ current, total })),
         });
-        setStatus(m.export_downloaded_png({ count: files.length }));
+        say(m.export_downloaded_png({ count: files.length }), true);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setStatus(m.export_failed({ reason: message }));
+      say(m.export_failed({ reason: message }));
     } finally {
       setBusy(false);
     }
@@ -93,7 +109,7 @@ export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) 
         </Popover>
       </MenuTrigger>
       <span role="status" className="docwalk-export-status">
-        {status}
+        {status.text}
       </span>
     </div>
   );

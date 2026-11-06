@@ -1,14 +1,5 @@
-import {
-  Command as CommandIcon,
-  Eraser,
-  LocateFixed,
-  MoveUpRight,
-  Pen,
-  Trash,
-  Undo2,
-  type LucideIcon,
-} from "lucide-react";
-import { useContext, useRef, type ReactNode } from "react";
+import { Eraser, LocateFixed, MoveUpRight, Pen, Trash, Undo2, type LucideIcon } from "lucide-react";
+import { useContext, useRef, type ReactNode, type RefObject } from "react";
 import {
   Button,
   Radio,
@@ -17,10 +8,11 @@ import {
   ToggleButtonGroup,
   Toolbar,
   Tooltip,
-  TooltipTrigger,
   TooltipTriggerStateContext,
 } from "react-aria-components";
 import { m } from "../paraglide/messages.js";
+import { ModShortcut } from "../shell/ModShortcut";
+import { QuietTooltipTrigger } from "../shell/QuietTooltipTrigger";
 import "./toolbar.css";
 import type { AnnotationMode } from "./types";
 
@@ -67,12 +59,12 @@ function Tip({
   children: ReactNode;
 }) {
   return (
-    <TooltipTrigger delay={500}>
+    <QuietTooltipTrigger delay={500}>
       {children}
       <Tooltip className="docwalk-tooltip" offset={6}>
         {label} {shortcut && <kbd>{shortcut}</kbd>}
       </Tooltip>
-    </TooltipTrigger>
+    </QuietTooltipTrigger>
   );
 }
 
@@ -81,9 +73,21 @@ function Tip({
  * which the pointer never enters, so hover is taken from the visible label and
  * the tooltip is placed against it.
  */
-function Swatch({ variable, label }: (typeof PEN_COLORS)[number]) {
-  const tooltip = useContext(TooltipTriggerStateContext);
+function SwatchWithTip(props: (typeof PEN_COLORS)[number]) {
   const ref = useRef<HTMLLabelElement>(null);
+  return (
+    <QuietTooltipTrigger delay={500} triggerRef={ref}>
+      <Swatch {...props} labelRef={ref} />
+    </QuietTooltipTrigger>
+  );
+}
+
+function Swatch({
+  variable,
+  label,
+  labelRef: ref,
+}: (typeof PEN_COLORS)[number] & { labelRef: RefObject<HTMLLabelElement | null> }) {
+  const tooltip = useContext(TooltipTriggerStateContext);
   return (
     <>
       <Radio
@@ -154,20 +158,11 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
         className="docwalk-annotate-group"
       >
         {PEN_COLORS.map((c) => (
-          <TooltipTrigger key={c.variable} delay={500}>
-            <Swatch {...c} />
-          </TooltipTrigger>
+          <SwatchWithTip key={c.variable} {...c} />
         ))}
       </RadioGroup>
       <div className="docwalk-annotate-group">
-        <Tip
-          label={m.annotate_undo()}
-          shortcut={
-            <>
-              <CommandIcon size={11} aria-hidden="true" />Z
-            </>
-          }
-        >
+        <Tip label={m.annotate_undo()} shortcut={<ModShortcut keyName="Z" />}>
           <Button
             aria-label={m.annotate_undo()}
             aria-keyshortcuts="Control+Z Meta+Z"

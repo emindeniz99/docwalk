@@ -428,3 +428,108 @@ describe("shortcut scope", () => {
     expect(text(el, "mode")).toBe("off");
   });
 });
+
+const platform = (name: string) =>
+  Object.defineProperty(navigator, "userAgentData", {
+    value: { platform: name },
+    configurable: true,
+  });
+
+async function undoTip(): Promise<Element> {
+  const el = render(harness());
+  // From another control, so the pointer really moves onto Undo even if an
+  // earlier test left it resting where Undo now renders.
+  await userEvent.hover(el.querySelector<HTMLElement>('[aria-label="Search"]')!);
+  await userEvent.hover(el.querySelector<HTMLElement>('[aria-label="Undo mark"]')!);
+  await expect.poll(() => document.querySelector('[role="tooltip"]')).not.toBeNull();
+  return document.querySelector('[role="tooltip"] kbd')!;
+}
+
+describe("shortcut hints name the viewer's own modifier key", () => {
+  // The undo handler takes Ctrl or ⌘. A Windows or Linux keyboard has no ⌘,
+  // so a hint that always shows it teaches a key the viewer cannot press.
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "userAgentData");
+  });
+
+  test("Windows and Linux see Ctrl+Z", async () => {
+    platform("Windows");
+    const kbd = await undoTip();
+    expect(kbd.textContent).toBe("Ctrl+Z");
+    expect(kbd.querySelector("svg")).toBeNull();
+  });
+
+  test("a Mac sees the Command glyph and Z", async () => {
+    platform("macOS");
+    const kbd = await undoTip();
+    expect(kbd.textContent).toBe("Z");
+    expect(kbd.querySelector("svg")).not.toBeNull();
+  });
+});
+
+describe("a control that slides under a resting pointer keeps its tooltip shut", () => {
+  // Present swaps the header for the stage and Undo lands where Present was.
+  // Its tooltip opened over the slide with no mouse movement, and where
+  // fullscreen is refused it swallowed the Escape meant to leave present mode.
+  test("no tooltip until the pointer moves; a move on the control then opens it", async () => {
+    const el = render(harness());
+    const undoButton = el.querySelector<HTMLElement>('[aria-label="Undo mark"]')!;
+    const box = undoButton.getBoundingClientRect();
+    const present = document.createElement("button");
+    present.textContent = "Present";
+    Object.assign(present.style, {
+      position: "fixed",
+      left: `${box.left}px`,
+      top: `${box.top}px`,
+      width: `${box.width}px`,
+      height: `${box.height}px`,
+      zIndex: "100",
+    });
+    present.addEventListener("click", () => present.remove());
+    document.body.append(present);
+
+    await userEvent.click(present);
+    expect(present.isConnected).toBe(false);
+    // Longer than the 500 ms delay plus a frame for the browser's hover update.
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(undoButton.matches(":hover")).toBe(true);
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+
+    // Escape now reaches the app instead of closing a stray tooltip.
+    const escape = vi.fn<(e: KeyboardEvent) => void>();
+    window.addEventListener("keydown", escape);
+    try {
+      await userEvent.keyboard("{Escape}");
+      expect(escape).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("keydown", escape);
+    }
+
+    // A real move over the control still names it.
+    await userEvent.hover(undoButton, { position: { x: 4, y: 4 } });
+    await expect
+      .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? "")
+      .toMatch(/Undo mark/);
+  });
+
+  test("moving straight from one named control to the next still opens the next at once", async () => {
+    const el = render(h(StageHarness));
+    await userEvent.hover(el.querySelector<HTMLElement>('[aria-label="Pen"]')!);
+    await expect
+      .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? "")
+      .toMatch(/Pen/);
+    await userEvent.hover(el.querySelector<HTMLElement>('[aria-label="Laser pointer"]')!);
+    await expect
+      .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? "", { timeout: 300 })
+      .toMatch(/Laser pointer/);
+  });
+
+  test("keyboard focus still opens the tooltip with the pointer elsewhere", async () => {
+    const el = render(harness());
+    act(() => el.querySelector<HTMLElement>('[aria-label="Pen"]')!.focus());
+    await userEvent.keyboard("{ArrowRight}");
+    await expect
+      .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? "")
+      .toMatch(/Laser pointer/);
+  });
+});

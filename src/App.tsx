@@ -1,6 +1,5 @@
 import {
   Cast,
-  Command as CommandIcon,
   Download,
   KeyRound,
   LayoutGrid,
@@ -56,6 +55,7 @@ import { DocumentView } from "./shell/DocumentView";
 import { documentTitle } from "./shell/documentTitle";
 import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
+import { ModShortcut } from "./shell/ModShortcut";
 import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
 import { Outline } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
@@ -638,7 +638,7 @@ export function App() {
           <Button className="docwalk-palette-trigger" onPress={() => setPaletteOpen(true)}>
             {m.cmd_palette_trigger()}
             <kbd>
-              <CommandIcon size={11} aria-hidden="true" />K
+              <ModShortcut keyName="K" />
             </kbd>
           </Button>
         )}
