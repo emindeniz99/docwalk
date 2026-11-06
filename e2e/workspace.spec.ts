@@ -437,9 +437,12 @@ test("the file tree works from the keyboard", async ({ page }) => {
   await page.getByLabel("File name").fill("second");
   await page.keyboard.press("Enter");
   await expect(row(page, "second.md")).toHaveAttribute("aria-selected", "true");
+  // Focus goes to the row the dialog made (WCAG 2.4.3), a frame after the
+  // dialog closes. Opening the file is a separate step and can finish first:
+  // a key pressed before the focus lands is undone when it does.
+  await expect(row(page, "second.md")).toBeFocused();
 
   // Arrows move without opening; Enter opens.
-  await row(page, "second.md").focus();
   await page.keyboard.press("ArrowUp");
   await expect(row(page, "README.md")).toBeFocused();
   await expect(banner(page)).toContainText("Keys/second.md");
