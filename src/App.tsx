@@ -454,8 +454,11 @@ export function App() {
     setNotice(null);
   }, [setNotice]);
 
+  // Whether this fullscreen session's exit has been acted on; see onFullscreen.
+  const fullscreenLeft = useRef(false);
   const present = useCallback(async () => {
     show("present");
+    fullscreenLeft.current = false;
     try {
       // The whole page goes fullscreen, not just the deck: dialogs such as the
       // command palette render outside the deck and would be invisible.
@@ -468,7 +471,16 @@ export function App() {
 
   useEffect(() => {
     const onFullscreen = () => {
-      if (document.fullscreenElement) return;
+      if (document.fullscreenElement) {
+        fullscreenLeft.current = false;
+        return;
+      }
+      // One exit, one action. An Escape during WebKit's enter animation
+      // delays the enter's change event until the exit has begun, so two
+      // events in a row find no fullscreen element; acting on both would
+      // close a dialog and then leave present mode on the same key.
+      if (fullscreenLeft.current) return;
+      fullscreenLeft.current = true;
       // Browsers keep Escape for leaving fullscreen and the page never sees
       // the key. With a dialog open (slide overview, sketch, palette) that
       // Escape was meant for the dialog: hand it over and keep presenting,
