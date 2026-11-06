@@ -93,14 +93,20 @@ pnpm dev
 
 Open the address Vite prints. docwalk starts with a sample deck: paste your
 own Markdown into the editor, drop a `.md` file on the page, or open
-`/?src=<raw GitHub URL>`. Press **Present** to start, and use More actions
-for the presenter window, export, the phone remote and the language.
+`/?src=<raw GitHub URL>`. Press **Present** to start. **Export** next to
+**Share** saves PDF, HTML or PNG; More actions opens the presenter window,
+the phone remote, the editor choice and the language.
 
 ## Self-hosting
 
 `pnpm build` writes the app to `dist/`. One build serves both modes.
 
-- **Static:** copy `dist/` to any static host (GitHub Pages, nginx, S3).
+- **Static:** copy `dist/` to the root of any static host (nginx, S3, a
+  GitHub Pages user site). The default build links its scripts, manifest and
+  service worker from `/`, so at a sub-path the page loads blank. To serve
+  it under a path, such as a GitHub Pages project site at
+  `https://<user>.github.io/<repo>/`, build with that path and copy the new
+  `dist/`: `pnpm exec vite build --base /<repo>/`.
   Paste, drop, `?src=` links, share links, pasted GitHub tokens, the
   presenter window, export, the workspace and offline use all work. Sign-in,
   the phone remote, followers and agents need full mode, and the app hides
@@ -148,7 +154,8 @@ floor. CI runs the end-to-end suite on Chromium, Firefox and WebKit.
 
 ```bash
 pnpm install          # refuses packages published less than 7 days ago
-pnpm dev              # local dev server
+pnpm dev              # local dev server, static mode (no /api)
+pnpm dev:worker       # build, then the app and the Worker on one origin (full mode)
 pnpm check            # the full gate: typecheck, lint, format, tests, build
 pnpm test             # unit tests (Node)
 pnpm test:browser     # layout tests in real Chromium
@@ -163,8 +170,10 @@ pnpm icons            # redraw public/icons/ after a colour token changes
 Browser tests need Chromium: `pnpm exec playwright install chromium`, or
 point `DOCWALK_CHROMIUM_PATH` at an existing binary. The end-to-end suite
 needs all three engines (`pnpm exec playwright install firefox webkit`;
-`--project chromium` runs one) and serves on port 4174 and 4175, or on
-`DOCWALK_E2E_PORT` and the port after it. Lighthouse finds Chrome itself,
+`--project chromium` runs one) and serves on port 4174, or on
+`DOCWALK_E2E_PORT`. A run that includes the `static-subpath` project, as a
+run with no `--project` does, also builds the sub-path app and serves it on
+the next port. Lighthouse finds Chrome itself,
 or uses `CHROME_PATH`.
 
 If `pnpm install` reports a version "does not meet the minimumReleaseAge

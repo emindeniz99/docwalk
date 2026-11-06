@@ -97,7 +97,8 @@ folder**. The file panel above the outline shows it (57, 66). Code:
 ## Turkish UI terms
 
 The Turkish catalogue (`messages/tr.json`, decision 56) uses one word per
-concept. Add a row here before introducing a new one.
+concept, and `src/i18n/glossary.test.ts` checks the rows a test can check.
+Add a row here before introducing a new one.
 
 | English                     | Turkish                     | Note                                       |
 | --------------------------- | --------------------------- | ------------------------------------------ |
@@ -106,8 +107,8 @@ concept. Add a row here before introducing a new one.
 | present (button)            | Sunum yap                   |                                            |
 | presenter view              | sunucu görünümü             |                                            |
 | presenter (the person)      | sunumu yapan kişi           | not "sunucu", which also means server      |
-| audience window             | izleyici penceresi          |                                            |
-| follower, follow along      | izleyici, sunumu izle       |                                            |
+| audience window             | ana sunum penceresi         | the presenter's own main tab               |
+| follower, follow along      | izleyici, sunumu izle       | "izleyici" names people, never a window    |
 | phone remote                | telefon kumandası           |                                            |
 | remote control              | uzaktan kumanda             |                                            |
 | outline                     | ana hat                     |                                            |
@@ -121,6 +122,8 @@ concept. Add a row here before introducing a new one.
 | token                       | erişim anahtarı             | "anahtar" once the context is clear        |
 | agent, room                 | ajan, oda                   |                                            |
 | export, import              | dışa aktar, içe aktar       |                                            |
+| load                        | yükle                       |                                            |
+| upload, nothing uploaded    | sunucuya gönder             | never "yükle", which means load            |
 
 Style: address the reader as "siz" ("açın", "deneyin"). Never attach a
 suffix to an interpolated value, because its vowel harmony is unknown:

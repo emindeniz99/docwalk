@@ -1,14 +1,48 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-/** playwright.config.ts as it evaluates with or without the CI variable. */
-async function loadConfig(ci: boolean) {
+/**
+ * playwright.config.ts as it evaluates with or without the CI variable, for a
+ * `playwright test` command line with the given arguments.
+ */
+async function loadConfig(ci: boolean, args: string[] = []) {
   vi.resetModules();
   vi.stubEnv("CI", ci ? "true" : "");
+  process.argv = [argv[0] ?? "node", "playwright", "test", ...args];
   return (await import("../playwright.config.ts")).default;
 }
 
+const argv = [...process.argv];
+
 afterEach(() => {
   vi.unstubAllEnvs();
+  process.argv = [...argv];
+});
+
+/** The URL of every web server the config starts for a command line. */
+async function servers(args: string[]) {
+  const { webServer } = await loadConfig(true, args);
+  return (Array.isArray(webServer) ? webServer : [webServer]).map((server) => server?.url);
+}
+
+describe("which servers an e2e run starts", () => {
+  test("the Firefox and WebKit legs skip the sub-path build they never test", async () => {
+    // Playwright has no per-project web servers and starts every entry. The
+    // sub-path server is a second full production build (Mermaid, Monaco,
+    // Excalidraw), so the firefox and webkit CI legs paid for one each and
+    // read nothing from it.
+    expect(await servers(["--project", "firefox"])).toEqual(["http://localhost:4174"]);
+    expect(await servers(["--project=webkit"])).toEqual(["http://localhost:4174"]);
+    expect(await servers(["e2e/i18n.spec.ts", "--project", "chromium"])).toHaveLength(1);
+  });
+
+  test("a run that includes static-subpath, or names no project, still gets its server", async () => {
+    // Without the server the sub-path spec would fail on a refused connection.
+    const both = ["http://localhost:4174", "http://localhost:4175/docwalk/"];
+    expect(await servers([])).toEqual(both);
+    expect(await servers(["--project", "chromium", "--project", "static-subpath"])).toEqual(both);
+    // Playwright matches project names case-insensitively and with * wildcards.
+    expect(await servers(["--project", "chromium", "Static-*"])).toEqual(both);
+  });
 });
 
 describe("Playwright on CI", () => {

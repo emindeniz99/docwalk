@@ -70,7 +70,7 @@ test("switching to Turkish translates the header, menus and dialogs, and a reloa
   await expect(header.getByRole("button", { name: "Dışa aktar" })).toBeVisible();
   await expect(header.getByRole("button", { name: "Sunum yap" })).toBeVisible();
   await expect(page.locator(".docwalk-doc-title")).toContainText("Örnek belge");
-  await expect(page.locator(".docwalk-statusbar")).toContainText("Hiçbir şey yüklenmez");
+  await expect(page.locator(".docwalk-statusbar")).toContainText("Sunucuya hiçbir şey gönderilmez");
   await expect(page.getByRole("navigation", { name: "Ana hat" })).toBeVisible();
   // The deck rebuilds its own DOM in Turkish too.
   await expect(page.locator(".reveal")).toHaveAttribute("aria-label", "Slaytlar");

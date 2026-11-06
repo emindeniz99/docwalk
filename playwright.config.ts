@@ -17,6 +17,31 @@ const subpathPort = port + 1;
 const viewport = { width: 1440, height: 900 };
 const SUBPATH_SPEC = "subpath.spec.ts";
 
+const escapeRegExp = (text: string) => text.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Whether this `playwright test` command line runs the named project.
+ * Playwright has no per-project web servers and starts every `webServer`
+ * entry, so the sub-path build (a second full production build) is added only
+ * when its project runs. A run that names no project runs them all. Matching
+ * follows Playwright's: case-insensitive, `*` as a wildcard, and every
+ * argument after `--project` up to the next flag is a project name.
+ */
+function runsProject(name: string): boolean {
+  const args = process.argv;
+  const selected: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? "";
+    if (arg.startsWith("--project=")) selected.push(arg.slice("--project=".length));
+    if (arg !== "--project") continue;
+    while (i + 1 < args.length && !args[i + 1]?.startsWith("-")) selected.push(args[++i] ?? "");
+  }
+  if (selected.length === 0) return true;
+  return selected.some((pattern) =>
+    new RegExp(`^${pattern.toLowerCase().split("*").map(escapeRegExp).join(".*")}$`).test(name),
+  );
+}
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
@@ -72,11 +97,15 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
-    {
-      command: `pnpm exec vite build --base /docwalk/ --outDir dist-subpath && pnpm exec vite preview --base /docwalk/ --outDir dist-subpath --port ${subpathPort} --strictPort`,
-      url: `http://localhost:${subpathPort}/docwalk/`,
-      reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
-    },
+    ...(runsProject("static-subpath")
+      ? [
+          {
+            command: `pnpm exec vite build --base /docwalk/ --outDir dist-subpath && pnpm exec vite preview --base /docwalk/ --outDir dist-subpath --port ${subpathPort} --strictPort`,
+            url: `http://localhost:${subpathPort}/docwalk/`,
+            reuseExistingServer: !process.env.CI,
+            timeout: 120_000,
+          },
+        ]
+      : []),
   ],
 });

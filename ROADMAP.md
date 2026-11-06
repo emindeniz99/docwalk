@@ -59,7 +59,12 @@ day: Monaco as an optional editor (53), canvas mode (54, 64) and comments
 
 Needs the owner:
 
-- Fill in the private reporting channel in `SECURITY.md`.
+- Delete the commit-scope paragraph at the end of `AGENTS.md` rule 11 in
+  the same move: outside this repository the `docwalk` scope means nothing.
+- Switch on private vulnerability reporting (Settings, Security) as the
+  first step after the repository goes public; GitHub refuses it while the
+  repository is private. Then drop the paragraph in `SECURITY.md` that says
+  it is switched on at that point.
 
 - First run of the new workflows on GitHub (none has run): lhci finding the
   runner's Chrome, Stryker against its 120 min timeout, the Pages deploy

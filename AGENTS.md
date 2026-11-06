@@ -10,8 +10,8 @@ Read these in order before any non-trivial work:
    the reasons need more than a row.
 3. This file: the project rules.
 
-Naming goes through [`CONTEXT.md`](./CONTEXT.md). The roadmap and the spike
-plan are in [`ROADMAP.md`](./ROADMAP.md).
+Naming goes through [`CONTEXT.md`](./CONTEXT.md). The roadmap is in
+[`ROADMAP.md`](./ROADMAP.md).
 
 ## Project rules
 
@@ -65,7 +65,6 @@ plan are in [`ROADMAP.md`](./ROADMAP.md).
     - Pull requests merge with a real merge commit. Never squash or
       rebase-merge, and do not delete the branch unless asked.
 
-    While docwalk is developed inside a larger multi-project repository,
-    that repository's rules put the project name first in the scope:
-    `feat(docwalk): …`, or `feat(docwalk/mcp): …` for one area. Delete this
-    paragraph once docwalk has a repository of its own.
+    Until docwalk moves to a repository of its own, scopes start with the
+    project name: `feat(docwalk): …`, or `feat(docwalk/mcp): …` for one
+    area. Delete this paragraph in the move.
