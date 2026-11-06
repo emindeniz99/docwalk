@@ -1,9 +1,10 @@
-import { MessageSquare } from "lucide-react";
-import { useMemo } from "react";
-import { ListBox, ListBoxItem } from "react-aria-components";
+import { MessageSquare, X } from "lucide-react";
+import { useMemo, type ReactNode } from "react";
+import { Dialog, ListBox, ListBoxItem, Modal, ModalOverlay } from "react-aria-components";
 import type { SlideInfo } from "../deck/controller";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
+import { IconButton } from "./IconButton";
 
 interface OutlineProps {
   slides: SlideInfo[];
@@ -86,5 +87,41 @@ export function Outline({ slides, current, onSelect, commentCounts }: OutlinePro
         )}
       </ListBox>
     </nav>
+  );
+}
+
+/**
+ * The outline as a sheet from the bottom edge, for document mode on a phone
+ * (DESIGN.md, Layout): the reading view keeps the screen until the reader
+ * asks for the table of contents.
+ */
+export function OutlineSheet({
+  isOpen,
+  onOpenChange,
+  children,
+}: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <ModalOverlay
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      isDismissable
+      className="docwalk-outline-overlay"
+    >
+      <Modal className="docwalk-outline-sheet">
+        <Dialog className="docwalk-outline-dialog" aria-label={m.outline_label()}>
+          {/* The outline below carries its own "Outline" heading row. */}
+          <div className="docwalk-outline-sheet-head">
+            <IconButton label={m.outline_close()} onPress={() => onOpenChange(false)}>
+              <X size={18} aria-hidden="true" />
+            </IconButton>
+          </div>
+          {children}
+        </Dialog>
+      </Modal>
+    </ModalOverlay>
   );
 }

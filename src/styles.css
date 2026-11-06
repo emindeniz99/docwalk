@@ -87,7 +87,15 @@ a {
 /* ---- App shell ---------------------------------------------------------- */
 
 .docwalk-app {
+  /*
+   * The app fills the window and its panes scroll themselves; the page never
+   * does. Positioned and clipped, so content positioned absolutely (the
+   * visually hidden footnotes heading) cannot stretch the page and let End
+   * or a wheel scroll the whole app out of view.
+   */
+  position: relative;
   display: grid;
+  overflow: clip;
   /* header, banners (source prompt, notices), main, status bar */
   grid-template-rows: auto auto 1fr auto;
   height: 100dvh;
@@ -518,6 +526,13 @@ section[data-docwalk-id] {
   white-space: nowrap;
 }
 
+/* A workspace file's save state ends in an ellipsis rather than run under Present. */
+.docwalk-doc-title .docwalk-ws-state {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .docwalk-toolbar-actions {
   display: flex;
   align-items: center;
@@ -757,6 +772,8 @@ kbd {
 /* ---- Document mode (GitHub-like reading) --------------------------------- */
 
 .docwalk-document-pane {
+  /* Absolutely positioned content stays inside this scroll box. */
+  position: relative;
   overflow: auto;
   background: var(--surface);
 }
@@ -768,6 +785,11 @@ kbd {
   font-family: var(--dw-type-body-family);
   font-size: var(--dw-type-body-size);
   line-height: var(--dw-type-body-line-height);
+}
+
+/* A heading the outline scrolls to keeps a little room above it. */
+.docwalk-document :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: var(--dw-space-lg);
 }
 
 .docwalk-document h1,
@@ -800,6 +822,83 @@ kbd {
 
 .docwalk-document code {
   font-family: var(--dw-type-mono-family);
+}
+
+/*
+ * Phone document mode (DESIGN.md, Layout): a slim bar opens the outline as a
+ * sheet, and the reading view takes the rest of the screen.
+ */
+.docwalk-document-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-md);
+  min-width: 0;
+  padding: var(--dw-space-sm) var(--dw-space-lg);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.docwalk-document-bar .docwalk-button {
+  flex: none;
+}
+
+.docwalk-document-bar-section {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .docwalk-app[data-view="document"] .docwalk-main {
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-auto-rows: auto;
+    overflow: hidden;
+  }
+}
+
+.docwalk-outline-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: flex-end;
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-outline-sheet {
+  display: flex;
+  width: 100%;
+  max-height: 80dvh;
+  border-top: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-xl) var(--dw-radius-xl) 0 0;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 calc(-1 * var(--dw-space-md)) var(--dw-space-3xl) var(--dw-color-slide-shadow);
+}
+
+.docwalk-outline-dialog {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  outline: none;
+}
+
+.docwalk-outline-sheet-head {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--dw-space-sm) var(--dw-space-sm) 0;
+}
+
+.docwalk-outline-dialog .docwalk-outline {
+  padding-top: 0;
+}
+
+.docwalk-outline-dialog .docwalk-files {
+  max-height: 40%;
 }
 
 /* Document mode follows the theme; a slide stays white, so its note keeps the light colours. */
@@ -1182,19 +1281,23 @@ kbd {
   position: relative;
 }
 
-.docwalk-toolbar .docwalk-export-status:not(:empty) {
+/* Out of the flow even while empty, so it never takes a gap and shifts the buttons. */
+.docwalk-toolbar .docwalk-export-status {
   position: absolute;
   top: calc(100% + var(--dw-space-xs));
   inset-inline-end: 0;
   z-index: 50;
   max-inline-size: 100%;
+  pointer-events: none;
+}
+
+.docwalk-toolbar .docwalk-export-status:not(:empty) {
   padding: var(--dw-space-xs) var(--dw-space-sm);
   border: 1px solid var(--border-strong);
   border-radius: var(--dw-radius-md);
   background: var(--surface);
   color: var(--fg);
   overflow-wrap: anywhere;
-  pointer-events: none;
 }
 
 /* Module buttons that default to 44px match the header's control height on a mouse. */

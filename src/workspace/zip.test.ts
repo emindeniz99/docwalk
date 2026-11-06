@@ -55,12 +55,28 @@ describe("zip import treats the archive as hostile (rule 5)", () => {
     await expect(readArchive(zipSync(files))).rejects.toThrow(WorkspaceError);
   });
 
-  test("a file that is not a zip imports nothing and does not throw a raw error", async () => {
-    const outcome: unknown = await readArchive(strToU8("# just markdown, renamed to .zip\n")).then(
-      (contents) => contents.files.length,
-      (error: unknown) => error,
-    );
-    expect(outcome === 0 || outcome instanceof WorkspaceError).toBe(true);
+  test("a file that is not a zip is reported as not a zip, not as a zip without Markdown", async () => {
+    // fflate's streaming reader emits no entries for bytes without a zip
+    // signature and does not throw, so "holds no Markdown files" sent people
+    // looking for missing files instead of a broken or renamed download.
+    for (const bytes of [
+      strToU8("# just markdown, renamed to .zip\n"),
+      new Uint8Array(100 * 1024).fill(7),
+      new Uint8Array(0),
+    ]) {
+      const error: unknown = await readArchive(bytes).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(WorkspaceError);
+      expect((error as Error).message).toMatch(/not a zip archive/);
+    }
+  });
+
+  test("an empty but valid zip is not mistaken for a broken file", async () => {
+    // The caller tells "no Markdown in it" apart by an empty result.
+    const contents = await readArchive(zipSync({}));
+    expect(contents.files).toEqual([]);
   });
 });
 

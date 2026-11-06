@@ -46,9 +46,21 @@ function concat(chunks: Uint8Array[], size: number): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+/** A zip starts with a local file header (`PK\x03\x04`), or with the end record (`PK\x05\x06`) when empty. */
+const LOCAL_FILE_HEADER = [0x50, 0x4b, 0x03, 0x04];
+const EMPTY_ARCHIVE = [0x50, 0x4b, 0x05, 0x06];
+
+const startsWith = (bytes: Uint8Array, signature: number[]) =>
+  signature.every((byte, i) => bytes[i] === byte);
+
 export async function readArchive(bytes: Uint8Array): Promise<ArchiveContents> {
   if (bytes.length > MAX_ARCHIVE_BYTES) {
     throw new WorkspaceError(m.ws_zip_too_large({ mb: MAX_ARCHIVE_BYTES / 1024 / 1024 }));
+  }
+  // fflate's streaming reader emits no entries for other bytes and does not
+  // throw, which would read as an archive without documents.
+  if (!startsWith(bytes, LOCAL_FILE_HEADER) && !startsWith(bytes, EMPTY_ARCHIVE)) {
+    throw new WorkspaceError(m.ws_zip_not_zip());
   }
   const { Unzip, UnzipInflate } = await import("fflate");
   const result: ArchiveContents = { files: [], folders: [], skipped: 0 };

@@ -99,53 +99,64 @@ function OverviewBody({
           {m.cmd_overview()}
         </Heading>
         <span className="docwalk-overview-count">{m.count_slides({ count: slides.length })}</span>
-        <p className="docwalk-overview-hint">
-          {rich(m.overview_hint, { enter: <kbd>Enter</kbd>, esc: <kbd>Esc</kbd> })}
-        </p>
+        {slides.length > 0 && (
+          <p className="docwalk-overview-hint">
+            {rich(m.overview_hint, { enter: <kbd>Enter</kbd>, esc: <kbd>Esc</kbd> })}
+          </p>
+        )}
         <Button className="docwalk-overview-close" aria-label={m.overview_close()} onPress={close}>
           <X size={18} aria-hidden="true" />
         </Button>
       </header>
-      <GridList
-        aria-label={m.deck_label()}
-        layout="grid"
-        items={slides}
-        onAction={(key) => onPick(String(key))}
-        className="docwalk-overview-grid"
-      >
-        {(slide) => {
-          const { info } = slide;
-          const isCurrent = info.address === current;
-          return (
-            <GridListItem
-              ref={isCurrent ? focusCurrent : undefined}
-              id={info.address}
-              // React Aria names the row from this. The title leads, so
-              // type-ahead still finds a slide by its first letters.
-              textValue={[
-                info.title,
-                info.page > 1 ? m.overview_row_page({ page: info.page }) : "",
-                m.overview_row_position({ current: info.index + 1, total: slides.length }),
-                info.flagged ? m.overview_row_note() : "",
-                isCurrent ? m.overview_row_current() : "",
-              ]
-                .filter(Boolean)
-                .join(", ")}
-              className="docwalk-overview-item"
-              data-current={isCurrent || undefined}
-            >
-              <Thumbnail element={slide.element} />
-              <span className="docwalk-overview-caption">
-                <span className="docwalk-overview-n">{info.index + 1}</span>
-                <span className="docwalk-overview-name">{info.title}</span>
-                {info.page > 1 && <span className="docwalk-overview-page">· {info.page}</span>}
-                {info.flagged && <span className="docwalk-overview-note">{m.overview_note()}</span>}
-                {isCurrent && <span className="docwalk-overview-here">{m.overview_current()}</span>}
-              </span>
-            </GridListItem>
-          );
-        }}
-      </GridList>
+      {/* An empty deck gets the hint the preview and Present show, not a grid to move through. */}
+      {slides.length === 0 ? (
+        <p className="docwalk-overview-empty">{m.app_stage_empty()}</p>
+      ) : (
+        <GridList
+          aria-label={m.deck_label()}
+          layout="grid"
+          items={slides}
+          onAction={(key) => onPick(String(key))}
+          className="docwalk-overview-grid"
+        >
+          {(slide) => {
+            const { info } = slide;
+            const isCurrent = info.address === current;
+            return (
+              <GridListItem
+                ref={isCurrent ? focusCurrent : undefined}
+                id={info.address}
+                // React Aria names the row from this. The title leads, so
+                // type-ahead still finds a slide by its first letters.
+                textValue={[
+                  info.title,
+                  info.page > 1 ? m.overview_row_page({ page: info.page }) : "",
+                  m.overview_row_position({ current: info.index + 1, total: slides.length }),
+                  info.flagged ? m.overview_row_note() : "",
+                  isCurrent ? m.overview_row_current() : "",
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+                className="docwalk-overview-item"
+                data-current={isCurrent || undefined}
+              >
+                <Thumbnail element={slide.element} />
+                <span className="docwalk-overview-caption">
+                  <span className="docwalk-overview-n">{info.index + 1}</span>
+                  <span className="docwalk-overview-name">{info.title}</span>
+                  {info.page > 1 && <span className="docwalk-overview-page">· {info.page}</span>}
+                  {info.flagged && (
+                    <span className="docwalk-overview-note">{m.overview_note()}</span>
+                  )}
+                  {isCurrent && (
+                    <span className="docwalk-overview-here">{m.overview_current()}</span>
+                  )}
+                </span>
+              </GridListItem>
+            );
+          }}
+        </GridList>
+      )}
     </>
   );
 }

@@ -83,6 +83,23 @@
   cursor: pointer;
 }
 
+/* Without the hint (an empty deck), Close still sits at the end of the row. */
+.docwalk-overview-count:nth-last-child(2) {
+  margin-inline-end: auto;
+}
+
+/* An empty deck: the same words as the preview's empty stage, centred in the dialog. */
+.docwalk-overview-empty {
+  margin: auto;
+  max-width: 28rem;
+  padding: var(--dw-space-xl);
+  color: var(--dw-color-stage-muted);
+  font-size: var(--dw-type-body-size);
+  line-height: var(--dw-type-body-line-height);
+  text-align: center;
+  text-wrap: balance;
+}
+
 .docwalk-overview-close[data-hovered] {
   border-color: var(--dw-color-stage-ink);
 }

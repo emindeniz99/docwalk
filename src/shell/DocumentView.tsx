@@ -3,12 +3,38 @@ import type { Root } from "mdast";
 import { purifyHtml } from "../deck/purify";
 import { renderDiagrams } from "../deck/mermaid";
 import "../render/content.css";
-import { focusTarget, fragmentTarget } from "../render/fragments";
+import { anchorTarget, focusTarget, fragmentTarget } from "../render/fragments";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import { nodesToHtml } from "../render/toHtml";
-import { headingIds } from "../sectioning/sectionize";
+import { headingIds, type SectionPlan } from "../sectioning/sectionize";
+
+/**
+ * A place in the reading view to bring to the top: a heading anchor (a
+ * section id), or null for the top of the document. A new object for every
+ * request, so the same section can be asked for twice. Focus stays where it
+ * is: the outline is a listbox that takes focus back on the press that
+ * selected the section.
+ */
+export interface DocumentTarget {
+  anchor: string | null;
+}
+
+/**
+ * The heading anchor a section starts at in the reading view. A section
+ * without a heading (the intro, a part after a thematic break) has no anchor
+ * of its own and uses the closest heading section before it; before any,
+ * the top of the document.
+ */
+export function sectionAnchor(plan: SectionPlan, sectionId: string): string | null {
+  const index = plan.sections.findIndex((sec) => sec.id === sectionId);
+  for (let i = index; i >= 0; i--) {
+    const sec = plan.sections[i];
+    if (sec?.heading) return sec.id;
+  }
+  return null;
+}
 
 /**
  * Document mode: the whole file as one scrolling page, close to how GitHub
@@ -17,12 +43,20 @@ import { headingIds } from "../sectioning/sectionize";
 export function DocumentView({
   root,
   onRendered,
+  scrollTarget = null,
 }: {
   root: Root;
   /** Called after each render once its diagrams are drawn, for overlays such as comment markers. */
   onRendered?: (el: HTMLElement) => void;
+  /** Scrolls the reading view to a section (the outline, entering document mode). */
+  scrollTarget?: DocumentTarget | null;
 }) {
   const host = useRef<HTMLElement>(null);
+  // Diagrams drawn after a scroll change the height above the target. Until
+  // they are drawn, a request is kept and applied again once they are, if
+  // the reader has not scrolled since.
+  const drawn = useRef(false);
+  const pending = useRef<{ target: DocumentTarget; top: number } | null>(null);
   const loadRemoteImages = useLoadRemoteImages();
   // Footnote labels, image buttons and diagram notes are rendered in the UI language.
   const locale = useLocale();
@@ -49,8 +83,14 @@ export function DocumentView({
     };
     el.addEventListener("click", onClick);
     let live = true;
+    drawn.current = false;
     void renderDiagrams(el).then(() => {
-      if (live) rendered.current?.(el);
+      if (!live) return;
+      drawn.current = true;
+      const kept = pending.current;
+      pending.current = null;
+      if (kept && el.getBoundingClientRect().top === kept.top) bringIntoView(el, kept.target);
+      rendered.current?.(el);
     });
     // Wide tables and code blocks scroll on their own; a keyboard user can
     // only scroll one that takes focus (WCAG 2.1.1). Only those that scroll
@@ -75,5 +115,20 @@ export function DocumentView({
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [root, loadRemoteImages, locale]);
+  // After the render effect above, so on mount the content is there to scroll to.
+  useEffect(() => {
+    const el = host.current;
+    if (!el || !scrollTarget) return;
+    bringIntoView(el, scrollTarget);
+    pending.current = drawn.current
+      ? null
+      : { target: scrollTarget, top: el.getBoundingClientRect().top };
+  }, [scrollTarget]);
   return <article ref={host} className="docwalk-document" aria-label={m.app_document()} />;
+}
+
+/** Scrolls the target's heading (or the top of the document) to the top of the reading view. */
+function bringIntoView(el: HTMLElement, { anchor }: DocumentTarget): void {
+  const heading = anchor ? anchorTarget(el, anchor) : null;
+  (heading ?? el).scrollIntoView({ block: "start" });
 }
