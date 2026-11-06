@@ -64,7 +64,3 @@ Naming goes through [`CONTEXT.md`](./CONTEXT.md). The roadmap is in
       leave an agent-written commit looking human-only.
     - Pull requests merge with a real merge commit. Never squash or
       rebase-merge, and do not delete the branch unless asked.
-
-    Until docwalk moves to a repository of its own, scopes start with the
-    project name: `feat(docwalk): …`, or `feat(docwalk/mcp): …` for one
-    area. Delete this paragraph in the move.

@@ -59,8 +59,6 @@ day: Monaco as an optional editor (53), canvas mode (54, 64) and comments
 
 Needs the owner:
 
-- Delete the commit-scope paragraph at the end of `AGENTS.md` rule 11 in
-  the same move: outside this repository the `docwalk` scope means nothing.
 - Switch on private vulnerability reporting (Settings, Security) as the
   first step after the repository goes public; GitHub refuses it while the
   repository is private. Then drop the paragraph in `SECURITY.md` that says
@@ -68,7 +66,7 @@ Needs the owner:
 
 - First run of the new workflows on GitHub (none has run): lhci finding the
   runner's Chrome, Stryker against its 120 min timeout, the Pages deploy
-  (needs Pages source = GitHub Actions, run from docwalk's own repository),
+  (needs Pages source = GitHub Actions),
   Cloudflare (needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
   secrets of the `docwalk-cloudflare` environment, deployment branches
   limited to `main`). zizmor's online audits and the pinned actions'
