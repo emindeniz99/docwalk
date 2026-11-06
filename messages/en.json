@@ -253,6 +253,7 @@
   "load_url_too_long": "The address is too long.",
   "more_actions": "More actions",
   "more_editor": "Editor",
+  "more_keep_controls": "Always show presenting controls",
   "more_language": "Language",
   "more_remote_images": "Always load remote images",
   "name_control": "A name cannot contain control characters.",

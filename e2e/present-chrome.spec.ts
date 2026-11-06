@@ -173,6 +173,27 @@ test("with a drawing tool, a mouse over the slide keeps the slide big; the stage
   await expect(app(page)).not.toHaveAttribute("data-chrome", "hidden");
 });
 
+test("Always show presenting controls keeps the bar, and the choice is remembered", async ({
+  page,
+}) => {
+  await ready(page);
+  await page.getByRole("button", { name: "More actions" }).click();
+  const item = page.getByRole("menuitemcheckbox", { name: "Always show presenting controls" });
+  await expect(item).toHaveAttribute("aria-checked", "false");
+  await item.click();
+
+  // For presenters who would rather see the counter and tools all the time.
+  await page.reload();
+  await present(page);
+  await page.waitForTimeout(4_500);
+  await expect(app(page)).not.toHaveAttribute("data-chrome", "hidden");
+  await expect(bar(page)).toHaveCSS("opacity", "1");
+
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "More actions" }).click();
+  await expect(item).toHaveAttribute("aria-checked", "true");
+});
+
 test("a viewer who asked for less motion gets the chrome without a fade", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await present(page);
