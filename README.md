@@ -52,6 +52,12 @@ lists every settled design decision.
 - Three views: an editor with a live slide preview and an outline, a
   document view that renders the file as GitHub would, and presentation
   mode. ⌘K or Ctrl+K opens a command palette; O opens a slide overview.
+- While you present, the slide counter, the drawing tools and the arrows
+  fade out after three idle seconds and the slide grows to fill the screen.
+  Move the mouse, tap beside the slide or press Tab to bring them back, or
+  keep them with More actions › Always show presenting controls. Safari on
+  iPhone cannot show a web page full screen: tap Share › Add to Home Screen
+  and present from the home-screen icon for a full-screen deck.
 - Diagram focus: click a Mermaid diagram to fit, zoom, pan, draw on it with
   a pen or point with a laser.
 - A presenter window with the current and next slide and a timer, synced

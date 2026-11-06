@@ -58,6 +58,7 @@ import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
 import { ModShortcut } from "./shell/ModShortcut";
 import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
+import { usePresentChrome } from "./shell/presentChrome";
 import { Outline, OutlineSheet } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
 import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
@@ -389,6 +390,14 @@ export function App() {
     view === "present" ? undefined : deckRef,
   );
 
+  // Presenting, the bar and tools step aside after a few idle seconds so the
+  // slide can take the whole stage (decision 75); usePresentChrome has the rules.
+  const chrome = usePresentChrome({
+    active: view === "present" && !follow,
+    pane: deckRef,
+    toolActive: mode !== "off",
+  });
+
   // O opens the slide overview: anywhere while presenting, from the deck pane while editing.
   useOverviewShortcut(
     overview.open,
@@ -666,6 +675,7 @@ export function App() {
       className="docwalk-app"
       data-view={follow ? "follow" : view}
       data-pane={phone && view === "edit" && !follow ? phonePane : undefined}
+      data-chrome={chrome.hidden ? "hidden" : undefined}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
@@ -911,6 +921,12 @@ export function App() {
             </p>
           )}
           {report?.slides === 0 && <p className="docwalk-stage-empty">{m.app_stage_empty()}</p>}
+          {/* Mounted for the whole talk, so the first-time hint is announced (WCAG 4.1.3). */}
+          {view === "present" && !follow && (
+            <p role="status" className="docwalk-chrome-hint" data-shown={chrome.hint || undefined}>
+              {chrome.hint ? m.present_controls_hint() : null}
+            </p>
+          )}
         </div>
         {comments.panel}
       </main>

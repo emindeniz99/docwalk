@@ -99,6 +99,13 @@ a {
   /* header, banners (source prompt, notices), main, status bar */
   grid-template-rows: auto auto 1fr auto;
   height: 100dvh;
+  /*
+   * The viewport covers the whole screen (viewport-fit=cover, index.html),
+   * so a phone's notch, rounded corners and home indicator overlap the page;
+   * keep the app inside the safe area. Every inset is 0 on other screens.
+   */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
 }
 
 .docwalk-toolbar {
@@ -420,6 +427,9 @@ section[data-docwalk-id] {
   position: fixed;
   inset: 0;
   z-index: 1000;
+  /* Full screen under viewport-fit=cover: keep the controls off a phone's notch and home indicator. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
   display: grid;
   grid-template-rows: 1fr auto;
   background: var(--surface);
@@ -488,6 +498,61 @@ section[data-docwalk-id] {
 
 .docwalk-app[data-view="present"] {
   grid-template-rows: auto 1fr;
+  /* The safe-area insets read as more stage, not as a light frame around it. */
+  background: var(--dw-color-stage);
+}
+
+/*
+ * Presenting chrome that steps aside (decision 75, src/shell/presentChrome.ts).
+ * Hidden, the bar above the slide leaves the flow, so the deck takes the whole
+ * stage and reveal.js scales the slide up, and fades out over the stage. It
+ * stays in the accessibility tree: focus reaching a control shows it again.
+ */
+.docwalk-app[data-chrome="hidden"] .docwalk-preview-head {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.docwalk-app[data-chrome="hidden"] .docwalk-deck-host .reveal .controls {
+  opacity: 0;
+}
+
+/* reveal.js gives its arrow buttons pointer events of their own. */
+.docwalk-app[data-chrome="hidden"] .docwalk-deck-host .reveal .controls button {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .docwalk-app[data-view="present"]
+    :is(.docwalk-preview-head, .docwalk-deck-host .reveal .controls) {
+    transition: opacity 200ms ease;
+  }
+}
+
+/* "Tap or move to show controls", the first time the chrome hides. Empty, it stays an invisible live region. */
+.docwalk-chrome-hint {
+  position: absolute;
+  inset-block-end: var(--dw-space-2xl);
+  inset-inline: 0;
+  z-index: 40;
+  width: fit-content;
+  max-width: calc(100% - 2 * var(--dw-space-xl));
+  margin: 0 auto;
+  pointer-events: none;
+}
+
+.docwalk-chrome-hint:not(:empty) {
+  padding: var(--dw-space-sm) var(--dw-space-lg);
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-full);
+  background: var(--dw-color-stage-raised);
+  color: var(--dw-color-stage-ink);
+  font-size: var(--dw-type-caption-size);
+  text-align: center;
 }
 
 /* A follower screen is read-only: the deck alone, no outline or editor. */
@@ -862,6 +927,9 @@ kbd {
   position: fixed;
   inset: 0;
   z-index: 900;
+  /* The sheet stays above a phone's home indicator (viewport-fit=cover). */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
   display: flex;
   align-items: flex-end;
   background: var(--dw-color-slide-shadow);
