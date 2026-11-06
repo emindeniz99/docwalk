@@ -9,8 +9,15 @@ import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import { m } from "../paraglide/messages.js";
 
-/** Class on an image whose remote `src` was moved to `data-src` until the viewer allows it. */
+/** Class on an image whose remote `src` was moved to `data-docwalk-src` until the viewer allows it. */
 export const BLOCKED_IMAGE_CLASS = "docwalk-blocked-image";
+
+/**
+ * Where a blocked image keeps its remote URL. Not `data-src`: reveal.js
+ * copies `img[data-src]` into `src` on every slide near the current one,
+ * which loaded blocked images without a click (decision 33).
+ */
+export const BLOCKED_IMAGE_SRC = "data-docwalk-src";
 
 export interface HtmlOptions {
   /** Load remote images directly (the "always load images" setting). Default: blocked. */
@@ -18,15 +25,19 @@ export interface HtmlOptions {
 }
 
 /**
- * GitHub's schema, plus one change: a `<style>` element is removed with its
- * contents, as `<script>` is, instead of being unwrapped. Unwrapped, its CSS
- * showed as text, and inside a `<table>` that text moved when the browser
- * re-parsed the output, so the sanitized tree was not the one the browser
- * built (the shape mutation XSS needs).
+ * GitHub's schema, with `<style>`, `<svg>` and `<math>` removed with their
+ * contents, as `<script>` is, instead of being unwrapped. Unwrapped, a
+ * style's CSS showed as text, and inside a `<table>` that text moved when the
+ * browser re-parsed the output. Unwrapped foreign content left its children
+ * where the HTML parser had not put them (`<p><svg><summary>` kept the
+ * `<summary>` in the `<p>`, which a re-parse closes). Either way the
+ * sanitized tree was not the one the browser built: the shape mutation XSS
+ * needs. Neither element is in GitHub's schema; loose text inside one is
+ * the only thing that no longer shows.
  */
 export const SANITIZE_SCHEMA = {
   ...defaultSchema,
-  strip: [...(defaultSchema.strip ?? []), "style"],
+  strip: [...(defaultSchema.strip ?? []), "style", "svg", "math"],
 };
 
 /** Resolving a `src` against this base tells a same-origin path from a reference to another host. */
@@ -54,7 +65,7 @@ export function remoteImageUrl(src: string): string | null {
 /**
  * Remote images leak the viewer's IP address to the image host, and docwalk
  * has no proxy. So the sanitizer is the gate (decision 33): it moves a
- * remote `src` to `data-src` and makes the placeholder a button, and the
+ * remote `src` to `data-docwalk-src` and makes the placeholder a button, and the
  * page loads it only after a click (`src/render/remoteImages.ts`) or when
  * the setting allows it. Same-origin sources pass.
  */
@@ -81,7 +92,7 @@ export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
       if (typeof src !== "string") return;
       const remote = remoteImageUrl(src);
       if (remote === null) return;
-      node.properties["dataSrc"] = remote;
+      node.properties[BLOCKED_IMAGE_SRC] = remote;
       delete node.properties["src"];
       const classes = Array.isArray(node.properties["className"])
         ? node.properties["className"]

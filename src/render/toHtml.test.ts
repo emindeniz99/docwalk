@@ -43,7 +43,9 @@ describe("remote image gate (decision 33)", () => {
       expect(liveSrc(html)).toBeNull();
       expect(html).toContain(BLOCKED_IMAGE_CLASS);
       // Resolved to an absolute URL, so the click handler can re-check the scheme.
-      expect(html).toContain('data-src="https://tracker.example/p.png"');
+      expect(html).toContain('data-docwalk-src="https://tracker.example/p.png"');
+      // Never `data-src`: reveal.js copies that into `src` on nearby slides.
+      expect(html).not.toContain("data-src=");
     });
   }
 

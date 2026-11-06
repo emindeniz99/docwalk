@@ -253,11 +253,19 @@ function rehypeStage(html: string): string {
   return nodesToHtml([node], { loadRemoteImages: true });
 }
 
+/**
+ * A fresh seed each run, so CI keeps exploring, printed so a failure can be
+ * replayed: put the logged number here in place of the random one (fast-check
+ * also prints the seed and shrink path of a failing case).
+ */
+const SEED = Math.floor(Math.random() * 2 ** 31);
+console.info(`sanitize-twice property seed: ${SEED}`);
+
 describe("sanitize twice changes nothing (decision 42)", () => {
   // Mutation XSS lives where a sanitizer's output, re-parsed, becomes a
   // different tree. If our output survives another pass unchanged, the
   // browser reading it builds the tree the sanitizer approved.
-  fcTest.prop([hostileHtml], { numRuns: 300 })(
+  fcTest.prop([hostileHtml], { numRuns: 300, seed: SEED })(
     "the full pipeline's output is a fixed point of DOMPurify",
     (input) => {
       const once = purified(nodesToHtml(parseMarkdown(input).children));
@@ -268,16 +276,32 @@ describe("sanitize twice changes nothing (decision 42)", () => {
     },
   );
 
-  fcTest.prop([hostileHtml], { numRuns: 300 })(
+  fcTest.prop([hostileHtml], { numRuns: 300, seed: SEED })(
     "rehype-sanitize's output is a fixed point of rehype-sanitize",
     (input) => {
       const once = rehypeStage(input);
       // An alert's own markup (the class on its <div>) is added after the
       // sanitizer on purpose and would be stripped by a second pass.
       fc.pre(!once.includes("markdown-alert"));
+      // The sanitizer puts `user-content-` before every id, name and ARIA id
+      // reference on each pass, as GitHub does, so those are not expected to
+      // survive a second pass. Inputs carry none, but random text can make
+      // one: hast reads a tag name like `a#x` as a selector, `<a id="x">`.
+      fc.pre(!/\s(?:id|name|aria-describedby|aria-labelledby)="/.test(once));
       expect(rehypeStage(once)).toBe(once);
     },
   );
+
+  // Found by the property above on about one CI run in 40. The schema
+  // allows no <svg>, and unwrapping it left its SVG <summary> child inside
+  // the <p>; re-parsed as HTML, a <summary> start tag closes the <p>, so the
+  // second pass built a different tree. Foreign content now goes whole.
+  for (const input of ["<p><svg><summary>", "<p><math><details>x", "<svg><p>a<summary>b"]) {
+    test(`${input} renders the same tree when sanitized again`, () => {
+      const once = rehypeStage(input);
+      expect(rehypeStage(once)).toBe(once);
+    });
+  }
 
   for (const [name, markdown] of Object.entries(CORPUS)) {
     test(`corpus: ${name} survives a second DOMPurify pass unchanged`, () => {

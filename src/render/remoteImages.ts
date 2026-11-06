@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { BLOCKED_IMAGE_CLASS } from "./toHtml";
+import { BLOCKED_IMAGE_CLASS, BLOCKED_IMAGE_SRC } from "./toHtml";
 
 /**
  * The viewer's side of the remote-image gate (decision 33): a blocked image
@@ -11,14 +11,14 @@ export const LOAD_REMOTE_IMAGES_KEY = "docwalk.loadRemoteImages";
 
 /**
  * Loads one blocked image. The URL is checked again here, so only an https
- * URL is ever loaded, whatever ended up in `data-src`. Returns whether it loaded.
+ * URL is ever loaded, whatever ended up in `data-docwalk-src`. Returns whether it loaded.
  */
 export function loadBlockedImage(img: HTMLImageElement): boolean {
-  const src = img.dataset["src"];
+  const src = img.getAttribute(BLOCKED_IMAGE_SRC);
   if (!src || !URL.canParse(src, document.baseURI)) return false;
   const url = new URL(src, document.baseURI);
   if (url.protocol !== "https:") return false;
-  for (const attr of ["data-src", "role", "tabindex", "aria-label", "title"]) {
+  for (const attr of [BLOCKED_IMAGE_SRC, "role", "tabindex", "aria-label", "title"]) {
     img.removeAttribute(attr);
   }
   img.classList.remove(BLOCKED_IMAGE_CLASS);

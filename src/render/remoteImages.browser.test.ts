@@ -96,12 +96,12 @@ describe("click-to-load", () => {
     expect(img.getAttribute("src")).toBe(REMOTE);
   });
 
-  test("only https is ever loaded, whatever data-src holds", () => {
+  test("only https is ever loaded, whatever data-docwalk-src holds", () => {
     // CSP allows https images only; anything else must stay a placeholder.
     for (const src of ["http://images.invalid/a.png", "javascript:alert(1)", "data:,x"]) {
       const img = document.createElement("img");
       img.className = BLOCKED_IMAGE_CLASS;
-      img.dataset["src"] = src;
+      img.setAttribute("data-docwalk-src", src);
       expect(loadBlockedImage(img)).toBe(false);
       expect(img.getAttribute("src")).toBeNull();
     }
@@ -111,7 +111,7 @@ describe("click-to-load", () => {
     const { body } = blocked(`## Img\n\n![Chart](${REMOTE} "A title")\n`);
     const img = prepareSlide(body, offline).querySelector("img") as HTMLImageElement;
     expect(img.classList.contains(BLOCKED_IMAGE_CLASS)).toBe(true);
-    for (const attr of ["src", "data-src", "role", "tabindex", "aria-label", "title"]) {
+    for (const attr of ["src", "data-docwalk-src", "role", "tabindex", "aria-label", "title"]) {
       expect(img.hasAttribute(attr)).toBe(false);
     }
     expect(img.alt).toBe("Chart");

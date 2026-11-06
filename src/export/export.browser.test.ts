@@ -52,7 +52,7 @@ const DIAGRAM = `
 
 const HOSTILE = `
   <p><a href="https://example.com/spec">the spec</a> and <a href="javascript:alert(1)">a trap</a></p>
-  <img class="docwalk-blocked-image" alt="Blocked chart" data-src="https://images.example/chart.png">
+  <img class="docwalk-blocked-image" alt="Blocked chart" data-docwalk-src="https://images.example/chart.png">
   <img alt="Loaded chart" src="https://images.example/loaded.png" srcset="https://images.example/2x.png 2x" loading="lazy">
   <p onclick="alert(1)" style="background: url(https://tracker.example/bg.png)">Click</p>
   <script>alert(1)</script>`;
@@ -123,7 +123,7 @@ describe("exportHtml", () => {
     expect(images.map((i) => i.alt)).toEqual(["Blocked chart", "Loaded chart"]);
     for (const img of images) {
       expect(img.classList.contains("docwalk-blocked-image")).toBe(true);
-      expect(img.hasAttribute("src") || img.hasAttribute("data-src")).toBe(false);
+      expect(img.hasAttribute("src") || img.hasAttribute("data-docwalk-src")).toBe(false);
     }
   });
 

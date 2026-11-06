@@ -26,6 +26,8 @@ const URL_ATTRS = new Set([
   "cite",
   "longdesc",
   "data-src",
+  // A blocked image's remote URL (src/render/toHtml.ts); nothing loads it in an export.
+  "data-docwalk-src",
 ]);
 
 // A private instance: hooks on the shared DOMPurify would leak into the deck's sanitizer.
@@ -107,7 +109,7 @@ export function prepareSlide(el: HTMLElement, policy: ResourcePolicy): HTMLEleme
   }
   for (const img of el.querySelectorAll("img")) {
     img.removeAttribute("srcset");
-    img.removeAttribute("data-src");
+    img.removeAttribute("data-docwalk-src");
     // Nothing loads a blocked image in an export, so it stops being a button.
     if (img.classList.contains("docwalk-blocked-image")) {
       for (const attr of ["role", "tabindex", "aria-label", "title"]) img.removeAttribute(attr);

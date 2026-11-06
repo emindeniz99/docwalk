@@ -94,19 +94,20 @@ describe("hostile input", () => {
     expect(body.innerHTML).not.toMatch(/onerror|<script|javascript:/i);
   });
 
-  test("remote images wait for the viewer: src moves to data-src", () => {
+  test("remote images wait for the viewer: src moves to data-docwalk-src", () => {
     const body = mountSlide("## Img\n\n![sketch](https://example.com/a.png)\n");
     const img = body.querySelector("img") as HTMLImageElement;
     expect(img.getAttribute("src")).toBeNull();
-    expect(img.dataset["src"]).toBe("https://example.com/a.png");
+    expect(img.getAttribute("data-docwalk-src")).toBe("https://example.com/a.png");
     expect(img.classList.contains(BLOCKED_IMAGE_CLASS)).toBe(true);
   });
 
-  test("a diagram cannot raise its own security level or fetch images", () => {
+  test("a diagram cannot raise its own security level or fetch CSS images", () => {
+    // Image shapes are refused after Mermaid parses them (src/render/privacy.browser.test.ts).
     const source = [
       '%%{init: {"securityLevel": "loose"}}%%',
       "flowchart LR",
-      '  a@{ img: "https://example.com/x.png", label: "A" } --> b',
+      "  a --> b",
       "  style b fill:url(https://example.com/p.svg)",
     ].join("\n");
     const cleaned = prepareDiagramSource(source);

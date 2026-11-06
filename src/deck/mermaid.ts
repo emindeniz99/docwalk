@@ -1,5 +1,6 @@
 import type { Mermaid } from "mermaid";
 import { m } from "../paraglide/messages.js";
+import { remoteImageUrl } from "../render/toHtml";
 import { purifySvg } from "./purify";
 
 let loaded: Promise<Mermaid> | null = null;
@@ -13,6 +14,10 @@ function loadMermaid(): Promise<Mermaid> {
       securityLevel: "strict",
       // SVG text labels only, so the SVG sanitizer can forbid foreignObject.
       htmlLabels: false,
+      // Mermaid 12 defaults to ELK, a 447 kB gzip chunk on the first diagram.
+      // Dagre (17 kB) lays the sample's diagrams out wider, which suits a
+      // 16:9 slide (decision 26).
+      layout: "dagre",
       // Keys a diagram's own config can never override.
       secure: [
         "secure",
@@ -20,6 +25,7 @@ function loadMermaid(): Promise<Mermaid> {
         "startOnLoad",
         "maxTextSize",
         "htmlLabels",
+        "layout",
         "suppressErrorRendering",
       ],
       suppressErrorRendering: true,
@@ -35,15 +41,46 @@ function loadMermaid(): Promise<Mermaid> {
  * security settings before Mermaid sees it:
  * - `%%{init: …}%%` and `%%{config: …}%%` directives;
  * - YAML front matter (`---` … `---` at the top), which can carry config;
- * - image shapes and `img:` keys, which Mermaid preloads with `img.decode()`
- *   before any markup exists for the sanitizer to see;
  * - CSS `url(…)` in `style`/`classDef` lines.
+ *
+ * Images are not handled here: shape data is YAML, which no regex reads the
+ * way Mermaid does (plain, quoted or escaped keys, block or flow style).
+ * `remoteImages` checks what Mermaid itself parsed instead.
  */
 export function prepareDiagramSource(source: string): string {
   return stripFrontMatter(source)
     .replace(/%%\{[\s\S]*?\}%%/g, "")
-    .replace(/\bimg\s*:\s*(["'])[^"']*\1/gi, 'img: ""')
     .replace(/url\(\s*[^)]*\)/gi, "none");
+}
+
+type ParsedDiagram = Awaited<ReturnType<Mermaid["mermaidAPI"]["getDiagramFromText"]>>;
+
+/** The parts of Mermaid's parsed state that name an image it would fetch while rendering. */
+interface ImageSources {
+  getData?: () => { nodes?: { img?: unknown }[] };
+  getActors?: () => Map<string, { properties?: Record<string, unknown> }>;
+}
+
+/**
+ * Remote images a parsed diagram would load while Mermaid renders it, before
+ * any SVG exists for DOMPurify to clean. Mermaid 12.2 fetches in two places:
+ * a node's `img` shape data (preloaded with `new Image()` and `decode()`)
+ * and a sequence actor's `icon` property (an `<image>` in the live page;
+ * one starting with `@` points inside the SVG). `mermaidFetches.test.ts`
+ * fails when a Mermaid upgrade adds another. Same-origin and `data:`
+ * sources pass, as Markdown images do.
+ */
+function remoteImages(diagram: ParsedDiagram): string[] {
+  const db = diagram.db as ImageSources;
+  const sources: string[] = [];
+  for (const node of db.getData?.().nodes ?? []) {
+    if (node.img) sources.push(String(node.img));
+  }
+  for (const actor of db.getActors?.().values() ?? []) {
+    const icon = actor.properties?.["icon"];
+    if (icon && !String(icon).trim().startsWith("@")) sources.push(String(icon).trim());
+  }
+  return sources.filter((src) => remoteImageUrl(src) !== null);
 }
 
 /**
@@ -123,6 +160,10 @@ export async function renderDiagram(
   const mermaid = await loadMermaid();
   const id = `docwalk-mermaid-${++counter}`;
   try {
+    // Parse first and refuse a diagram that names a remote image: rendering
+    // it would contact that host with no click (rule 8, decision 26).
+    const parsed = await mermaid.mermaidAPI.getDiagramFromText(prepared);
+    if (remoteImages(parsed).length > 0) throw new Error(m.diagram_remote_image());
     const { svg } = await mermaid.render(id, prepared);
     showSvg(host, purifySvg(svg));
     rendered.set(prepared, cloneChildren(host));

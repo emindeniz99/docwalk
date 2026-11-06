@@ -26,6 +26,9 @@ export function purifySvg(svg: string): DocumentFragment {
   });
   for (const style of fragment.querySelectorAll("style")) {
     style.textContent = cssWithoutFetches(style.textContent ?? "");
+    // reveal.js announces a slide by its text nodes and skips only hidden
+    // ones; inside an SVG a <style> displays, so its CSS was read aloud.
+    style.setAttribute("aria-hidden", "true");
   }
   return fragment;
 }
