@@ -37,9 +37,18 @@ const colour = (el: Locator, property = "color") =>
   el.evaluate((node, p) => getComputedStyle(node).getPropertyValue(p), property);
 const present = (page: Page) => page.locator(".reveal .slides > section.present");
 
+/**
+ * Pastes DOC and waits for the rebuilt deck itself, not for its slides: they
+ * are in the DOM from the start of the build, before code colours, pagination
+ * and reveal.js. A hash set in that window is honoured when the deck is
+ * ready, but in Edit the preview then follows the editor's cursor, which
+ * the paste left in the last section, so the test opened on "Patch".
+ */
 async function openDoc(page: Page) {
   await ready(page);
   await replaceSource(page, DOC);
+  // The status bar counts the slides of a finished deck (cover, Retry code, Patch).
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)3 slides/);
   await expect(page.locator(".reveal .slides > section[data-docwalk-id='patch']")).toHaveCount(1);
 }
 
