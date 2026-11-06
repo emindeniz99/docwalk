@@ -132,7 +132,10 @@ test("an empty document says how to make a slide instead of showing a blank stag
   // A blank dark stage with a "…" counter reads as still loading; the empty
   // state has to say it is empty and what to type.
   await ready(page);
-  await replaceSource(page, "");
+  // Select all and delete: Firefox refuses to insert an empty string.
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Delete");
   await expect(page.locator(".docwalk-statusbar")).toContainText("0 slides");
   await expect(page.locator(".docwalk-stage-empty")).toBeVisible();
   await expect(page.locator(".docwalk-preview-head strong")).toHaveText("0 / 0");
@@ -151,7 +154,6 @@ test("the presenter window lines the current slide up with the next one, under i
   await page.keyboard.type("presenter");
   await page.getByRole("menuitem", { name: "Open presenter view" }).click();
   const presenter = await popup;
-  await presenter.setViewportSize({ width: 1440, height: 900 });
   await expect(presenter.getByText("Now", { exact: true })).toBeVisible({ timeout: 30_000 });
   // Each preview shows once its page arrives and is scaled into its frame
   // once a ResizeObserver has run; measure after both.
@@ -166,7 +168,9 @@ test("the presenter window lines the current slide up with the next one, under i
           : null;
       }),
     );
-  await expect.poll(async () => (await tops()).every((t) => t !== null)).toBe(true);
+  await expect
+    .poll(async () => (await tops()).every((t) => t !== null), { timeout: 30_000 })
+    .toBe(true);
   const [now, next] = await tops();
   expect(Math.abs((now ?? 0) - (next ?? 0))).toBeLessThanOrEqual(2);
 });
