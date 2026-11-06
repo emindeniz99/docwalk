@@ -121,6 +121,15 @@ Later rounds:
   from the Home Screen, since Playwright's WebKit emulates no notch or
   safe-area insets. The update toast and the centred dialogs do not pad for
   the safe area yet; only the app and its full-screen layers do.
+- Aspect-adaptive slides (decision 77): a slide sized to the screen's
+  aspect would leave no bars at all on a 16:10 or 4:3 screen, but its page
+  breaks would depend on the device, and followers, the presenter window
+  and links address slides as `<section-id>/<n>`. It needs one shared
+  aspect per talk (the presenter's, sent to followers) before it can be
+  considered.
+- Fill frame on follower screens (decision 77): a follow screen still shows
+  the card on the dark stage and keeps its bar; a room's second screen
+  would gain the same room the presenter's did.
 
 ## Later
 
