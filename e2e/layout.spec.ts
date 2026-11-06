@@ -183,3 +183,24 @@ test("in dark mode a focused diagram keeps the white ground it was drawn for", a
     .evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(ground).toBe("rgb(255, 255, 255)");
 });
+
+test("a diagram that fails to render is flagged in a yellow note, on the slide and in document mode", async ({
+  page,
+}) => {
+  // The failure message looked like any other sentence on the slide, so a
+  // presenter could miss that a diagram was missing. Diagnostics are the
+  // yellow note (DESIGN.md, Colors), themed in document mode.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await ready(page);
+  await replaceSource(page, "# Broken\n\n## Diagram\n\n```mermaid\nflowchart LR\n  A -->\n```\n");
+  await expect(page.locator(".docwalk-statusbar")).toContainText("1 diagram errors");
+  const note = (scope: string) =>
+    page
+      .locator(`${scope} .docwalk-diagram-error > .docwalk-diagnostic`)
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(await note(".reveal")).toBe("rgb(255, 244, 214)");
+  await page.getByRole("radio", { name: "Document" }).click();
+  await expect(page.locator(".docwalk-document .docwalk-diagram-error")).toBeVisible();
+  expect(await note(".docwalk-document")).toBe("rgb(42, 36, 18)");
+});

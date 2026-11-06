@@ -306,7 +306,9 @@ section[data-docwalk-id] {
   overflow: auto;
 }
 
-.docwalk-overflow {
+/* A diagram that failed to render says so in the same yellow note as an overflow (DESIGN.md, Note). */
+.docwalk-overflow,
+.docwalk-diagram-error > .docwalk-diagnostic {
   margin: var(--dw-space-sm) 0 0;
   padding: var(--dw-space-sm) var(--dw-space-md);
   border: 1px solid var(--dw-color-note-border);
@@ -730,6 +732,13 @@ kbd {
 
 .docwalk-document code {
   font-family: var(--dw-type-mono-family);
+}
+
+/* Document mode follows the theme; a slide stays white, so its note keeps the light colours. */
+.docwalk-document .docwalk-diagram-error > .docwalk-diagnostic {
+  border-color: var(--note-border);
+  background: var(--note-bg);
+  color: var(--note-fg);
 }
 
 /* ---- Command palette ------------------------------------------------------ */
