@@ -130,6 +130,13 @@ Later rounds:
 
 ## Later
 
+- Feature candidates from [`docs/feature-gaps.md`](./docs/feature-gaps.md),
+  ranked there: speaker notes from HTML comments; a focus view for code,
+  images and wide tables; laser, strokes and diagram focus mirrored to
+  followers; picking sections to present; saved annotations; countdown,
+  pacing bar and Wake Lock; math and emoji shortcodes; a Mermaid diagram
+  tour; full-text search; a blank whiteboard and shapes. Each needs a
+  decision row before code.
 - More locales after Turkish through Weblate; RTL with CSS logical
   properties.
 - GitHub Pages static deploy, once the repository is public.

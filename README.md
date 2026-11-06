@@ -37,7 +37,9 @@ is open and [`CHANGELOG.md`](./CHANGELOG.md) what the first release holds.
   storing documents on a server, rewriting the source to make it fit.
 
 [`docs/prior-art.md`](./docs/prior-art.md) surveys the existing tools and
-explains why none of them fits. [`docs/decisions.md`](./docs/decisions.md)
+explains why none of them fits, and
+[`docs/feature-gaps.md`](./docs/feature-gaps.md) lists what those tools offer
+that docwalk does not yet. [`docs/decisions.md`](./docs/decisions.md)
 lists every settled design decision.
 
 ## What it does
