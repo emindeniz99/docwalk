@@ -985,12 +985,14 @@ kbd {
   display: grid;
   align-items: start;
   justify-items: center;
-  padding-top: 12vh;
+  /* Below a phone's notch and clear of its rounded corners (decision 75). */
+  padding: calc(12vh + env(safe-area-inset-top)) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
   background: var(--dw-color-slide-shadow);
 }
 
 .docwalk-palette {
-  width: min(640px, calc(100vw - 32px));
+  width: min(640px, calc(100% - 32px));
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: var(--dw-radius-xl);

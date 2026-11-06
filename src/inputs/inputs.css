@@ -88,12 +88,14 @@
   display: grid;
   align-items: start;
   justify-items: center;
-  padding-top: 10vh;
+  /* Below a phone's notch and clear of its rounded corners (decision 75). */
+  padding: calc(10vh + env(safe-area-inset-top)) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
   background: var(--dw-color-slide-shadow);
 }
 
 .docwalk-inputs-modal {
-  width: min(560px, calc(100vw - 32px));
+  width: min(560px, calc(100% - 32px));
   max-height: 80vh;
   overflow: auto;
   border: 1px solid var(--border-strong);
