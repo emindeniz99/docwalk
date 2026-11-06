@@ -58,6 +58,7 @@ import { LevelSelect } from "./shell/LevelSelect";
 import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
 import { Outline } from "./shell/Outline";
 import { useTheme, type ThemeChoice } from "./shell/theme";
+import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
 import { useDocument } from "./shell/useDocument";
 import { useMediaQuery } from "./shell/useMediaQuery";
 import type { FollowUpdate } from "./shell/RemoteFollower";
@@ -165,6 +166,8 @@ export function App() {
   const [remoteOn, setRemoteOn] = useState(false);
   const sketch = useSketchRequest(!follow);
   const phone = useMediaQuery(PHONE);
+  // The update prompt (src/pwa/update.css) sits above the status bar, whose height varies.
+  const statusbarRef = useBlockSizeProperty<HTMLElement>("--docwalk-statusbar-size");
   const Editor = useEditorChoice() === "monaco" ? MonacoEditor : SourceEditor;
   // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -776,7 +779,7 @@ export function App() {
         {comments.panel}
       </main>
 
-      <footer className="docwalk-statusbar" aria-label="Status">
+      <footer ref={statusbarRef} className="docwalk-statusbar" aria-label="Status">
         <span>Slides at {level === "auto" ? `auto (${resolved})` : `H${String(level)}`}</span>
         <span>{report ? `${report.slides} slides` : "Rendering…"}</span>
         <span>{report ? `${slides.filter((s) => s.flagged).length} notes` : ""}</span>

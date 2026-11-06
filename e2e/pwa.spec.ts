@@ -305,10 +305,21 @@ for (const [width, height] of [
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(width);
         expect(box.y + box.height).toBeLessThanOrEqual(height);
-        // On a desktop it clears the status bar, so the offline note stays
-        // readable; a phone's wrapped status bar is where it may sit instead
-        // of over the editor or the slide.
-        if (width > 640) expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+        // It clears the status bar at every width, so the offline note and
+        // the slide counts stay readable; on a phone the bar wraps to more
+        // lines, and the prompt still sits above all of them.
+        expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+        // Nor may it cover the deck's next-slide arrow: a presenter who
+        // has not dismissed it yet must still be able to move on.
+        const next = await page.locator(".reveal .controls .navigate-right").boundingBox();
+        if (next) {
+          const overlaps =
+            box.x < next.x + next.width &&
+            next.x < box.x + box.width &&
+            box.y < next.y + next.height &&
+            next.y < box.y + box.height;
+          expect(overlaps, "toast covers the next-slide arrow").toBe(false);
+        }
         // Icon, text, Reload and Dismiss share one row even on a phone.
         const buttons = await toast
           .getByRole("button")

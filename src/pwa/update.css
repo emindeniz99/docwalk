@@ -1,10 +1,17 @@
 /* ---- Update prompt (src/pwa/UpdateToast.tsx) ------------------------------ */
 
-/* Bottom end, clear of the status bar; above the deck's overlays (z-index up to 30). */
+/*
+ * Bottom end, above the deck's overlays (z-index up to 30). It clears the
+ * status bar, whatever its height (App publishes it), and above that
+ * reveal.js's arrows, which sit about 60px up from the stage's bottom end:
+ * the prompt must never cover the next-slide button.
+ */
 .docwalk-toast-region {
   position: fixed;
   z-index: 100;
-  inset-block-end: var(--dw-space-3xl);
+  inset-block-end: calc(
+    var(--docwalk-statusbar-size, 0px) + var(--dw-space-3xl) + var(--dw-space-xl)
+  );
   inset-inline-end: var(--dw-space-xl);
   display: flex;
   flex-direction: column;
@@ -59,11 +66,9 @@
   color: inherit;
 }
 
-/* On a phone the status bar wraps to several lines; the prompt sits over it
-   rather than over the editor or the slide. */
+/* On a phone the prompt spans the width, at the same height above the status bar. */
 @media (max-width: 640px) {
   .docwalk-toast-region {
-    inset-block-end: var(--dw-space-lg);
     inset-inline: var(--dw-space-lg);
     width: auto;
   }
