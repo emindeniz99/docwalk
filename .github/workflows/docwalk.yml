@@ -1,0 +1,163 @@
+name: docwalk CI
+
+# The gate for the docwalk web app (decision 48), in three jobs:
+# - check: `pnpm check` (typecheck, oxlint, oxfmt, unit + real-browser tests,
+#   static build) and the app shell's size (`pnpm size`);
+# - e2e: Playwright against the production build on Chromium, Firefox and
+#   WebKit (decision 39), plus the static build served from a /docwalk/
+#   sub-path the way GitHub Pages serves it (decision 37). The Chromium leg
+#   also holds the default view's real download and the open and repaginate
+#   times to decision 43 (e2e/perf.spec.ts);
+# - lighthouse: Lighthouse CI budgets on the built app (decision 43).
+# The static build is tested from day one because static hosting must keep
+# working without the Worker (decision 37, AGENTS rule 6).
+#
+# Hardening: actions pinned to commit SHAs (a tag can be moved to other
+# code), a read-only token, no persisted checkout credentials, and plain
+# `pull_request`, never `pull_request_target`.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "**"
+      - ".github/workflows/docwalk*.yml"
+  pull_request:
+    paths:
+      - "**"
+      - ".github/workflows/docwalk*.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docwalk-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No `version`: action-setup reads pnpm from the project's `packageManager`.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for browser tests
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Check
+        run: pnpm check
+      - name: App shell size (size-limit on the build `check` made)
+        run: pnpm size
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The sub-path project runs once, in Chromium, beside the main suite.
+          - engine: chromium
+            projects: --project chromium --project static-subpath
+          - engine: firefox
+            projects: --project firefox
+          - engine: webkit
+            projects: --project webkit
+    name: e2e (${{ matrix.engine }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Install the browser
+        env:
+          ENGINE: ${{ matrix.engine }}
+        run: pnpm exec playwright install --with-deps "$ENGINE"
+      - name: End-to-end (built app)
+        env:
+          PROJECTS: ${{ matrix.projects }}
+        # PROJECTS is a fixed matrix value, split into flags on purpose.
+        run: pnpm exec playwright test $PROJECTS
+      - name: Keep the report of a failed run
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docwalk-e2e-${{ matrix.engine }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  # zizmor checks the hardening rules above (pinned actions, permissions,
+  # injection sinks, persisted credentials, caches in deploy jobs) over every
+  # docwalk workflow, deploy workflows included. Offline audits only: the
+  # online ones need a token this job does not get.
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: zizmor (pinned)
+        run: pipx run zizmor==1.32.0 --offline .github/workflows/docwalk*.yml
+
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm build
+      # Uses the runner's preinstalled Google Chrome; reports stay in the
+      # artifact (lighthouserc.json uploads to the filesystem, nowhere else).
+      - name: Lighthouse CI budgets (lighthouserc.json)
+        run: pnpm lighthouse
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docwalk-lighthouse
+          path: .lighthouseci/
+          include-hidden-files: true
+          retention-days: 14

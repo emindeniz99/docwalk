@@ -1,0 +1,68 @@
+name: docwalk deploy (Cloudflare)
+
+# Full mode on Cloudflare (decisions 24, 37, 38): the static build plus the
+# Worker behind /api (OAuth exchange, remote-control rooms). Manual only, so a
+# deploy is always a person's decision; dispatch it from a commit whose
+# docwalk CI is green.
+#
+# Needs, set under Settings > Environments > docwalk-cloudflare (never in a
+# file, and not as repository secrets):
+# - secret CLOUDFLARE_API_TOKEN: an API token with "Edit Cloudflare Workers"
+#   on the target account;
+# - secret CLOUDFLARE_ACCOUNT_ID: needed when the token can reach more than
+#   one account;
+# - deployment branches limited to `main`, and required reviewers if a deploy
+#   should need a second person.
+# GitHub releases an environment secret only to a job that names the
+# environment and passes its rules. A repository secret is readable by any
+# workflow a collaborator pushes, on any branch, so the token would skip the
+# reviewers and the branch rule.
+# The Worker also needs GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, set once
+# with `wrangler secret put` (worker/README.md); without them OAuth is not
+# offered.
+#
+# No dependency cache in a deploy job: a poisoned cache would become the
+# deployed artifact.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docwalk-deploy-cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: docwalk-cloudflare
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Worker tests
+        run: pnpm test:worker
+      # `pnpm run deploy`, not `pnpm deploy`: the latter is pnpm's own
+      # workspace-deploy command. The script builds dist/ and runs
+      # `wrangler deploy --config worker/wrangler.jsonc`.
+      - name: Build and deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"
+        run: pnpm run deploy

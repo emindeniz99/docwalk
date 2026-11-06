@@ -1,0 +1,79 @@
+name: docwalk deploy (GitHub Pages)
+
+# Static mode on GitHub Pages (decision 37): the build alone, no Worker, so
+# OAuth and remote control hide themselves. Manual only. Pages publishes one
+# site per repository, so run this from docwalk's own repository. Turn Pages
+# on with "Source: GitHub Actions" first.
+#
+# A project site lives under /<repo>/, so the build takes its base path from
+# actions/configure-pages (it is "" on a custom domain or a user site). CI
+# proves a sub-path build loads (the static-subpath Playwright project); this
+# job checks the built index.html points only under the base it was given.
+#
+# No dependency cache in a deploy workflow: a poisoned cache would become the
+# published site.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docwalk-deploy-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+      - id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build for the Pages base path
+        env:
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: pnpm exec vite build --base "${BASE_PATH%/}/"
+      - name: Every asset in index.html sits under the base path
+        env:
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: |
+          base="${BASE_PATH%/}/"
+          refs=$(grep -oE '(src|href)="[^"]+"' dist/index.html | cut -d'"' -f2)
+          echo "$refs"
+          stray=$(printf '%s\n' "$refs" | grep -vE "^(${base}|https?:|data:|#)" || true)
+          if [ -n "$stray" ]; then
+            echo "::error::index.html references outside ${base}: ${stray}"
+            exit 1
+          fi
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write # publish the uploaded artifact as the Pages site
+      id-token: write # deploy-pages proves this run's identity with OIDC
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

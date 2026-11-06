@@ -1,0 +1,52 @@
+name: docwalk mutation testing
+
+# StrykerJS on the node-environment unit tests (decision 40), nightly rather
+# than per push because it reruns the unit suite once per mutant. A
+# surviving mutant is a code change no test notices. The run reports (HTML +
+# JSON artifact) and does not fail on a low score until stryker.config.mjs
+# sets `thresholds.break` from a baseline.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:17 UTC daily: off the hour, outside the busy morning window.
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docwalk-mutation
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Mutation testing (stryker.config.mjs)
+        run: pnpm mutation
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docwalk-mutation-report
+          path: reports/mutation/
+          retention-days: 14
