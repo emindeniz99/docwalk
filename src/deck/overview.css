@@ -7,7 +7,11 @@
   z-index: 900;
   display: grid;
   place-items: center;
-  padding: var(--dw-space-xl);
+  /* At least the safe area of a phone's notch and home indicator (viewport-fit=cover). */
+  padding: max(var(--dw-space-xl), env(safe-area-inset-top))
+    max(var(--dw-space-xl), env(safe-area-inset-right))
+    max(var(--dw-space-xl), env(safe-area-inset-bottom))
+    max(var(--dw-space-xl), env(safe-area-inset-left));
   background: var(--dw-color-slide-shadow);
 }
 

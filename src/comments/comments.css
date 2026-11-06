@@ -29,6 +29,9 @@
   position: fixed;
   inset: 0;
   z-index: 900;
+  /* The sheet stays above a phone's home indicator (viewport-fit=cover). */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
   display: flex;
   align-items: flex-end;
   background: var(--dw-color-slide-shadow);
