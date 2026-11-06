@@ -1,5 +1,6 @@
 import { m } from "../paraglide/messages.js";
 import { OVERFLOW_TOLERANCE_PX } from "./measure";
+import { documentText } from "./documentText";
 
 /**
  * Semantic pagination (decisions 17 to 19). A slide that does not fit is
@@ -254,7 +255,7 @@ function setBreadcrumb(slide: HTMLElement, breadcrumb: string[]): void {
     nav.setAttribute("aria-label", m.deck_section_path());
     slide.querySelector(".docwalk-slide")?.prepend(nav);
   }
-  nav.textContent = breadcrumb.join(" › ");
+  nav.replaceChildren(documentText(breadcrumb.join(" › ")));
 }
 
 function continuedHeading(title: string): HTMLElement {

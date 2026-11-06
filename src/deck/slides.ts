@@ -2,6 +2,7 @@ import type { Section, SectionPlan } from "../sectioning/sectionize";
 import { nodesToHtml, type HtmlOptions, type RenderContext } from "../render/toHtml";
 import "../render/content.css";
 import { m } from "../paraglide/messages.js";
+import { documentText } from "./documentText";
 import { purifyHtml } from "./purify";
 
 /**
@@ -22,7 +23,7 @@ export function buildSlide(section: Section, options: RenderContext = {}): HTMLE
     const nav = document.createElement("nav");
     nav.className = "docwalk-breadcrumb";
     nav.setAttribute("aria-label", m.deck_section_path());
-    nav.textContent = section.breadcrumb.join(" › ");
+    nav.append(documentText(section.breadcrumb.join(" › ")));
     slide.append(nav);
   }
 

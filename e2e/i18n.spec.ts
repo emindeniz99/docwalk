@@ -75,6 +75,11 @@ test("switching to Turkish translates the header, menus and dialogs, and a reloa
   // The deck rebuilds its own DOM in Turkish too.
   await expect(page.locator(".reveal")).toHaveAttribute("aria-label", "Slaytlar");
   await expect(page.locator(".reveal")).toHaveAttribute("aria-roledescription", "slayt destesi");
+  // reveal.js names its own arrows in English; docwalk renames them.
+  await expect(page.locator(".reveal .controls .navigate-right")).toHaveAttribute(
+    "aria-label",
+    "Sonraki slayt",
+  );
 
   // The More menu: its actions, and the language radio now on Türkçe.
   await page.getByRole("button", { name: "Diğer işlemler" }).click();
@@ -140,6 +145,12 @@ test("a switch keeps the draft and the slide the viewer is on (decision 30)", as
   await expect(page.locator(".cm-content")).toContainText("Beta, typed before the switch.");
   await expect(page.locator(".reveal section.present")).toContainText(
     "Beta, typed before the switch.",
+  );
+  // The document is not Turkish just because the UI is: its uppercased
+  // breadcrumb keeps a plain I ("TRIP", not "TRİP"). innerText applies text-transform.
+  await expect(page.locator(".reveal section.present .docwalk-breadcrumb")).toHaveJSProperty(
+    "innerText",
+    "ROUND TRIP",
   );
 
   await chooseFromMoreMenu(page, "English");
