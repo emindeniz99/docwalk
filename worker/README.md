@@ -80,7 +80,7 @@ pnpm exec wrangler secret put GITHUB_CLIENT_ID --config worker/wrangler.jsonc
 pnpm exec wrangler secret put GITHUB_CLIENT_SECRET --config worker/wrangler.jsonc
 ```
 
-From GitHub, `.github/workflows/docwalk-deploy-cloudflare.yml` runs the same
+From GitHub, `.github/workflows/deploy-cloudflare.yml` runs the same
 build and deploy when started by hand. It reads `CLOUDFLARE_API_TOKEN` (and
 `CLOUDFLARE_ACCOUNT_ID` when the token reaches several accounts) from the
 secrets of the `docwalk-cloudflare` environment. Store them there, not as

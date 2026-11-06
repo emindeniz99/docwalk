@@ -20,13 +20,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "**"
-      - ".github/workflows/docwalk*.yml"
   pull_request:
-    paths:
-      - "**"
-      - ".github/workflows/docwalk*.yml"
 
 permissions:
   contents: read
@@ -34,10 +28,6 @@ permissions:
 concurrency:
   group: docwalk-ci-${{ github.ref }}
   cancel-in-progress: true
-
-defaults:
-  run:
-    working-directory: .
 
 jobs:
   check:
@@ -120,15 +110,12 @@ jobs:
   zizmor:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: zizmor (pinned)
-        run: pipx run zizmor==1.32.0 --offline .github/workflows/docwalk*.yml
+        run: pipx run zizmor==1.32.0 --offline .github/workflows/
 
   lighthouse:
     runs-on: ubuntu-latest

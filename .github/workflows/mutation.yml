@@ -19,10 +19,6 @@ concurrency:
   group: docwalk-mutation
   cancel-in-progress: true
 
-defaults:
-  run:
-    working-directory: .
-
 jobs:
   mutation:
     runs-on: ubuntu-latest

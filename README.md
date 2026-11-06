@@ -112,15 +112,17 @@ the phone remote, the editor choice and the language.
   the phone remote, followers and agents need full mode, and the app hides
   them. The static build sets its content security policy with a `<meta>`
   tag, which cannot forbid framing; if your host can set headers, copy
-  `public/_headers` into its configuration. `docwalk-deploy-pages.yml`
-  publishes this mode to GitHub Pages under `/<repo>/`.
+  `public/_headers` into its configuration.
+  [`deploy-pages.yml`](./.github/workflows/deploy-pages.yml) publishes this
+  mode to GitHub Pages under `/<repo>/`.
 - **Full (Cloudflare):** `pnpm run deploy` builds the app and deploys it
   with a small Worker for GitHub App sign-in and the remote-control rooms.
   The Worker stores no documents, messages or tokens and never sees a
   room's key.
   [`worker/README.md`](./worker/README.md) covers the GitHub App, the
   secrets, local runs and the variants without sign-in or without rooms.
-  `docwalk-deploy-cloudflare.yml` runs the same deploy from GitHub; keep its
+  [`deploy-cloudflare.yml`](./.github/workflows/deploy-cloudflare.yml) runs
+  the same deploy from GitHub; keep its
   Cloudflare token in the `docwalk-cloudflare` environment, limited to
   `main`.
 

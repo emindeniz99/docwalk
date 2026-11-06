@@ -2,7 +2,7 @@ import { existsSync, globSync } from "node:fs";
 import { join } from "node:path";
 
 // Mutation testing on the node-environment unit tests (decision 40), run
-// nightly by .github/workflows/docwalk-mutation.yml. A surviving mutant is a
+// nightly by .github/workflows/mutation.yml. A surviving mutant is a
 // change to the code that no unit test notices: either a missing assertion or
 // dead code. Browser-only modules are covered by Vitest Browser Mode and
 // Playwright instead, so they are not mutated here: every .tsx file, and every

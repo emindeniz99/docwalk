@@ -1,11 +1,11 @@
 name: docwalk deploy (GitHub Pages)
 
 # Static mode on GitHub Pages (decision 37): the build alone, no Worker, so
-# OAuth and remote control hide themselves. Manual only. Pages publishes one
-# site per repository, so run this from docwalk's own repository. Turn Pages
-# on with "Source: GitHub Actions" first.
+# OAuth and remote control hide themselves. Manual only. Turn Pages on with
+# "Source: GitHub Actions" first.
 #
-# A project site lives under /<repo>/, so the build takes its base path from
+# A project site lives under /<repo>/ (https://emindeniz99.github.io/docwalk/
+# for this repository), so the build takes its base path from
 # actions/configure-pages (it is "" on a custom domain or a user site). CI
 # proves a sub-path build loads (the static-subpath Playwright project); this
 # job checks the built index.html points only under the base it was given.
@@ -27,9 +27,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
