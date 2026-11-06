@@ -68,6 +68,8 @@ export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
   // The first plan builds at once; later plans (keystrokes) wait for a pause,
   // and the last finished deck stays up meanwhile.
   const [built, setBuilt] = useState(plan);
+  // Set when a rebuild tears down a deck that had keyboard focus, so the new one takes it.
+  const hadFocus = useRef(false);
   useEffect(() => {
     if (plan === built) return;
     const timer = setTimeout(() => setBuilt(plan), REBUILD_DELAY_MS);
@@ -94,6 +96,11 @@ export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
     slidesEl.append(...slides);
     revealEl.append(slidesEl);
     root.replaceChildren(revealEl);
+    // reveal.js takes keys only while focus is inside revealEl. A rebuild while
+    // presenting (an agent write, a disk reload, a language switch) replaced
+    // the focused element and left focus on <body>: the clicker went dead.
+    if (hadFocus.current) revealEl.focus({ preventScroll: true });
+    hadFocus.current = false;
 
     let controller: DeckController | null = null;
     const onClick = (event: Event) => {
@@ -193,6 +200,7 @@ export function Deck({ plan, locale, onReport, onReady }: DeckProps) {
       revealEl.removeEventListener("keydown", onKey);
       stopClickToLoad();
       onReady?.(null);
+      hadFocus.current = revealEl.contains(document.activeElement);
       deck?.destroy();
       root.replaceChildren();
     };

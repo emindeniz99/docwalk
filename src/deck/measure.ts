@@ -11,6 +11,8 @@ export interface SlideMeasurement {
   body: Overflow;
   /** Overflow of each diagram host, in document order. Hosts clip their own content, so the body check alone misses them. */
   diagrams: Overflow[];
+  /** Overflow of each code block, in document order. A slide's `<pre>` scrolls inside itself, so the body check alone misses a line wider than the slide. */
+  code: Overflow[];
   /** Diagrams scaled below `READABLE_SCALE` to fit the slide. */
   tooSmall: number;
   overflows: boolean;
@@ -34,15 +36,23 @@ function overflowOf(el: HTMLElement): Overflow {
   };
 }
 
+/** Diagrams under `root` that `fitDiagrams` scaled below `READABLE_SCALE`. Needs no layout. */
+export function tooSmallDiagrams(root: ParentNode): number {
+  return [...root.querySelectorAll<HTMLElement>(".docwalk-diagram")].filter(
+    (h) => Number(h.dataset["scale"] ?? 1) < READABLE_SCALE,
+  ).length;
+}
+
+const clipped = (o: Overflow) => o.x > 0 || o.y > 0;
+
 /** Measure a slide body that is laid out (not `display: none`). */
 export function measureBody(body: HTMLElement): SlideMeasurement {
   const bodyOverflow = overflowOf(body);
-  const hosts = [...body.querySelectorAll<HTMLElement>(".docwalk-diagram")];
-  const diagrams = hosts.map(overflowOf);
-  const tooSmall = hosts.filter((h) => Number(h.dataset["scale"] ?? 1) < READABLE_SCALE).length;
-  const overflows =
-    bodyOverflow.x > 0 || bodyOverflow.y > 0 || diagrams.some((d) => d.x > 0 || d.y > 0);
-  return { body: bodyOverflow, diagrams, tooSmall, overflows };
+  const diagrams = [...body.querySelectorAll<HTMLElement>(".docwalk-diagram")].map(overflowOf);
+  const code = [...body.querySelectorAll<HTMLElement>("pre")].map(overflowOf);
+  const tooSmall = tooSmallDiagrams(body);
+  const overflows = clipped(bodyOverflow) || diagrams.some(clipped) || code.some(clipped);
+  return { body: bodyOverflow, diagrams, code, tooSmall, overflows };
 }
 
 /** The content box of an empty slide body at `size`, measured off-screen. */

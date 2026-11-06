@@ -51,6 +51,12 @@ const byLabel = (el: HTMLElement, name: string) =>
 const button = (el: HTMLElement, text: string) =>
   [...el.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.includes(text))!;
 
+const option = (el: HTMLElement, text: string) =>
+  [...el.querySelectorAll<HTMLElement>('.docwalk-outline [role="option"]')].find((o) =>
+    o.textContent?.includes(text),
+  )!;
+const address = (el: HTMLElement) => el.querySelector(".docwalk-preview-address")?.textContent;
+
 describe("leaving present mode", () => {
   // Escape keeps focus on the deck; the Exit button must too, or a keyboard
   // user lands on <body>: the next Tab starts from the top and arrows stop
@@ -89,6 +95,83 @@ describe("leaving present mode", () => {
     expect(app.getAttribute("data-pane")).toBe("preview");
     expect(document.activeElement?.closest(".docwalk-deck-pane")).not.toBeNull();
     expect(el.querySelector<HTMLElement>(".docwalk-deck-pane")!.offsetHeight).toBeGreaterThan(0);
+  });
+
+  // Present unmounts the outline and the pane switch, and Chromium resets the
+  // page's scroll; the preview pane was selected but the slide sat below the
+  // outline, off screen, until the presenter scrolled.
+  test("on a phone, the slide is on screen after leaving present mode, not below the outline", async () => {
+    await page.viewport(390, 844);
+    const el = await mountApp();
+    const app = el.querySelector(".docwalk-app")!;
+    await userEvent.click(button(el, "Preview"));
+    await expect.poll(() => app.getAttribute("data-pane")).toBe("preview");
+    await userEvent.click(button(el, "Present"));
+    await expect.poll(() => app.getAttribute("data-view")).toBe("present");
+    await expect.poll(() => document.activeElement?.classList.contains("reveal")).toBe(true);
+    await userEvent.click(el.querySelector<HTMLElement>(".docwalk-exit")!);
+    await expect.poll(() => app.getAttribute("data-view")).toBe("edit");
+    const slide = () =>
+      el.querySelector<HTMLElement>(".docwalk-deck-pane .reveal")!.getBoundingClientRect();
+    await expect.poll(() => slide().bottom).toBeLessThanOrEqual(window.innerHeight);
+    expect(slide().top).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("pen marks across a deck rebuild", () => {
+  const DRAW = '.docwalk-annotate-draw[data-active="true"]';
+  const activeMarks = (el: HTMLElement) =>
+    el.querySelector<SVGSVGElement>(`.docwalk-deck-pane ${DRAW}`)?.children.length ?? -1;
+
+  function stroke(el: HTMLElement) {
+    const svg = el.querySelector<SVGSVGElement>(`.docwalk-deck-pane ${DRAW}`)!;
+    const r = svg.getBoundingClientRect();
+    const at = (type: string, f: number) =>
+      svg.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+          pressure: 0.5,
+          clientX: r.left + r.width * (0.2 + 0.4 * f),
+          clientY: r.top + r.height * 0.5,
+        }),
+      );
+    at("pointerdown", 0);
+    for (let i = 1; i <= 8; i++) at("pointermove", i / 8);
+    at("pointerup", 1);
+  }
+
+  // An edit (or an agent write, or a disk reload) rebuilds the deck while the
+  // presenter is mid-talk. Marks on the slides the edit did not touch must
+  // stay; marks over text that changed would point at the wrong thing.
+  test("an edit keeps the marks on unchanged slides and drops them on the edited one", async () => {
+    const el = await mountApp();
+    await userEvent.click(byLabel(el, "Pen"));
+    await userEvent.click(option(el, "First point"));
+    await expect.poll(() => address(el)).toBe("first-point/1");
+    stroke(el);
+    expect(activeMarks(el)).toBe(1);
+    await userEvent.click(option(el, "Second point"));
+    await expect.poll(() => address(el)).toBe("second-point/1");
+    stroke(el);
+    expect(activeMarks(el)).toBe(1);
+
+    const before = el.querySelector(".docwalk-deck-pane .reveal")!;
+    await expect.poll(() => el.querySelector(".cm-content"), { timeout: 20_000 }).not.toBeNull();
+    await userEvent.click(el.querySelector<HTMLElement>(".cm-content")!);
+    await userEvent.keyboard("{Control>}{End}{/Control} Gamma.");
+    await expect.poll(() => before.isConnected, { timeout: 20_000 }).toBe(false);
+    await expect.poll(() => activeMarks(el), { timeout: 20_000 }).toBeGreaterThanOrEqual(0);
+
+    await userEvent.click(option(el, "Second point"));
+    await expect.poll(() => address(el)).toBe("second-point/1");
+    expect(activeMarks(el)).toBe(0);
+    await userEvent.click(option(el, "First point"));
+    await expect.poll(() => address(el)).toBe("first-point/1");
+    expect(activeMarks(el)).toBe(1);
   });
 });
 

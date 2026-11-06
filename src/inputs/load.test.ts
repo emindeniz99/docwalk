@@ -3,6 +3,7 @@ import {
   checkUrlPolicy,
   loadFromFile,
   loadFromRepo,
+  describeLoadError,
   loadFromUrl,
   parseInputUrl,
   type FetchLike,
@@ -188,9 +189,20 @@ describe("loadFromUrl", () => {
   });
 
   test("HTTP errors map to typed errors the banner can explain", async () => {
-    expect(await urlAt(404)).toEqual({ ok: false, error: { kind: "not-found" } });
+    expect(await urlAt(404)).toEqual({ ok: false, error: { kind: "not-found", from: "url" } });
     expect(await urlAt(401)).toEqual({ ok: false, error: { kind: "unauthorized" } });
     expect(await urlAt(500)).toMatchObject({ ok: false, error: { kind: "network" } });
+  });
+
+  // A ?src= fetch never carries the token (only ?repo= calls api.github.com
+  // with it), so telling the user a private repository needs one sends them
+  // to add a token that cannot help: the link itself is what to check.
+  test("a 404 from an address talks about the address, not about tokens", async () => {
+    const result = await urlAt(404);
+    if (result.ok) throw new Error("expected a failure");
+    const message = describeLoadError(result.error);
+    expect(message).not.toMatch(/token/i);
+    expect(message).toBe("Nothing was found at this address. Check the link.");
   });
 
   test("a thrown fetch (offline, CORS) becomes a network error, not an exception", async () => {
@@ -305,11 +317,18 @@ describe("loadFromRepo", () => {
   test("401 and 403 mean the token cannot read the repo; 404 means not found", async () => {
     expect(await repoAt(401)).toEqual({ ok: false, error: { kind: "unauthorized" } });
     expect(await repoAt(403)).toEqual({ ok: false, error: { kind: "unauthorized" } });
-    expect(await repoAt(404)).toEqual({ ok: false, error: { kind: "not-found" } });
+    expect(await repoAt(404)).toEqual({ ok: false, error: { kind: "not-found", from: "repo" } });
     // A rate limit is not a permission problem; telling the user to fix the token would mislead.
     expect(await repoAt(403, { "x-ratelimit-remaining": "0" })).toMatchObject({
       error: { kind: "network" },
     });
+  });
+
+  // For ?repo= the token is the likely fix: GitHub answers 404 for a private repo it will not show.
+  test("a 404 from a repository keeps the token hint", async () => {
+    const result = await repoAt(404);
+    if (result.ok) throw new Error("expected a failure");
+    expect(describeLoadError(result.error)).toMatch(/token/i);
   });
 
   test("a folder (JSON listing) is refused instead of rendered as a document", async () => {

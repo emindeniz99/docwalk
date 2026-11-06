@@ -25,7 +25,7 @@ export interface LoadedDocument {
 
 export type LoadError =
   | { kind: "needs-confirmation"; url: string; host: string }
-  | { kind: "not-found" }
+  | { kind: "not-found"; from: "url" | "repo" }
   | { kind: "unauthorized" }
   | { kind: "too-large"; bytes: number }
   | { kind: "network"; message: string }

@@ -19,6 +19,13 @@ export interface AnnotationLayer {
    * drawing and shows the one saved for the new key (empty when none).
    */
   setKey(key: string): void;
+  /**
+   * Move the overlay, with every slide's marks and undo history, onto a new
+   * host: a deck rebuild replaces the stage element mid-talk.
+   */
+  moveTo(host: HTMLElement): void;
+  /** Drop the marks of every key not listed; the current slide's stay until the key changes. */
+  retain(keys: Iterable<string>): void;
   destroy(): void;
 }
 

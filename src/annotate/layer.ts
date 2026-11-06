@@ -3,6 +3,9 @@ import { getStroke } from "perfect-freehand";
 import "./layer.css";
 import type { AnnotationLayer, AnnotationMode } from "./types";
 
+// App loads this module lazily, with the layer, after the deck is up.
+export { markKeys } from "./markKeys";
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** How long a laser point stays on screen; the trail is gone this long after the pointer stops. */
@@ -63,9 +66,19 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
   root.append(laser);
 
   // The overlay is absolutely positioned, so it needs a containing block.
-  const restorePosition = host.style.position;
-  if (getComputedStyle(host).position === "static") host.style.position = "relative";
-  host.append(root);
+  let stage = host;
+  let restorePosition = "";
+  function attach(next: HTMLElement) {
+    stage = next;
+    restorePosition = next.style.position;
+    if (getComputedStyle(next).position === "static") next.style.position = "relative";
+    next.append(root);
+  }
+  function detach() {
+    root.remove();
+    stage.style.position = restorePosition;
+  }
+  attach(host);
 
   // Until setColor, draw in the accent (DESIGN.md: it marks the pen). currentColor would
   // follow the host's text colour, which is light on the dark stage and vanishes on a white slide.
@@ -240,6 +253,23 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
       key = next;
       clearLaser();
     },
+    moveTo(next) {
+      if (next === stage) return;
+      clearLaser();
+      detach();
+      attach(next);
+    },
+    retain(keys) {
+      const keep = new Set<string | null>(keys);
+      for (const [k, drawing] of drawings) {
+        if (drawing === active || keep.has(k)) continue;
+        // drauu forgets its element on unmount, so take it first.
+        const svg = drawing.el;
+        drawing.unmount();
+        svg?.remove();
+        drawings.delete(k);
+      }
+    },
     destroy() {
       clearLaser();
       laser.removeEventListener("pointerdown", onLaserDown);
@@ -249,8 +279,7 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
       laser.removeEventListener("pointerleave", onLaserEnd);
       for (const d of drawings.values()) d.unmount();
       drawings.clear();
-      root.remove();
-      host.style.position = restorePosition;
+      detach();
     },
   };
 }

@@ -1,5 +1,5 @@
 import { m } from "../paraglide/messages.js";
-import { OVERFLOW_TOLERANCE_PX } from "./measure";
+import { OVERFLOW_TOLERANCE_PX, tooSmallDiagrams } from "./measure";
 import { documentText } from "./documentText";
 
 /**
@@ -288,7 +288,22 @@ function bodyOf(slide: HTMLElement): HTMLElement {
   return (slide.querySelector<HTMLElement>(".docwalk-slide-body") ?? slide) as HTMLElement;
 }
 
+/**
+ * A page holding a diagram too small to read shows a note under its body,
+ * and the note takes its height from the body (rule 3). Show that note in the
+ * probe while measuring, so the content it would push out of view moves to
+ * the next page instead of overflowing unreported.
+ */
+function reserveNote(body: HTMLElement): void {
+  const note = body.parentElement?.querySelector<HTMLElement>(":scope > .docwalk-overflow");
+  if (!note) return;
+  const count = tooSmallDiagrams(body);
+  note.hidden = count === 0;
+  if (count > 0) note.textContent = m.deck_too_small({ count });
+}
+
 function fits(body: HTMLElement): boolean {
+  reserveNote(body);
   return (
     body.scrollHeight - body.clientHeight <= OVERFLOW_TOLERANCE_PX &&
     body.scrollWidth - body.clientWidth <= OVERFLOW_TOLERANCE_PX

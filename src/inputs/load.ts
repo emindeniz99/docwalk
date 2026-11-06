@@ -235,9 +235,9 @@ function networkError(error: unknown): LoadResult {
   });
 }
 
-function statusError(response: Response): LoadResult | null {
+function statusError(response: Response, from: "url" | "repo"): LoadResult | null {
   if (response.ok) return null;
-  if (response.status === 404) return fail({ kind: "not-found" });
+  if (response.status === 404) return fail({ kind: "not-found", from });
   if (response.status === 401) return fail({ kind: "unauthorized" });
   if (response.status === 403) {
     if (response.headers.get("x-ratelimit-remaining") === "0") {
@@ -294,7 +294,7 @@ export async function loadFromUrl(
     await response.body?.cancel().catch(() => {});
     return fail({ kind: "needs-confirmation", url: final.href, host: final.host });
   }
-  const status = statusError(response);
+  const status = statusError(response, "url");
   if (status) return status;
   if (!isTextual(mediaType(response))) {
     await response.body?.cancel().catch(() => {});
@@ -350,7 +350,7 @@ export async function loadFromRepo(
   } catch (error) {
     return networkError(error);
   }
-  const status = statusError(response);
+  const status = statusError(response, "repo");
   if (status) return status;
   const type = mediaType(response);
   // A directory comes back as a JSON listing even with the raw media type.
@@ -388,7 +388,8 @@ export function describeLoadError(error: LoadError): string {
     case "needs-confirmation":
       return m.source_confirm_title({ host: error.host });
     case "not-found":
-      return m.load_not_found();
+      // Only a ?repo= load carries the token, so only there can one help.
+      return error.from === "repo" ? m.load_not_found() : m.load_url_not_found();
     case "unauthorized":
       return m.load_unauthorized();
     case "too-large":

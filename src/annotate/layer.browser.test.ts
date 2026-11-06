@@ -226,6 +226,53 @@ describe("annotation layer (decision 29)", () => {
     expect(laser.childElementCount).toBe(0);
   });
 
+  test("moveTo carries every slide's marks and undo history to a rebuilt stage", () => {
+    // An agent write, a file reloaded from disk or a language switch rebuilds
+    // the deck mid-talk, and the new deck has a new stage element. The
+    // presenter's marks used to vanish with the old one.
+    const { host } = mount();
+    layer!.setKey("intro/1");
+    layer!.setMode("pen");
+    stroke(host, [20, 20], [200, 120]);
+    layer!.setKey("design/1");
+    stroke(host, [30, 200], [300, 200]);
+
+    const rebuilt = document.createElement("div");
+    Object.assign(rebuilt.style, { width: "400px", height: "300px" });
+    document.body.append(rebuilt);
+    layer!.moveTo(rebuilt);
+    expect(host.querySelector(".docwalk-annotate")).toBeNull();
+    expect(host.style.position).toBe("");
+    expect(rebuilt.style.position).toBe("relative");
+    expect(marks(rebuilt)).toBe(1);
+    layer!.setKey("intro/1");
+    expect(marks(rebuilt)).toBe(1);
+    // The pen still draws on the new stage, and undo still reaches the old mark.
+    stroke(rebuilt, [20, 200], [200, 220]);
+    expect(marks(rebuilt)).toBe(2);
+    layer!.undo();
+    layer!.undo();
+    expect(marks(rebuilt)).toBe(0);
+  });
+
+  test("retain drops the marks of slides that are gone, keeping the others and the current one", () => {
+    // A mark drawn over text that has since changed points at the wrong thing,
+    // so a rebuild keeps marks only for slides it still has.
+    const { host } = mount();
+    layer!.setMode("pen");
+    for (const key of ["intro/1", "design/1", "risks/1"]) {
+      layer!.setKey(key);
+      stroke(host, [20, 20], [200, 120]);
+    }
+    layer!.retain(["intro/1"]);
+    expect(marks(host)).toBe(1); // "risks/1" is current, so it stays until the slide changes
+    layer!.setKey("design/1");
+    expect(marks(host)).toBe(0);
+    layer!.setKey("intro/1");
+    expect(marks(host)).toBe(1);
+    expect(host.querySelectorAll(".docwalk-annotate-draw").length).toBe(3);
+  });
+
   test("destroy removes the overlay and restores the host, so remounting the deck leaves nothing behind", () => {
     const { host } = mount();
     expect(host.style.position).toBe("relative");
