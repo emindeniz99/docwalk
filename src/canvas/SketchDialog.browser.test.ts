@@ -206,13 +206,13 @@ describe("remote images in sketches", () => {
         dataTransfer,
       }),
     );
+    // Wait for the PNG itself: Chromium's headless shell shows a JPEG data URL
+    // first and the dropped PNG a moment later, so "any data:image/" passed
+    // before the PNG arrived.
     await vi.waitFor(
-      () => {
-        if (!sources.some((src) => src.startsWith("data:image/"))) throw new Error("not placed");
-      },
+      () => expect(sources.filter((src) => src.startsWith("data:image/png"))).not.toEqual([]),
       { timeout: 5000 },
     );
-    expect(sources.filter((src) => src.startsWith("data:image/png"))).not.toEqual([]);
   });
 
   test("a pasted scene keeps only its inline image", async () => {
