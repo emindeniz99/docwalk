@@ -508,6 +508,9 @@ test("on a 390 px phone an open file tree leaves the outline at least three rows
   await newProject(page, "Phone outline", "Design doc");
   await expect(page.locator(".docwalk-files[data-expanded]")).toHaveCount(1);
   await expect(tree(page).getByRole("row")).not.toHaveCount(0);
+  // The project's file opens after the dialog closes; until then the outline
+  // still lists the sample document, mid-swap. Measure the new one.
+  await expect(page.locator(".docwalk-outline-item").first()).toContainText("Phone outline");
   // Clip each row by every ancestor that hides overflow, then by the window.
   const visibleRows = await page.locator(".docwalk-outline-item").evaluateAll(
     (items) =>
