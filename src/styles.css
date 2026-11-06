@@ -128,7 +128,7 @@ a {
 }
 
 .docwalk-button {
-  min-height: 38px;
+  min-height: var(--dw-space-control);
   padding: 0 var(--dw-space-lg);
   border: 1px solid var(--border-strong);
   border-radius: var(--dw-radius-md);
@@ -457,7 +457,7 @@ section[data-docwalk-id] {
   flex: 0 1 260px;
   gap: var(--dw-space-md);
   min-width: 200px;
-  min-height: 38px;
+  min-height: var(--dw-space-control);
   padding: 0 var(--dw-space-md);
   white-space: nowrap;
   border: 1px solid var(--border-strong);
@@ -490,7 +490,8 @@ kbd {
 }
 
 .docwalk-segmented button {
-  min-height: 36px;
+  /* The group's 1px border makes up the rest of the control height. */
+  min-height: calc(var(--dw-space-control) - 2px);
   padding: 0 var(--dw-space-lg);
   border: 0;
   background: var(--surface);
@@ -512,8 +513,8 @@ kbd {
 .docwalk-icon-button {
   display: inline-grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: var(--dw-space-control);
+  height: var(--dw-space-control);
   border: 1px solid var(--border-strong);
   border-radius: var(--dw-radius-md);
   background: var(--surface);
@@ -902,7 +903,7 @@ kbd {
   align-items: center;
   justify-content: space-between;
   gap: var(--dw-space-sm);
-  min-height: var(--dw-space-target);
+  min-height: var(--dw-space-control);
   padding: 0 var(--dw-space-md);
   border: 1px solid var(--border-strong);
   border-radius: var(--dw-radius-md);
@@ -1062,10 +1063,10 @@ kbd {
   white-space: nowrap;
 }
 
-/* Module buttons that default to 44px match the 38px header row on a mouse. */
+/* Module buttons that default to 44px match the header's control height on a mouse. */
 .docwalk-toolbar .docwalk-export-trigger,
 .docwalk-toolbar .docwalk-button.docwalk-inputs-target {
-  min-height: 38px;
+  min-height: var(--dw-space-control);
 }
 
 /* Touch targets are at least 44px on touch screens (DESIGN.md, Layout). */

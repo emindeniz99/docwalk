@@ -105,6 +105,7 @@ spacing:
   xl: 24px
   2xl: 32px
   3xl: 48px
+  control: 38px
   target: 44px
 components:
   button-primary:
@@ -302,8 +303,10 @@ pagination decisions do not change with window size. The editor is three
 columns: outline (250px), source, preview. At phone width they stack and the
 outline becomes a sheet.
 
-Spacing follows a 4px base (`xs` to `3xl`). Interactive targets are at least
-`target` (44px) high on touch screens.
+Spacing follows a 4px base (`xs` to `3xl`). Controls are `control` (38px)
+high with a mouse, so header buttons, icon buttons and the annotation tools
+in the edit preview share one row height. Interactive targets are at least
+`target` (44px) high on touch screens and on the stage while presenting.
 
 ## Elevation & Depth
 
