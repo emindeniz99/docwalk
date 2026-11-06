@@ -6,10 +6,19 @@ headings, lets you zoom into any diagram, draw on it and point at it, and
 tells you when content does not fit instead of clipping it. The file stays
 plain GitHub Markdown.
 
-Status: the first version is feature-complete and not yet released. The
-CI workflows have not run on GitHub yet, and `docwalk-mcp` is not on npm.
-[`ROADMAP.md`](./ROADMAP.md) lists what is open and
-[`CHANGELOG.md`](./CHANGELOG.md) what the first release holds.
+**Try it:** <https://emindeniz99.github.io/docwalk/>. It opens with a
+sample design doc; paste your own Markdown or drop a `.md` file on the
+page. Nothing is uploaded.
+
+![The editor with its outline, the Markdown source and a live slide preview of a state diagram](docs/images/editor.png)
+
+![Presentation mode: the slide on a dark stage with drawing tools](docs/images/present.png)
+
+Status: beta. The first version is feature-complete and runs as a static
+site on GitHub Pages; no version is tagged yet, and `docwalk-mcp` is not
+on npm. Sign-in, the phone remote and agents need the Cloudflare Worker,
+which the Pages site does not run. [`ROADMAP.md`](./ROADMAP.md) lists what
+is open and [`CHANGELOG.md`](./CHANGELOG.md) what the first release holds.
 
 ## Why
 
@@ -87,7 +96,17 @@ deck and, once the presenter allows it, edit the document through
 [`docwalk-mcp`](./mcp/README.md), a local MCP server that joins the room with
 its encrypted link.
 
-## Quick start
+## Use it
+
+Open <https://emindeniz99.github.io/docwalk/> in a current browser. Paste
+Markdown into the editor, drop a `.md` file on the page, or open
+`https://emindeniz99.github.io/docwalk/?src=<raw GitHub URL>`. Press
+**Present** to start. Install it from the browser's menu to use it offline;
+on an iPhone, Safari's **Share › Add to Home Screen** also gives a deck
+without the browser bars, since iPhone Safari has no full-screen mode for
+pages.
+
+## Develop
 
 You need Node 24.22.1 and pnpm 12.16.1 (with [mise](https://mise.jdx.dev),
 `mise install` reads both from `package.json`).
