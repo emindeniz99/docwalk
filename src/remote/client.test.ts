@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { connectRoom, type RemoteRole, type SocketFactory, seatToken } from "./client";
-import { createRoomCredentials } from "./crypto";
+import { createPresenterCredentials, createRoomCredentials } from "./crypto";
 
 /**
  * Control seats (worker/room.ts): the relay keeps some sockets for whoever
@@ -40,7 +40,7 @@ describe("control seat token", () => {
   });
 
   test("a follower's socket carries none, so it never takes a control seat", async () => {
-    expect(await seatOf("follower")).toBeNull();
+    expect(await seatOf("follower", await createPresenterCredentials())).toBeNull();
   });
 
   test("the token is the shape the relay accepts: 43 base64url characters", async () => {

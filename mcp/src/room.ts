@@ -21,6 +21,17 @@ export type RoomState = Extract<RemoteMessage, { type: "state" }>;
 
 /** How long a request waits for the room to open and the presenter to answer. */
 export const REQUEST_TIMEOUT_MS = 15_000;
+/**
+ * How long a goto keeps listening after a state that is not at its target.
+ * The presenter broadcasts state on every slide change and every hello, so a
+ * state already on its way can arrive before the answer to the goto.
+ */
+export const GOTO_SETTLE_MS = 1000;
+
+/** True when `state` shows `address`: that slide, or a page of that section. */
+export function isAt(state: RoomState, address: string): boolean {
+  return state.current === address || state.current.startsWith(`${address}/`);
+}
 
 const ERROR_TEXT: Record<AgentError, string> = {
   "edits-off":
@@ -59,12 +70,15 @@ export interface RoomAgentOptions {
   link: string;
   socketFactory?: SocketFactory;
   timeoutMs?: number;
+  /** Overrides GOTO_SETTLE_MS, for tests. */
+  gotoSettleMs?: number;
   /** Called on every connection status change, for logging. */
   onStatus?: (status: RemoteStatus) => void;
 }
 
 interface Pending {
-  accept: (message: RemoteMessage) => boolean;
+  /** True when `message` is the answer; `answer` settles the wait with another message later. */
+  accept: (message: RemoteMessage, answer: (reply: RemoteMessage) => void) => boolean;
   resolve: (message: RemoteMessage) => void;
 }
 
@@ -76,8 +90,15 @@ export class RoomAgent {
   private readonly opened = new Set<() => void>();
   private readonly conn;
   private readonly timeoutMs: number;
+  private readonly gotoSettleMs: number;
 
-  constructor({ link, socketFactory, timeoutMs = REQUEST_TIMEOUT_MS, onStatus }: RoomAgentOptions) {
+  constructor({
+    link,
+    socketFactory,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    gotoSettleMs = GOTO_SETTLE_MS,
+    onStatus,
+  }: RoomAgentOptions) {
     const parsed = parseJoinLink(link);
     if (!parsed) {
       throw new Error(
@@ -90,6 +111,7 @@ export class RoomAgent {
       );
     }
     this.timeoutMs = timeoutMs;
+    this.gotoSettleMs = gotoSettleMs;
     this.conn = connectRoom({
       creds: { room: parsed.creds.room, key: parsed.creds.key, view: null },
       role: "agent",
@@ -141,13 +163,30 @@ export class RoomAgent {
     return { current: reply.current, slides: reply.slides };
   }
 
-  /** Asks the presenter to show `address`; resolves with the slide it shows afterwards. */
+  /**
+   * Asks the presenter to show `address`; resolves with the slide it shows
+   * afterwards. The presenter answers every goto with its state, moved or
+   * not, but the state is not matched to the request: a broadcast already in
+   * flight can arrive first. So a state at the target answers at once, and a
+   * state elsewhere answers only when no other state follows it for
+   * `gotoSettleMs` (an address the deck does not have).
+   */
   async goTo(address: string): Promise<RoomState> {
     await this.whenOpen();
-    // The presenter answers every goto with its state, moved or not.
-    const answer = this.wait((m) => m.type === "state");
-    await this.conn.send({ type: "goto", address });
-    return (await answer) as RoomState;
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const answer = this.wait((m, settleWith) => {
+      if (m.type !== "state") return false;
+      clearTimeout(settle);
+      if (isAt(m, address)) return true;
+      settle = setTimeout(() => settleWith(m), this.gotoSettleMs);
+      return false;
+    });
+    try {
+      await this.conn.send({ type: "goto", address });
+      return (await answer) as RoomState;
+    } finally {
+      clearTimeout(settle);
+    }
   }
 
   close() {
@@ -157,10 +196,7 @@ export class RoomAgent {
   private receive(message: RemoteMessage) {
     if (message.type === "state") this.state = message;
     for (const entry of this.pending) {
-      if (entry.accept(message)) {
-        this.pending.delete(entry);
-        entry.resolve(message);
-      }
+      if (entry.accept(message, entry.resolve)) entry.resolve(message);
     }
   }
 
@@ -173,12 +209,13 @@ export class RoomAgent {
     return answer;
   }
 
-  private wait(accept: (message: RemoteMessage) => boolean): Promise<RemoteMessage> {
+  private wait(accept: Pending["accept"]): Promise<RemoteMessage> {
     return new Promise((resolve, reject) => {
       const entry: Pending = {
         accept,
         resolve: (message) => {
           clearTimeout(timer);
+          this.pending.delete(entry);
           resolve(message);
         },
       };

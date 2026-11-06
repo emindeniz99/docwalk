@@ -3,7 +3,7 @@
  *
  * A presenter opens a room; phones join as remotes, other devices as
  * followers, by QR code or link: `<origin>/?view=remote#room=<id>&k=<key>` or
- * `?view=follow#room=<id>&v=<key>`. The keys never reach the server: they live
+ * `?view=follow#room=<id>&v=<key>&p=<state key>`. The keys never reach the server: they live
  * in the URL fragment. The control key (`k`) steers the deck and reads and
  * writes the document; the view key (`v`) only follows (decision 68). Every
  * frame on the wire is an `EncryptedFrame`; the
@@ -102,6 +102,13 @@ export type AgentError = "edits-off" | "conflict" | "no-document" | "too-large";
 /** The recipient id of messages for the presenter, which sends no hello. */
 export const PRESENTER_ID = "presenter";
 
+/**
+ * The close code the relay (worker/room.ts) ends a socket with when its seat
+ * token is not the room's: someone else's key holds the control seats
+ * (decision 74). In the 4000-4999 range the WebSocket protocol leaves to applications.
+ */
+export const SEAT_TAKEN_CLOSE = 4409;
+
 /** What travels over the WebSocket: AES-GCM ciphertext and its IV, base64url. */
 export interface EncryptedFrame {
   v: 2;
@@ -112,7 +119,7 @@ export interface EncryptedFrame {
 /**
  * A room and the keys a participant holds, each a raw 256-bit AES-GCM key,
  * base64url. The presenter holds both; a remote link carries only `key`, a
- * follow link only `view`.
+ * follow link `view` and `verify`.
  */
 export interface RoomCredentials {
   room: string;
@@ -120,4 +127,8 @@ export interface RoomCredentials {
   key: string | null;
   /** View key: receive the presenter's state and say hello as a follower (`v=`). */
   view: string | null;
+  /** Public state key (`p=`): a follower takes only state signed with its private half (decision 73). */
+  verify?: string | null;
+  /** Private state key: only the presenter holds it, to sign its state. */
+  sign?: string | null;
 }

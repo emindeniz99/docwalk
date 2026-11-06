@@ -14,6 +14,12 @@ import type { EncryptedFrame, RemoteMessage, RoomCredentials } from "./types";
  * what each key may carry. Every plaintext also carries its sender's random
  * session id and a counter, so a receiver can drop a replayed frame.
  *
+ * Every follower holds the view key, so the view key cannot tell the
+ * presenter's state from a follower's forgery (decision 73). The presenter
+ * therefore signs each state with an ECDSA P-256 key of the room; the
+ * public half travels in the follow link (`p=`), and a follower drops any
+ * state that does not verify.
+ *
  * This file uses no DOM types, so the Node-run unit tests can import it.
  */
 
@@ -21,6 +27,12 @@ const IV_BYTES = 12;
 const KEY_BYTES = 32;
 const ROOM_BYTES = 16;
 const ID_BYTES = 9;
+/** An uncompressed P-256 point (0x04 || x || y), the WebCrypto "raw" public key format. */
+const VERIFY_KEY_BYTES = 65;
+/** WebCrypto's ECDSA P-256 signature: r || s, 32 bytes each. */
+const SIGNATURE_BYTES = 64;
+const STATE_KEY = { name: "ECDSA", namedCurve: "P-256" } as const;
+const STATE_SIGNATURE = { name: "ECDSA", hash: "SHA-256" } as const;
 
 // Ceilings for what a peer may send. They only stop a hostile key holder
 // from making every screen render an unbounded payload; the relay's 16 KB
@@ -83,6 +95,36 @@ export function createRoomCredentials(): RoomCredentials & { key: string; view: 
   };
 }
 
+/**
+ * The presenter's room: both keys and the state signing pair. `sign` is the
+ * private key (PKCS #8, base64url), which never leaves the presenter's tab;
+ * `verify` is the public key (raw P-256 point, 87 characters), which the
+ * follow link carries. Generating the pair is asynchronous, unlike the rest.
+ */
+export interface PresenterCredentials extends RoomCredentials {
+  key: string;
+  view: string;
+  sign: string;
+  verify: string;
+}
+
+export async function createPresenterCredentials(): Promise<PresenterCredentials> {
+  const pair = (await crypto.subtle.generateKey(STATE_KEY, true, ["sign", "verify"])) as {
+    privateKey: RoomKey;
+    publicKey: RoomKey;
+  };
+  const [sign, verify] = await Promise.all([
+    crypto.subtle.exportKey("pkcs8", pair.privateKey),
+    crypto.subtle.exportKey("raw", pair.publicKey),
+  ]);
+  return {
+    ...createRoomCredentials(),
+    // Binary formats always export an ArrayBuffer; only "jwk" gives an object.
+    sign: toBase64Url(new Uint8Array(sign as ArrayBuffer)),
+    verify: toBase64Url(new Uint8Array(verify as ArrayBuffer)),
+  };
+}
+
 /** A random participant id for `hello`, 12 base64url characters. */
 export function randomId(): string {
   return toBase64Url(randomBytes(ID_BYTES));
@@ -91,13 +133,28 @@ export function randomId(): string {
 const RoomId = v.pipe(v.string(), v.regex(BASE64URL), v.minLength(22), v.maxLength(64));
 // 32 bytes are exactly 43 unpadded base64url characters.
 const RawKey = v.pipe(v.string(), v.regex(BASE64URL), v.length(43));
+// 65 bytes are exactly 87 unpadded base64url characters.
+const VerifyKey = v.pipe(v.string(), v.regex(BASE64URL), v.length(87));
+// PKCS #8 lengths differ by engine (with or without the public point); 512 characters is ample.
+const SignKey = v.pipe(v.string(), v.regex(BASE64URL), v.minLength(1), v.maxLength(512));
 
-/** The presenter's room as it comes back from storage: both keys. */
-export const RoomCredentialsSchema = v.object({ room: RoomId, key: RawKey, view: RawKey });
+/** The presenter's room as it comes back from storage: both keys and the signing pair. */
+export const RoomCredentialsSchema = v.object({
+  room: RoomId,
+  key: RawKey,
+  view: RawKey,
+  sign: SignKey,
+  verify: VerifyKey,
+});
 
 /** A join link's fragment: the room and at least one key. */
 const JoinFragmentSchema = v.pipe(
-  v.object({ room: RoomId, key: v.nullable(RawKey), view: v.nullable(RawKey) }),
+  v.object({
+    room: RoomId,
+    key: v.nullable(RawKey),
+    view: v.nullable(RawKey),
+    verify: v.nullable(VerifyKey),
+  }),
   v.check((c) => c.key !== null || c.view !== null, "a join link carries a key"),
 );
 
@@ -106,6 +163,22 @@ export async function importKey(key: string): Promise<RoomKey> {
   const raw = fromBase64Url(key);
   if (!raw || raw.length !== KEY_BYTES) throw new Error("A room key is 32 bytes of base64url.");
   return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+
+/** Imports the presenter's private state key (`PresenterCredentials.sign`). */
+export async function importSigningKey(sign: string): Promise<RoomKey> {
+  const raw = fromBase64Url(sign);
+  if (!raw) throw new Error("A state signing key is PKCS #8 in base64url.");
+  return crypto.subtle.importKey("pkcs8", raw, STATE_KEY, false, ["sign"]);
+}
+
+/** Imports the public state key from a follow link (`p=`); rejects anything but a P-256 point. */
+export async function importVerifyKey(verify: string): Promise<RoomKey> {
+  const raw = fromBase64Url(verify);
+  if (!raw || raw.length !== VERIFY_KEY_BYTES) {
+    throw new Error("A state verify key is a 65-byte P-256 point in base64url.");
+  }
+  return crypto.subtle.importKey("raw", raw, STATE_KEY, false, ["verify"]);
 }
 
 const Address = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_ADDRESS_CHARS));
@@ -266,22 +339,57 @@ export interface Seal {
 
 export interface Sealed extends Seal {
   message: RemoteMessage;
+  /** True when the frame carried a signature that verifies under the room's state key (decrypt's `verifier`). */
+  signed: boolean;
+}
+
+/** A room's state key and the room it belongs to: a signature from one room does not verify in another. */
+export interface StateKey {
+  room: string;
+  key: RoomKey;
 }
 
 const SealSchema = v.object({
   s: Id,
   n: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
   m: v.unknown(),
+  g: v.optional(v.pipe(v.string(), v.regex(BASE64URL), v.length(86))),
 });
 
-/** Encrypts one message with its seal and a fresh random 96-bit IV; an IV is never reused under a key. */
+/**
+ * What a state signature covers: the room, the seal and the message. The
+ * seal binds it to one sender and counter, so a follower cannot re-seal the
+ * presenter's earlier state as a new frame; the replay guard drops the
+ * original. Both sides serialize the same JSON values (the receiver the
+ * values it just parsed), so the bytes match.
+ */
+function signedBytes(room: string, sender: unknown, counter: unknown, message: unknown) {
+  return encoder.encode(JSON.stringify(["docwalk state", room, sender, counter, message]));
+}
+
+/**
+ * Encrypts one message with its seal and a fresh random 96-bit IV; an IV is
+ * never reused under a key. With `signer`, the plaintext also carries an
+ * ECDSA signature over the room, the seal and the message.
+ */
 export async function encrypt(
   key: RoomKey,
   message: RemoteMessage,
   { sender, counter }: Seal,
+  signer?: StateKey,
 ): Promise<EncryptedFrame> {
   const iv = randomBytes(IV_BYTES);
-  const plaintext = encoder.encode(JSON.stringify({ s: sender, n: counter, m: message }));
+  const sealed: { s: string; n: number; m: RemoteMessage; g?: string } = {
+    s: sender,
+    n: counter,
+    m: message,
+  };
+  if (signer) {
+    const bytes = signedBytes(signer.room, sender, counter, message);
+    const signature = await crypto.subtle.sign(STATE_SIGNATURE, signer.key, bytes);
+    sealed.g = toBase64Url(new Uint8Array(signature));
+  }
+  const plaintext = encoder.encode(JSON.stringify(sealed));
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
   return { v: 2, iv: toBase64Url(iv), data: toBase64Url(new Uint8Array(ciphertext)) };
 }
@@ -289,9 +397,14 @@ export async function encrypt(
 /**
  * The sealed message inside `frame`, or null when the frame is malformed,
  * was encrypted under another key, was altered in transit, or carries a
- * plaintext that is not a valid seal around a valid `RemoteMessage`.
+ * plaintext that is not a valid seal around a valid `RemoteMessage`. With
+ * `verifier`, `signed` says whether the frame's signature verifies.
  */
-export async function decrypt(key: RoomKey, frame: unknown): Promise<Sealed | null> {
+export async function decrypt(
+  key: RoomKey,
+  frame: unknown,
+  verifier?: StateKey,
+): Promise<Sealed | null> {
   const parsedFrame = v.safeParse(FrameSchema, frame);
   if (!parsedFrame.success) return null;
   const iv = fromBase64Url(parsedFrame.output.iv);
@@ -308,13 +421,26 @@ export async function decrypt(key: RoomKey, frame: unknown): Promise<Sealed | nu
   if (!seal.success) return null;
   const message = v.safeParse(RemoteMessageSchema, seal.output.m);
   if (!message.success) return null;
-  return { sender: seal.output.s, counter: seal.output.n, message: message.output };
+  const { s, n, m, g } = seal.output;
+  let signed = false;
+  if (verifier && g !== undefined) {
+    const signature = fromBase64Url(g);
+    signed =
+      signature?.length === SIGNATURE_BYTES &&
+      (await crypto.subtle.verify(
+        STATE_SIGNATURE,
+        verifier.key,
+        signature,
+        signedBytes(verifier.room, s, n, m),
+      ));
+  }
+  return { sender: s, counter: n, message: message.output, signed };
 }
 
 /**
  * Room credentials from a join link's fragment, or null: `#room=<id>&k=<key>`
- * (phone remote, agents) or `#room=<id>&v=<key>` (follow along). A key that
- * is absent is null.
+ * (phone remote, agents) or `#room=<id>&v=<key>&p=<state key>` (follow
+ * along). A key that is absent is null.
  */
 export function parseJoinFragment(hash: string): RoomCredentials | null {
   const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
@@ -322,6 +448,7 @@ export function parseJoinFragment(hash: string): RoomCredentials | null {
     room: params.get("room"),
     key: params.get("k"),
     view: params.get("v"),
+    verify: params.get("p"),
   });
   return parsed.success ? parsed.output : null;
 }
@@ -331,7 +458,9 @@ export function parseJoinFragment(hash: string): RoomCredentials | null {
  * the room and one key in the fragment, which browsers never send to a
  * server. A remote link carries only the control key, a follow link only the
  * view key, so a follow link handed to an audience cannot steer the deck or
- * read the document (decision 68). Other query parameters and fragments of
+ * read the document (decision 68). A follow link also carries the public
+ * state key (`p=`), without which a follower trusts no state (decision 73).
+ * About 190 characters: a version 10 QR code. Other query parameters and fragments of
  * `base` are dropped: a follower gets the document from the presenter's
  * `state`, not from this link.
  */
@@ -341,12 +470,14 @@ export function formatJoinUrl(
   creds: RoomCredentials,
 ): string {
   const key = view === "remote" ? creds.key : creds.view;
-  if (key === null) throw new Error(`These credentials have no key for a ${view} link.`);
+  const verify = creds.verify ?? null;
+  if (key === null || (view === "follow" && verify === null)) {
+    throw new Error(`These credentials have no key for a ${view} link.`);
+  }
   const url = new URL(base);
   url.search = new URLSearchParams({ view }).toString();
-  url.hash = new URLSearchParams({
-    room: creds.room,
-    [view === "remote" ? "k" : "v"]: key,
-  }).toString();
+  url.hash = new URLSearchParams(
+    view === "remote" ? { room: creds.room, k: key } : { room: creds.room, v: key, p: verify! },
+  ).toString();
   return url.href;
 }

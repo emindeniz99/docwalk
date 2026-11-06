@@ -46,16 +46,20 @@ protects:
   relays ciphertext, caps frame size and room size, and never sees a key or
   a document. A replayed frame is dropped. The control key steers the deck
   and reads and writes the document; the view key in a follow link only
-  receives state. Agent writes apply only while the presenter has switched
-  on "Allow agent edits".
+  receives state, and only state the presenter signed. The join links
+  appear once the presenter's socket is open, and a presenter whose room
+  someone else reached first moves to a new room. Agent writes apply only
+  while the presenter has switched on "Allow agent edits".
 
 Known limits, by design:
 
 - Anyone holding a room's control link can read the document and steer the
   deck. Share it like a password.
-- Followers share one view key, so a follower can forge slide changes that
-  other followers see. A tab that reloads can receive a frame it saw before
-  the reload.
+- Followers share one view key, but they take state only when the
+  presenter's per-room signing key signed it; the public half is in the
+  follow link. A follower can still show other followers an older state the
+  presenter signed, until the presenter's next state. A tab that reloads can
+  receive a frame it saw before the reload.
 - The relay sees room ids, frame sizes and timing.
 - Whoever hosts docwalk serves its code. A hostile host, a compromised
   browser or a malicious extension is out of scope.

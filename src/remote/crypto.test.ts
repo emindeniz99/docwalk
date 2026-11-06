@@ -1,11 +1,14 @@
 import { describe, expect, test } from "vitest";
 import {
+  createPresenterCredentials,
   createRoomCredentials,
   decrypt,
   encrypt,
   formatJoinUrl,
   fromBase64Url,
   importKey,
+  importSigningKey,
+  importVerifyKey,
   parseJoinFragment,
   randomId,
   type RoomKey,
@@ -61,6 +64,8 @@ async function encryptRaw(key: RoomKey, plaintext: string): Promise<EncryptedFra
 }
 
 /** Flips one bit of a base64url string's decoded bytes. */
+const presenterCreds = await createPresenterCredentials();
+
 function flipBit(text: string, byte: number): string {
   const bytes = fromBase64Url(text)!;
   bytes[byte] = bytes[byte]! ^ 1;
@@ -110,7 +115,11 @@ describe("encrypt and decrypt", () => {
     const key = await importKey(createRoomCredentials().key);
     const seal = { sender: "AbCdEfGhIjKl", counter: 41 };
     const frame = await encrypt(key, { type: "step", direction: 1 }, seal);
-    expect(await decrypt(key, frame)).toEqual({ ...seal, message: { type: "step", direction: 1 } });
+    expect(await decrypt(key, frame)).toEqual({
+      ...seal,
+      message: { type: "step", direction: 1 },
+      signed: false,
+    });
     expect(JSON.stringify(frame)).not.toContain(seal.sender);
   });
 
@@ -238,8 +247,74 @@ describe("encrypt and decrypt", () => {
   });
 });
 
+/** A presenter's room with its keys imported: view key, signer and the follow link's verifier. */
+async function signedRoom() {
+  const creds = await createPresenterCredentials();
+  return {
+    creds,
+    view: await importKey(creds.view),
+    signer: { room: creds.room, key: await importSigningKey(creds.sign) },
+    verifier: { room: creds.room, key: await importVerifyKey(creds.verify) },
+  };
+}
+
+describe("state signatures (decision 73)", () => {
+  // Every follower holds the view key. Before signatures, any one of them
+  // could seal a state whose docLink was a `#doc=` of their own and make
+  // every other follower's screen load it for the rest of the talk.
+  const STATE = MESSAGES[0]!;
+
+  test("a state the presenter signed verifies under the follow link's key", async () => {
+    const { view, signer, verifier } = await signedRoom();
+    const opened = await decrypt(view, await encrypt(view, STATE, SEAL, signer), verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(STATE);
+  });
+
+  test("an unsigned state, one signed by another key or for another room, does not", async () => {
+    const { creds, view, signer, verifier } = await signedRoom();
+    const forger = await signedRoom();
+    const forged = [
+      await encrypt(view, STATE, SEAL),
+      await encrypt(view, STATE, SEAL, forger.signer),
+      await encrypt(view, STATE, SEAL, { ...signer, room: forger.creds.room }),
+    ];
+    for (const frame of forged) expect((await decrypt(view, frame, verifier))?.signed).toBe(false);
+    expect(creds.room).not.toBe(forger.creds.room);
+  });
+
+  test("a follower that re-seals the presenter's signed state under a new counter fails the check", async () => {
+    // The signature covers the seal, so an old signed state cannot be sent
+    // again as a fresh frame; the original frame is dropped by the replay guard.
+    const { view, signer, verifier } = await signedRoom();
+    const frame = await encrypt(view, STATE, SEAL, signer);
+    const plain = JSON.parse(
+      new TextDecoder().decode(
+        await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: fromBase64Url(frame.iv)! },
+          view,
+          fromBase64Url(frame.data)!,
+        ),
+      ),
+    ) as { s: string; n: number; m: unknown; g: string };
+    const resealed = await encryptRaw(view, JSON.stringify({ ...plain, n: plain.n + 1 }));
+    expect((await decrypt(view, resealed, verifier))?.signed).toBe(false);
+    const edited = await encryptRaw(
+      view,
+      JSON.stringify({ ...plain, m: { ...STATE, docLink: "https://docwalk.example/#doc=evil" } }),
+    );
+    expect((await decrypt(view, edited, verifier))?.signed).toBe(false);
+  });
+
+  test("the follow link's key is a 65-byte P-256 point; anything else is refused", async () => {
+    const { creds } = await signedRoom();
+    expect(fromBase64Url(creds.verify)).toHaveLength(65);
+    await expect(importVerifyKey(toBase64Url(new Uint8Array(33)))).rejects.toThrow("65-byte");
+  });
+});
+
 describe("join links", () => {
-  const creds = createRoomCredentials();
+  const creds = presenterCreds;
 
   test("the credentials go in the fragment, which browsers never send to the relay or the host", () => {
     const url = new URL(formatJoinUrl("https://docwalk.example/app/", "remote", creds));
@@ -259,14 +334,31 @@ describe("join links", () => {
       room: creds.room,
       key: creds.key,
       view: null,
+      verify: null,
     });
     expect(parseJoinFragment(follow.hash)).toEqual({
       room: creds.room,
       key: null,
       view: creds.view,
+      verify: creds.verify,
     });
     expect(follow.href).not.toContain(creds.key);
     expect(remote.href).not.toContain(creds.view);
+    // The private state key stays in the presenter's tab.
+    expect(follow.href + remote.href).not.toContain(creds.sign);
+  });
+
+  test("a follow link stays short enough for a phone camera: a version 10 QR code or smaller", () => {
+    // Version 10 at error correction M holds 213 bytes; the public state
+    // key adds 89 characters to the follow link.
+    const follow = formatJoinUrl("https://docwalk.example/", "follow", creds);
+    expect(follow.length).toBeLessThanOrEqual(213);
+  });
+
+  test("a follow link cannot be made without the state key: its followers would trust nothing", () => {
+    expect(() =>
+      formatJoinUrl("https://docwalk.example/", "follow", createRoomCredentials()),
+    ).toThrow("no key for a follow link");
   });
 
   test("the presenter's own query and fragment do not leak into the join link", () => {
@@ -285,6 +377,7 @@ describe("join links", () => {
       room: creds.room,
       key: creds.key,
       view: null,
+      verify: null,
     });
   });
 
@@ -300,6 +393,7 @@ describe("join links", () => {
       `#room=${creds.room.slice(0, -1)}%2F&k=${creds.key}`,
       `#room=${creds.room}&v=${creds.view.slice(1)}`,
       `#room=${creds.room}&k=${creds.key}&v=short`,
+      `#room=${creds.room}&v=${creds.view}&p=${creds.verify.slice(1)}`,
     ]) {
       expect(parseJoinFragment(hash)).toBeNull();
     }

@@ -4,13 +4,16 @@ import {
   encrypt,
   fromBase64Url,
   importKey,
+  importSigningKey,
+  importVerifyKey,
   randomId,
   toBase64Url,
   type RoomKey,
+  type StateKey,
 } from "./crypto";
 import { PartAssembler, splitMessage } from "./parts";
 import { ReplayGuard } from "./replay";
-import { PRESENTER_ID, type RemoteMessage, type RoomCredentials } from "./types";
+import { PRESENTER_ID, SEAT_TAKEN_CLOSE, type RemoteMessage, type RoomCredentials } from "./types";
 
 /**
  * One participant's connection to a remote-control room (decision 8). The
@@ -28,6 +31,11 @@ import { PRESENTER_ID, type RemoteMessage, type RoomCredentials } from "./types"
  * so a follow link can neither steer the deck nor talk to agents. Every
  * frame is sealed with this connection's id and counter, and a frame whose
  * counter a receiver has seen from that sender is dropped (replay.ts).
+ *
+ * Followers share the view key, so it cannot tell them apart from the
+ * presenter. The presenter signs every state it sends with the room's
+ * private state key, and a follower takes nothing but state that verifies
+ * under the public key from its link (decision 73).
  *
  * The client runs in Node too (the `docwalk-mcp` agent, decision 59), so it
  * uses no DOM API beyond what Node 22 also has.
@@ -48,8 +56,8 @@ export type SendResult = "sent" | "queued" | "not-open" | "too-large";
 export interface SocketHandlers {
   open(): void;
   message(data: unknown): void;
-  /** Called once when the socket closes or fails to connect. */
-  close(): void;
+  /** Called once when the socket closes or fails to connect, with the close code when there is one. */
+  close(code?: number): void;
 }
 
 /** The part of a WebSocket the client uses, so tests can pass a fake relay. */
@@ -84,6 +92,12 @@ export interface ConnectOptions {
   onMessage: (message: RemoteMessage) => void;
   /** Called on every status change. The status starts as "connecting". */
   onStatus: (status: RemoteStatus) => void;
+  /**
+   * The relay refused this socket's seat token: the room's control seats
+   * belong to another key (worker/room.ts, decision 74). With this set, the
+   * client closes for good and calls it; without it, it keeps retrying.
+   */
+  onSeatTaken?: () => void;
   socketFactory?: SocketFactory;
   /** The page the room URL is resolved against; defaults to the current location. */
   base?: string;
@@ -129,30 +143,40 @@ const browserSocket: SocketFactory = (url, handlers, seat) => {
   socket.addEventListener("open", () => handlers.open());
   socket.addEventListener("message", (event) => handlers.message(event.data));
   // An `error` is always followed by `close`, so `close` alone drives reconnects.
-  socket.addEventListener("close", () => handlers.close());
+  socket.addEventListener("close", (event) => handlers.close(event.code));
   return { send: (data) => socket.send(data), close: () => socket.close(1000) };
 };
 
 interface RoleKeys {
   control: RoomKey | null;
   view: RoomKey | null;
+  /** The presenter's private state key, when it has one: its states are signed with it. */
+  sign: StateKey | null;
+  /** A follower's public state key: it takes only state that verifies under it. */
+  verify: StateKey | null;
 }
 
 /** Imports the keys `role` uses; rejects when the link lacks one (a follow link opened as a remote). */
 async function importRoleKeys(creds: RoomCredentials, role: RemoteRole): Promise<RoleKeys> {
   const control = role === "follower" ? null : creds.key;
   const view = role === "presenter" || role === "follower" ? creds.view : null;
+  const sign = role === "presenter" ? (creds.sign ?? null) : null;
+  const verify = role === "follower" ? (creds.verify ?? null) : null;
   if (
     (role !== "follower" && control === null) ||
-    (role !== "remote" && role !== "agent" && view === null)
+    (role !== "remote" && role !== "agent" && view === null) ||
+    (role === "follower" && verify === null)
   ) {
     throw new Error(`This join link has no key for a ${role}.`);
   }
-  const [controlKey, viewKey] = await Promise.all([
+  const stateKey = async (key: Promise<RoomKey>) => ({ room: creds.room, key: await key });
+  const [controlKey, viewKey, signKey, verifyKey] = await Promise.all([
     control === null ? null : importKey(control),
     view === null ? null : importKey(view),
+    sign === null ? null : stateKey(importSigningKey(sign)),
+    verify === null ? null : stateKey(importVerifyKey(verify)),
   ]);
-  return { control: controlKey, view: viewKey };
+  return { control: controlKey, view: viewKey, sign: signKey, verify: verifyKey };
 }
 
 /** The browser's reportError; Node has none, so the agent logs to stderr instead. */
@@ -167,6 +191,7 @@ export function connectRoom({
   role,
   onMessage,
   onStatus,
+  onSeatTaken,
   socketFactory = browserSocket,
   // Node has no location: the agent (mcp/) always passes the join link as `base`.
   base = (globalThis as { location?: { href: string } }).location?.href ?? "",
@@ -228,8 +253,14 @@ export function connectRoom({
           message: (data) => {
             if (current()) receive(data);
           },
-          close: () => {
-            if (current()) scheduleReconnect();
+          close: (code) => {
+            if (!current()) return;
+            if (code === SEAT_TAKEN_CLOSE && onSeatTaken) {
+              stop();
+              onSeatTaken();
+            } else {
+              scheduleReconnect();
+            }
           },
         },
         seat,
@@ -269,19 +300,22 @@ export function connectRoom({
         return guards.control.accept(sealed.sender, sealed.counter) ? sealed.message : null;
     }
     if (!keys.view) return null;
-    const sealed = await decrypt(keys.view, frame);
+    const sealed = await decrypt(keys.view, frame, keys.verify ?? undefined);
     if (!sealed || !guards.view.accept(sealed.sender, sealed.counter)) return null;
     // A follow link only follows: the presenter takes nothing else under the view key.
     const { message } = sealed;
     if (role === "presenter" && !(message.type === "hello" && message.role === "follower")) {
       return null;
     }
+    // Any follower could have sealed it: only the presenter's signature makes a state true.
+    if (role === "follower" && !(message.type === "state" && sealed.signed)) return null;
     return message;
   }
 
-  /** `message` encrypted under `key` with the next counter, as wire text. */
-  async function seal(key: RoomKey, message: RemoteMessage): Promise<string> {
-    return JSON.stringify(await encrypt(key, message, { sender, counter: ++counter }));
+  /** `message` encrypted under `key` with the next counter, as wire text; a state is signed when this role can. */
+  async function seal(keys: RoleKeys, key: RoomKey, message: RemoteMessage): Promise<string> {
+    const signer = message.type === "state" ? (keys.sign ?? undefined) : undefined;
+    return JSON.stringify(await encrypt(key, message, { sender, counter: ++counter }, signer));
   }
 
   function transmit(message: RemoteMessage): Promise<SendResult> {
@@ -293,7 +327,7 @@ export function connectRoom({
         message.type === "state" ? [keys.view, keys.control] : [keys.control ?? keys.view]
       ).filter((key): key is RoomKey => key !== null);
       const frames: string[] = [];
-      for (const key of targets) frames.push(await seal(key, message));
+      for (const key of targets) frames.push(await seal(keys, key, message));
       // Base64url and JSON are ASCII, so length equals bytes.
       if (frames.every((frame) => frame.length <= API_LIMITS.maxFrameBytes)) {
         if (status !== "open" || !socket) return "not-open";
@@ -304,7 +338,7 @@ export function connectRoom({
       const parts = await splitMessage(message, "to" in message ? message.to : PRESENTER_ID);
       if (!parts || !key || targets.length !== 1) return "too-large";
       for (const part of parts) {
-        const partFrame = await seal(key, part);
+        const partFrame = await seal(keys, key, part);
         if (partFrame.length > API_LIMITS.maxFrameBytes) return "too-large";
         if (status !== "open" || !socket) return "not-open";
         socket.send(partFrame);
@@ -313,6 +347,18 @@ export function connectRoom({
     });
     outbound = result.catch(() => undefined);
     return result;
+  }
+
+  function stop() {
+    if (closed) return;
+    closed = true;
+    generation++;
+    // Guarded: the Workers runtime types (worker/room.test.ts runs this client) take no undefined.
+    if (retryTimer !== undefined) clearTimeout(retryTimer);
+    if (laserTimer !== undefined) clearTimeout(laserTimer);
+    socket?.close();
+    socket = null;
+    setStatus("closed");
   }
 
   function flushLaser() {
@@ -349,21 +395,12 @@ export function connectRoom({
         lastLaserAt = Date.now();
       } else if (message.type === "laser-off") {
         // A point still waiting would bring the laser back after it was hidden.
-        clearTimeout(laserTimer);
+        if (laserTimer !== undefined) clearTimeout(laserTimer);
         laserTimer = undefined;
         pendingLaser = null;
       }
       return transmit(message);
     },
-    close() {
-      if (closed) return;
-      closed = true;
-      generation++;
-      clearTimeout(retryTimer);
-      clearTimeout(laserTimer);
-      socket?.close();
-      socket = null;
-      setStatus("closed");
-    },
+    close: stop,
   };
 }

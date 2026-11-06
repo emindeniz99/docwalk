@@ -12,12 +12,12 @@ import {
 export interface FollowUpdate {
   status: RemoteStatus;
   state: FollowState | null;
-  /** The page's `#room=..&v=..` fragment is missing, malformed or has no view key. */
+  /** The page's `#room=..&v=..&p=..` fragment is missing, malformed or lacks the view or state key. */
   incomplete: boolean;
 }
 
 /**
- * A follower screen's connection (`?view=follow#room=..&v=..`), loaded only
+ * A follower screen's connection (`?view=follow#room=..&v=..&p=..`), loaded only
  * on follower pages. It renders nothing: it follows the presenter's slide
  * once the deck exists, reports the room's state to App, and hands App each
  * new document the presenter announces.
@@ -40,7 +40,7 @@ export function RemoteFollower({
   const [creds] = useState(() => parseJoinFragment(location.hash));
   const { status, state } = useRemoteFollower({ creds, controller });
   useEffect(() => {
-    onUpdate({ status, state, incomplete: creds?.view == null });
+    onUpdate({ status, state, incomplete: creds?.view == null || creds.verify == null });
   }, [status, state, creds, onUpdate]);
 
   const followed = state ? followedDocument(state) : null;

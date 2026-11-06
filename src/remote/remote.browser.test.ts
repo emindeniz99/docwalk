@@ -17,7 +17,7 @@ import {
   type SocketFactory,
   type SocketHandlers,
 } from "./client";
-import { createRoomCredentials, parseJoinFragment } from "./crypto";
+import { createPresenterCredentials, createRoomCredentials, parseJoinFragment } from "./crypto";
 import {
   followedDocument,
   NO_DOC_LINK,
@@ -35,7 +35,7 @@ import {
   QrCode,
 } from "./JoinDialog";
 import { PRESENTER_AWAY, PRESENTER_REPLY_MS, RemoteView } from "./RemoteView";
-import type { RemoteMessage, RoomCredentials } from "./types";
+import { SEAT_TAKEN_CLOSE, type RemoteMessage, type RoomCredentials } from "./types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,8 +50,15 @@ class FakeRelay {
   readonly sockets = new Set<{ url: string; handlers: SocketHandlers; open: boolean }>();
   /** Every frame the relay carried, as the server would see it. */
   readonly wire: string[] = [];
+  /** Rooms whose control seats someone else's token took first: a seat token there is refused, as worker/room.ts does. */
+  readonly taken = new Set<string>();
 
-  factory: SocketFactory = (url, handlers) => {
+  factory: SocketFactory = (url, handlers, seat) => {
+    if (seat && this.taken.has(url)) {
+      this.urls.push(url);
+      setTimeout(() => handlers.close(SEAT_TAKEN_CLOSE), 0);
+      return { send: () => {}, close: () => {} };
+    }
     const entry = { url, handlers, open: false };
     this.urls.push(url);
     this.sockets.add(entry);
@@ -195,6 +202,19 @@ function FollowerProbe({
 }: FollowerProps & { report: (r: RemoteFollower) => void }) {
   report(useRemoteFollower(props));
   return null;
+}
+
+/**
+ * The credentials in the host's join link, once it shows one: the links
+ * appear only after the presenter's socket has opened (decision 74).
+ */
+async function joinCreds(host: { current: RemoteHost | null }, kind: "remote" | "follow") {
+  const url = await vi.waitFor(() => {
+    const urls = host.current?.joinUrls;
+    if (!urls) throw new Error("no join links yet");
+    return urls[kind];
+  });
+  return parseJoinFragment(new URL(url).hash)!;
 }
 
 function mountHost(props: HostProps) {
@@ -376,7 +396,7 @@ describe("room connection", () => {
     // doc-get with a forged document (prompt injection) or report a failed
     // write as done, since every frame was under the one room key.
     const relay = new FakeRelay();
-    const creds = createRoomCredentials();
+    const creds = await createPresenterCredentials();
     const presenter = peer(relay, creds, "presenter");
     const agent = peer(relay, { ...creds, view: null }, "agent");
     const follower = peer(relay, { ...creds, key: null }, "follower");
@@ -445,7 +465,7 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!;
+    const creds = await joinCreds(host, "remote");
     const remote = peer(relay, creds, "remote");
     await vi.waitFor(() =>
       expect(ofType(remote, "state").at(-1)).toEqual({
@@ -472,7 +492,7 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!;
+    const creds = await joinCreds(host, "remote");
     const remote = peer(relay, creds, "remote");
     await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
 
@@ -497,7 +517,7 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!;
+    const creds = await joinCreds(host, "remote");
     const remote = peer(relay, creds, "remote");
     await opened(remote);
     await remote.conn.send({ type: "laser", x: 0.25, y: 0.75 });
@@ -515,8 +535,8 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
-    const remoteCreds = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!;
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    const remoteCreds = await joinCreds(host, "remote");
+    const creds = await joinCreds(host, "follow");
     // The host connects once it holds the room, which is async; wait so the join order is fixed.
     await vi.waitFor(() => expect(host.current!.status).toBe("open"));
     const remote = peer(relay, remoteCreds, "remote");
@@ -551,8 +571,9 @@ describe("presenter host", () => {
       markdown: "# Private notes\n",
       onAgentEdit,
     });
+    const creds = await joinCreds(host, "follow");
     act(() => host.current!.setAllowAgentEdits(true));
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    expect(host.current!.allowAgentEdits).toBe(true);
     expect(creds.key).toBeNull();
     const attendee = peer(relay, creds, "follower");
     await vi.waitFor(() => expect(ofType(attendee, "state").length).toBeGreaterThan(0));
@@ -590,7 +611,7 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    const creds = await joinCreds(host, "follow");
     const follower = peer(relay, creds, "follower");
     await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.docLink).toBeNull());
     expect(ofType(follower, "state").at(-1)?.current).toBe("section-0/1");
@@ -601,7 +622,7 @@ describe("presenter host", () => {
     const relay = new FakeRelay();
     const props = { docLink: null, enabled: true, socketFactory: relay.factory, base: BASE };
     const host = mountHost({ ...props, controller: fakeController(), level: [2, 3] });
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    const creds = await joinCreds(host, "follow");
     const follower = peer(relay, creds, "follower");
     await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.level).toEqual([2, 3]));
     // A level change rebuilds the deck, and the new level goes out with it.
@@ -616,7 +637,7 @@ describe("presenter host", () => {
     const props = { enabled: true, socketFactory: relay.factory, base: BASE };
     const controller = fakeController();
     const host = mountHost({ ...props, controller, docLink: undefined });
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    const creds = await joinCreds(host, "follow");
     const follower = peer(relay, creds, "follower");
     await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
     expect(ofType(follower, "state").at(-1)).toMatchObject({
@@ -655,7 +676,7 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
-    const creds = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!;
+    const creds = await joinCreds(host, "remote");
     const remote = peer(relay, creds, "remote");
     await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
     await new Promise((r) => setTimeout(r, 50));
@@ -668,7 +689,7 @@ describe("presenter host", () => {
   test("a duplicated tab opens its own room: it must not join the stored one as a second presenter", async () => {
     // Duplicating a tab copies sessionStorage, room included. Two presenters
     // in one room would both obey every press and fight over the followers.
-    const stored = createRoomCredentials();
+    const stored = await createPresenterCredentials();
     sessionStorage.setItem(ROOM_STORAGE_KEY, JSON.stringify(stored));
     let release: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
@@ -692,7 +713,7 @@ describe("presenter host", () => {
         base: BASE,
       });
       await vi.waitFor(() => expect(host.current!.status).toBe("open"));
-      const room = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!.room;
+      const room = (await joinCreds(host, "remote")).room;
       expect(room).not.toBe(stored.room);
       expect(relay.urls.some((u) => u.endsWith(stored.room))).toBe(false);
       expect(JSON.parse(sessionStorage.getItem(ROOM_STORAGE_KEY)!).room).toBe(room);
@@ -701,7 +722,7 @@ describe("presenter host", () => {
     }
   });
 
-  test("keeps the room across a reload of the presenter tab, so joined phones stay valid", () => {
+  test("keeps the room across a reload of the presenter tab, so joined phones stay valid", async () => {
     const relay = new FakeRelay();
     const first = mountHost({
       controller: null,
@@ -710,7 +731,7 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
-    const url = first.current!.joinUrls.remote;
+    const url = await vi.waitFor(() => first.current!.joinUrls!.remote);
     act(() => root?.unmount());
     root = null;
     const second = mountHost({
@@ -720,7 +741,62 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
-    expect(second.current!.joinUrls.remote).toBe(url);
+    await vi.waitFor(() => expect(second.current!.joinUrls?.remote).toBe(url));
+    // The follow link too: its state key must survive, or joined followers stop trusting the presenter.
+    expect(second.current!.joinUrls!.follow).toBe(first.current!.joinUrls!.follow);
+  });
+
+  test("shows no join link until the presenter's socket is open, so nobody reaches the relay first", async () => {
+    // Review pass 3: the links showed while the dialog said "Connecting", and
+    // an attendee who read the room id off the follow QR code could claim the
+    // room's control seats with a made-up token before the presenter.
+    // A relay that never answers: the presenter's socket stays "connecting".
+    let asked = 0;
+    const factory: SocketFactory = () => {
+      asked += 1;
+      return { send: () => {}, close: () => {} };
+    };
+    const host = mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: factory,
+      base: BASE,
+    });
+    await vi.waitFor(() => expect(asked).toBe(1));
+    expect(host.current!.status).toBe("connecting");
+    expect(host.current!.joinUrls).toBeNull();
+    mount(h(JoinDialog, { isOpen: true, onOpenChange: () => {}, host: host.current! }));
+    expect(document.querySelector(".docwalk-join-qr")).toBeNull();
+    expect(document.querySelector('[data-testid="join-links-wait"]')?.textContent).toBe(
+      "The links appear here once the room is open.",
+    );
+  });
+
+  test("a room whose seat someone else took is left for a new one, with new keys and links", async () => {
+    // A squatter who reached the relay first with a made-up seat token would
+    // demote the presenter and its phones to follower seats; the presenter
+    // moves instead of running degraded (decision 74).
+    const stored = await createPresenterCredentials();
+    sessionStorage.setItem(ROOM_STORAGE_KEY, JSON.stringify(stored));
+    const relay = new FakeRelay();
+    relay.taken.add(`wss://docwalk.example/api/remote/${stored.room}`);
+    const host = mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    const remote = await joinCreds(host, "remote");
+    const follow = await joinCreds(host, "follow");
+    expect(remote.room).not.toBe(stored.room);
+    expect(remote.key).not.toBe(stored.key);
+    expect(follow.view).not.toBe(stored.view);
+    expect(follow.verify).not.toBe(stored.verify);
+    expect(relay.urls.filter((u) => u.endsWith(stored.room))).toHaveLength(1);
+    expect(JSON.parse(sessionStorage.getItem(ROOM_STORAGE_KEY)!).room).toBe(remote.room);
+    expect(host.current!.status).toBe("open");
   });
 
   test("connects nothing while disabled (static mode or remote control off)", () => {
@@ -771,7 +847,7 @@ describe("presenter host and agents (decision 59)", () => {
     render({});
     // The agent joins an open room, as it does when started from the dialog's link.
     await vi.waitFor(() => expect(result.current!.status).toBe("open"));
-    const creds = parseJoinFragment(new URL(result.current!.joinUrls.remote).hash)!;
+    const creds = await joinCreds(result, "remote");
     const agent = peer(relay, creds, "agent");
     return { relay, host: result, agent, render, onAgentEdit, onAgentEditRefused };
   }
@@ -836,10 +912,22 @@ describe("presenter host and agents (decision 59)", () => {
   });
 });
 
+/** A state with an attacker's document link, as a forging follower would send it. */
+const forgedState = (current: string): RemoteMessage => ({
+  type: "state",
+  current,
+  index: 0,
+  total: 1,
+  title: "Forged",
+  docLink: "https://docwalk.example/app/#doc=forged",
+  docLinkTooLong: false,
+  level: "auto",
+});
+
 describe("follower", () => {
   test("says hello and goes to each slide the presenter announces", async () => {
     const relay = new FakeRelay();
-    const creds = createRoomCredentials();
+    const creds = await createPresenterCredentials();
     const presenter = peer(relay, creds, "presenter");
     const controller = fakeController();
     const { result } = mountFollower({
@@ -878,7 +966,7 @@ describe("follower", () => {
 
   test("catches up once its deck is ready, since state can arrive before the document loads", async () => {
     const relay = new FakeRelay();
-    const creds = createRoomCredentials();
+    const creds = await createPresenterCredentials();
     const presenter = peer(relay, creds, "presenter");
     const { result, rerender } = mountFollower({
       creds,
@@ -910,7 +998,7 @@ describe("follower", () => {
     // "intro/3" may not exist on a smaller follower screen, and staying on the
     // previous slide would silently show the audience the wrong content.
     const relay = new FakeRelay();
-    const creds = createRoomCredentials();
+    const creds = await createPresenterCredentials();
     const presenter = peer(relay, creds, "presenter");
     const controller = fakeController(0, [
       ["intro", 1],
@@ -935,7 +1023,7 @@ describe("follower", () => {
 
   test("ignores a doc link to another site: a key holder must not steer followers off docwalk", async () => {
     const relay = new FakeRelay();
-    const creds = createRoomCredentials();
+    const creds = await createPresenterCredentials();
     const presenter = peer(relay, creds, "presenter");
     const { result } = mountFollower({
       creds,
@@ -958,6 +1046,64 @@ describe("follower", () => {
     expect(result.current!.state?.docLink).toBeNull();
     // Dropped, not pending: the follower says it has no document instead of waiting forever.
     expect(result.current!.state?.docLinkTooLong).toBe(true);
+  });
+
+  test("a state another follower forged is dropped: only the presenter's signature counts", async () => {
+    // Review pass 3: every follower holds the view key, so before state was
+    // signed one attendee could seal {docLink: "#doc=<their markdown>"} and
+    // every other follower's screen loaded it as the presenter's document.
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const { sign: _sign, ...followLink } = creds;
+    const forger = peer(relay, { ...followLink, key: null }, "follower");
+    // The forger even holds a signing key of its own; it is not the room's.
+    const own = await createPresenterCredentials();
+    const forgerWithKey = peer(
+      relay,
+      { room: creds.room, key: own.key, view: creds.view, sign: own.sign },
+      "presenter",
+    );
+    const { result } = mountFollower({
+      creds: { ...followLink, key: null },
+      controller: null,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    await vi.waitFor(() => expect(ofType(presenter, "hello").length).toBeGreaterThan(0));
+    await opened(forger);
+    await forger.conn.send(forgedState("forged/1"));
+    await forgerWithKey.conn.send(forgedState("forged/2"));
+    await presenter.conn.send({
+      type: "state",
+      current: "real/1",
+      index: 0,
+      total: 1,
+      title: "Real",
+      docLink: "https://docwalk.example/app/?src=real",
+      docLinkTooLong: false,
+      level: "auto",
+    });
+    await vi.waitFor(() => expect(result.current!.state?.current).toBe("real/1"));
+    await forger.conn.send(forgedState("forged/3"));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(result.current!.state).toMatchObject({
+      current: "real/1",
+      docLink: "https://docwalk.example/app/?src=real",
+    });
+  });
+
+  test("a follow link without the state key connects nothing: such a follower could trust no state", () => {
+    const relay = new FakeRelay();
+    const { room, view } = createRoomCredentials();
+    const { result } = mountFollower({
+      creds: { room, key: null, view },
+      controller: null,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    expect(result.current!.status).toBe("closed");
+    expect(relay.urls).toHaveLength(0);
   });
 
   test("names the document to load: each new link, none while the link is built, a notice when there is none", () => {
@@ -1114,7 +1260,7 @@ describe("join dialog", () => {
   const host = {
     joinUrls: {
       remote: `${BASE}?view=remote#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
-      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&v=${"v".repeat(43)}`,
+      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&v=${"v".repeat(43)}&p=${"p".repeat(87)}`,
     },
     participants: { remotes: 1, followers: 2, agents: 0 },
     status: "open" as const,
@@ -1192,7 +1338,7 @@ describe("join dialog: agents", () => {
   const host = {
     joinUrls: {
       remote: `${BASE}?view=remote#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
-      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&v=${"v".repeat(43)}`,
+      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&v=${"v".repeat(43)}&p=${"p".repeat(87)}`,
     },
     participants: { remotes: 0, followers: 0, agents: 1 },
     status: "open" as const,

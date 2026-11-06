@@ -35,7 +35,7 @@ export const TRANSFER_IDLE_MS = 30_000;
 const SPLITTABLE: ReadonlySet<RemoteMessage["type"]> = new Set(["doc", "doc-write", "slides"]);
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder("utf-8", { fatal: true });
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
 async function deflate(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
   const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"));
@@ -48,7 +48,8 @@ async function deflate(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
  */
 export async function splitMessage(message: RemoteMessage, to: string): Promise<Part[] | null> {
   if (!SPLITTABLE.has(message.type)) return null;
-  const compressed = await deflate(encoder.encode(JSON.stringify(message)));
+  // Copied so the bytes are typed as ArrayBuffer-backed under the Workers types too.
+  const compressed = await deflate(new Uint8Array(encoder.encode(JSON.stringify(message))));
   const total = Math.max(1, Math.ceil(compressed.byteLength / PART_BYTES));
   if (total > MAX_PARTS) return null;
   const id = randomId();

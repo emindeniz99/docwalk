@@ -1,14 +1,17 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { API_LIMITS } from "../src/api/types";
+import { connectRoom, seatToken, type SocketFactory } from "../src/remote/client";
 import {
+  createPresenterCredentials,
   createRoomCredentials,
   encrypt,
   importKey,
+  importSigningKey,
   randomId,
   toBase64Url,
 } from "../src/remote/crypto";
-import type { EncryptedFrame } from "../src/remote/types";
+import { SEAT_TAKEN_CLOSE, type EncryptedFrame } from "../src/remote/types";
 import { CONTROL_SEATS, isRelayable } from "./room";
 
 let roomCounter = 0;
@@ -71,6 +74,29 @@ describe("RemoteRoom relay", () => {
       { type: "step", direction: 1 },
       { sender: randomId(), counter: 0 },
     );
+    expect(isRelayable(JSON.stringify(sealed))).toBe(true);
+  });
+
+  it("relays a signed state: the signature rides inside the ciphertext, not on the envelope", async () => {
+    // The relay's envelope is a strict object; a signature beside `iv` and
+    // `data` would get every follower's state dropped.
+    const creds = await createPresenterCredentials();
+    const sealed = await encrypt(
+      await importKey(creds.view),
+      {
+        type: "state",
+        current: "intro/1",
+        index: 0,
+        total: 1,
+        title: "Intro",
+        docLink: null,
+        docLinkTooLong: false,
+        level: "auto",
+      },
+      { sender: randomId(), counter: 1 },
+      { room: creds.room, key: await importSigningKey(creds.sign) },
+    );
+    expect(Object.keys(sealed).toSorted()).toEqual(["data", "iv", "v"]);
     expect(isRelayable(JSON.stringify(sealed))).toBe(true);
   });
 
@@ -180,21 +206,21 @@ describe("control seats (review pass 2)", () => {
     for (const socket of [back, ...followers]) socket.close(1000, "done");
   });
 
-  it("a made-up seat token counts as a follower", async () => {
+  it("a made-up seat token is refused with seat_taken and takes no seat", async () => {
     const room = newRoom();
     const seat = controlSeat();
     const presenter = await joinOk(room, seat);
     // The shape of a real token, but not this room's.
     const forged = controlSeat();
+    for (let i = 0; i < 3; i += 1) expect(await closeCode(await joinOk(room, forged))).toBe(4409);
     const followers: WebSocket[] = [];
-    for (let i = 0; i < followerSeats; i += 1) followers.push(await joinOk(room, forged));
-    expect((await join(room, forged)).status).toBe(429);
+    for (let i = 0; i < followerSeats; i += 1) followers.push(await joinOk(room));
     expect((await join(room, "not-a-token")).status).toBe(429);
     const phone = await joinOk(room, seat);
     for (const socket of [presenter, phone, ...followers]) socket.close(1000, "done");
   });
 
-  it("the first control-key holder fixes the room's seat; a later different one cannot replace it", async () => {
+  it("the first control-key holder fixes the room's seat; a later different one is told so, full room or not", async () => {
     const room = newRoom();
     const seat = controlSeat();
     const phone = await joinOk(room, seat);
@@ -203,8 +229,59 @@ describe("control seats (review pass 2)", () => {
     const other = controlSeat();
     const followers: WebSocket[] = [];
     for (let i = 0; i < followerSeats; i += 1) followers.push(await joinOk(room));
-    expect((await join(room, other)).status).toBe(429);
+    // seat_taken comes before room_full: a squatter who filled the room must
+    // not hide from the presenter that the seat is theirs.
+    expect(await closeCode(await joinOk(room, other))).toBe(SEAT_TAKEN_CLOSE);
     const presenter = await joinOk(room, seat);
     for (const socket of [presenter, ...followers]) socket.close(1000, "done");
+  });
+});
+
+/** The close code a socket ends with. */
+function closeCode(socket: WebSocket): Promise<number> {
+  return new Promise((resolve) => socket.addEventListener("close", (event) => resolve(event.code)));
+}
+
+/** The app's own socket factory, pointed at this Worker instead of a browser WebSocket. */
+const workerSocket: SocketFactory = (url, handlers, seat) => {
+  const path = new URL(url).pathname;
+  void SELF.fetch(`https://docwalk.test${path}${seat ? `?seat=${seat}` : ""}`, {
+    headers: { Upgrade: "websocket" },
+  }).then((response) => {
+    const socket = response.webSocket;
+    if (!socket) return handlers.close();
+    socket.accept();
+    socket.addEventListener("message", (event) => handlers.message(event.data));
+    socket.addEventListener("close", (event) => handlers.close(event.code));
+    handlers.open();
+  });
+  return { send: () => {}, close: () => {} };
+};
+
+describe("a room someone reached first (review pass 3)", () => {
+  // The join links showed while the presenter was still connecting, so an
+  // attendee could read the room id off the follow QR code, open a socket
+  // with a made-up seat token before the presenter's, and own the control
+  // seats: the presenter and its phones were demoted to follower seats.
+  it("the real presenter client hears seat_taken from the real relay and stops, so the app can move", async () => {
+    const creds = await createPresenterCredentials();
+    const squatter = await joinOk(creds.room, controlSeat());
+    const statuses: string[] = [];
+    let taken = 0;
+    const conn = connectRoom({
+      creds,
+      role: "presenter",
+      base: "https://docwalk.test/",
+      socketFactory: workerSocket,
+      onMessage: () => {},
+      onStatus: (status) => statuses.push(status),
+      onSeatTaken: () => (taken += 1),
+    });
+    await waitFor(() => taken === 1);
+    expect(statuses.at(-1)).toBe("closed");
+    // Its own token is what the relay compared, not a stand-in.
+    expect(await seatToken(creds)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    conn.close();
+    squatter.close(1000, "done");
   });
 });

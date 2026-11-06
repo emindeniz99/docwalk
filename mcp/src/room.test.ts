@@ -6,9 +6,13 @@ import {
   type SocketFactory,
   type SocketHandlers,
 } from "../../src/remote/client.ts";
-import { createRoomCredentials, formatJoinUrl } from "../../src/remote/crypto.ts";
+import {
+  createPresenterCredentials,
+  createRoomCredentials,
+  formatJoinUrl,
+} from "../../src/remote/crypto.ts";
 import type { RemoteMessage } from "../../src/remote/types.ts";
-import { parseJoinLink, RoomAgent, RoomError } from "./room.ts";
+import { isAt, parseJoinLink, RoomAgent, RoomError } from "./room.ts";
 
 /**
  * The agent's side of the room, against a presenter that answers with the
@@ -56,8 +60,18 @@ afterEach(() => {
   for (const conn of open.splice(0)) conn.close();
 });
 
-/** A presenter whose document is `markdown` and whose deck has one slide per `## ` heading. */
-function presenter(factory: SocketFactory, markdown: string, allowEdits: () => boolean) {
+/**
+ * A presenter whose document is `markdown` and whose deck has one slide per
+ * `## ` heading. With `inFlight`, every goto is preceded by a state for the
+ * slide it shows now, the way a broadcast for another participant's hello
+ * or the presenter's own slide change can cross the goto on the wire.
+ */
+function presenter(
+  factory: SocketFactory,
+  markdown: string,
+  allowEdits: () => boolean,
+  { inFlight = false } = {},
+) {
   const creds = createRoomCredentials();
   const doc = { markdown };
   const ctx: AgentHostContext = {
@@ -84,18 +98,22 @@ function presenter(factory: SocketFactory, markdown: string, allowEdits: () => b
       if (isAgentRequest(message)) {
         void answerAgent(message, ctx).then((reply) => conn.send(reply));
       } else if (message.type === "goto") {
+        const announce = () =>
+          conn.send({
+            type: "state",
+            current: `s${index}/1`,
+            index,
+            total: 10,
+            title: `Slide ${index}`,
+            docLink: null,
+            docLinkTooLong: false,
+            level: "auto",
+          });
+        if (inFlight) void announce();
         const match = /^s(\d+)(\/1)?$/.exec(message.address);
         if (match) index = Number(match[1]);
-        void conn.send({
-          type: "state",
-          current: `s${index}/1`,
-          index,
-          total: 10,
-          title: `Slide ${index}`,
-          docLink: null,
-          docLinkTooLong: false,
-          level: "auto",
-        });
+        if (inFlight) setTimeout(() => void announce(), 20);
+        else void announce();
       }
     },
   });
@@ -104,7 +122,7 @@ function presenter(factory: SocketFactory, markdown: string, allowEdits: () => b
 }
 
 function agent(factory: SocketFactory, link: string, timeoutMs = 2000) {
-  const room = new RoomAgent({ link, socketFactory: factory, timeoutMs });
+  const room = new RoomAgent({ link, socketFactory: factory, timeoutMs, gotoSettleMs: 200 });
   open.push(room);
   return room;
 }
@@ -116,6 +134,7 @@ describe("join links", () => {
       room: creds.room,
       key: creds.key,
       view: null,
+      verify: null,
     });
     expect(parseJoinLink("https://docwalk.example/?view=remote")).toBeNull();
     expect(parseJoinLink("javascript:alert(1)#room=x&k=y")).toBeNull();
@@ -123,10 +142,10 @@ describe("join links", () => {
     expect(() => new RoomAgent({ link: "nope" })).toThrow("not a docwalk join link");
   });
 
-  test("the follow along link is refused with a pointer to the remote link: it can only watch", () => {
+  test("the follow along link is refused with a pointer to the remote link: it can only watch", async () => {
     // The follow link goes to an audience, so it holds only the view key
     // (decision 68): it reads no document and steers nothing.
-    const follow = formatJoinUrl(BASE, "follow", createRoomCredentials());
+    const follow = formatJoinUrl(BASE, "follow", await createPresenterCredentials());
     expect(() => new RoomAgent({ link: follow })).toThrow("follow along link");
   });
 });
@@ -179,6 +198,26 @@ describe("room agent", () => {
     const room = agent(factory, link);
     expect((await room.goTo("s4")).current).toBe("s4/1");
     expect(room.state?.index).toBe(4);
+  });
+
+  test("a state already in flight does not answer the goto: the move it asked for does", async () => {
+    // Review pass 3: goto took the next state on the wire as its answer. When
+    // a hello or a slide change crossed it, goto_slide told the agent the
+    // address did not exist while the deck moved there a moment later.
+    const factory = relay();
+    const { link } = presenter(factory, "# Deck\n", () => true, { inFlight: true });
+    const room = agent(factory, link);
+    expect((await room.goTo("s4")).current).toBe("s4/1");
+  });
+
+  test("an address the deck lacks still gets an answer: the unmoved state, once no other follows", async () => {
+    const factory = relay();
+    const { link } = presenter(factory, "# Deck\n", () => true, { inFlight: true });
+    const room = agent(factory, link);
+    await room.goTo("s3");
+    const state = await room.goTo("nowhere");
+    expect(state.current).toBe("s3/1");
+    expect(isAt(state, "nowhere")).toBe(false);
   });
 
   test("with no presenter in the room, a request fails with a message instead of hanging", async () => {

@@ -5,12 +5,13 @@ import type { LevelOption } from "../sectioning/sectionize";
 import { answerAgent, isAgentRequest, type AgentHostContext } from "./agent";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
 import {
-  createRoomCredentials,
+  createPresenterCredentials,
   formatJoinUrl,
   MAX_TITLE_CHARS,
   RoomCredentialsSchema,
+  type PresenterCredentials,
 } from "./crypto";
-import type { RemoteMessage, RoomCredentials } from "./types";
+import type { RemoteMessage } from "./types";
 
 /**
  * The presenter's side of remote control (decision 8). The presenter's deck
@@ -23,6 +24,12 @@ import type { RemoteMessage, RoomCredentials } from "./types";
  * Both, and every step or goto, need the control key of the phone remote
  * link; the follow link carries only the view key (decision 68).
  * The switch belongs to the room and starts off, also after a reload.
+ *
+ * The join links stay hidden until the presenter's socket has opened, so
+ * the presenter's seat token is the first the relay sees (decision 71).
+ * When the relay refuses the token anyway, the room's control seats belong
+ * to someone else's key, and the presenter moves to a new room with new
+ * keys instead of staying on as a follower (decision 74).
  */
 
 /** sessionStorage key: the room survives a reload of the presenter tab, so phones stay joined. */
@@ -57,7 +64,8 @@ export interface RemoteHostOptions {
 }
 
 export interface RemoteHost {
-  joinUrls: { remote: string; follow: string };
+  /** Null until the presenter's socket has opened in this room: nobody may join before it. */
+  joinUrls: { remote: string; follow: string } | null;
   /** Devices that joined this session, counted once each. Departures are not reported by the relay. */
   participants: { remotes: number; followers: number; agents: number };
   /** "closed" while disabled. */
@@ -111,7 +119,7 @@ function storage(): Storage | null {
   }
 }
 
-function readStoredCredentials(): RoomCredentials | null {
+function readStoredCredentials(): PresenterCredentials | null {
   try {
     const raw = storage()?.getItem(ROOM_STORAGE_KEY);
     if (!raw) return null;
@@ -122,7 +130,7 @@ function readStoredCredentials(): RoomCredentials | null {
   }
 }
 
-function storeCredentials(creds: RoomCredentials) {
+function storeCredentials(creds: PresenterCredentials) {
   try {
     storage()?.setItem(ROOM_STORAGE_KEY, JSON.stringify(creds));
   } catch {
@@ -141,14 +149,17 @@ export function useRemoteHost({
   onAgentEdit,
   onAgentEditRefused,
 }: RemoteHostOptions): RemoteHost {
-  const [creds, setCreds] = useState(() => readStoredCredentials() ?? createRoomCredentials());
+  /** Null while a new room's keys are generated (none stored, a duplicated tab, a taken seat). */
+  const [creds, setCreds] = useState(readStoredCredentials);
   /** The room this tab holds (see claimRoom); nothing connects before that. */
   const [claimed, setClaimed] = useState<string | null>(null);
+  /** The room whose socket has opened at least once; its join links show from then on. */
+  const [opened, setOpened] = useState<string | null>(null);
   const [status, setStatus] = useState<RemoteStatus>("connecting");
   const [participants, setParticipants] = useState({ remotes: 0, followers: 0, agents: 0 });
   // Keyed by room, so a new room (a duplicated tab) starts with edits off.
   const [agentEdits, setAgentEdits] = useState<{ room: string; allow: boolean } | null>(null);
-  const allowAgentEdits = agentEdits?.room === creds.room && agentEdits.allow;
+  const allowAgentEdits = creds !== null && agentEdits?.room === creds.room && agentEdits.allow;
   const [lastAgentEdit, setLastAgentEdit] = useState<RemoteHost["lastAgentEdit"]>(null);
   const [laser, setLaser] = useState<{ x: number; y: number } | null>(null);
   const [docLinkTooLong, setDocLinkTooLong] = useState(false);
@@ -207,22 +218,27 @@ export function useRemoteHost({
 
   useEffect(() => {
     if (!enabled) return;
-    storeCredentials(creds);
-    if (claimed === creds.room) return;
     let active = true;
-    void claimRoom(creds.room).then((ok) => {
-      if (!active) return;
-      if (ok) setClaimed(creds.room);
-      else setCreds(createRoomCredentials());
-    });
+    if (!creds) {
+      void createPresenterCredentials().then((fresh) => {
+        if (active) setCreds(fresh);
+      });
+    } else if (claimed !== creds.room) {
+      storeCredentials(creds);
+      void claimRoom(creds.room).then((ok) => {
+        if (!active) return;
+        if (ok) setClaimed(creds.room);
+        else setCreds(null);
+      });
+    }
     return () => {
       active = false;
     };
   }, [enabled, claimed, creds]);
-  const ready = enabled && claimed === creds.room;
+  const room = enabled && creds !== null && claimed === creds.room ? creds : null;
 
   useEffect(() => {
-    if (!ready) return;
+    if (!room) return;
     const seen = {
       remote: new Set<string>(),
       follower: new Set<string>(),
@@ -326,7 +342,7 @@ export function useRemoteHost({
     };
 
     const conn = connectRoom({
-      creds,
+      creds: room,
       role: "presenter",
       onMessage: (message) => {
         if (active) handle(message);
@@ -334,7 +350,15 @@ export function useRemoteHost({
       onStatus: (next) => {
         if (!active) return;
         setStatus(next);
-        if (next === "open") void sendState();
+        if (next === "open") {
+          setOpened(room.room);
+          void sendState();
+        }
+      },
+      // Someone reached the relay with a seat token first. Their room is not
+      // worth keeping: a new one, with new keys and links, is.
+      onSeatTaken: () => {
+        if (active) setCreds(null);
       },
       ...(socketFactory ? { socketFactory } : {}),
       ...(base ? { base } : {}),
@@ -348,27 +372,34 @@ export function useRemoteHost({
       setStatus("connecting");
       setLaser(null);
     };
-  }, [ready, creds, socketFactory, base, sendState]);
+  }, [room, socketFactory, base, sendState]);
 
   // Subscribing announces the current slide at once, and again on every change,
   // including after the deck is rebuilt or the doc link changes.
+  const ready = room !== null;
   useEffect(() => {
     if (!ready || !controller) return;
     docLinkRef.current = docLink;
     return controller.onChange(() => void sendState());
   }, [ready, controller, docLink, sendState]);
 
+  const roomId = creds?.room ?? null;
   const setAllowAgentEdits = useCallback(
-    (allow: boolean) => setAgentEdits({ room: creds.room, allow }),
-    [creds.room],
+    (allow: boolean) => {
+      if (roomId !== null) setAgentEdits({ room: roomId, allow });
+    },
+    [roomId],
   );
 
   const joinBase = base ?? globalThis.location.href;
   return {
-    joinUrls: {
-      remote: formatJoinUrl(joinBase, "remote", creds),
-      follow: formatJoinUrl(joinBase, "follow", creds),
-    },
+    joinUrls:
+      enabled && creds !== null && opened === creds.room
+        ? {
+            remote: formatJoinUrl(joinBase, "remote", creds),
+            follow: formatJoinUrl(joinBase, "follow", creds),
+          }
+        : null,
     participants,
     status: enabled ? status : "closed",
     laser: enabled ? laser : null,

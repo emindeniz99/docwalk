@@ -4,16 +4,19 @@ import { connectRoom, type RemoteStatus, type SocketFactory } from "./client";
 import type { RemoteMessage, RoomCredentials } from "./types";
 
 /**
- * A follower window (`?view=follow#room=..&v=..`): it shows the same slide as
- * the presenter. The document is not sent over the room; the presenter's
- * state carries a share link that the app loads first. It holds only the
- * view key, so it receives state and nothing else (decision 68).
+ * A follower window (`?view=follow#room=..&v=..&p=..`): it shows the same
+ * slide as the presenter. The document is not sent over the room; the
+ * presenter's state carries a share link that the app loads first. It holds
+ * only the view key, so it receives state and nothing else (decision 68),
+ * and only state the presenter signed (decision 73): every follower holds
+ * the view key, and without the signature any of them could make the others
+ * load a document of their choosing.
  */
 
 export type FollowState = Omit<Extract<RemoteMessage, { type: "state" }>, "type">;
 
 export interface RemoteFollowerOptions {
-  /** From `parseJoinFragment(location.hash)`; null, or no view key, connects nothing. */
+  /** From `parseJoinFragment(location.hash)`; null, or no view or state key, connects nothing. */
   creds: RoomCredentials | null;
   /** The follower's deck once its document has loaded; null until then. */
   controller: DeckController | null;
@@ -86,15 +89,16 @@ export function useRemoteFollower({
   const [state, setState] = useState<FollowState | null>(null);
   const room = creds?.room;
   const view = creds?.view;
+  const verify = creds?.verify;
   // Only the origin matters, and it does not change when URL sync rewrites the address bar.
   const origin = new URL(base ?? globalThis.location.href).origin;
 
   useEffect(() => {
-    if (!room || !view) return;
+    if (!room || !view || !verify) return;
     let active = true;
     // connectRoom sends `hello` on every (re)connect; the presenter answers with state.
     const conn = connectRoom({
-      creds: { room, key: null, view },
+      creds: { room, key: null, view, verify },
       role: "follower",
       onMessage: (message) => {
         if (!active || message.type !== "state") return;
@@ -115,12 +119,12 @@ export function useRemoteFollower({
       conn.close();
       setStatus("connecting");
     };
-  }, [room, view, origin, socketFactory]);
+  }, [room, view, verify, origin, socketFactory]);
 
   // Runs for each new state and again when the deck becomes ready or is rebuilt.
   useEffect(() => {
     if (controller && state) followAddress(controller, state.current);
   }, [controller, state]);
 
-  return { status: room && view ? status : "closed", state };
+  return { status: room && view && verify ? status : "closed", state };
 }

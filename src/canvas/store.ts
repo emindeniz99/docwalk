@@ -4,6 +4,7 @@
  * document and diagram, replaced on every save.
  */
 
+import { inlineFiles } from "./files";
 import { sketchKey, sketchKeyBounds } from "./identity";
 
 const DB_NAME = "docwalk-canvas";
@@ -64,14 +65,20 @@ function run<T>(
   );
 }
 
-/** The saved sketch, or null when there is none. Throws when the browser blocks IndexedDB. */
+/**
+ * The saved sketch, or null when there is none. Throws when the browser
+ * blocks IndexedDB. Images that are not inline are dropped (files.ts), also
+ * from a record saved before they were.
+ */
 export async function loadSketch(key: string): Promise<StoredSketch | null> {
   const found: unknown = await run("readonly", (store) => store.get(key));
-  return isStoredSketch(found) ? found : null;
+  return isStoredSketch(found) ? { ...found, files: inlineFiles(found.files) } : null;
 }
 
+/** Saves the sketch without images that are not inline, so reopening it fetches nothing. */
 export async function saveSketch(sketch: StoredSketch): Promise<void> {
-  await run("readwrite", (store) => store.put(sketch));
+  const kept = { ...sketch, files: inlineFiles(sketch.files) };
+  await run("readwrite", (store) => store.put(kept));
 }
 
 export async function deleteSketch(key: string): Promise<void> {

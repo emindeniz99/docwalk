@@ -7,11 +7,12 @@ import {
   MainMenu,
   exportToBlob,
   exportToSvg,
+  loadFromBlob,
   restore,
   serializeAsJSON,
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
-import { Download, FileImage, FileJson, Image as ImageIcon, X } from "lucide-react";
+import { Download, FileImage, FileJson, FolderOpen, Image as ImageIcon, X } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Button,
@@ -34,6 +35,7 @@ import { IconButton } from "../shell/IconButton";
 import { useMediaQuery } from "../shell/useMediaQuery";
 import "./canvas.css";
 import { convertDiagram } from "./convert";
+import { inlineFiles } from "./files";
 import type { DocumentSource } from "../inputs/types";
 import { diagramHash, documentKey, sketchKey } from "./identity";
 import { loadSketch, saveSketch } from "./store";
@@ -42,6 +44,7 @@ type ExcalidrawProps = ComponentProps<typeof Excalidraw>;
 type Api = Parameters<NonNullable<ExcalidrawProps["excalidrawAPI"]>>[0];
 type InitialData = NonNullable<Awaited<ExcalidrawProps["initialData"]>>;
 type OnChange = NonNullable<ExcalidrawProps["onChange"]>;
+type OnPaste = NonNullable<ExcalidrawProps["onPaste"]>;
 type Scene = Parameters<OnChange>;
 
 /** Typing and dragging fire onChange constantly; a save waits for this pause. */
@@ -256,6 +259,74 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
     [persist],
   );
 
+  /**
+   * Puts a scene from a file on the canvas with only its inline images
+   * (files.ts). Excalidraw's own Open and file drop would hand every image
+   * URL in the file to the browser. Undo takes the scene back off.
+   */
+  const openSceneFile = useCallback(async (file: Blob): Promise<boolean> => {
+    const excalidraw = api.current;
+    if (!excalidraw) return false;
+    let scene;
+    try {
+      scene = await loadFromBlob(file, excalidraw.getAppState(), excalidraw.getSceneElements());
+    } catch {
+      return false;
+    }
+    excalidraw.addFiles(Object.values(inlineFiles(scene.files)));
+    excalidraw.updateScene({
+      elements: scene.elements,
+      appState: { viewBackgroundColor: scene.appState.viewBackgroundColor },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+    excalidraw.scrollToContent(undefined, { fitToViewport: true, animate: false });
+    return true;
+  }, []);
+
+  const openScene = useCallback(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".excalidraw,.json,application/json,application/vnd.excalidraw+json";
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file) void openSceneFile(file);
+    });
+    input.click();
+  }, [openSceneFile]);
+
+  // A dropped file reaches Excalidraw only when it is not a scene (an image,
+  // a library): a scene is opened here, without its remote images. The drop
+  // is caught on the way down and handed on again as a copy, which this
+  // listener lets through.
+  useEffect(() => {
+    const body = root.current;
+    if (!body) return;
+    const handedOn = new WeakSet<Event>();
+    const onDrop = (event: DragEvent) => {
+      const file = event.dataTransfer?.files[0];
+      if (handedOn.has(event) || !file) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const { target, clientX, clientY } = event;
+      void openSceneFile(file).then((opened) => {
+        if (opened || !(target instanceof Node) || !target.isConnected) return;
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        const copy = new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+          dataTransfer,
+        });
+        handedOn.add(copy);
+        target.dispatchEvent(copy);
+      });
+    };
+    body.addEventListener("drop", onDrop, true);
+    return () => body.removeEventListener("drop", onDrop, true);
+  }, [openSceneFile]);
+
   // On document, bubble phase: after React (Excalidraw's keys are React handlers, dispatched
   // from the portal's container, <body>), before the app's own listeners on window.
   useEffect(() => {
@@ -385,6 +456,7 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
             name={name}
             onChange={onChange}
             onApi={onApi}
+            onOpenScene={openScene}
           />
         )}
         {(load.status === "loading" || load.status === "converting") && (
@@ -397,8 +469,18 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
   );
 }
 
+/** `loadScene: false` also turns off Excalidraw's ⌘O; Open goes through `openSceneFile` instead. */
 const UI_OPTIONS: ExcalidrawProps["UIOptions"] = {
-  canvasActions: { toggleTheme: false, saveToActiveFile: false },
+  canvasActions: { toggleTheme: false, saveToActiveFile: false, loadScene: false },
+};
+
+/**
+ * A pasted scene keeps only its inline images (files.ts); pasting a copied
+ * image file is unaffected, as Excalidraw reads that one into a data URL.
+ */
+const pasteInlineFiles: OnPaste = (data) => {
+  if (data.files) data.files = inlineFiles(data.files);
+  return true;
 };
 
 /** No embeds: an embedded page would be a request to a third party (rule 8). */
@@ -411,6 +493,7 @@ interface SketchCanvasProps {
   name: string;
   onChange: OnChange;
   onApi: (api: Api) => void;
+  onOpenScene: () => void;
 }
 
 /** Excalidraw itself, memoised: it re-renders when the theme changes, never on a save. */
@@ -421,6 +504,7 @@ const SketchCanvas = memo(function SketchCanvas({
   name,
   onChange,
   onApi,
+  onOpenScene,
 }: SketchCanvasProps) {
   // Excalidraw writes its own language code ("tr-TR") into <html lang> and
   // leaves it there; the page's language is the app's, so put it back.
@@ -437,10 +521,13 @@ const SketchCanvas = memo(function SketchCanvas({
       aiEnabled={false}
       validateEmbeddable={noEmbeds}
       UIOptions={UI_OPTIONS}
+      onPaste={pasteInlineFiles}
     >
       {/* The default menu, less the theme toggle (the app's theme rules) and the social links. */}
       <MainMenu>
-        <MainMenu.DefaultItems.LoadScene />
+        <MainMenu.Item icon={<FolderOpen size={16} aria-hidden="true" />} onSelect={onOpenScene}>
+          {m.sketch_open_scene()}
+        </MainMenu.Item>
         <MainMenu.DefaultItems.Export />
         <MainMenu.DefaultItems.SaveAsImage />
         <MainMenu.DefaultItems.ClearCanvas />

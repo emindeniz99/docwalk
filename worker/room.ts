@@ -9,7 +9,7 @@
 import { DurableObject } from "cloudflare:workers";
 import * as v from "valibot";
 import { API_LIMITS } from "../src/api/types";
-import type { EncryptedFrame } from "../src/remote/types";
+import { SEAT_TAKEN_CLOSE, type EncryptedFrame } from "../src/remote/types";
 import type { Env } from "./env";
 
 const Base64Url = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]+$/));
@@ -47,6 +47,18 @@ function jsonError(error: string, status: number): Response {
 }
 
 /**
+ * A socket that is closed as soon as it opens, with a code the client can
+ * read: a refused upgrade reaches browser code only as a bare 1006 close.
+ * It is never accepted for hibernation, so it holds no seat.
+ */
+function seatTaken(): Response {
+  const { 0: client, 1: server } = new WebSocketPair();
+  server.accept();
+  server.close(SEAT_TAKEN_CLOSE, "seat_taken");
+  return new Response(null, { status: 101, webSocket: client });
+}
+
+/**
  * Seats only a control-key holder (presenter, phone remotes, agents) can
  * take, so followers, whether many real ones or one person opening sockets
  * from a follow link, can never lock the presenter out of its own room.
@@ -79,7 +91,10 @@ export class RemoteRoom extends DurableObject<Env> {
    * keeps the hash of the first token it sees. Rooms are random ids created
    * in the presenter's tab, which connects before anyone has its links, so
    * the first token is the presenter's (or a phone's: the same key, the same
-   * token). A token that does not match, or none, is a follower's.
+   * token). No token is a follower's. A token that does not match is refused
+   * with close code SEAT_TAKEN_CLOSE, before the room-full check, so a
+   * presenter whose room id someone reached first can tell and move to a
+   * new room even when the squatter has filled this one (decision 74).
    */
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
@@ -94,7 +109,8 @@ export class RemoteRoom extends DurableObject<Env> {
       void this.ctx.storage.put(SEAT_KEY, hash);
       void this.ctx.storage.setAlarm(Date.now() + SEAT_TTL_MS);
     }
-    const control = hash !== null && hash === commit;
+    if (hash !== null && hash !== commit) return seatTaken();
+    const control = hash !== null;
     const sockets = this.ctx.getWebSockets();
     const followers = sockets.filter((socket) => !isControl(socket)).length;
     if (

@@ -192,10 +192,17 @@ export function JoinDialog({ isOpen, onOpenChange, host }: JoinDialogProps) {
                 {participants.agents > 0 &&
                   ` · ${m.join_agents_connected({ agents: participants.agents })}`}
               </p>
-              <div className="docwalk-join-cards">
-                <JoinLink kind="remote" url={joinUrls.remote} />
-                <JoinLink kind="follow" url={joinUrls.follow} />
-              </div>
+              {/* No link before the presenter's socket is open: a joiner must not reach the relay first (decision 74). */}
+              {joinUrls ? (
+                <div className="docwalk-join-cards">
+                  <JoinLink kind="remote" url={joinUrls.remote} />
+                  <JoinLink kind="follow" url={joinUrls.follow} />
+                </div>
+              ) : (
+                <p className="docwalk-join-muted" data-testid="join-links-wait">
+                  {m.join_links_wait()}
+                </p>
+              )}
               <section className="docwalk-join-agents" aria-labelledby={`${agentsId}-title`}>
                 <div className="docwalk-join-agents-head">
                   <Bot aria-hidden size={18} />

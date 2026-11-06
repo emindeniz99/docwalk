@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod";
 import { MAX_AGENT_NAME_CHARS } from "../../src/remote/crypto.ts";
 import type { AgentSlide } from "../../src/remote/types.ts";
-import type { RoomAgent, RoomState } from "./room.ts";
+import { isAt, type RoomAgent, type RoomState } from "./room.ts";
 
 /**
  * The MCP tools (decision 59): get_document, write_document, list_slides and
@@ -169,8 +169,7 @@ export function createServer(room: Room, options: ServerOptions = {}): McpServer
           address = target.address;
         }
         const state = await room.goTo(address);
-        const arrived = state.current === address || state.current.startsWith(`${address}/`);
-        if (!arrived) {
+        if (!isAt(state, address)) {
           return {
             ...text(
               `No slide has the address "${address}". ${describeState(state)}. Call list_slides for the addresses.`,
