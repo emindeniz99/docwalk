@@ -29,7 +29,8 @@ protects:
   rehype-sanitize with GitHub's schema and then DOMPurify. Mermaid runs in
   `strict` mode after a pre-pass that strips `%%{init}%%` overrides and CSS
   `url()`; docwalk refuses a diagram that names a remote image, and passes
-  Mermaid's SVG through DOMPurify too. The deployed site sends
+  Mermaid's SVG through DOMPurify too. Code colours are added after both
+  sanitizers, as text and class names only. The deployed site sends
   a content security policy with `script-src 'self'` and
   `frame-ancestors 'none'`. A static host gets the same policy from a
   `<meta>` tag, which cannot forbid framing.

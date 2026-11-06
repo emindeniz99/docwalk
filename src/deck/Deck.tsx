@@ -2,6 +2,7 @@ import Reveal from "reveal.js";
 import "reveal.js/reveal.css";
 import { useEffect, useRef, useState } from "react";
 import { focusTarget, fragmentAddress, fragmentTarget } from "../render/fragments";
+import { highlightCode } from "../render/highlight";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import type { Locale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
@@ -168,8 +169,14 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
     const stopClickToLoad = enableClickToLoad(revealEl);
 
     void (async () => {
+      // Code colours load beside the diagrams (they touch other blocks) and
+      // both finish before anything is measured (rule 4). Colours change no
+      // line break; a grammar that fails to load leaves its block plain.
       // A newer build makes this one stale; stop it between diagrams.
-      const diagramResults = await renderDiagrams(slidesEl, () => cancelled);
+      const [, diagramResults] = await Promise.all([
+        highlightCode(slidesEl, { stop: () => cancelled }),
+        renderDiagrams(slidesEl, () => cancelled),
+      ]);
       if (cancelled) return;
       fitDiagrams(slidesEl, slideBodySize(SLIDE_SIZE));
       await settled(slidesEl);

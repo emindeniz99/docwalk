@@ -74,6 +74,10 @@ lists every settled design decision.
   to a PNG per slide.
 - GitHub alerts, footnotes on the slide that cites them, raw HTML filtered
   by GitHub's own sanitizer rules, and heading anchors that match GitHub's.
+- Code blocks coloured by language with GitHub's colours, on slides, in
+  document mode and in exports: TypeScript, JavaScript, JSON, shell,
+  Python, Go, Rust, Java, Kotlin, Swift, C, C++, C#, SQL, YAML, TOML, HTML,
+  CSS, diff, Markdown, Dockerfile and GraphQL. Other languages stay plain.
 
 **Edit and keep**
 

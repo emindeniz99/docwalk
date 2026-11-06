@@ -33,6 +33,8 @@ The first release.
 - Share links with the document compressed into the URL fragment.
 - GitHub alerts, footnotes, raw HTML under GitHub's sanitizer schema and
   GitHub-compatible heading anchors.
+- Code blocks coloured by language in 24 grammars, light and dark, loaded
+  only for the languages a document uses.
 - Monaco as an optional desktop editor beside CodeMirror.
 - Canvas mode: a Mermaid diagram as an editable Excalidraw sketch, kept in
   the browser and exported as `.excalidraw`, PNG or SVG.

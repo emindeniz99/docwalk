@@ -113,12 +113,15 @@ export interface ChunkNode {
 /**
  * Packages whose lazy chunks are cached on first use even though docwalk's
  * own code imports them: opt-in modes far bigger than the rest of the app
- * (Monaco, decision 53; canvas mode, decision 54). Precaching them would make
- * every visitor download several megabytes for a mode most never open.
+ * (Monaco, decision 53; canvas mode, decision 54), and the code-block
+ * grammars (decision 76: 24 languages, 2.2 MB, of which a document uses a
+ * few). Precaching them would make every visitor download megabytes for
+ * what most never open.
  */
 export const RUNTIME_CACHED_PACKAGES: readonly RegExp[] = [
   /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?monaco-editor\//,
   /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?@excalidraw\//,
+  /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?@shikijs\/langs\//,
 ];
 
 const ownSource = (id: string) => !id.startsWith("\0") && !id.includes("/node_modules/");
