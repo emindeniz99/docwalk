@@ -15,19 +15,24 @@ async function fakeWorker(context: BrowserContext) {
     route.fulfill({ json: { ok: true, features: ["remote"] } }),
   );
   const sockets = new Set<WebSocketRoute>();
-  await context.routeWebSocket(/\/api\/remote\/[\w-]{22,64}$/, (ws) => {
+  /** The `?seat=` each socket opened with, in order; null when it sent none. */
+  const seats: (string | null)[] = [];
+  // Control-key holders add `?seat=` (decision 71), so the room id is not the end of the URL.
+  await context.routeWebSocket(/\/api\/remote\/[\w-]{22,64}(\?.*)?$/, (ws) => {
+    seats.push(new URL(ws.url()).searchParams.get("seat"));
     sockets.add(ws);
     ws.onMessage((frame) => {
       for (const other of sockets) if (other !== ws) other.send(frame);
     });
     ws.onClose(() => sockets.delete(ws));
   });
+  return seats;
 }
 
 test("a phone remote moves the presenter's deck and points its laser; a follower follows", async ({
   context,
 }) => {
-  await fakeWorker(context);
+  const seats = await fakeWorker(context);
   const presenter = await context.newPage();
   await ready(presenter);
   // A short pasted document: its #doc= link fits the relay's frame for followers.
@@ -82,6 +87,13 @@ test("a phone remote moves the presenter's deck and points its laser; a follower
   await remote.getByRole("button", { name: "Next" }).click();
   await expect(counter).toHaveText("3 / 3");
   await expect(followCounter).toHaveText("3 / 3");
+
+  // The presenter and the phone prove the control key with the same seat token;
+  // the follower holds only the view key, so it must not send one (decision 71).
+  const proved = seats.filter((seat) => seat !== null);
+  expect(proved.length).toBeGreaterThanOrEqual(2);
+  expect(new Set(proved).size).toBe(1);
+  expect(seats).toContain(null);
 });
 
 test("without a Worker, remote control is not offered at all", async ({ page }) => {

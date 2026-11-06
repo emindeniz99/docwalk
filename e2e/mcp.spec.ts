@@ -49,8 +49,10 @@ async function fullMode(context: BrowserContext, relayPort: number) {
   await context.route("**/api/health", (route) =>
     route.fulfill({ json: { ok: true, features: ["remote"] } }),
   );
-  await context.routeWebSocket(/\/api\/remote\/[\w-]{22,64}$/, (route) => {
-    const upstream = new WebSocket(`ws://127.0.0.1:${relayPort}${new URL(route.url()).pathname}`);
+  // Control-key holders add `?seat=` (decision 71); pass it on to the relay unchanged.
+  await context.routeWebSocket(/\/api\/remote\/[\w-]{22,64}(\?.*)?$/, (route) => {
+    const { pathname, search } = new URL(route.url());
+    const upstream = new WebSocket(`ws://127.0.0.1:${relayPort}${pathname}${search}`);
     const waiting: string[] = [];
     upstream.on("open", () => waiting.splice(0).forEach((frame) => upstream.send(frame)));
     upstream.on("message", (data) => route.send(data.toString()));
