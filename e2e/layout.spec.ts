@@ -197,7 +197,7 @@ test("a diagram that fails to render is flagged in a yellow note, on the slide a
   await page.emulateMedia({ colorScheme: "dark" });
   await ready(page);
   await replaceSource(page, "# Broken\n\n## Diagram\n\n```mermaid\nflowchart LR\n  A -->\n```\n");
-  await expect(page.locator(".docwalk-statusbar")).toContainText("1 diagram errors");
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)1 diagram error(?!s)/);
   const note = (scope: string) =>
     page
       .locator(`${scope} .docwalk-diagram-error > .docwalk-diagnostic`)
