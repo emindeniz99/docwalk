@@ -52,6 +52,19 @@ async function fillGap(page: Page) {
   };
 }
 
+/**
+ * Gives the deck keyboard focus the way a keyboard user does. Present's
+ * click focuses it, and Firefox keeps that focus invisible through later key
+ * presses, so leave it with Tab and come back with Shift+Tab.
+ */
+async function keyboardFocusDeck(page: Page) {
+  const reveal = page.locator(".reveal");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(reveal).toBeFocused();
+  await expect.poll(() => reveal.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+}
+
 /** The pages the deck built, by address, in order. */
 const addresses = (page: Page) =>
   page
@@ -216,6 +229,52 @@ test("with Always show presenting controls the bar keeps its band instead of cov
     .toBeGreaterThanOrEqual(-0.5);
   const paper = await background(page, ".reveal .slides > section.present .docwalk-slide");
   expect(await background(page, ".docwalk-deck")).toBe(paper);
+});
+
+test("the deck's focus ring is a ring over the slide that fades with the controls, not a border around the screen", async ({
+  page,
+}) => {
+  await ready(page);
+  await present(page);
+  const reveal = page.locator(".reveal");
+  await keyboardFocusDeck(page);
+  const ring = () =>
+    reveal.evaluate((el) => {
+      const after = getComputedStyle(el, "::after");
+      return {
+        focusVisible: el.matches(":focus-visible"),
+        outline: getComputedStyle(el).outlineStyle,
+        border: after.borderTopStyle,
+        width: Number.parseFloat(after.borderTopWidth),
+        inset: Number.parseFloat(after.top),
+        opacity: Number(after.opacity),
+      };
+    });
+  // An outline on .reveal ran along the screen's edges, half under the slide, for the whole talk.
+  await expect.poll(ring).toMatchObject({ focusVisible: true, outline: "none", border: "solid" });
+  const shown = await ring();
+  expect(shown.width).toBeGreaterThanOrEqual(2);
+  expect(shown.inset).toBeGreaterThan(0);
+  expect(shown.opacity).toBe(1);
+
+  // Idle, the room sees the slide alone; the ring leaves with the controls.
+  await expect(app(page)).toHaveAttribute("data-chrome", "hidden", { timeout: HIDE_TIMEOUT });
+  await expect.poll(async () => (await ring()).opacity).toBe(0);
+
+  // Any key but a navigation key brings the controls, and the ring, back (WCAG 2.4.7).
+  await page.keyboard.press("x");
+  await expect(app(page)).toHaveAttribute("data-chrome", "shown");
+  await expect.poll(async () => (await ring()).opacity).toBe(1);
+  await expect(reveal).toBeFocused();
+});
+
+test("the card frame keeps the deck's focus outline", async ({ page }) => {
+  await useCardFrame(page);
+  await ready(page);
+  await present(page);
+  await keyboardFocusDeck(page);
+  await expect(page.locator(".reveal")).toHaveCSS("outline-style", "solid");
+  await expect(page.locator(".reveal")).toHaveCSS("outline-width", "2px");
 });
 
 test.describe("fill frame on an exactly 16:9 screen", () => {
