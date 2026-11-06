@@ -60,6 +60,11 @@ dropped (55).
 **Part**: one encrypted piece of an agent message too large for a relay
 frame, addressed to one participant (67). Code: `src/remote/parts.ts`.
 
+**Presenting controls**: the bar above the slide while presenting (counter,
+address, overview, Exit), the annotation tools and reveal.js's arrows. They
+hide when nobody touches anything and the slide grows into their room (75).
+Code: `usePresentChrome`, `data-chrome="hidden"`.
+
 **Revision**: 16 bytes of the SHA-256 of the document text. An agent's write
 that names an old revision is refused (67). Code: `revisionOf`.
 
@@ -106,6 +111,7 @@ Add a row here before introducing a new one.
 | deck                        | slayt destesi               | screen-reader role only; elsewhere "sunum" |
 | present (button)            | Sunum yap                   |                                            |
 | presenter view              | sunucu görünümü             |                                            |
+| presenting controls         | sunum düğmeleri             | not "kontrol", which also means check      |
 | presenter (the person)      | sunumu yapan kişi           | not "sunucu", which also means server      |
 | audience window             | ana sunum penceresi         | the presenter's own main tab               |
 | follower, follow along      | izleyici, sunumu izle       | "izleyici" names people, never a window    |
