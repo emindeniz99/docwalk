@@ -1,0 +1,39 @@
+version: 2
+
+# `cooldown` keeps Dependabot from proposing a version until it has been on
+# the registry for that many days, the same guard as pnpm's
+# `minimumReleaseAge` at install time (AGENTS.md rule 10). Minor and patch
+# updates share one pull request; majors come one at a time for review.
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 7
+
+  # The workflows pin every action to a commit SHA; this keeps the pins and
+  # their tag comments current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+      include: scope
+    cooldown:
+      default-days: 7
