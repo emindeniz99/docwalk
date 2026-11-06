@@ -348,11 +348,14 @@ section[data-docwalk-id] {
   color: var(--fg);
 }
 
+/* Diagrams are drawn for the white slide, so their ground stays white in both themes. */
 .docwalk-focus-stage {
   display: grid;
   place-items: center;
   overflow: hidden;
   touch-action: none;
+  background: var(--dw-color-slide);
+  color: var(--dw-color-slide-ink);
 }
 
 .docwalk-focus-toolbar {

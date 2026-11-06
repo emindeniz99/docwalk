@@ -137,3 +137,49 @@ test("an empty document says how to make a slide instead of showing a blank stag
   await expect(page.locator(".docwalk-stage-empty")).toBeVisible();
   await expect(page.locator(".docwalk-preview-head strong")).toHaveText("0 / 0");
 });
+
+test("the presenter window lines the current slide up with the next one, under its caption", async ({
+  page,
+  context,
+}) => {
+  // The current slide was centred in its tall column and floated 140 px
+  // below its "Now" caption, out of line with the next-slide preview, so
+  // the eye had to hunt for it between glances at the room.
+  await ready(page);
+  const popup = context.waitForEvent("page");
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("presenter");
+  await page.getByRole("menuitem", { name: "Open presenter view" }).click();
+  const presenter = await popup;
+  await presenter.setViewportSize({ width: 1440, height: 900 });
+  await expect(presenter.getByText("Now", { exact: true })).toBeVisible({ timeout: 30_000 });
+  // Each preview shows once its page arrives and is scaled into its frame
+  // once a ResizeObserver has run; measure after both.
+  const tops = () =>
+    presenter.evaluate(() =>
+      ["current", "next"].map((side) => {
+        const el = document.querySelector<HTMLElement>(
+          `.docwalk-presenter-${side} .docwalk-presenter-canvas`,
+        );
+        return el && !el.hidden && !el.style.transform.includes("scale(0)")
+          ? Math.round(el.getBoundingClientRect().top)
+          : null;
+      }),
+    );
+  await expect.poll(async () => (await tops()).every((t) => t !== null)).toBe(true);
+  const [now, next] = await tops();
+  expect(Math.abs((now ?? 0) - (next ?? 0))).toBeLessThanOrEqual(2);
+});
+
+test("in dark mode a focused diagram keeps the white ground it was drawn for", async ({ page }) => {
+  // Mermaid draws dark lines and labels for the white slide. On the dark
+  // app canvas the focus view showed them black on near-black.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await ready(page, "/#proposed-architecture/1");
+  await page.locator(".reveal .present .docwalk-diagram").first().click();
+  await expect(page.getByRole("dialog", { name: "Diagram, full screen" })).toBeVisible();
+  const ground = await page
+    .locator(".docwalk-focus-stage")
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(ground).toBe("rgb(255, 255, 255)");
+});
