@@ -45,6 +45,8 @@ function resolved(variable: string): string {
 
 const painted = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+const bold = (el: HTMLElement) => Number(getComputedStyle(el).fontWeight) >= 700;
+
 describe("MonacoEditor theme", () => {
   test("follows the app between light and dark, from the same tokens as the rest of the UI", async () => {
     // A light editor inside a dark app (or the reverse) is the first thing a
@@ -65,12 +67,19 @@ describe("MonacoEditor theme", () => {
   test("brackets keep the text colour: no rainbow colours outside the design tokens", async () => {
     // Monaco colours bracket pairs by default; DESIGN.md allows no colours
     // beyond its tokens, and the editor option alone does not turn it off.
+    // Round brackets in prose: Markdown paints `[…]` and `{…}` as link-coloured
+    // strings, and Monaco never pair-colours brackets inside a string token.
+    // Three levels deep, so each of the three rainbow colours would show.
     document.documentElement.setAttribute("data-theme", "light");
-    const box = mount("Plain (round) [square] {curly} text");
-    await painted();
-    const spans = [...box.querySelectorAll<HTMLElement>(".view-line span span")];
-    expect(spans.length).toBeGreaterThan(0);
-    const colours = new Set(spans.map((s) => getComputedStyle(s).color));
+    const box = mount("# Brackets\nPlain (round ((nested)) text) here");
+    const spans = () => [...box.querySelectorAll<HTMLElement>(".view-line span span")];
+    // Monaco loads the Markdown grammar and its bracket pairs in one lazy
+    // import and applies the pairs first. Until the heading turns bold, neither
+    // is in force and every span is plain text, with colouring on or off.
+    await expect
+      .poll(() => spans().some((s) => s.textContent?.includes("Brackets") && bold(s)))
+      .toBe(true);
+    const colours = new Set(spans().map((s) => getComputedStyle(s).color));
     expect([...colours]).toEqual([resolved("--fg")]);
   });
 });
