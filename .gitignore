@@ -28,8 +28,25 @@ reports/mutation/
 # logs and OS junk
 *.log
 .DS_Store
+Thumbs.db
 .lighthouseci/
 .stryker-tmp/
 
 # Paraglide output (pnpm i18n, or the Vite plugin), compiled from messages/
 src/paraglide/
+
+# editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.history
+
+# Claude Code local state (CLAUDE.md and shared settings stay tracked)
+.claude/settings.local.json
+.claude/todos/
+.claude/projects/
+.claude/shell-snapshots/
+.claude/statsig/
+.claude/worktrees/
+.claude/.credentials.json
