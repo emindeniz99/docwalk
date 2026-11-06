@@ -202,6 +202,22 @@ const TOKENS = [
   "</details>",
   "<kbd>",
   "<sup>",
+  // Elements the schema unwraps while the parser treats them as scopes or
+  // special nodes: a `<p>`, `<li>`, `<dd>` or heading stays open across them,
+  // and unwrapping leaves a child the parser would have closed it for.
+  "<marquee>",
+  "<applet>",
+  "<object>",
+  "<button>",
+  "<center>",
+  "<u>",
+  "<dl>",
+  "<dd>",
+  "<dt>",
+  "<li>",
+  "<hr>",
+  "<h1>",
+  "<h2>",
   "<br>",
   '<img src="x" width="9" ',
   `onerror="${RUN}"`,
@@ -300,6 +316,30 @@ describe("sanitize twice changes nothing (decision 42)", () => {
     test(`${input} renders the same tree when sanitized again`, () => {
       const once = rehypeStage(input);
       expect(rehypeStage(once)).toBe(once);
+    });
+  }
+
+  // Found in review pass 2 with a wider alphabet than the property had. The
+  // schema unwraps `<marquee>`, `<object>`, `<applet>`, `<button>` and every
+  // other element it does not know; the parser had kept the `<p>`, `<li>` or
+  // heading open across that element, so the unwrapped output nested a block
+  // the browser closes on a re-parse. Stripping them would drop text GitHub
+  // shows (`<u>`, `<center>`), so the stage re-parses its output until stable.
+  const unwrapped: [input: string, text: string][] = [
+    ["<p><marquee><dd>x", "x"],
+    ["<p><object><li>x", "x"],
+    ["<p><applet><hr>", ""],
+    ["<p><marquee><h1>x", "x"],
+    ["<p><button><dl>", ""],
+    ["<h1><u><h2>x", "x"],
+    ["<li><center><li>x", "x"],
+    ["<dl><dd><figure><dd>x", "x"],
+  ];
+  for (const [input, text] of unwrapped) {
+    test(`${input} renders the same tree when sanitized again, text kept`, () => {
+      const once = rehypeStage(input);
+      expect(rehypeStage(once)).toBe(once);
+      expect(once).toContain(text);
     });
   }
 

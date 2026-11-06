@@ -338,6 +338,74 @@ section[data-docwalk-id] {
   border-radius: var(--dw-radius-sm);
 }
 
+/*
+ * A remote image waiting for the viewer (decision 33). The <img> would draw
+ * the browser's broken-image icon and say "click to load" only in a hover
+ * title, which touch screens never show. So while it is a button, its frame
+ * is the placeholder: alt text, then "Load image from <host>" in link
+ * colour, both generated (`/ ""` keeps screen readers on the image's own
+ * label). The image lies over the frame, transparent, so a tap anywhere on
+ * it loads, and its focus ring shows on the frame.
+ */
+.docwalk-blocked-frame:has(> .docwalk-blocked-image[role="button"]) {
+  --blocked-border: var(--border-strong);
+  --blocked-link: var(--link);
+  --blocked-focus: var(--focus);
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+  min-width: 12em;
+  max-width: 100%;
+  padding: var(--dw-space-sm) var(--dw-space-md);
+  border: 1px dashed var(--blocked-border);
+  border-radius: var(--dw-radius-sm);
+  vertical-align: middle;
+  text-align: start;
+}
+
+/* The slide stays white in both themes, so it keeps the light set. */
+.docwalk-slide-body .docwalk-blocked-frame {
+  --blocked-border: var(--dw-color-border-strong);
+  --blocked-link: var(--dw-color-primary-ink);
+  --blocked-focus: var(--dw-color-focus);
+}
+
+.docwalk-blocked-frame[data-docwalk-alt]:has(> .docwalk-blocked-image[role="button"])::before {
+  content: attr(data-docwalk-alt);
+  content: attr(data-docwalk-alt) / "";
+}
+
+.docwalk-blocked-frame:has(> .docwalk-blocked-image[role="button"])::after {
+  content: attr(data-docwalk-label);
+  content: attr(data-docwalk-label) / "";
+  color: var(--blocked-link);
+  font-size: var(--dw-type-caption-size);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.docwalk-blocked-frame:has(> .docwalk-blocked-image[role="button"]:hover) {
+  border-style: solid;
+}
+
+.docwalk-blocked-frame:has(> .docwalk-blocked-image[role="button"]:focus-visible) {
+  outline: 2px solid var(--blocked-focus);
+  outline-offset: 2px;
+}
+
+.docwalk-blocked-frame > .docwalk-blocked-image[role="button"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
 /* ---- Diagram focus ------------------------------------------------------- */
 
 .docwalk-focus {
@@ -1104,8 +1172,13 @@ kbd {
 
 /* ---- Header on touch screens and phones ---------------------------------- */
 
-/* Export progress floats under its button instead of widening the header. */
-.docwalk-toolbar .docwalk-export-menu-root {
+/*
+ * Export progress floats under the actions instead of widening the header.
+ * It is anchored to the whole actions row, not the button, so it wraps
+ * inside the row (the screen width on a phone) instead of running off the
+ * left edge, and taps pass through it to the controls it covers.
+ */
+.docwalk-toolbar .docwalk-toolbar-actions {
   position: relative;
 }
 
@@ -1114,12 +1187,14 @@ kbd {
   top: calc(100% + var(--dw-space-xs));
   inset-inline-end: 0;
   z-index: 50;
+  max-inline-size: 100%;
   padding: var(--dw-space-xs) var(--dw-space-sm);
   border: 1px solid var(--border-strong);
   border-radius: var(--dw-radius-md);
   background: var(--surface);
   color: var(--fg);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
 }
 
 /* Module buttons that default to 44px match the header's control height on a mouse. */

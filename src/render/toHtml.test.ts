@@ -10,12 +10,20 @@ function liveSrc(html: string): string | null {
   return /<img[^>]*?\ssrc="([^"]*)"/.exec(html)?.[1] ?? null;
 }
 
-/** The host the browser would contact while rendering, if it is not the page's own. */
+/**
+ * The host the browser would contact while rendering, if it is not the
+ * page's own. Checked against an https and an http page: `https:host/x`
+ * stays on an https page but leaves an http one (`wrangler dev`,
+ * `vite preview`, a LAN self-host), so one page scheme alone hides it.
+ */
 function foreignHost(html: string): string | null {
   const src = liveSrc(html);
   if (src === null) return null;
-  const host = new URL(src, "https://docwalk.invalid/").host;
-  return host === "docwalk.invalid" ? null : host;
+  for (const page of ["https://docwalk.invalid/", "http://docwalk.invalid/"]) {
+    const host = new URL(src, page).host;
+    if (host !== "docwalk.invalid") return host;
+  }
+  return null;
 }
 
 describe("remote image gate (decision 33)", () => {
@@ -29,6 +37,11 @@ describe("remote image gate (decision 33)", () => {
     "protocol-relative": "//tracker.example/p.png",
     "slash-backslash": "/\\tracker.example/p.png",
     "backslash-backslash": "\\\\tracker.example/p.png",
+    // A special scheme with no slashes is relative only when it matches the
+    // page's scheme, so these leave whichever page scheme they do not match.
+    "https: without slashes": "https:tracker.example/p.png",
+    "http: without slashes": "http:tracker.example/p.png",
+    "https: with one slash": "https:/tracker.example/p.png",
   };
 
   for (const [name, src] of Object.entries(remote)) {
@@ -37,7 +50,11 @@ describe("remote image gate (decision 33)", () => {
     });
   }
 
-  for (const src of ["https://tracker.example/p.png", "//tracker.example/p.png"]) {
+  for (const src of [
+    "https://tracker.example/p.png",
+    "//tracker.example/p.png",
+    "https:tracker.example/p.png",
+  ]) {
     test(`${src} becomes a placeholder that remembers where it would load from`, () => {
       const html = render(`![pixel](${src})`);
       expect(liveSrc(html)).toBeNull();
@@ -123,6 +140,8 @@ describe("raw HTML: what GitHub renders, and nothing else", () => {
       "https://t.example/a.png 2x",
       "local.png 1x, //t.example/b.png 2x",
       "local.png,//t.example/c.png",
+      "https:t.example/d.png",
+      "local.png 1x, http:t.example/e.png 2x",
     ].filter((srcset) =>
       render(`<picture><source srcset="${srcset}"><img src="b.png"></picture>`).includes(
         "t.example",

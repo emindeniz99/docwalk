@@ -1,5 +1,13 @@
 import { API_LIMITS, REMOTE_PATH } from "../api/types";
-import { decrypt, encrypt, importKey, randomId, type RoomKey } from "./crypto";
+import {
+  decrypt,
+  encrypt,
+  fromBase64Url,
+  importKey,
+  randomId,
+  toBase64Url,
+  type RoomKey,
+} from "./crypto";
 import { PartAssembler, splitMessage } from "./parts";
 import { ReplayGuard } from "./replay";
 import { PRESENTER_ID, type RemoteMessage, type RoomCredentials } from "./types";
@@ -50,7 +58,15 @@ export interface SocketLike {
   close(): void;
 }
 
-export type SocketFactory = (url: string, handlers: SocketHandlers) => SocketLike;
+/**
+ * Opens a socket to `url`. `seat` is the control seat token (`seatToken`),
+ * or null for a follower; the browser socket sends it as `?seat=`.
+ */
+export type SocketFactory = (
+  url: string,
+  handlers: SocketHandlers,
+  seat?: string | null,
+) => SocketLike;
 
 export interface RoomConnection {
   /** This participant's id: the hello id, or PRESENTER_ID. Messages with another `to` are not delivered. */
@@ -91,8 +107,25 @@ export function roomUrl(room: string, base: string): string {
   return url.href;
 }
 
-const browserSocket: SocketFactory = (url, handlers) => {
-  const socket = new WebSocket(url);
+/**
+ * Proof that a socket holds the control key, so the relay seats it in one of
+ * the places a follower can never fill (worker/room.ts): HMAC-SHA-256 of the
+ * room id under the control key. A follow link carries only the view key and
+ * cannot make it; the relay learns nothing about either key from it. Null
+ * when `creds` has no control key.
+ */
+export async function seatToken(creds: RoomCredentials): Promise<string | null> {
+  const raw = creds.key === null ? null : fromBase64Url(creds.key);
+  if (!raw) return null;
+  const key = await crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+  ]);
+  const label = new TextEncoder().encode(`docwalk seat ${creds.room}`);
+  return toBase64Url(new Uint8Array(await crypto.subtle.sign("HMAC", key, label)));
+}
+
+const browserSocket: SocketFactory = (url, handlers, seat) => {
+  const socket = new WebSocket(seat ? `${url}?seat=${seat}` : url);
   socket.addEventListener("open", () => handlers.open());
   socket.addEventListener("message", (event) => handlers.message(event.data));
   // An `error` is always followed by `close`, so `close` alone drives reconnects.
@@ -143,6 +176,8 @@ export function connectRoom({
   const self = role === "presenter" ? PRESENTER_ID : helloId;
   const assembler = new PartAssembler(self);
   const keysPromise = importRoleKeys(creds, role);
+  const seatPromise = role === "follower" ? Promise.resolve(null) : seatToken(creds);
+  let seat: string | null = null;
   // This connection's seal (crypto.ts): a random sender id and a counter.
   const sender = randomId();
   let counter = 0;
@@ -181,20 +216,24 @@ export function connectRoom({
     const gen = ++generation;
     const current = () => gen === generation && !closed;
     try {
-      socket = socketFactory(url, {
-        open: () => {
-          if (!current()) return;
-          attempt = 0;
-          setStatus("open");
-          if (role !== "presenter") void transmit({ type: "hello", role, id: helloId });
+      socket = socketFactory(
+        url,
+        {
+          open: () => {
+            if (!current()) return;
+            attempt = 0;
+            setStatus("open");
+            if (role !== "presenter") void transmit({ type: "hello", role, id: helloId });
+          },
+          message: (data) => {
+            if (current()) receive(data);
+          },
+          close: () => {
+            if (current()) scheduleReconnect();
+          },
         },
-        message: (data) => {
-          if (current()) receive(data);
-        },
-        close: () => {
-          if (current()) scheduleReconnect();
-        },
-      });
+        seat,
+      );
     } catch {
       scheduleReconnect();
     }
@@ -285,10 +324,16 @@ export function connectRoom({
     void transmit(message);
   }
 
-  keysPromise.then(open, () => {
-    closed = true;
-    setStatus("closed");
-  });
+  Promise.all([keysPromise, seatPromise]).then(
+    ([, token]) => {
+      seat = token;
+      open();
+    },
+    () => {
+      closed = true;
+      setStatus("closed");
+    },
+  );
 
   return {
     id: self,

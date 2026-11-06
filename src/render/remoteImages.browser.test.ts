@@ -125,6 +125,54 @@ describe("click-to-load", () => {
   });
 });
 
+/** The generated text a pseudo-element shows, or "" when it shows nothing. */
+function visibleText(el: Element, pseudo: "::before" | "::after"): string {
+  const style = getComputedStyle(el, pseudo);
+  return style.display === "none" ? "" : style.content;
+}
+
+describe("a blocked image reads as a placeholder that offers to load", () => {
+  // Review pass 2: the gated image showed the browser's broken-image icon,
+  // and "click to load" lived only in a hover title, which touch screens
+  // never show. A phone viewer saw a broken image and never learned one tap
+  // would load it, which defeats decision 33's click-to-load design.
+  test("it shows its alt text and where it would load from as visible text, not a broken image", () => {
+    const { img } = blocked();
+    const frame = img.parentElement as HTMLElement;
+    expect(visibleText(frame, "::before")).toContain("Chart");
+    expect(visibleText(frame, "::after")).toContain("Load image from images.invalid");
+    // The <img> itself would draw the broken-image icon, so it is not what shows.
+    expect(getComputedStyle(img).opacity).toBe("0");
+    expect(frame.getBoundingClientRect().height).toBeGreaterThan(20);
+  });
+
+  test("a tap on the visible label lands on the image button and loads it", async () => {
+    const { img } = blocked();
+    const box = (img.parentElement as HTMLElement).getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.bottom - 4);
+    expect(hit).toBe(img);
+    await userEvent.click(img);
+    expect(img.getAttribute("src")).toBe(REMOTE);
+    // Loaded, it is a plain image again: no label, no frame of its own.
+    expect(visibleText(img.parentElement as HTMLElement, "::after")).not.toContain("Load image");
+    expect(getComputedStyle(img).opacity).toBe("1");
+  });
+
+  test("keyboard focus on the hidden image shows on the placeholder", () => {
+    const { img } = blocked();
+    img.focus({ focusVisible: true } as FocusOptions);
+    const frame = img.parentElement as HTMLElement;
+    expect(document.activeElement).toBe(img);
+    expect(getComputedStyle(frame).outlineStyle).toBe("solid");
+  });
+
+  test("an export, where nothing can load it, does not offer to load it", () => {
+    const { body } = blocked();
+    const img = prepareSlide(body, offline).querySelector("img") as HTMLImageElement;
+    expect(visibleText(img.parentElement as HTMLElement, "::after")).not.toContain("Load image");
+  });
+});
+
 describe("always load remote images", () => {
   test("document mode loads remote images once the setting is on, and blocks them again when off", () => {
     const view = render(h(DocumentView, { root: parseMarkdown(`![Chart](${REMOTE})\n`) }));

@@ -7,7 +7,8 @@ import type { DeckController } from "../deck/controller";
 import { Deck } from "../deck/Deck";
 import { renderDiagrams } from "../deck/mermaid";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
-import { BLOCKED_IMAGE_CLASS } from "./toHtml";
+import { purifyHtml } from "../deck/purify";
+import { BLOCKED_IMAGE_CLASS, nodesToHtml } from "./toHtml";
 
 /**
  * Rule 8 and decision 33: opening a document must not tell another host
@@ -90,6 +91,39 @@ describe("slide mode never loads a blocked image by itself", () => {
   });
 });
 
+describe("an explicit scheme is another host whatever the page's scheme", () => {
+  // The gate used to resolve sources against a fixed https base, where
+  // `https:host/x` is a same-origin path. The browser resolves against the
+  // real page, and on an http page (`wrangler dev`, `vite preview`, a LAN
+  // self-host) that string is the absolute https://host/x: fetched with no
+  // click. This test page is served over http, so it is that page.
+  const vectors: Record<string, (host: string) => string> = {
+    "https: image": (host) => `![x](https:${host}/md.png)`,
+    "http: image": (host) => `![x](http:${host}/md.png)`,
+    "https: one slash": (host) => `![x](https:/${host}/md.png)`,
+    "https: raw img": (host) => `<img src="https:${host}/raw.png">`,
+    "https: picture source": (host) =>
+      `<picture><source srcset="https:${host}/s.png"><img src="a.png"></picture>`,
+    "http: srcset token": (host) =>
+      `<picture><source srcset="a.png 1x, http:${host}/s.png 2x"><img src="a.png"></picture>`,
+  };
+
+  for (const [name, markdown] of Object.entries(vectors)) {
+    test(`${name}: no request until the viewer clicks`, async () => {
+      expect(location.protocol).toBe("http:");
+      const host = trackerHost();
+      const box = document.createElement("div");
+      box.append(purifyHtml(nodesToHtml(parseMarkdown(markdown(host)).children)));
+      document.body.append(box);
+      await sleep(300);
+      expect(requestsTo(host)).toEqual([]);
+      // Resource Timing can lag a <picture>'s pick, so the pick itself is checked too.
+      const picked = [...box.querySelectorAll("img")].map((img) => img.currentSrc);
+      expect(picked.filter((src) => src.includes(host))).toEqual([]);
+    });
+  }
+});
+
 describe("a diagram never fetches an image (decision 26)", () => {
   // Mermaid reads `@{ … }` shape data as YAML and preloads `img` with
   // `new Image()` before any SVG exists for DOMPurify to clean; a sequence
@@ -107,6 +141,10 @@ describe("a diagram never fetches an image (decision 26)", () => {
     "unicode-escaped key": (host) =>
       `flowchart LR\n  A@{ "\\u0069mg": "https://${host}/uni.png" } --> B`,
     "quoted value": (host) => `flowchart LR\n  A@{ img: "https://${host}/q.png" } --> B`,
+    // Absolute on an http page, so it is another host (see above).
+    "https: without slashes": (host) => `flowchart LR\n  A@{ img: "https:${host}/n.png" } --> B`,
+    "sequence actor icon, http: without slashes": (host) =>
+      `sequenceDiagram\n  participant A\n  properties A: {"icon": "http:${host}/icon.png"}\n  A->>A: hi`,
     "sequence actor icon": (host) =>
       `sequenceDiagram\n  participant A\n  properties A: {"icon": "https://${host}/icon.png"}\n  A->>A: hi`,
   };

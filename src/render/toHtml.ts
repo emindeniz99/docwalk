@@ -6,11 +6,21 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
-import { visit } from "unist-util-visit";
+import { SKIP, visit } from "unist-util-visit";
 import { m } from "../paraglide/messages.js";
 
 /** Class on an image whose remote `src` was moved to `data-docwalk-src` until the viewer allows it. */
 export const BLOCKED_IMAGE_CLASS = "docwalk-blocked-image";
+
+/**
+ * Class on the `<span>` around a blocked image. While the image is still a
+ * button, the span is the visible placeholder: its alt text and "Load image
+ * from <host>" as generated content (no text nodes, so nothing is added to
+ * the slide's text or an export), with the image laid over it transparently
+ * as the click and focus target. Loaded or exported, the image is no longer
+ * a button and the span is a plain inline wrapper.
+ */
+export const BLOCKED_IMAGE_FRAME_CLASS = "docwalk-blocked-frame";
 
 /**
  * Where a blocked image keeps its remote URL. Not `data-src`: reveal.js
@@ -40,9 +50,49 @@ export const SANITIZE_SCHEMA = {
   strip: [...(defaultSchema.strip ?? []), "style", "svg", "math"],
 };
 
-/** Resolving a `src` against this base tells a same-origin path from a reference to another host. */
-const PAGE_BASE = "https://docwalk.invalid/";
-const PAGE_ORIGIN = new URL(PAGE_BASE).origin;
+/** The schema for a tree it already sanitized: ids carry their `user-content-` prefix, so none is added again. */
+const SETTLE_SCHEMA = { ...SANITIZE_SCHEMA, clobberPrefix: "" };
+const reparse = unified().use(rehypeRaw).use(rehypeSanitize, SETTLE_SCHEMA);
+const serialize = unified().use(rehypeStringify);
+/** Every input found so far settles in one extra pass; more than this is treated as hostile. */
+const SETTLE_PASSES = 3;
+
+/**
+ * Re-parses the sanitized tree until serializing and parsing it again
+ * changes nothing, so the tree docwalk approved is the one the browser
+ * builds (decisions 42, 60). The schema unwraps every element it does not
+ * know (`<marquee>`, `<object>`, `<button>`, `<center>`, `<u>` …), but the
+ * parser had kept a `<p>`, `<li>`, `<dd>` or heading open across it: after
+ * unwrapping, `<p><marquee><dd>x` is `<p><dd>x</dd></p>`, which a re-parse
+ * turns into `<p></p><dd>x</dd><p></p>`. Stripping those elements instead
+ * would drop text GitHub shows. Input that will not settle throws, and the
+ * render falls back to dropping its raw HTML.
+ */
+function rehypeSettle() {
+  return (tree: HastRoot) => {
+    let html = serialize.stringify(tree);
+    for (let pass = 0; pass < SETTLE_PASSES; pass++) {
+      const raw = { type: "raw", value: html } as unknown as HastRoot["children"][number];
+      const again = reparse.runSync({ type: "root", children: [raw] }) as HastRoot;
+      const next = serialize.stringify(again);
+      if (next === html) return;
+      tree.children = again.children;
+      html = next;
+    }
+    throw new Error("Raw HTML did not settle into a stable tree");
+  };
+}
+
+/**
+ * Resolving a `src` against these bases tells a same-origin path from a
+ * reference to another host. Both page schemes, because a special scheme
+ * with no slashes is relative only on a page of that scheme:
+ * `https:host/x` is a path on an https page and the absolute
+ * `https://host/x` on an http one (`wrangler dev`, `vite preview`, a LAN
+ * self-host). A value stays same-origin only if it does on both, so any
+ * explicit scheme counts as another host, whatever the real page's scheme.
+ */
+const PAGE_BASES = ["https://docwalk.invalid/", "http://docwalk.invalid/"].map((b) => new URL(b));
 
 /**
  * Where an image `src` would be fetched from when that is another host, or
@@ -52,14 +102,17 @@ const PAGE_ORIGIN = new URL(PAGE_BASE).origin;
  * remote, so it stays blocked.
  */
 export function remoteImageUrl(src: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(src, PAGE_BASE);
-  } catch {
-    return src;
+  for (const base of PAGE_BASES) {
+    let url: URL;
+    try {
+      url = new URL(src, base);
+    } catch {
+      return src;
+    }
+    if (url.protocol === "data:" || url.protocol === "blob:") return null;
+    if (url.origin !== base.origin) return url.href;
   }
-  if (url.protocol === "data:" || url.protocol === "blob:") return null;
-  return url.origin === PAGE_ORIGIN ? null : url.href;
+  return null;
 }
 
 /**
@@ -72,7 +125,7 @@ export function remoteImageUrl(src: string): string | null {
 export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
   return (tree: HastRoot) => {
     if (options.loadRemoteImages) return;
-    visit(tree, "element", (node: Element) => {
+    visit(tree, "element", (node: Element, index, parent) => {
       // GitHub's schema keeps `<picture><source srcset>` from raw HTML, and the
       // browser fetches a matching candidate as soon as it renders. Any remote
       // candidate drops the `srcset`, so the picture falls back to its `<img>`,
@@ -105,6 +158,18 @@ export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
       node.properties["tabIndex"] = 0;
       node.properties["ariaLabel"] = label;
       node.properties["title"] = label;
+      if (!parent || index === undefined) return;
+      parent.children[index] = {
+        type: "element",
+        tagName: "span",
+        properties: {
+          className: [BLOCKED_IMAGE_FRAME_CLASS],
+          "data-docwalk-label": m.render_load_image({ host }),
+          ...(alt ? { "data-docwalk-alt": alt } : {}),
+        },
+        children: [node],
+      };
+      return SKIP;
     });
   };
 }
@@ -133,7 +198,8 @@ export interface RenderContext extends HtmlOptions {
  *    sanitizer sees real elements and keeps only what GitHub's schema allows
  *    (`details`, `kbd`, `sup`, `img width` …);
  * 3. rehype-sanitize with hast-util-sanitize's default (GitHub) schema,
- *    which also prefixes ids with `user-content-`;
+ *    which also prefixes ids with `user-content-`, then re-parsed until
+ *    stable when the input had raw HTML (`rehypeSettle`);
  * 4. rehype-github-alert turns `> [!NOTE]` quotes into alerts. It runs after
  *    the sanitizer (decision 25), so the alert markup it adds is ours and the
  *    schema needs no class or SVG allowances that raw HTML could then forge;
@@ -149,6 +215,11 @@ export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): 
   }
   if (headingIds) children = children.map((n) => withHeadingId(n, headingIds));
   const root: Root = { type: "root", children };
+  let hasRawHtml = false;
+  visit(root, "html", () => {
+    hasRawHtml = true;
+    return false;
+  });
   const render = (rawHtml: typeof rehypeRaw | typeof rehypeDropRaw) => {
     const processor = unified()
       // The sanitizer adds the `user-content-` prefix; remark-rehype's own
@@ -166,6 +237,9 @@ export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): 
       .use(rawHtml)
       .use(rehypePrefixFootnoteLabel, footnotePrefix)
       .use(rehypeSanitize, SANITIZE_SCHEMA)
+      // Markdown alone builds a tree the parser would build too; raw HTML may not.
+      // unified's on/off switch: `false` leaves the plugin out.
+      .use(rehypeSettle, rawHtml === rehypeRaw && hasRawHtml)
       .use(rehypeGithubAlert)
       .use(rehypeLocalizeAlertTitles)
       .use(rehypeBlockRemoteImages, options)
