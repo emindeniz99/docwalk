@@ -46,7 +46,34 @@ async function fileAt(root: FileSystemDirectoryHandle, path: string, create = fa
   return (await directoryAt(root, dir, create)).getFileHandle(name, { create });
 }
 
-/** What is at `path`, or `null` when nothing is. */
+/** The platform's answer for "nothing by that name" (or a file where a folder was asked, and back). */
+const absent = (error: unknown) =>
+  error instanceof DOMException &&
+  (error.name === "NotFoundError" || error.name === "TypeMismatchError");
+
+/**
+ * The entry called `name` in `parent`, or `null`. The platform is asked, not
+ * the listing compared: on a case-insensitive disk (macOS, Windows) `Plan.md`
+ * finds the stored `plan.md`, which a name comparison would miss.
+ */
+async function entryIn(
+  parent: FileSystemDirectoryHandle,
+  name: string,
+): Promise<FileSystemHandle | null> {
+  try {
+    return await parent.getFileHandle(name);
+  } catch (error) {
+    if (!absent(error)) throw error;
+  }
+  try {
+    return await parent.getDirectoryHandle(name);
+  } catch (error) {
+    if (!absent(error)) throw error;
+  }
+  return null;
+}
+
+/** What is at `path`, or `null` when nothing is (by the platform's own name matching). */
 export async function kindAt(
   root: FileSystemDirectoryHandle,
   path: string,
@@ -58,8 +85,7 @@ export async function kindAt(
   } catch {
     return null;
   }
-  for await (const [entry, handle] of parent.entries()) if (entry === name) return handle.kind;
-  return null;
+  return (await entryIn(parent, name))?.kind ?? null;
 }
 
 /** Folders a listing never enters: version control, dependencies, build output. */
@@ -174,11 +200,15 @@ export async function remove(root: FileSystemDirectoryHandle, path: string): Pro
   await (await directoryAt(root, dir)).removeEntry(name, { recursive: true });
 }
 
+/** Copies `source` to a new entry `name` in `target`; refuses to write onto anything already there. */
 async function copyInto(
   source: FileSystemHandle,
   target: FileSystemDirectoryHandle,
   name: string,
 ): Promise<void> {
+  if ((await entryIn(target, name)) !== null) {
+    throw new WorkspaceError(m.ws_err_exists({ path: name }));
+  }
   if (source.kind === "file") {
     const file = await (source as FileSystemFileHandle).getFile();
     const handle = await target.getFileHandle(name, { create: true });
@@ -209,22 +239,23 @@ export async function rename(
   if (name === newName) return path;
   const target = joinPath(dir, newName);
   const parent = await directoryAt(root, dir);
-  const existing = await kindAt(root, target);
-  // A case-only rename (plan.md -> Plan.md) is the same entry on case-insensitive disks.
-  if (existing !== null && name.toLowerCase() !== newName.toLowerCase()) {
-    throw new WorkspaceError(m.ws_err_exists({ path: target }));
-  }
-  let source: FileSystemHandle | null = null;
-  for await (const [entry, handle] of parent.entries()) if (entry === name) source = handle;
+  const source = await entryIn(parent, name);
   if (!source) throw new WorkspaceError(m.ws_err_gone({ path }));
+  const existing = await entryIn(parent, newName);
   if (existing !== null) {
-    // Case-only: go through a temporary name so the copy never lands on the original.
+    // Only the entry itself may answer to the new name: a case-only rename
+    // (plan.md -> Plan.md) on a case-insensitive disk. Anything else is
+    // another file or folder, and a copy onto it would destroy it.
+    if (!(await existing.isSameEntry(source))) {
+      throw new WorkspaceError(m.ws_err_exists({ path: target }));
+    }
+    // Go through a temporary name so the copy never lands on the original.
     const temp = `${name}.docwalk-rename`;
     await copyInto(source, parent, temp);
     await parent.removeEntry(name, { recursive: true });
-    let tempHandle: FileSystemHandle | null = null;
-    for await (const [entry, handle] of parent.entries()) if (entry === temp) tempHandle = handle;
-    await copyInto(tempHandle!, parent, newName);
+    const tempHandle = await entryIn(parent, temp);
+    if (!tempHandle) throw new WorkspaceError(m.ws_err_gone({ path: joinPath(dir, temp) }));
+    await copyInto(tempHandle, parent, newName);
     await parent.removeEntry(temp, { recursive: true });
     return target;
   }

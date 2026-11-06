@@ -53,6 +53,7 @@ export function SourceEditor({
   revealLine,
   diagnostics,
   label,
+  documentId,
 }: SourceEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -69,6 +70,15 @@ export function SourceEditor({
     callbacks.current = { onChange, onCursorLine };
   });
   const initial = useRef({ value, label });
+  const labelRef = useRef(label);
+  const diagnosticsRef = useRef(diagnostics);
+  const documentRef = useRef(documentId);
+  useLayoutEffect(() => {
+    labelRef.current = label;
+    diagnosticsRef.current = diagnostics;
+  });
+  /** A whole editor state for `doc`: also how a different document gets a fresh undo history. */
+  const stateFor = useRef<((doc: string) => EditorState) | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -87,26 +97,41 @@ export function SourceEditor({
         }
       }
     });
-    const view = new EditorView({
-      parent: host,
-      state: EditorState.create({
-        doc: initial.current.value,
+    const create = (doc: string) =>
+      EditorState.create({
+        doc,
         extensions: [
           phraseCompartment.of(phrases()),
           editorExtensions({
-            label: labelCompartment.of(labelAttrs(initial.current.label)),
+            label: labelCompartment.of(labelAttrs(labelRef.current)),
             onUpdate,
           }),
         ],
-      }),
-    });
+      });
+    stateFor.current = create;
+    const view = new EditorView({ parent: host, state: create(initial.current.value) });
     syncedRef.current = initial.current.value;
     viewRef.current = view;
     return () => {
       view.destroy();
-      viewRef.current = null;
+      viewRef.current = stateFor.current = null;
     };
   }, [labelCompartment, phraseCompartment]);
+
+  // A different document replaces the whole state, undo history included:
+  // undoing into the previous document would hand its text to this one.
+  useEffect(() => {
+    const view = viewRef.current;
+    const create = stateFor.current;
+    if (!view || !create || documentId === documentRef.current) return;
+    documentRef.current = documentId;
+    syncedRef.current = value;
+    lastLineRef.current = null;
+    view.setState(create(value));
+    // The new state starts without the notes; put the current ones back.
+    const groups = groupDiagnostics(diagnosticsRef.current ?? [], view.state.doc.lines);
+    view.dispatch({ effects: setDiagnostics.of(groups) });
+  }, [documentId, value]);
 
   // Apply the parent's value only when it differs from the document.
   useEffect(() => {

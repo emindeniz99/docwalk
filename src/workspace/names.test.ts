@@ -75,6 +75,14 @@ describe("helpers", () => {
     expect(uniqueName("free", taken)).toBe("free");
   });
 
+  test("uniqueName treats names that differ only by case as taken", () => {
+    // On a case-insensitive disk, zip import's "docs" folder would be the
+    // existing "Docs", and its files would land among (and over) the old ones.
+    const taken = new Set(["Docs", "Notes 2"]);
+    expect(uniqueName("docs", taken)).toBe("docs 2");
+    expect(uniqueName("notes", new Set(["NOTES", "notes 2"]))).toBe("notes 3");
+  });
+
   test("ancestors and containment work on whole segments, not string prefixes", () => {
     expect(ancestorsOf("a/b/c.md")).toEqual(["a", "a/b"]);
     expect(ancestorsOf("c.md")).toEqual([]);

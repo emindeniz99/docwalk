@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { downloadBlob } from "../export/download";
 import type { DocumentSource, LoadedDocument } from "../inputs/types";
 import { m } from "../paraglide/messages.js";
-import type { Notice } from "../shell/useDocument";
+import type { Notice, ReplaceGuard } from "../shell/useDocument";
 import {
   collectFiles,
   createFile,
@@ -61,6 +61,12 @@ export interface WorkspaceInputs {
   closeDocument: () => void;
   retarget: (source: DocumentSource) => void;
   setNotice: (notice: Notice | null) => void;
+  /** Whether a saved draft exists that is not the open document. */
+  draftAvailable: boolean;
+  /** Shows the saved draft again. */
+  reopenDraft: () => void;
+  /** Lets the document ask the workspace before a share link replaces it. */
+  setReplaceGuard: (guard: ReplaceGuard | null) => void;
 }
 
 /** A dialog the workspace needs answered; App renders it (src/workspace/WorkspaceDialogs.tsx). */
@@ -149,7 +155,8 @@ async function diskChange(
  * viewer it was.
  */
 export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; enabled: boolean }) {
-  const { doc, openDocument, closeDocument, retarget, setNotice } = inputs;
+  const { doc, openDocument, closeDocument, retarget, setNotice, reopenDraft, setReplaceGuard } =
+    inputs;
   const supported = useMemo(() => ({ opfs: opfsSupported(), folder: folderSupported() }), []);
   const [opfs, setOpfs] = useState<FileSystemDirectoryHandle | null>(null);
   // The API can exist and still refuse: Safari's private windows (and
@@ -280,22 +287,25 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
 
   // ---- Browser workspace: autosave ------------------------------------------
   const pending = useRef<{ source: WorkspaceSource; text: string } | null>(null);
-  const flush = useCallback(async () => {
+  /** Writes the pending autosave now; false when that write failed. */
+  const flush = useCallback(async (): Promise<boolean> => {
     const job = pending.current;
     pending.current = null;
-    if (!job || !opfs) return;
+    if (!job || !opfs) return true;
     try {
       const lm = await writeText(opfs, job.source.path, job.text);
       setFailed(false);
       if (baselineRef.current?.key === keyOf(job.source)) {
         setBaseline({ key: keyOf(job.source), text: job.text, lastModified: lm });
       }
+      return true;
     } catch (error) {
       setFailed(true);
       setNotice({
         message: message(error, m.ws_err_save_browser({ path: job.source.path })),
         tone: "error",
       });
+      return false;
     }
   }, [opfs, setBaseline, setNotice]);
 
@@ -325,30 +335,34 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   }, [flush]);
 
   // ---- Local folder: explicit save, reload on change ------------------------
-  const save = useCallback(async () => {
+  /**
+   * Saves the open workspace file. Resolves to whether the text is now on
+   * disk: a caller that replaces the document afterwards (the "Save" choice
+   * of the unsaved-changes dialog) must not go on when it is not.
+   */
+  const save = useCallback(async (): Promise<boolean> => {
     const current = docRef.current;
     const src = workspaceSource(current);
-    if (!src || !current) return;
-    if (src.root === "opfs") {
-      await flush();
-      return;
-    }
+    if (!src || !current) return false;
+    if (src.root === "opfs") return flush();
     const handle = handleFor("folder");
     if (!handle) {
       setNotice({ message: message(new DOMException("", "NotAllowedError"), ""), tone: "error" });
-      return;
+      return false;
     }
     try {
       const lm = await writeText(handle, src.path, current.markdown);
       setBaseline({ key: keyOf(src), text: current.markdown, lastModified: lm });
       setMissingKey(null);
       setFailed(false);
+      return true;
     } catch (error) {
       setFailed(true);
       if (error instanceof DOMException && error.name === "NotAllowedError") {
         setFolder((f) => (f ? { ...f, permission: "prompt" } : f));
       }
       setNotice({ message: message(error, m.ws_err_save({ path: src.path })), tone: "error" });
+      return false;
     }
   }, [flush, handleFor, setBaseline, setNotice]);
 
@@ -473,6 +487,15 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     },
     [unsavedFolderEdits, sourcePath],
   );
+  // A share link pasted into the address bar goes through the same question.
+  useLayoutEffect(() => {
+    if (!enabled) return;
+    setReplaceGuard(guard);
+    return () => setReplaceGuard(null);
+  }, [enabled, guard, setReplaceGuard]);
+
+  /** "Open draft": the saved draft, after any unsaved local edits are saved or dropped. */
+  const openDraft = useCallback(() => guard(reopenDraft), [guard, reopenDraft]);
 
   // ---- Actions behind the panel ----------------------------------------------
   const load = useCallback(
@@ -581,6 +604,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       } catch (error) {
         return message(error, m.ws_err_rename({ path: node.path }));
       }
+      // Comments and sketches are keyed by path; they move with the file,
+      // before the open document is retargeted and reloads them.
+      const { filePaths, moveAnnotations } = await import("./annotations");
+      await moveAnnotations(
+        root,
+        filePaths(node).map((p) => [p, next + p.slice(node.path.length)] as const),
+      );
       // The open file, or the folder holding it, moved: same text, new address.
       const current = workspaceSource(docRef.current);
       if (current && current.root === root && isWithin(current.path, node.path)) {
@@ -619,6 +649,9 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         setNotice({ message: message(error, m.ws_err_delete({ path: node.path })), tone: "error" });
         return;
       }
+      // A new file at the same path later must not inherit them.
+      const { dropAnnotations, filePaths } = await import("./annotations");
+      await dropAnnotations(root, filePaths(node));
       if (openInside) {
         setBaseline(null);
         closeDocument();
@@ -839,6 +872,9 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     useFolder: () => switchRoot("folder"),
     save,
     resolveConflict,
+    /** A saved draft exists that is not the open document (Files panel and palette offer it). */
+    draftAvailable: enabled && inputs.draftAvailable,
+    openDraft,
   };
 }
 

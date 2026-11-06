@@ -116,6 +116,30 @@
   font-weight: 600;
 }
 
+/* "Open draft": a row like the files below it, but a plain button outside the tree. */
+.docwalk-files-draft {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-xs);
+  width: 100%;
+  min-height: 30px;
+  margin-bottom: var(--dw-space-xs);
+  padding: 0 2px 0 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--dw-radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  outline: none;
+}
+
+.docwalk-files-draft[data-hovered] {
+  background: var(--bg);
+}
+
+.docwalk-files-draft[data-focus-visible],
 .docwalk-files-item[data-focus-visible] {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
@@ -224,7 +248,8 @@
 }
 
 @media (pointer: coarse), (max-width: 640px) {
-  .docwalk-files-row {
+  .docwalk-files-row,
+  .docwalk-files-draft {
     min-height: var(--dw-space-target);
   }
 

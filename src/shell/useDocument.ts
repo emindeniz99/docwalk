@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import sample from "../../fixtures/ledger-redesign.md?raw";
 import {
   describeLoadError,
@@ -11,7 +11,9 @@ import {
 import { readRefresh, readToken } from "../inputs/token";
 import type { LoadedDocument, LoadResult } from "../inputs/types";
 import {
+  draftHeld,
   draftWouldBeReplaced,
+  flushDraft,
   holdDraft,
   loadDraft,
   releaseDraft,
@@ -28,6 +30,9 @@ export const DAMAGED_LINK = m.doc_damaged_link;
 
 export const DRAFT_KEPT = m.doc_draft_kept;
 
+/** An opened file did not replace the pasted draft, which exists nowhere else. */
+export const FILE_DRAFT_KEPT = m.doc_file_draft_kept;
+
 export interface Notice {
   message: string;
   tone: "info" | "error";
@@ -35,6 +40,11 @@ export interface Notice {
 }
 
 type RepoRequest = Extract<InputRequest, { kind: "repo" }>;
+
+/** Runs a replacement of the open document now, or once the user agreed (src/workspace/useWorkspace.ts). */
+export type ReplaceGuard = (proceed: () => void) => void;
+
+const runNow: ReplaceGuard = (proceed) => proceed();
 
 /**
  * The document on first render, when it can be known without waiting:
@@ -71,6 +81,24 @@ function openDraft(): LoadedDocument | null {
  */
 export function useDocument({ follow }: { follow: boolean }) {
   const [doc, setDoc] = useState<LoadedDocument | null>(() => initialDocument(follow));
+  /**
+   * Bumped whenever a different document is shown, never on an edit: the
+   * editor starts each document with a fresh undo history, so Ctrl+Z can
+   * never bring back the previous document's text (into a workspace file,
+   * which then autosaves it).
+   */
+  const [docId, setDocId] = useState(0);
+  /** Counts "Replace my draft" choices: each makes the open document the draft. */
+  const [draftChoices, setDraftChoices] = useState(0);
+  const show = useCallback((next: LoadedDocument) => {
+    setDocId((n) => n + 1);
+    setDoc(next);
+  }, []);
+  /** Asked before a share link in the address bar replaces the document; the workspace sets it. */
+  const replaceGuard = useRef<ReplaceGuard>(runNow);
+  const setReplaceGuard = useCallback((guard: ReplaceGuard | null) => {
+    replaceGuard.current = guard ?? runNow;
+  }, []);
   const [confirm, setConfirm] = useState<{ url: string; host: string } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [tokenOpen, setTokenOpen] = useState(false);
@@ -83,35 +111,60 @@ export function useDocument({ follow }: { follow: boolean }) {
     docRef.current = doc;
   });
 
-  const applyResult = useCallback((result: LoadResult, repo: RepoRequest | null = null) => {
-    if (result.ok) {
-      retryRepo.current = null;
-      setConfirm(null);
-      setNotice(null);
-      // An opened file has a copy on disk and becomes the draft, as before;
-      // any other loaded document leaves the saved draft alone.
-      if (result.doc.source.kind === "file") holdDraft();
-      else releaseDraft();
-      setDoc(result.doc);
-      return;
+  /** "Replace my draft": the user chose to make this document the saved draft. */
+  const replaceDraft = useCallback(() => {
+    const current = docRef.current;
+    holdDraft();
+    if (current && (current.source.kind === "paste" || current.source.kind === "file")) {
+      saveDraft(current.markdown, current.source);
     }
-    setDoc((prev) => prev ?? SAMPLE);
-    const { error } = result;
-    if (error.kind === "needs-confirmation") {
-      setConfirm({ url: error.url, host: error.host });
-      return;
-    }
-    const privateRepo =
-      repo !== null && (error.kind === "unauthorized" || error.kind === "not-found");
-    retryRepo.current = privateRepo ? repo : null;
-    setNotice({
-      message: describeLoadError(error),
-      tone: "error",
-      ...(privateRepo
-        ? { action: { label: m.doc_add_token(), run: () => setTokenOpen(true) } }
-        : {}),
-    });
+    setDraftChoices((n) => n + 1);
+    setNotice(null);
   }, []);
+
+  const applyResult = useCallback(
+    (result: LoadResult, repo: RepoRequest | null = null) => {
+      if (result.ok) {
+        retryRepo.current = null;
+        setConfirm(null);
+        setNotice(null);
+        if (result.doc.source.kind === "file") {
+          // An opened file has a copy on disk and becomes the draft, unless
+          // the draft is a paste: that exists nowhere else, so it stays, and
+          // replacing it is the user's choice.
+          flushDraft();
+          const saved = loadDraft();
+          if (saved?.source.kind === "paste" && saved.markdown !== result.doc.markdown) {
+            releaseDraft();
+            setNotice({
+              message: FILE_DRAFT_KEPT(),
+              tone: "info",
+              action: { label: m.doc_replace_draft(), run: replaceDraft },
+            });
+          } else holdDraft();
+        } else releaseDraft();
+        show(result.doc);
+        return;
+      }
+      setDoc((prev) => prev ?? SAMPLE);
+      const { error } = result;
+      if (error.kind === "needs-confirmation") {
+        setConfirm({ url: error.url, host: error.host });
+        return;
+      }
+      const privateRepo =
+        repo !== null && (error.kind === "unauthorized" || error.kind === "not-found");
+      retryRepo.current = privateRepo ? repo : null;
+      setNotice({
+        message: describeLoadError(error),
+        tone: "error",
+        ...(privateRepo
+          ? { action: { label: m.doc_add_token(), run: () => setTokenOpen(true) } }
+          : {}),
+      });
+    },
+    [replaceDraft, show],
+  );
 
   /** Applies a result the user already has (the Open file button), overtaking any load still running. */
   const apply = useCallback(
@@ -136,18 +189,21 @@ export function useDocument({ follow }: { follow: boolean }) {
     [applyResult],
   );
 
-  const loadFragment = useCallback(async (hash: string) => {
-    const gen = ++generation.current;
-    const markdown = await readFragment(hash);
-    if (gen !== generation.current) return;
-    if (markdown !== null) {
-      releaseDraft();
-      setDoc({ markdown, source: { kind: "fragment" } });
-    } else {
-      setDoc((prev) => prev ?? SAMPLE);
-      setNotice({ message: DAMAGED_LINK(), tone: "error" });
-    }
-  }, []);
+  const loadFragment = useCallback(
+    async (hash: string) => {
+      const gen = ++generation.current;
+      const markdown = await readFragment(hash);
+      if (gen !== generation.current) return;
+      if (markdown !== null) {
+        releaseDraft();
+        show({ markdown, source: { kind: "fragment" } });
+      } else {
+        setDoc((prev) => prev ?? SAMPLE);
+        setNotice({ message: DAMAGED_LINK(), tone: "error" });
+      }
+    },
+    [show],
+  );
 
   // Start-up runs once per page. A ref, not an abort on cleanup: StrictMode's
   // rehearsal unmount would otherwise cancel the only load. App is the root
@@ -194,7 +250,7 @@ export function useDocument({ follow }: { follow: boolean }) {
           if (generation.current !== startedAt) return;
           if (restored) {
             releaseDraft();
-            setDoc(restored);
+            show(restored);
             return;
           }
         }
@@ -202,14 +258,17 @@ export function useDocument({ follow }: { follow: boolean }) {
         setDoc((prev) => prev ?? draft ?? SAMPLE);
       }
     })();
-  }, [follow, loadRequest, loadFragment]);
+  }, [follow, loadRequest, loadFragment, show]);
 
   // A share link pasted into this tab's address bar changes only the hash, so
-  // the page does not reload: load the shared document here.
+  // the page does not reload: load the shared document here, once the
+  // workspace agrees (unsaved local-folder edits are asked about first, as
+  // for every other way of replacing the document).
   useEffect(() => {
     if (follow) return;
     const onHashChange = () => {
-      if (isDocHash(location.hash)) void loadFragment(location.hash);
+      const hash = location.hash;
+      if (isDocHash(hash)) replaceGuard.current(() => void loadFragment(hash));
     };
     globalThis.addEventListener("hashchange", onHashChange);
     return () => globalThis.removeEventListener("hashchange", onHashChange);
@@ -252,16 +311,6 @@ export function useDocument({ follow }: { follow: boolean }) {
     },
     [applyResult],
   );
-
-  /** "Replace my draft": the user chose to make this document the saved draft. */
-  const replaceDraft = useCallback(() => {
-    const current = docRef.current;
-    holdDraft();
-    if (current && (current.source.kind === "paste" || current.source.kind === "file")) {
-      saveDraft(current.markdown, current.source);
-    }
-    setNotice(null);
-  }, []);
 
   /**
    * An edit makes the document the user's own text: it is autosaved and
@@ -309,19 +358,50 @@ export function useDocument({ follow }: { follow: boolean }) {
   );
 
   /** Shows a document the workspace read (decision 57), overtaking any load still running. */
-  const openDocument = useCallback((next: LoadedDocument) => {
-    generation.current++;
-    setConfirm(null);
-    setNotice(null);
-    releaseDraft();
-    setDoc(next);
-  }, []);
+  const openDocument = useCallback(
+    (next: LoadedDocument) => {
+      generation.current++;
+      setConfirm(null);
+      setNotice(null);
+      releaseDraft();
+      show(next);
+    },
+    [show],
+  );
 
   /** The open workspace file was deleted: show the draft or the sample, as a plain visit would. */
   const closeDocument = useCallback(() => {
     generation.current++;
-    setDoc(openDraft() ?? SAMPLE);
-  }, []);
+    releaseDraft();
+    show(openDraft() ?? SAMPLE);
+  }, [show]);
+
+  /** "Open draft": the saved draft again, after a workspace file or another document replaced it. */
+  const reopenDraft = useCallback(() => {
+    releaseDraft();
+    const draft = openDraft();
+    if (!draft) return;
+    generation.current++;
+    setConfirm(null);
+    setNotice(null);
+    show(draft);
+  }, [show]);
+
+  /**
+   * Whether a saved draft exists that is not the open document, so the UI
+   * offers to reopen it. Read when another document is shown or the user
+   * makes this one the draft, not on every keystroke: the draft can be large,
+   * and an edit keeps the source object.
+   */
+  const docSource = doc?.source;
+  const draftAvailable = useMemo(
+    () =>
+      docSource !== undefined &&
+      draftChoices >= 0 &&
+      !((docSource.kind === "paste" || docSource.kind === "file") && draftHeld()) &&
+      loadDraft() !== null,
+    [docSource, draftChoices],
+  );
 
   /** The open workspace file was renamed or moved: same text, new address. */
   const retarget = useCallback((source: LoadedDocument["source"]) => {
@@ -330,6 +410,10 @@ export function useDocument({ follow }: { follow: boolean }) {
 
   return {
     doc,
+    docId,
+    draftAvailable,
+    reopenDraft,
+    setReplaceGuard,
     openDocument,
     closeDocument,
     retarget,

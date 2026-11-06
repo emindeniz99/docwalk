@@ -347,10 +347,12 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
                     data-variant="primary"
                     className="docwalk-button"
                     autoFocus
+                    // A failed save leaves the edits where they are (its notice says
+                    // why): going on would replace the only copy of them.
                     onPress={() =>
-                      void w.save().then(() => {
+                      void w.save().then((saved) => {
                         close();
-                        d.proceed();
+                        if (saved) d.proceed();
                       })
                     }
                   >

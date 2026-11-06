@@ -4,6 +4,8 @@
  * document and diagram, replaced on every save.
  */
 
+import { sketchKey, sketchKeyBounds } from "./identity";
+
 const DB_NAME = "docwalk-canvas";
 const STORE = "sketches";
 
@@ -74,6 +76,38 @@ export async function saveSketch(sketch: StoredSketch): Promise<void> {
 
 export async function deleteSketch(key: string): Promise<void> {
   await run("readwrite", (store) => store.delete(key));
+}
+
+/**
+ * Moves every sketch of one document to another document key, or deletes
+ * them when `to` is null: a workspace file was renamed, moved or deleted.
+ */
+export async function moveSketches(from: string, to: string | null): Promise<void> {
+  if (from === to) return;
+  const db = await openDb();
+  const [lower, upper] = sketchKeyBounds(from);
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const cursor = store.openCursor(IDBKeyRange.bound(lower, upper));
+    cursor.addEventListener("success", () => {
+      const at = cursor.result;
+      if (!at) return;
+      const value: unknown = at.value;
+      if (to !== null && isStoredSketch(value)) {
+        store.put({ ...value, key: sketchKey(to, value.key.slice(lower.length)) });
+      }
+      at.delete();
+      at.continue();
+    });
+    tx.addEventListener("complete", () => resolve());
+    tx.addEventListener("error", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction failed")),
+    );
+    tx.addEventListener("abort", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted")),
+    );
+  });
 }
 
 /** A record another version (or another tab's bug) wrote in a shape this one cannot read is ignored. */

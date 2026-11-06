@@ -22,4 +22,11 @@ export interface SourceEditorProps {
   diagnostics?: EditorDiagnostic[];
   /** Accessible label for the editing surface. */
   label: string;
+  /**
+   * Changes when `value` is a different document, never on an edit: the
+   * editor then starts with a fresh undo history, so undo cannot bring back
+   * the previous document's text. A change of `value` alone (an agent's
+   * write) stays undoable.
+   */
+  documentId?: number;
 }

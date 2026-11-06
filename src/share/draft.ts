@@ -41,14 +41,35 @@ function storage(): Storage | null {
 }
 
 let held = false;
+/** Saves the edits the autosave is still waiting to write, if any. */
+let pendingFlush: (() => void) | null = null;
 
 /** This page's document is the draft now (the draft was opened, a file was opened, or the user chose to replace it). */
 export function holdDraft(): void {
   held = true;
 }
 
-/** This page's document is no longer the draft: a share link, URL or repo document replaced it. */
+/** True while this page's document is the draft (opened, saved into an empty slot, or chosen by the user). */
+export function draftHeld(): boolean {
+  return held;
+}
+
+/**
+ * Writes the edits still waiting for the autosave's debounce now. A caller
+ * about to replace the document calls this first: once the draft is released
+ * the write would be refused, and the last keystrokes would be lost.
+ */
+export function flushDraft(): void {
+  pendingFlush?.();
+}
+
+/**
+ * This page's document is no longer the draft: a share link, URL, repo or
+ * workspace document replaced it. Edits still waiting to be saved are saved
+ * first, while the page still holds the slot.
+ */
 export function releaseDraft(): void {
+  flushDraft();
   held = false;
 }
 
@@ -132,9 +153,13 @@ export function useDraftAutosave(markdown: string, source: DocumentSource): void
       if (document.visibilityState === "hidden") flush();
     };
     const timer = setTimeout(flush, DRAFT_DEBOUNCE_MS);
+    pendingFlush = flush;
     globalThis.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      // A newer edit re-runs this effect and takes over the pending save; a
+      // replaced document has had it flushed by releaseDraft already.
+      if (pendingFlush === flush) pendingFlush = null;
       clearTimeout(timer);
       globalThis.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibility);

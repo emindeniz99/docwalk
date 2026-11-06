@@ -98,9 +98,11 @@ export function MonacoEditor({
   revealLine,
   diagnostics,
   label,
+  documentId,
 }: SourceEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.IStandaloneCodeEditor | null>(null);
+  const documentRef = useRef(documentId);
   const statusRef = useRef<HTMLDivElement>(null);
   const notesRef = useRef<monaco.IEditorDecorationsCollection | null>(null);
   const revealRef = useRef<monaco.IEditorDecorationsCollection | null>(null);
@@ -200,6 +202,22 @@ export function MonacoEditor({
       editorRef.current = notesRef.current = revealRef.current = null;
     };
   }, []);
+
+  // A different document replaces the text with setValue, which also clears
+  // the undo stack: undoing into the previous document would hand its text
+  // to this one. Decorations and markers follow in the diagnostics effect.
+  useEffect(() => {
+    const model = editorRef.current?.getModel();
+    if (!model || documentId === documentRef.current) return;
+    documentRef.current = documentId;
+    syncedRef.current = value;
+    applyingParent.current = true;
+    try {
+      model.setValue(value);
+    } finally {
+      applyingParent.current = false;
+    }
+  }, [documentId, value]);
 
   // Apply the parent's value only when it differs from the document.
   useEffect(() => {

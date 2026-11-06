@@ -325,6 +325,14 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
         />
       </div>
       <DisclosurePanel className="docwalk-files-panel">
+        {/* The draft lives outside the workspace; once a file stands in front of it, this brings it back. */}
+        {w.draftAvailable && (
+          <Button className="docwalk-files-draft" onPress={w.openDraft}>
+            <span className="docwalk-files-chevron" aria-hidden="true" />
+            <FileText size={15} aria-hidden="true" className="docwalk-files-icon" />
+            <span className="docwalk-files-name">{m.ws_open_draft()}</span>
+          </Button>
+        )}
         {needsPermission ? (
           <div className="docwalk-files-note">
             <p>{rich(m.ws_reconnect_note, { name: <strong>{w.folderName}</strong> })}</p>

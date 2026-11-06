@@ -234,6 +234,37 @@ describe.each([codemirror, monacoCandidate])("SourceEditor contract: $name", (ca
     expect(seen).toEqual([]);
   });
 
+  test("a different document starts a fresh undo history, so undo never brings back the previous one", () => {
+    // Undo after opening file B used to restore file A's text into B, and the
+    // workspace autosaved it over B half a second later.
+    const seen: string[] = [];
+    const { editor, render } = mount({
+      value: "# File A\n\nsecret A text\n",
+      documentId: 1,
+      onChange: (v) => seen.push(v),
+    });
+    editor.edit(0, 0, "x");
+    render({ value: "# File B\n", documentId: 2 });
+    expect(editor.text()).toBe("# File B\n");
+    editor.undo();
+    expect(editor.text()).toBe("# File B\n");
+    expect(seen).toEqual(["x# File A\n\nsecret A text\n"]);
+  });
+
+  test("an outside change to the same document (an agent's write) stays undoable, and the undo is reported", () => {
+    const seen: string[] = [];
+    const { editor, render } = mount({
+      value: "draft\n",
+      documentId: 1,
+      onChange: (v) => seen.push(v),
+    });
+    render({ value: "draft\nagent line\n", documentId: 1 });
+    expect(editor.undo()).toBe(true);
+    expect(editor.text()).toBe("draft\n");
+    // The parent hears the undo, so the preview and the saved text follow it.
+    expect(seen).toEqual(["draft\n"]);
+  });
+
   test("the cursor line is reported 1-based and only when it changes, so the preview follows it", () => {
     const reported: number[] = [];
     const { editor } = mount({ value: lines(5), onCursorLine: (l) => reported.push(l) });

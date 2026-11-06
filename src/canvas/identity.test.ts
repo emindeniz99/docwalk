@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { diagramHash, documentKey, sketchKey } from "./identity";
+import { diagramHash, documentKey, sketchKey, sketchKeyBounds } from "./identity";
 
 describe("sketch identity (decision 54)", () => {
   test("a document loaded from a link is keyed by that link, so its sketches come back with it", () => {
@@ -36,5 +36,17 @@ describe("sketch identity (decision 54)", () => {
   test("one diagram in two documents gets two sketches", async () => {
     const hash = await diagramHash("flowchart LR\n  a --> b\n");
     expect(sketchKey("file:a.md", hash)).not.toBe(sketchKey("file:b.md", hash));
+  });
+
+  test("a document's key bounds hold every one of its sketches and none of a file with a longer name", () => {
+    // Renaming or deleting a workspace file moves its sketches by this range;
+    // a.md must not take a.md.bak's or a folder a.md/'s sketches with it.
+    const [lower, upper] = sketchKeyBounds("workspace:opfs:a.md");
+    const within = (key: string) => key >= lower && key <= upper;
+    expect(within(sketchKey("workspace:opfs:a.md", "0".repeat(64)))).toBe(true);
+    expect(within(sketchKey("workspace:opfs:a.md", "f".repeat(64)))).toBe(true);
+    expect(within(sketchKey("workspace:opfs:a.md.bak", "0".repeat(64)))).toBe(false);
+    expect(within(sketchKey("workspace:opfs:a.md/x.md", "0".repeat(64)))).toBe(false);
+    expect(within(sketchKey("workspace:opfs:a.m", "f".repeat(64)))).toBe(false);
   });
 });

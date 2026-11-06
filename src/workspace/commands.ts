@@ -2,11 +2,19 @@ import { m } from "../paraglide/messages.js";
 import type { Command } from "../shell/CommandPalette";
 import type { Workspace } from "./useWorkspace";
 
-/** Workspace entries for the ⌘K palette; none when the browser has neither OPFS nor the folder picker. */
+/**
+ * Workspace entries for the ⌘K palette; none when the browser has neither
+ * OPFS nor the folder picker. "Open draft" comes first and stays even then:
+ * an opened file or a link can stand in front of the draft too.
+ */
 export function workspaceCommands(w: Workspace): Command[] {
-  if (!w.available) return [];
+  const draft = w.draftAvailable
+    ? [{ id: "open-draft", label: m.ws_open_draft(), run: w.openDraft }]
+    : [];
+  if (!w.available) return draft;
   const usable = w.listing !== null;
   return [
+    ...draft,
     ...(w.source ? [{ id: "ws-save", label: m.ws_cmd_save(), run: () => void w.save() }] : []),
     ...(usable
       ? [

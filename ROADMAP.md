@@ -22,11 +22,25 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
 - Done 2026-11-05: CI runs e2e on Chromium, Firefox and WebKit plus a
   `/docwalk/` sub-path build, Lighthouse CI budgets, zizmor, nightly
   Stryker; manual Cloudflare and GitHub Pages deploy workflows.
+- Done 2026-11-06: Paraglide i18n with an English and a Turkish UI and a
+  language switch (decisions 30, 56).
+- Done 2026-11-06: design polish: a source and preview switch on phones,
+  aligned presenter slides, an empty-deck hint, failed diagrams in the
+  yellow note, the update prompt kept clear of the status bar and the next
+  arrow, and a lone `# Title` document titled by its heading.
 
 Still open in v1:
 
-- Paraglide i18n scaffolding and the Turkish locale (decisions 30, 56).
-- Decision row 8 needs an ADR (remote control moved into v1).
+- Decision row 8 needs a later row or an ADR (remote control moved into v1).
+- Decision 31's notice for browsers below the floor is not built: an old
+  browser gets a blank page. Build an inline feature check in `index.html`,
+  or narrow the row.
+- Decision 39's screenshot and ARIA-snapshot assertions are not written
+  (screenshots are optional review captures). Write them, or narrow the row.
+- Decision 43's 1.5 s open budget: `e2e/perf.spec.ts` measured about 2.5 s
+  for the 809-line fixture on a build that still bundled ELK. It warns above
+  the budget and fails only above three times it; re-measure on the current
+  build.
 - Record the round-1 refinements as decisions if wanted: the app's overview
   replaces reveal.js's (refines 3, 17, 27); Lighthouse performance floor 0.5
   and zero third-party requests (refines 43).
@@ -45,10 +59,14 @@ day: Monaco as an optional editor (53), canvas mode (54, 64) and comments
 
 Needs the owner:
 
+- Fill in the private reporting channel in `SECURITY.md`.
+
 - First run of the new workflows on GitHub (none has run): lhci finding the
   runner's Chrome, Stryker against its 120 min timeout, the Pages deploy
-  (needs Pages source = GitHub Actions), Cloudflare (needs `CLOUDFLARE_API_TOKEN` and
-  `CLOUDFLARE_ACCOUNT_ID`). zizmor's online audits and the pinned actions'
+  (needs Pages source = GitHub Actions, run from docwalk's own repository),
+  Cloudflare (needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
+  secrets of the `docwalk-cloudflare` environment, deployment branches
+  limited to `main`). zizmor's online audits and the pinned actions'
   tag ages were not checked (no GitHub API access in the session).
 - A real `showDirectoryPicker` folder on a real disk in desktop Chrome:
   handle kept in IndexedDB, permission asked again on return. Every test
@@ -62,8 +80,8 @@ Later rounds:
   private windows (panel hidden); OPFS edits in another tab are not watched
   (last write wins); without `FileSystemObserver` new or removed files show
   on window focus only; `navigator.storage.persist()` is not requested;
-  renaming a workspace file leaves its comments under the old path
-  (shown as none until renamed back).
+  comments and sketches follow a rename or delete made in docwalk, not
+  one made on disk or past the listing's 5000-entry cap.
 - Agents: the e2e relay copies `worker/room.ts` instead of running the
   Worker under Miniflare; a real-socket session ran on Node 24 only
   (`engines` says >=22); an agent or phone remote that joins before the
@@ -84,9 +102,8 @@ Later rounds:
   decision 4 contract has no initial cursor); Monarch colours 4-space list
   continuations as code; the chunk is 831 kB gzip; the palette does not
   offer the editor choice.
-- PWA: F6 to the update toast is unverified; the toast covers the wrapped
-  status bar at 390 px and reveal's next arrow at 1440 px; no
-  `file_handlers` and no periodic update check.
+- PWA: F6 to the update toast is unverified; no `file_handlers` and no
+  periodic update check.
 - CI and quality: mutation survivors are reported, not fixed (no unit test
   feeds `src/share/fragment.ts` a fragment its schema rejects); Lighthouse
   SEO is 0.82 and unbudgeted.
@@ -94,7 +111,6 @@ Later rounds:
   500 px and the annotation toolbar wraps to two rows; on a phone an
   expanded file panel leaves the outline about one row inside the 40dvh
   sidebar; overview thumbnails are clones and repeat the slides' ids.
-- A document that is only a lone H1 shows "Untitled" as its title.
 - While presenting in real fullscreen, Escape with a dialog open closes the
   dialog and leaves fullscreen (browsers keep the key); presenting goes on
   windowed until a second Escape.

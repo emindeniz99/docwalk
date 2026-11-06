@@ -180,6 +180,24 @@ export function App() {
   const [remoteOn, setRemoteOn] = useState(false);
   const sketch = useSketchRequest(!follow);
   const phone = useMediaQuery(PHONE);
+  // Scroll the outline away until the sticky pane switch reaches the top, so
+  // the chosen pane fills the screen under it and the slide is on screen, not
+  // below the outline.
+  const showPhonePane = useCallback(() => {
+    const main = paneSwitchRef.current?.parentElement;
+    const bar = paneSwitchRef.current?.getBoundingClientRect();
+    if (main && bar) main.scrollTop += bar.top - main.getBoundingClientRect().top;
+    // The deck was display: none; reveal.js lays out again on resize.
+    window.dispatchEvent(new Event("resize"));
+  }, []);
+  // Present unmounts the outline and the pane switch, and Chromium resets the
+  // page's scroll: the preview pane came back selected but below the fold.
+  const viewBefore = useRef(view);
+  useEffect(() => {
+    const was = viewBefore.current;
+    viewBefore.current = view;
+    if (phone && was === "present" && view === "edit") requestAnimationFrame(showPhonePane);
+  }, [view, phone, showPhonePane]);
   // The update prompt (src/pwa/update.css) sits above the status bar, whose height varies.
   const statusbarRef = useBlockSizeProperty<HTMLElement>("--docwalk-statusbar-size");
   const Editor = useEditorChoice() === "monaco" ? MonacoEditor : SourceEditor;
@@ -302,25 +320,35 @@ export function App() {
 
   // Pen and laser over the slides; each slide keeps its own marks while the deck is open.
   // The layer (drauu, perfect-freehand) loads after the deck is up, outside the first-load bundle.
+  // A rebuild (an edit, an agent write, a disk reload, a language switch) brings a new stage:
+  // the layer moves onto it, and only slides whose text changed lose their marks.
   const [layerReady, setLayerReady] = useState(0);
   useEffect(() => {
     if (!controller) return;
     let cancelled = false;
     let stop: (() => void) | undefined;
-    void import("./annotate/layer").then(({ createAnnotationLayer }) => {
+    void import("./annotate/layer").then(({ createAnnotationLayer, markKeys }) => {
       if (cancelled) return;
-      const layer = createAnnotationLayer(controller.stage());
+      const layer = layerRef.current ?? createAnnotationLayer(controller.stage());
+      layer.moveTo(controller.stage());
       layerRef.current = layer;
-      stop = controller.onChange((sl) => layer.setKey(sl.address));
+      const keys = markKeys(controller.stage());
+      stop = controller.onChange((sl) => layer.setKey(keys.get(sl.address) ?? sl.address));
+      layer.retain(keys.values());
       setLayerReady((n) => n + 1);
     });
     return () => {
       cancelled = true;
       stop?.();
-      layerRef.current?.destroy();
-      layerRef.current = null;
     };
   }, [controller]);
+  useEffect(
+    () => () => {
+      layerRef.current?.destroy();
+      layerRef.current = null;
+    },
+    [],
+  );
   useEffect(() => {
     if (layerReady) layerRef.current?.setMode(mode);
   }, [mode, layerReady]);
@@ -729,16 +757,7 @@ export function App() {
                 const [k] = [...keys];
                 if (k !== "source" && k !== "preview") return;
                 setPhonePane(k);
-                requestAnimationFrame(() => {
-                  // Scroll the outline away until the sticky switch reaches the
-                  // top, so the chosen pane fills the screen under it and the
-                  // slide is on screen, not below the outline.
-                  const main = paneSwitchRef.current?.parentElement;
-                  const bar = paneSwitchRef.current?.getBoundingClientRect();
-                  if (main && bar) main.scrollTop += bar.top - main.getBoundingClientRect().top;
-                  // The deck was display: none; reveal.js lays out again on resize.
-                  window.dispatchEvent(new Event("resize"));
-                });
+                requestAnimationFrame(showPhonePane);
               }}
               className="docwalk-segmented"
             >
@@ -753,6 +772,7 @@ export function App() {
               <Suspense fallback={<p className="docwalk-loading">{m.app_loading_editor()}</p>}>
                 <Editor
                   value={markdown}
+                  documentId={inputs.docId}
                   onChange={onEdit}
                   onCursorLine={onCursorLine}
                   revealLine={revealLine}

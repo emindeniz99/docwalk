@@ -6,7 +6,7 @@ import { encodeDoc } from "../share/fragment";
 import { DRAFT_STORAGE_KEY } from "../share/types";
 import { writeText } from "../workspace/fs";
 import { opfsRoot, rememberFile } from "../workspace/store";
-import { DRAFT_KEPT, useDocument } from "./useDocument";
+import { DRAFT_KEPT, FILE_DRAFT_KEPT, useDocument } from "./useDocument";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -180,5 +180,101 @@ describe("workspace files (decision 57)", () => {
     expect(inputs.current!.doc).toEqual({ markdown: "# A, edited\n", source });
     expect(stored()).toEqual(PASTED);
     expect(inputs.current!.notice).toBeNull();
+  });
+});
+
+describe("the draft is never lost to another document (review findings 12, 14, 15)", () => {
+  const FILE = { markdown: "# Some file\n", source: { kind: "file", name: "some.md" } } as const;
+  const WORKSPACE = { kind: "workspace", root: "opfs", path: "a.md" } as const;
+
+  test("opening a file keeps a pasted draft: the paste exists nowhere else, the file is on disk", async () => {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(PASTED));
+    const inputs = mount();
+    expect(inputs.current!.doc).toEqual(PASTED);
+    act(() => inputs.current!.apply({ ok: true, doc: FILE }));
+    await pause(DRAFT_DEBOUNCE_MS + 200);
+    // The file used to be autosaved over the paste 800 ms later, with no word.
+    expect(stored()).toEqual(PASTED);
+    expect(inputs.current!.doc).toEqual(FILE);
+    expect(inputs.current!.notice?.message).toBe(FILE_DRAFT_KEPT());
+
+    // Replacing stays possible, as the user's explicit choice.
+    act(() => inputs.current!.notice!.action!.run());
+    expect(stored()).toEqual(FILE);
+  });
+
+  test("opening a file still becomes the draft when the slot is empty or holds another file", async () => {
+    const inputs = mount();
+    act(() => inputs.current!.apply({ ok: true, doc: FILE }));
+    await pause(DRAFT_DEBOUNCE_MS + 200);
+    expect(stored()).toEqual(FILE);
+    const other = { markdown: "# Other\n", source: { kind: "file", name: "other.md" } } as const;
+    act(() => inputs.current!.apply({ ok: true, doc: other }));
+    await pause(DRAFT_DEBOUNCE_MS + 200);
+    // The earlier file is on disk, so nothing the user typed is lost.
+    expect(stored()).toEqual(other);
+    expect(inputs.current!.notice).toBeNull();
+  });
+
+  test("the last keystrokes before opening a workspace file reach the draft", async () => {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(PASTED));
+    const inputs = mount();
+    act(() => inputs.current!.edit("# My own draft, last words\n"));
+    // Well inside the debounce: the pending save used to be dropped with the document.
+    act(() => inputs.current!.openDocument({ markdown: "# A\n", source: WORKSPACE }));
+    await pause(DRAFT_DEBOUNCE_MS + 200);
+    expect(stored()).toEqual({
+      markdown: "# My own draft, last words\n",
+      source: { kind: "paste" },
+    });
+  });
+
+  test("with a workspace file open the draft stays reachable, and reopening it shows it", async () => {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(PASTED));
+    const inputs = mount();
+    expect(inputs.current!.draftAvailable).toBe(false);
+    act(() => inputs.current!.openDocument({ markdown: "# A\n", source: WORKSPACE }));
+    expect(inputs.current!.draftAvailable).toBe(true);
+    act(() => inputs.current!.reopenDraft());
+    expect(inputs.current!.doc).toEqual(PASTED);
+    expect(inputs.current!.draftAvailable).toBe(false);
+    // It is the draft again: edits save over it.
+    act(() => inputs.current!.edit("# My own draft, back\n"));
+    await pause(DRAFT_DEBOUNCE_MS + 200);
+    expect(stored()).toEqual({ markdown: "# My own draft, back\n", source: { kind: "paste" } });
+  });
+});
+
+describe("replacing the document (review findings 9, 11)", () => {
+  test("a share link pasted into the address bar asks the workspace guard before replacing", async () => {
+    // Unsaved local-folder edits would otherwise vanish: a hash change fires no beforeunload.
+    openAt("", "");
+    const inputs = mount();
+    const asked: (() => void)[] = [];
+    act(() => inputs.current!.setReplaceGuard((proceed) => asked.push(proceed)));
+    const before = inputs.current!.doc;
+    window.location.hash = `#doc=${await encodeDoc(SHARED)}`;
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    await pause(50);
+    expect(inputs.current!.doc).toBe(before);
+    act(() => asked[0]!());
+    await vi.waitFor(() =>
+      expect(inputs.current!.doc).toEqual({ markdown: SHARED, source: { kind: "fragment" } }),
+    );
+  });
+
+  test("docId changes when another document is shown, never on an edit", () => {
+    // The editor starts a fresh undo history on a new docId; an edit must keep it.
+    const inputs = mount();
+    const first = inputs.current!.docId;
+    act(() => inputs.current!.edit("# Typed\n"));
+    expect(inputs.current!.docId).toBe(first);
+    act(() =>
+      inputs.current!.openDocument({
+        markdown: "# B\n",
+        source: { kind: "workspace", root: "opfs", path: "b.md" },
+      }),
+    );
+    expect(inputs.current!.docId).not.toBe(first);
   });
 });

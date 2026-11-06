@@ -36,3 +36,12 @@ export async function diagramHash(source: string): Promise<string> {
 export function sketchKey(document: string, hash: string): string {
   return `${document}\n${hash}`;
 }
+
+/**
+ * The lowest and highest key any sketch of `document` can have, for a key
+ * range over all of them. Hashes are hex, so `\uffff` sorts after each; the
+ * newline keeps `a.md` from matching `a.md.bak` or `a.md/x`.
+ */
+export function sketchKeyBounds(document: string): [lower: string, upper: string] {
+  return [sketchKey(document, ""), sketchKey(document, "\uffff")];
+}

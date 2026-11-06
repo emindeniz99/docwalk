@@ -78,11 +78,15 @@ export function safeArchivePath(raw: string): string | null {
 
 /** `name`, or `name 2`, `name 3`... before the extension, whichever is not in `taken`. */
 export function uniqueName(name: string, taken: ReadonlySet<string>): string {
-  if (!taken.has(name)) return name;
+  // Case-insensitive, because a local folder on macOS or Windows is: there
+  // `docs` is the existing `Docs`.
+  const lower = new Set([...taken].map((t) => t.toLowerCase()));
+  const free = (candidate: string) => !lower.has(candidate.toLowerCase());
+  if (free(name)) return name;
   const dot = name.lastIndexOf(".");
   const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
   for (let n = 2; ; n++) {
     const candidate = `${stem} ${n}${ext}`;
-    if (!taken.has(candidate)) return candidate;
+    if (free(candidate)) return candidate;
   }
 }

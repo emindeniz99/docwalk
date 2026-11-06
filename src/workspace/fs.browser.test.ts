@@ -106,6 +106,16 @@ describe("rename and delete", () => {
     expect(await names()).toEqual(["Plan.md"]);
   });
 
+  test("renaming onto a name that differs only by case refuses when that is another file", async () => {
+    // OPFS is case-sensitive, so plan.md and Plan.md are two files. The
+    // "case-only rename" path used to copy over Plan.md and lose it.
+    await writeText(root, "plan.md", "lower");
+    await writeText(root, "Plan.md", "UPPER, the only copy");
+    await expect(rename(root, "plan.md", "Plan.md")).rejects.toThrow(/already exists/);
+    expect((await readText(root, "Plan.md")).text).toBe("UPPER, the only copy");
+    expect((await readText(root, "plan.md")).text).toBe("lower");
+  });
+
   test("delete removes a folder with its contents", async () => {
     await writeText(root, "gone/a.md", "");
     await remove(root, "gone");
@@ -119,5 +129,97 @@ describe("rename and delete", () => {
     expect(files.map((f) => [f.path, new TextDecoder().decode(f.data)])).toEqual([
       ["p/README.md", "# P\n"],
     ]);
+  });
+});
+
+/**
+ * A picked local folder on macOS or Windows is case-insensitive: asking for
+ * `Plan.md` finds the stored `plan.md`, creating `Plan.md` opens it, and the
+ * listing still says `plan.md`. OPFS is case-sensitive, so this wraps a real
+ * OPFS folder in those lookup rules. The file handles stay real.
+ */
+function caseInsensitive(dir: FileSystemDirectoryHandle): FileSystemDirectoryHandle {
+  const stored = async (name: string) => {
+    for await (const entry of dir.keys())
+      if (entry.toLowerCase() === name.toLowerCase()) return entry;
+    return null;
+  };
+  const wrapped = {
+    kind: "directory" as const,
+    name: dir.name,
+    inner: dir,
+    entries: async function* () {
+      for await (const [name, handle] of dir.entries()) {
+        yield [
+          name,
+          handle.kind === "directory"
+            ? caseInsensitive(handle as FileSystemDirectoryHandle)
+            : handle,
+        ] as [string, FileSystemHandle];
+      }
+    },
+    keys: () => dir.keys(),
+    getFileHandle: async (name: string, options?: { create?: boolean }) =>
+      dir.getFileHandle((await stored(name)) ?? name, options),
+    getDirectoryHandle: async (name: string, options?: { create?: boolean }) =>
+      caseInsensitive(await dir.getDirectoryHandle((await stored(name)) ?? name, options)),
+    removeEntry: async (name: string, options?: { recursive?: boolean }) =>
+      dir.removeEntry((await stored(name)) ?? name, options),
+    isSameEntry: async (other: FileSystemHandle) =>
+      dir.isSameEntry((other as { inner?: FileSystemDirectoryHandle }).inner ?? other),
+  };
+  return wrapped as unknown as FileSystemDirectoryHandle;
+}
+
+describe("a case-insensitive local folder", () => {
+  let disk: FileSystemDirectoryHandle;
+  beforeEach(() => {
+    disk = caseInsensitive(root);
+  });
+
+  test("a case-only rename keeps the file: the copy must not land on the original and then be deleted", async () => {
+    await writeText(disk, "plan.md", "# Plan\n");
+    expect(await rename(disk, "plan.md", "Plan.md")).toBe("Plan.md");
+    expect((await readText(disk, "Plan.md")).text).toBe("# Plan\n");
+    expect(await names()).toEqual(["Plan.md"]);
+  });
+
+  test("a case-only rename of a folder keeps everything inside it", async () => {
+    await writeText(disk, "docs/a.md", "A");
+    await writeText(disk, "docs/deep/b.md", "B");
+    expect(await rename(disk, "docs", "Docs")).toBe("Docs");
+    expect((await readText(disk, "Docs/a.md")).text).toBe("A");
+    expect((await readText(disk, "Docs/deep/b.md")).text).toBe("B");
+    expect(await names()).toEqual(["Docs"]);
+  });
+
+  test("renaming onto another entry's name in a different case refuses", async () => {
+    await writeText(disk, "a.md", "A");
+    await writeText(disk, "B.md", "B");
+    await expect(rename(disk, "a.md", "b.md")).rejects.toThrow(/already exists/);
+    expect((await readText(disk, "B.md")).text).toBe("B");
+    expect((await readText(disk, "a.md")).text).toBe("A");
+  });
+
+  test("New file refuses a name the disk already holds in another case, instead of overwriting it", async () => {
+    await writeText(disk, "readme.md", "# Mine\n");
+    await expect(createFile(disk, "Readme.md", "# Starter\n")).rejects.toThrow(/already exists/);
+    await expect(createFolder(disk, "README.md")).rejects.toThrow(/already exists/);
+    expect((await readText(disk, "readme.md")).text).toBe("# Mine\n");
+  });
+
+  test("New folder (and zip import's target folder) refuses an existing folder in another case", async () => {
+    await writeText(disk, "Docs/keep.md", "keep");
+    await expect(createFolder(disk, "docs")).rejects.toThrow(/already exists/);
+    expect((await readText(disk, "Docs/keep.md")).text).toBe("keep");
+  });
+
+  test("a taken temporary name stops the rename before anything is written", async () => {
+    await writeText(disk, "plan.md", "# Plan\n");
+    await writeText(disk, "plan.md.docwalk-rename", "someone's file");
+    await expect(rename(disk, "plan.md", "Plan.md")).rejects.toThrow(/already exists/);
+    expect((await readText(disk, "plan.md")).text).toBe("# Plan\n");
+    const other = await (await disk.getFileHandle("plan.md.docwalk-rename")).getFile();
+    expect(await other.text()).toBe("someone's file");
   });
 });
