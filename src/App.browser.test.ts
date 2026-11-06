@@ -144,11 +144,28 @@ describe("pen marks across a deck rebuild", () => {
     at("pointerup", 1);
   }
 
+  /**
+   * Waits for the deck that shows `text` and for the pen layer to sit on it.
+   * A rebuild puts up the new deck first and moves the layer onto it once
+   * the deck is ready, and typing that pauses past the rebuild delay
+   * rebuilds more than once: a check made when the address changed could
+   * still meet an earlier deck, or the new one without its layer.
+   */
+  async function penLayerOn(el: HTMLElement, text: string) {
+    await expect
+      .poll(() => el.querySelector(".docwalk-deck-pane .reveal")?.textContent ?? "", {
+        timeout: 20_000,
+      })
+      .toContain(text);
+    await expect.poll(() => activeMarks(el), { timeout: 20_000 }).toBeGreaterThanOrEqual(0);
+  }
+
   // An edit (or an agent write, or a disk reload) rebuilds the deck while the
   // presenter is mid-talk. Marks on the slides the edit did not touch must
   // stay; marks over text that changed would point at the wrong thing.
   test("an edit keeps the marks on unchanged slides and drops them on the edited one", async () => {
     const el = await mountApp();
+    await penLayerOn(el, "Beta.");
     await userEvent.click(byLabel(el, "Pen"));
     await userEvent.click(option(el, "First point"));
     await expect.poll(() => address(el)).toBe("first-point/1");
@@ -159,12 +176,10 @@ describe("pen marks across a deck rebuild", () => {
     stroke(el);
     expect(activeMarks(el)).toBe(1);
 
-    const before = el.querySelector(".docwalk-deck-pane .reveal")!;
     await expect.poll(() => el.querySelector(".cm-content"), { timeout: 20_000 }).not.toBeNull();
     await userEvent.click(el.querySelector<HTMLElement>(".cm-content")!);
     await userEvent.keyboard("{Control>}{End}{/Control} Gamma.");
-    await expect.poll(() => before.isConnected, { timeout: 20_000 }).toBe(false);
-    await expect.poll(() => activeMarks(el), { timeout: 20_000 }).toBeGreaterThanOrEqual(0);
+    await penLayerOn(el, "Gamma.");
 
     await userEvent.click(option(el, "Second point"));
     await expect.poll(() => address(el)).toBe("second-point/1");
