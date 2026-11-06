@@ -17,7 +17,14 @@ import {
   type SocketFactory,
   type SocketHandlers,
 } from "./client";
-import { createPresenterCredentials, createRoomCredentials, parseJoinFragment } from "./crypto";
+import {
+  createPresenterCredentials,
+  createRoomCredentials,
+  decrypt,
+  encrypt,
+  importKey,
+  parseJoinFragment,
+} from "./crypto";
 import {
   followedDocument,
   NO_DOC_LINK,
@@ -924,6 +931,17 @@ const forgedState = (current: string): RemoteMessage => ({
   level: "auto",
 });
 
+const presenterState = (current: string): RemoteMessage => ({
+  type: "state",
+  current,
+  index: 0,
+  total: 1,
+  title: "Real",
+  docLink: "https://docwalk.example/app/?src=real",
+  docLinkTooLong: false,
+  level: "auto",
+});
+
 describe("follower", () => {
   test("says hello and goes to each slide the presenter announces", async () => {
     const relay = new FakeRelay();
@@ -1091,6 +1109,47 @@ describe("follower", () => {
       current: "real/1",
       docLink: "https://docwalk.example/app/?src=real",
     });
+  });
+
+  test("an unsigned frame under the presenter's sender id cannot freeze followers on a slide", async () => {
+    // Security review before the first public release: followers recorded a
+    // view-key frame's counter before checking that it was signed state. Any
+    // follower could seal a hello with the presenter's sender id and the
+    // largest counter, and every other follower then dropped the presenter's
+    // real states as replays until the presenter reconnected.
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const { sign: _sign, ...followLink } = creds;
+    const { result } = mountFollower({
+      creds: { ...followLink, key: null },
+      controller: null,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    await vi.waitFor(() => expect(ofType(presenter, "hello").length).toBeGreaterThan(0));
+    await presenter.conn.send(presenterState("real/1"));
+    await vi.waitFor(() => expect(result.current!.state?.current).toBe("real/1"));
+
+    // What a follower can do with the view key alone: read the presenter's
+    // sender id off a state frame and seal anything under it, unsigned.
+    const viewKey = await importKey(creds.view!);
+    let presenterSender: string | null = null;
+    for (const frame of relay.wire) {
+      const sealed = await decrypt(viewKey, JSON.parse(frame));
+      if (sealed?.message.type === "state") presenterSender = sealed.sender;
+    }
+    expect(presenterSender).not.toBeNull();
+    const poison = await encrypt(
+      viewKey,
+      { type: "hello", role: "follower", id: "AAAAAAAAAAAA" },
+      { sender: presenterSender!, counter: Number.MAX_SAFE_INTEGER },
+    );
+    relay.replay(JSON.stringify(poison));
+    await new Promise((r) => setTimeout(r, 50));
+
+    await presenter.conn.send(presenterState("real/2"));
+    await vi.waitFor(() => expect(result.current!.state?.current).toBe("real/2"));
   });
 
   test("a follow link without the state key connects nothing: such a follower could trust no state", () => {

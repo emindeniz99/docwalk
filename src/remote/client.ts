@@ -301,7 +301,7 @@ export function connectRoom({
     }
     if (!keys.view) return null;
     const sealed = await decrypt(keys.view, frame, keys.verify ?? undefined);
-    if (!sealed || !guards.view.accept(sealed.sender, sealed.counter)) return null;
+    if (!sealed) return null;
     // A follow link only follows: the presenter takes nothing else under the view key.
     const { message } = sealed;
     if (role === "presenter" && !(message.type === "hello" && message.role === "follower")) {
@@ -309,7 +309,11 @@ export function connectRoom({
     }
     // Any follower could have sealed it: only the presenter's signature makes a state true.
     if (role === "follower" && !(message.type === "state" && sealed.signed)) return null;
-    return message;
+    // Counters are recorded only for frames this role takes. Recording one
+    // first let any view-key holder seal a frame under the presenter's sender
+    // id with the largest counter, so followers dropped every real state, or
+    // flood the table until the presenter's entry was evicted.
+    return guards.view.accept(sealed.sender, sealed.counter) ? message : null;
   }
 
   /** `message` encrypted under `key` with the next counter, as wire text; a state is signed when this role can. */
