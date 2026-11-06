@@ -75,8 +75,15 @@ test("Escape leaves present mode, and the palette is visible while presenting", 
   await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "present");
   // The palette renders outside the deck; fullscreen on the deck alone hid it.
   await page.keyboard.press("Control+k");
-  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette).toBeVisible();
+  // The first Escape is for the palette: it closes and presenting goes on.
+  // Firefox and WebKit spend that key on leaving fullscreen, and the app
+  // closes the palette on the fullscreenchange that ends the exit, frames
+  // later. A second Escape before then reaches the still-open palette.
   await page.keyboard.press("Escape");
+  await expect(palette).toBeHidden();
+  await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "present");
   await page.locator(".reveal").focus();
   await page.keyboard.press("Escape");
   await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "edit");
