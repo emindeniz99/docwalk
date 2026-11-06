@@ -1,5 +1,8 @@
 # Prior art
 
+For features these tools have that docwalk lacks, see
+[`feature-gaps.md`](./feature-gaps.md).
+
 This survey covers tools that present Markdown and Mermaid documents as slides. Facts were checked on 2026-11-05. No existing tool combines heading-based slides from unmodified GitHub Markdown, full Mermaid.js with zoom, honest overflow handling and static hosting. docwalk builds a thin layer on reveal.js, Mermaid, drauu and unified.
 
 ## Answers
