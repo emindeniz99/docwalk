@@ -902,6 +902,7 @@ kbd {
   font-size: var(--dw-type-body-size);
   line-height: var(--dw-type-body-line-height);
   text-align: center;
+  text-wrap: balance;
   pointer-events: none;
 }
 
@@ -934,8 +935,11 @@ kbd {
   min-height: 0;
 }
 
+/* Exit shows only while presenting, so it is a stage control: 44px high, lg corners (DESIGN.md, Components). */
 .docwalk-exit {
+  min-height: var(--dw-space-target);
   border-color: var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
   background: var(--dw-color-stage-raised);
   color: var(--dw-color-stage-ink);
 }

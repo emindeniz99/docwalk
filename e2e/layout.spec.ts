@@ -204,3 +204,15 @@ test("a diagram that fails to render is flagged in a yellow note, on the slide a
   await expect(page.locator(".docwalk-document .docwalk-diagram-error")).toBeVisible();
   expect(await note(".docwalk-document")).toBe("rgb(42, 36, 18)");
 });
+
+test("while presenting, Exit is as tall as the other stage controls", async ({ page }) => {
+  // Exit kept the 38 px editor button height on a stage of 44 px controls,
+  // a visible step in the one row a presenter reaches for in a hurry.
+  await ready(page);
+  await page.getByRole("button", { name: "Present" }).click();
+  await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "present");
+  const exit = await page.locator(".docwalk-exit").boundingBox();
+  const pen = await page.getByRole("radio", { name: "Pen" }).boundingBox();
+  expect(exit?.height ?? 0).toBeGreaterThanOrEqual(44 - 0.01);
+  expect(Math.abs((exit?.height ?? 0) - (pen?.height ?? 0))).toBeLessThanOrEqual(0.5);
+});
