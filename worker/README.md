@@ -1,7 +1,8 @@
 # docwalk Worker
 
 The optional Cloudflare Worker behind docwalk's full mode (decisions 24, 36,
-38). It does three things and stores nothing:
+38). It does three things and stores no tokens, keys, messages or
+documents; a room keeps one hash, described below:
 
 | Route                      | What it does                                                                                                         |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -25,9 +26,18 @@ What the Worker enforces:
 - Room ids must be 22 to 64 base64url characters. A room relays each text
   frame, unchanged, to every other socket in it. It drops binary frames,
   frames over `API_LIMITS.maxFrameBytes`, and anything that is not exactly
-  `{ "v": 1, "iv": …, "data": … }` with base64url strings. A room holds at
-  most `API_LIMITS.maxSocketsPerRoom` sockets. Messages are never stored; the
-  encryption key stays in the URL fragment and never reaches the Worker.
+  `{ "v": 2, "iv": …, "data": … }` with base64url strings. Messages are
+  never stored; the encryption keys stay in the URL fragment and never reach
+  the Worker.
+- A room holds at most `API_LIMITS.maxSocketsPerRoom` sockets (50), and
+  `CONTROL_SEATS` (10) of them are kept for control-key holders: the
+  presenter, phone remotes and agents (decisions 71, 74). They connect with
+  `?seat=` set to an HMAC-SHA-256 of the room id under the control key,
+  which tells the relay nothing about either key. The room stores the
+  SHA-256 of the first seat token it sees. A socket with a different token
+  is closed at once with code 4409 (`seat_taken`); a socket without one gets
+  one of the other 40 seats. A weekly alarm deletes the stored hash once the
+  room is empty, so it outlives the last socket by at most a week.
 - Every Worker response carries the security headers in `headers.ts`. Paths
   outside `/api/*` are served by Cloudflare's static assets without running
   the Worker, so `public/_headers` must hold the same headers;

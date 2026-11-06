@@ -116,7 +116,8 @@ the phone remote, the editor choice and the language.
   publishes this mode to GitHub Pages under `/<repo>/`.
 - **Full (Cloudflare):** `pnpm run deploy` builds the app and deploys it
   with a small Worker for GitHub App sign-in and the remote-control rooms.
-  The Worker stores nothing and never sees a room's key.
+  The Worker stores no documents, messages or tokens and never sees a
+  room's key.
   [`worker/README.md`](./worker/README.md) covers the GitHub App, the
   secrets, local runs and the variants without sign-in or without rooms.
   `docwalk-deploy-cloudflare.yml` runs the same deploy from GitHub; keep its
@@ -130,8 +131,9 @@ the phone remote, the editor choice and the language.
   storage, or in a local folder you opened. A share link carries it in the
   URL fragment, which browsers do not send to the server.
 - Remote control encrypts every message end to end with a key that lives
-  only in the link's fragment. The Worker relays ciphertext and keeps
-  nothing.
+  only in the link's fragment. The Worker relays ciphertext. Each room
+  stores only a hash of its control seat token, deleted at most a week
+  after the room empties.
 - docwalk fetches a `?src=` URL from GitHub's raw and gist hosts at once,
   and asks you first for any other host. Remote images in a document load
   only when you click them or switch on "Always load remote images".

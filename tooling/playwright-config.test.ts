@@ -4,9 +4,13 @@ import { afterEach, describe, expect, test, vi } from "vitest";
  * playwright.config.ts as it evaluates with or without the CI variable, for a
  * `playwright test` command line with the given arguments.
  */
-async function loadConfig(ci: boolean, args: string[] = []) {
+async function loadConfig(ci: boolean, args: string[] = [], port?: string) {
   vi.resetModules();
   vi.stubEnv("CI", ci ? "true" : "");
+  // A contributor whose port 4174 is busy exports DOCWALK_E2E_PORT; the
+  // expectations below are for the default ports, so the shell's value must
+  // not leak in and turn the unit stage red with no code change.
+  vi.stubEnv("DOCWALK_E2E_PORT", port);
   process.argv = [argv[0] ?? "node", "playwright", "test", ...args];
   return (await import("../playwright.config.ts")).default;
 }
@@ -19,8 +23,8 @@ afterEach(() => {
 });
 
 /** The URL of every web server the config starts for a command line. */
-async function servers(args: string[]) {
-  const { webServer } = await loadConfig(true, args);
+async function servers(args: string[], port?: string) {
+  const { webServer } = await loadConfig(true, args, port);
   return (Array.isArray(webServer) ? webServer : [webServer]).map((server) => server?.url);
 }
 
@@ -42,6 +46,15 @@ describe("which servers an e2e run starts", () => {
     expect(await servers(["--project", "chromium", "--project", "static-subpath"])).toEqual(both);
     // Playwright matches project names case-insensitively and with * wildcards.
     expect(await servers(["--project", "chromium", "Static-*"])).toEqual(both);
+  });
+
+  test("DOCWALK_E2E_PORT moves both servers, the sub-path one to the next port", async () => {
+    // Two checkouts or agents run the suite side by side by giving each its
+    // own port; a server left on 4175 would collide with the other run.
+    expect(await servers([], "5000")).toEqual([
+      "http://localhost:5000",
+      "http://localhost:5001/docwalk/",
+    ]);
   });
 });
 

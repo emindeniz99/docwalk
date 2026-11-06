@@ -9,7 +9,7 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 v1 and the v2 workspace and agent work are built (2026-11-06): round 1's
 tracks (CI, deck, Markdown, PWA, Monaco, canvas, comments, workspace, MCP),
 then i18n with a Turkish UI and a design polish round, each merged with a
-real merge commit. Review pass 1 is being fixed. Decision rows run to 68.
+real merge commit. Review pass 3 is being fixed. Decision rows run to 74.
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
 1 MB gzip and times the fixture's open and repaginate against decision 43.
@@ -25,7 +25,7 @@ reuses a server already listening on both ports outside CI.
 
 ## Decisions
 
-- 2026-11-05: The full decision list lives in `docs/decisions.md` (67 rows); the evidence is in `docs/prior-art.md`. This file stays short.
+- 2026-11-05: The full decision list lives in `docs/decisions.md`; the evidence is in `docs/prior-art.md`. This file stays short.
 - 2026-11-05: Thin viewer on reveal.js, Mermaid, drauu and unified, over forking Slidekick, Marp Core or Slidev + WebContainer: Slidekick splits on H1 and silently shrinks, Marp Core v5 is a release candidate, WebContainer needs a paid licence for employee use.
 - 2026-11-05: Vite SPA + Cloudflare Worker over Vinext: the UI runs entirely in the browser, and Vinext is pre-1.0.
 - 2026-11-05: Full semantic pagination and OAuth ship in v1, against a reviewer's advice to stage them. Slides are addressed by section id to keep links stable.
@@ -62,6 +62,7 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-05: Stryker 10's tsconfig preprocessor needs a TypeScript JS API that TypeScript 7 dropped (point `tsconfigFile` at a missing file). CI's pnpm/action-setup needs `package_json_file`; `pnpm deploy` is pnpm's own command (`pnpm run deploy`).
 - 2026-11-06: A size budget built from the HTML and preload lists misses what the app fetches after mount (the editor chunk, Mermaid's diagram types, ELK): 398 kB counted against 1339 kB downloaded. Sum the real responses in Playwright.
 - 2026-11-06: Repository secrets reach every workflow on every branch; only environment secrets wait for the environment's branch rules and reviewers.
+- 2026-11-06: A history rewrite that edits only commit messages leaves old file revisions intact; README, decisions and MEMORY carried private links for two commits. `--replace-text` rewrites every revision, and `git log -p --format=%B | grep` proves the result.
 
 ## Done
 
