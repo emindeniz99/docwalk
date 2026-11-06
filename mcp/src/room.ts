@@ -8,9 +8,11 @@ import type {
 } from "../../src/remote/types.ts";
 
 /**
- * The agent's seat in a docwalk room (decision 59). It joins with a join
- * link like a phone remote, so it uses the same client, key and checks as
- * the app (../../src/remote): the relay sees ciphertext only. Requests are
+ * The agent's seat in a docwalk room (decision 59). It joins with the phone
+ * remote link, so it uses the same client, control key and checks as the
+ * app (../../src/remote): the relay sees ciphertext only. The follow link
+ * holds only the view key, which reads no document and steers nothing
+ * (decision 68), so it is refused up front. Requests are
  * matched to answers by a random id; nothing is queued while the socket is
  * down, so a request made then fails with a message the agent can act on.
  */
@@ -40,7 +42,7 @@ export class RoomError extends Error {
   }
 }
 
-/** The room in a join link (`…#room=<id>&k=<key>`) and the origin its relay lives on. */
+/** The room in a join link (`…#room=<id>&k=<key>` or `…&v=<key>`) and the origin its relay lives on. */
 export function parseJoinLink(link: string): { creds: RoomCredentials; base: string } | null {
   let url: URL;
   try {
@@ -82,9 +84,14 @@ export class RoomAgent {
         "That is not a docwalk join link. Copy the phone remote link from the Remote control dialog: it ends in #room=…&k=….",
       );
     }
+    if (parsed.creds.key === null) {
+      throw new Error(
+        "That is the follow along link, which can only watch the deck. Copy the phone remote link from the Remote control dialog: it ends in #room=…&k=….",
+      );
+    }
     this.timeoutMs = timeoutMs;
     this.conn = connectRoom({
-      creds: parsed.creds,
+      creds: { room: parsed.creds.room, key: parsed.creds.key, view: null },
       role: "agent",
       base: parsed.base,
       ...(socketFactory ? { socketFactory } : {}),

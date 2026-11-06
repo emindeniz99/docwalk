@@ -68,7 +68,9 @@ describe("splitting", () => {
     ))!;
     expect(parts.length).toBeGreaterThan(2);
     for (const part of parts) {
-      const frame = JSON.stringify(await encrypt(key, { ...part, id: longId }));
+      // The longest seal too: a 64-character sender id and the largest counter.
+      const seal = { sender: longId, counter: Number.MAX_SAFE_INTEGER };
+      const frame = JSON.stringify(await encrypt(key, { ...part, id: longId }, seal));
       expect(frame.length).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
     }
   });

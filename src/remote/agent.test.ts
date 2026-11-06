@@ -131,6 +131,8 @@ describe("answering an agent", () => {
   });
 });
 
+const SEAL = { sender: "SenderSender", counter: 1 };
+
 describe("agent messages on the wire", () => {
   test("every new message type survives encryption and validation unchanged", async () => {
     const key = await importKey(createRoomCredentials().key);
@@ -152,13 +154,13 @@ describe("agent messages on the wire", () => {
       { type: "part", to: FROM, id: "PartPartPart", seq: 0, total: 1, data: "AAAA" },
     ];
     for (const message of messages)
-      expect(await decrypt(key, await encrypt(key, message))).toEqual(message);
+      expect((await decrypt(key, await encrypt(key, message, SEAL)))?.message).toEqual(message);
   });
 
   test("an agent name cannot carry control characters or run long, since the presenter's notice shows it", async () => {
     const key = await importKey(createRoomCredentials().key);
     for (const name of ["", "evil\nname", "x".repeat(65)]) {
-      expect(await decrypt(key, await encrypt(key, { ...write("x"), name }))).toBeNull();
+      expect(await decrypt(key, await encrypt(key, { ...write("x"), name }, SEAL))).toBeNull();
     }
   });
 
@@ -171,7 +173,7 @@ describe("agent messages on the wire", () => {
       { type: "doc", request: "GetGetGetGet", to: FROM, markdown: "x", revision: "short" },
     ];
     for (const message of bad) {
-      expect(await decrypt(key, await encrypt(key, message as RemoteMessage))).toBeNull();
+      expect(await decrypt(key, await encrypt(key, message as RemoteMessage, SEAL))).toBeNull();
     }
   });
 });

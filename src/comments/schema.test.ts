@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   DAMAGED_FILE,
   mergeComments,
@@ -113,6 +113,35 @@ describe("merging an import", () => {
     const merged = mergeComments([mine], [theirsOld, theirsNew]);
     expect(merged?.comments).toEqual([mine, theirsNew]);
     expect(merged?.changed).toBe(1);
+  });
+
+  test("a copy dated in the future counts as edited now, so it cannot beat every later local edit", () => {
+    // A hand-made link once carried updated = 8.64e15 (the last valid Date):
+    // it won every merge for good, and the next edit (updated + 1) wrote a
+    // timestamp the schema refuses, so the whole stored list read as empty.
+    vi.useFakeTimers({ now: 1_800_000_000_000 });
+    try {
+      const forged = comment({ id: "a", text: "forged", created: 8.64e15, updated: 8.64e15 });
+      const parsed = parseCommentsText(file([forged]));
+      expect(parsed.ok && parsed.comments[0]).toMatchObject({
+        created: 1_800_000_000_000,
+        updated: 1_800_000_000_000,
+      });
+      // The user edits the comment a second later, the way useComments does.
+      vi.advanceTimersByTime(1000);
+      const imported = parsed.ok ? parsed.comments[0]! : forged;
+      const edited = {
+        ...imported,
+        text: "mine",
+        updated: Math.max(Date.now(), imported.updated + 1),
+      };
+      expect(parseCommentsText(file([edited])).ok).toBe(true);
+      // The same link imported again does not take the comment back.
+      const again = parseCommentsText(file([forged]));
+      expect(again.ok && mergeComments([edited], again.comments)?.comments).toEqual([edited]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("an import that would pass the per-document cap is refused, not truncated", () => {

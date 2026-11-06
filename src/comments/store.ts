@@ -8,8 +8,8 @@
  * What it reads back is validated like any other input (decision 46).
  */
 import * as v from "valibot";
-import { CommentListSchema, dedupe } from "./schema";
-import type { DocComment } from "./types";
+import { CommentSchema, dedupe } from "./schema";
+import { MAX_COMMENTS, type DocComment } from "./types";
 
 export const DB_NAME = "docwalk-comments";
 const DB_VERSION = 1;
@@ -51,12 +51,21 @@ function openDb(name: string): Promise<IDBDatabase> {
   });
 }
 
-/** A record another build or a damaged profile wrote reads as no comments, not as a crash. */
+/**
+ * The valid comments of a record another build or a damaged profile wrote.
+ * A bad comment is dropped alone: refusing the whole record would read as
+ * "no comments", and the next save would write that over the good ones.
+ */
 function validList(value: unknown): DocComment[] {
   const comments =
     typeof value === "object" && value !== null ? (value as { comments?: unknown }).comments : [];
-  const result = v.safeParse(CommentListSchema, comments);
-  return result.success ? dedupe(result.output) : [];
+  if (!Array.isArray(comments)) return [];
+  const valid: DocComment[] = [];
+  for (const item of comments.slice(0, MAX_COMMENTS)) {
+    const result = v.safeParse(CommentSchema, item);
+    if (result.success) valid.push(result.output);
+  }
+  return dedupe(valid);
 }
 
 export function memoryStore(): CommentStore {

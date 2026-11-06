@@ -42,6 +42,13 @@ const MESSAGES: RemoteMessage[] = [
   { type: "hello", role: "follower", id: "AbCdEfGhIjKl" },
 ];
 
+/** A seal for tests: any sender id, any counter. */
+const SEAL = { sender: "SenderSender", counter: 1 };
+
+/** `message` inside a valid seal, as JSON text: a key holder's plaintext. */
+const sealed = (message: unknown) =>
+  JSON.stringify({ s: SEAL.sender, n: SEAL.counter, m: message });
+
 /** Encrypts arbitrary text under `key`, as a hostile key holder could. */
 async function encryptRaw(key: RoomKey, plaintext: string): Promise<EncryptedFrame> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -50,7 +57,7 @@ async function encryptRaw(key: RoomKey, plaintext: string): Promise<EncryptedFra
     key,
     new TextEncoder().encode(plaintext),
   );
-  return { v: 1, iv: toBase64Url(iv), data: toBase64Url(new Uint8Array(data)) };
+  return { v: 2, iv: toBase64Url(iv), data: toBase64Url(new Uint8Array(data)) };
 }
 
 /** Flips one bit of a base64url string's decoded bytes. */
@@ -64,8 +71,15 @@ describe("room credentials", () => {
   test("a room id is 22 base64url characters and a key 43: enough entropy that ids cannot be guessed", () => {
     const creds = createRoomCredentials();
     expect(creds.room).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(creds.key).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(fromBase64Url(creds.key)).toHaveLength(32);
+    for (const key of [creds.key, creds.view]) {
+      expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(fromBase64Url(key)).toHaveLength(32);
+    }
+  });
+
+  test("the view key is a second random key, not the control key: a follow link cannot steer", () => {
+    const creds = createRoomCredentials();
+    expect(creds.view).not.toBe(creds.key);
   });
 
   test("every room is new: two presenters never share a room by accident", () => {
@@ -88,13 +102,35 @@ describe("encrypt and decrypt", () => {
   test("every message type survives the round trip unchanged", async () => {
     const key = await importKey(createRoomCredentials().key);
     for (const message of MESSAGES) {
-      expect(await decrypt(key, await encrypt(key, message))).toEqual(message);
+      expect((await decrypt(key, await encrypt(key, message, SEAL)))?.message).toEqual(message);
+    }
+  });
+
+  test("the sender id and counter travel inside the ciphertext, for replay protection", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const seal = { sender: "AbCdEfGhIjKl", counter: 41 };
+    const frame = await encrypt(key, { type: "step", direction: 1 }, seal);
+    expect(await decrypt(key, frame)).toEqual({ ...seal, message: { type: "step", direction: 1 } });
+    expect(JSON.stringify(frame)).not.toContain(seal.sender);
+  });
+
+  test("a bare message without a seal, or with a bad one, is dropped: a replayable frame never passes", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const step = { type: "step", direction: 1 };
+    for (const plaintext of [
+      JSON.stringify(step),
+      JSON.stringify({ s: "AbCdEfGhIjKl", m: step }),
+      JSON.stringify({ s: "AbCdEfGhIjKl", n: -1, m: step }),
+      JSON.stringify({ s: "AbCdEfGhIjKl", n: 1.5, m: step }),
+      JSON.stringify({ s: "<x>", n: 1, m: step }),
+    ]) {
+      expect(await decrypt(key, await encryptRaw(key, plaintext))).toBeNull();
     }
   });
 
   test("the frame carries only ciphertext: the relay never sees an address or title", async () => {
     const key = await importKey(createRoomCredentials().key);
-    const frame = await encrypt(key, MESSAGES[0]!);
+    const frame = await encrypt(key, MESSAGES[0]!, SEAL);
     expect(Object.keys(frame).toSorted()).toEqual(["data", "iv", "v"]);
     expect(JSON.stringify(frame)).not.toContain("retries");
     expect(JSON.stringify(frame)).not.toContain("Retries");
@@ -103,12 +139,14 @@ describe("encrypt and decrypt", () => {
   test("a frame under another room's key is dropped, so a stranger cannot steer the deck", async () => {
     const ours = await importKey(createRoomCredentials().key);
     const theirs = await importKey(createRoomCredentials().key);
-    expect(await decrypt(ours, await encrypt(theirs, { type: "step", direction: 1 }))).toBeNull();
+    expect(
+      await decrypt(ours, await encrypt(theirs, { type: "step", direction: 1 }, SEAL)),
+    ).toBeNull();
   });
 
   test("a frame altered in transit is dropped: the relay cannot forge or edit navigation", async () => {
     const key = await importKey(createRoomCredentials().key);
-    const frame = await encrypt(key, { type: "goto", address: "intro/1" });
+    const frame = await encrypt(key, { type: "goto", address: "intro/1" }, SEAL);
     expect(await decrypt(key, { ...frame, data: flipBit(frame.data, 0) })).toBeNull();
     expect(await decrypt(key, { ...frame, iv: flipBit(frame.iv, 3) })).toBeNull();
     // Truncating the authentication tag is tampering too.
@@ -118,7 +156,9 @@ describe("encrypt and decrypt", () => {
   test("IVs never repeat, because a repeated AES-GCM IV under one key leaks plaintext", async () => {
     const key = await importKey(createRoomCredentials().key);
     const message: RemoteMessage = { type: "step", direction: 1 };
-    const frames = await Promise.all(Array.from({ length: 2000 }, () => encrypt(key, message)));
+    const frames = await Promise.all(
+      Array.from({ length: 2000 }, () => encrypt(key, message, SEAL)),
+    );
     expect(new Set(frames.map((f) => f.iv)).size).toBe(frames.length);
     expect(new Set(frames.map((f) => f.data)).size).toBe(frames.length);
     expect(frames.every((f) => fromBase64Url(f.iv)?.length === 12)).toBe(true);
@@ -126,14 +166,14 @@ describe("encrypt and decrypt", () => {
 
   test("anything that is not an encrypted frame is dropped without throwing", async () => {
     const key = await importKey(createRoomCredentials().key);
-    const frame = await encrypt(key, { type: "laser-off" });
+    const frame = await encrypt(key, { type: "laser-off" }, SEAL);
     for (const junk of [
       null,
       "text",
       42,
       [],
       {},
-      { ...frame, v: 2 },
+      { ...frame, v: 1 },
       { ...frame, iv: "short" },
       { ...frame, data: "" },
       { ...frame, data: "not base64url!" },
@@ -171,7 +211,7 @@ describe("encrypt and decrypt", () => {
       { ...state, level: "H2" },
     ];
     for (const message of hostile) {
-      expect(await decrypt(key, await encryptRaw(key, JSON.stringify(message)))).toBeNull();
+      expect(await decrypt(key, await encryptRaw(key, sealed(message)))).toBeNull();
     }
     expect(await decrypt(key, await encryptRaw(key, "{not json"))).toBeNull();
   });
@@ -181,7 +221,7 @@ describe("encrypt and decrypt", () => {
     // are what that presenter meant (it had no level override to send).
     const key = await importKey(createRoomCredentials().key);
     const old = { type: "state", current: "a/1", index: 0, total: 1, title: "A", docLink: null };
-    expect(await decrypt(key, await encryptRaw(key, JSON.stringify(old)))).toEqual({
+    expect((await decrypt(key, await encryptRaw(key, sealed(old))))?.message).toEqual({
       ...old,
       docLinkTooLong: false,
       level: "auto",
@@ -192,9 +232,9 @@ describe("encrypt and decrypt", () => {
     const key = await importKey(createRoomCredentials().key);
     const frame = await encryptRaw(
       key,
-      JSON.stringify({ type: "step", direction: 1, html: "<img onerror=x>" }),
+      sealed({ type: "step", direction: 1, html: "<img onerror=x>" }),
     );
-    expect(await decrypt(key, frame)).toEqual({ type: "step", direction: 1 });
+    expect((await decrypt(key, frame))?.message).toEqual({ type: "step", direction: 1 });
   });
 });
 
@@ -209,11 +249,24 @@ describe("join links", () => {
     expect(url.hash).toContain(creds.key);
   });
 
-  test("format then parse returns the same room for both views", () => {
-    for (const view of ["remote", "follow"] as const) {
-      const url = new URL(formatJoinUrl("https://docwalk.example/", view, creds));
-      expect(parseJoinFragment(url.hash)).toEqual(creds);
-    }
+  test("the remote link carries only the control key and the follow link only the view key", () => {
+    // The follow link goes to an audience: with the control key in it, anyone
+    // there could steer the deck, read the document and, with agent edits on,
+    // replace it (decision 68).
+    const remote = new URL(formatJoinUrl("https://docwalk.example/", "remote", creds));
+    const follow = new URL(formatJoinUrl("https://docwalk.example/", "follow", creds));
+    expect(parseJoinFragment(remote.hash)).toEqual({
+      room: creds.room,
+      key: creds.key,
+      view: null,
+    });
+    expect(parseJoinFragment(follow.hash)).toEqual({
+      room: creds.room,
+      key: null,
+      view: creds.view,
+    });
+    expect(follow.href).not.toContain(creds.key);
+    expect(remote.href).not.toContain(creds.view);
   });
 
   test("the presenter's own query and fragment do not leak into the join link", () => {
@@ -228,7 +281,11 @@ describe("join links", () => {
   });
 
   test("parsing accepts the hash with or without its #", () => {
-    expect(parseJoinFragment(`room=${creds.room}&k=${creds.key}`)).toEqual(creds);
+    expect(parseJoinFragment(`room=${creds.room}&k=${creds.key}`)).toEqual({
+      room: creds.room,
+      key: creds.key,
+      view: null,
+    });
   });
 
   test("an incomplete or altered link yields no credentials instead of a broken room", () => {
@@ -241,6 +298,8 @@ describe("join links", () => {
       `#room=${creds.room}&k=${creds.key.slice(1)}`,
       `#room=${creds.room}&k=${creds.key.slice(0, -1)}+`,
       `#room=${creds.room.slice(0, -1)}%2F&k=${creds.key}`,
+      `#room=${creds.room}&v=${creds.view.slice(1)}`,
+      `#room=${creds.room}&k=${creds.key}&v=short`,
     ]) {
       expect(parseJoinFragment(hash)).toBeNull();
     }

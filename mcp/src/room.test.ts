@@ -17,14 +17,28 @@ import { parseJoinLink, RoomAgent, RoomError } from "./room.ts";
  * side changes a message shape, these tests stop passing.
  */
 
+/** Frames the relay carried, and a way to send one again to everyone, as a hostile relay could. */
+let recorded: { frames: string[]; replay: (frame: string) => void } = {
+  frames: [],
+  replay: () => {},
+};
+
 /** Forwards every frame to every other socket, as the Worker's room does. */
 function relay() {
   const sockets = new Set<SocketHandlers>();
+  const frames: string[] = [];
+  recorded = {
+    frames,
+    replay: (frame) => {
+      for (const socket of sockets) setTimeout(() => socket.message(frame), 0);
+    },
+  };
   const factory: SocketFactory = (_url, handlers) => {
     sockets.add(handlers);
     setTimeout(() => handlers.open(), 0);
     return {
       send(data) {
+        frames.push(data);
         for (const other of sockets)
           if (other !== handlers) setTimeout(() => other.message(data), 0);
       },
@@ -96,14 +110,24 @@ function agent(factory: SocketFactory, link: string, timeoutMs = 2000) {
 }
 
 describe("join links", () => {
-  test("the phone remote and follow links both work; anything without a room key does not", () => {
+  test("the phone remote link works; anything without a room key does not", () => {
     const creds = createRoomCredentials();
-    expect(parseJoinLink(formatJoinUrl(BASE, "remote", creds))?.creds).toEqual(creds);
-    expect(parseJoinLink(` ${formatJoinUrl(BASE, "follow", creds)}\n`)?.creds).toEqual(creds);
+    expect(parseJoinLink(` ${formatJoinUrl(BASE, "remote", creds)}\n`)?.creds).toEqual({
+      room: creds.room,
+      key: creds.key,
+      view: null,
+    });
     expect(parseJoinLink("https://docwalk.example/?view=remote")).toBeNull();
     expect(parseJoinLink("javascript:alert(1)#room=x&k=y")).toBeNull();
     expect(parseJoinLink("not a url")).toBeNull();
     expect(() => new RoomAgent({ link: "nope" })).toThrow("not a docwalk join link");
+  });
+
+  test("the follow along link is refused with a pointer to the remote link: it can only watch", () => {
+    // The follow link goes to an audience, so it holds only the view key
+    // (decision 68): it reads no document and steers nothing.
+    const follow = formatJoinUrl(BASE, "follow", createRoomCredentials());
+    expect(() => new RoomAgent({ link: follow })).toThrow("follow along link");
   });
 });
 
@@ -163,6 +187,30 @@ describe("room agent", () => {
     const error = await room.getDocument().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(RoomError);
     expect((error as RoomError).message).toContain("did not answer");
+  });
+
+  test("a relay that replays an agent's earlier write cannot revert the document", async () => {
+    const factory = relay();
+    const { link, doc } = presenter(factory, "# Deck\n", () => true);
+    const room = agent(factory, link);
+    await room.writeDocument("# First\n", { name: "codex", base: null });
+    const firstWrite = recorded.frames.slice();
+    await room.writeDocument("# Second\n", { name: "codex", base: null });
+    for (const frame of firstWrite) recorded.replay(frame);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(doc.markdown).toBe("# Second\n");
+  });
+
+  test("a replayed state does not move the agent's idea of the current slide back", async () => {
+    const factory = relay();
+    const { link } = presenter(factory, "# Deck\n", () => true);
+    const room = agent(factory, link);
+    await room.goTo("s4");
+    const atFour = recorded.frames.slice();
+    await room.goTo("s2");
+    for (const frame of atFour) recorded.replay(frame);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(room.state?.current).toBe("s2/1");
   });
 
   test("two agents in one room each get their own answers", async () => {

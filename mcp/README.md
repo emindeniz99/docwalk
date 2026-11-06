@@ -30,7 +30,10 @@ one ("Last changed by claude-code at 14:03").
 1. Open docwalk in full mode (a deployment with the Worker; static hosting
    has no rooms).
 2. More actions › **Remote and followers…**
-3. Copy the **Phone remote** link. It ends in `#room=…&k=…`.
+3. Copy the **Phone remote** link. It ends in `#room=…&k=…`. The
+   **Follow along** link (`#room=…&v=…`) does not work here: it holds only
+   the view key, which can watch the deck but not move it or read the
+   document.
 4. Switch on **Allow agent edits** when you want the agent to change the
    document.
 
@@ -88,7 +91,10 @@ would end the end-to-end encryption.
 ## How it talks to the room
 
 The server reuses the app's room client (`../src/remote/client.ts`), so the
-key handling, message validation and reconnects are the app's own. Agent
+key handling, message validation and reconnects are the app's own. Every
+frame carries a random sender id and a counter inside the ciphertext, and a
+frame the client has already seen from that sender is dropped, so the relay
+cannot replay an old write or an old slide. Agent
 messages are addressed: requests carry the agent's id, answers carry it back,
 and other participants drop answers that are not theirs. The relay drops
 frames over 16 KB, so a document or slide list larger than that travels as

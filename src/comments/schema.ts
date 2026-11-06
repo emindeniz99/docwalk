@@ -34,18 +34,29 @@ const AnchorSchema = v.variant("kind", [
 
 const Timestamp = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(8.64e15));
 
-export const CommentSchema = v.object({
-  id: v.pipe(v.string(), v.regex(/^[\w-]{1,64}$/)),
-  anchor: AnchorSchema,
-  text: v.pipe(
-    v.string(),
-    v.maxLength(MAX_COMMENT_CHARS),
-    v.check((t) => t.trim() !== "", "empty comment"),
-  ),
-  created: Timestamp,
-  updated: Timestamp,
-  resolved: v.boolean(),
-});
+/**
+ * One comment. A time in the future (a hand-made link, a clock set ahead)
+ * reads as now: otherwise that copy would win every merge for good, and an
+ * edit (`updated + 1`) could step past the largest valid Date.
+ */
+export const CommentSchema = v.pipe(
+  v.object({
+    id: v.pipe(v.string(), v.regex(/^[\w-]{1,64}$/)),
+    anchor: AnchorSchema,
+    text: v.pipe(
+      v.string(),
+      v.maxLength(MAX_COMMENT_CHARS),
+      v.check((t) => t.trim() !== "", "empty comment"),
+    ),
+    created: Timestamp,
+    updated: Timestamp,
+    resolved: v.boolean(),
+  }),
+  v.transform((c) => {
+    const updated = Math.min(c.updated, Date.now());
+    return { ...c, created: Math.min(c.created, updated), updated };
+  }),
+);
 
 export const CommentListSchema = v.pipe(v.array(CommentSchema), v.maxLength(MAX_COMMENTS));
 

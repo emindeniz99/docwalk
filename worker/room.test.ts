@@ -1,7 +1,9 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { API_LIMITS } from "../src/api/types";
+import { createRoomCredentials, encrypt, importKey, randomId } from "../src/remote/crypto";
 import type { EncryptedFrame } from "../src/remote/types";
+import { isRelayable } from "./room";
 
 let roomCounter = 0;
 /** A fresh room per test: rooms are Durable Objects that outlive a test. */
@@ -45,11 +47,23 @@ async function waitFor(check: () => boolean, ms = 2000): Promise<void> {
 }
 
 function frame(data: string): string {
-  const value: EncryptedFrame = { v: 1, iv: "AAAAAAAAAAAAAAAA", data };
+  const value: EncryptedFrame = { v: 2, iv: "AAAAAAAAAAAAAAAA", data };
   return JSON.stringify(value);
 }
 
 describe("RemoteRoom relay", () => {
+  it("relays the frames real clients encrypt", async () => {
+    // The relay checks the envelope's version; when the clients bumped it and
+    // the relay did not, every frame was dropped while client tests stayed green.
+    const key = await importKey(createRoomCredentials().key);
+    const sealed = await encrypt(
+      key,
+      { type: "step", direction: 1 },
+      { sender: randomId(), counter: 0 },
+    );
+    expect(isRelayable(JSON.stringify(sealed))).toBe(true);
+  });
+
   it("forwards a frame to every other socket unchanged and not back to the sender", async () => {
     const room = newRoom();
     const presenter = await joinOk(room);
@@ -89,9 +103,10 @@ describe("RemoteRoom relay", () => {
       oversized,
       "not json",
       JSON.stringify({ type: "step", direction: 1 }), // plaintext RemoteMessage, not encrypted
-      JSON.stringify({ v: 2, iv: "AAAA", data: "AAAA" }),
-      JSON.stringify({ v: 1, iv: "AAAA", data: "AAAA", note: "smuggled plaintext" }),
-      JSON.stringify({ v: 1, iv: "AA==", data: "AAAA" }),
+      JSON.stringify({ v: 1, iv: "AAAA", data: "AAAA" }), // the old frame version
+      JSON.stringify({ v: 3, iv: "AAAA", data: "AAAA" }),
+      JSON.stringify({ v: 2, iv: "AAAA", data: "AAAA", note: "smuggled plaintext" }),
+      JSON.stringify({ v: 2, iv: "AA==", data: "AAAA" }),
     ]) {
       sender.send(bad);
     }

@@ -13,9 +13,13 @@ import type { Env } from "./env";
 
 const Base64Url = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]+$/));
 
-/** Only the ciphertext envelope passes; extra fields could smuggle plaintext. */
+/**
+ * Only the ciphertext envelope passes; extra fields could smuggle plaintext.
+ * `v` must match the clients' frame version (src/remote/types.ts), or the
+ * relay drops every frame while the clients' own tests stay green.
+ */
 const EncryptedFrameSchema = v.strictObject({
-  v: v.literal(1),
+  v: v.literal(2),
   iv: v.pipe(Base64Url, v.maxLength(64)),
   data: Base64Url,
 }) satisfies v.GenericSchema<unknown, EncryptedFrame>;

@@ -420,6 +420,7 @@ function AddComment({
   const initialKey = initial ? anchorKey(initial) : null;
   const [picked, setPicked] = useState<string | null>(null);
   const [text, setText] = useState("");
+  const textRef = useRef<HTMLTextAreaElement>(null);
   // A marker or a new slide changes the default and drops an earlier pick
   // (adjusted during render, React's pattern for state that follows a prop).
   const [seenInitial, setSeenInitial] = useState(initialKey);
@@ -443,6 +444,10 @@ function AddComment({
     if (!target || text.trim() === "") return;
     if (api.add(target.anchor, text)) {
       setText("");
+      // The Add button disables once the text clears, and a disabled button
+      // drops focus to <body> (outside the sheet's dialog): keep it here,
+      // ready for the next comment.
+      textRef.current?.focus();
       onAdded();
     }
   };
@@ -513,6 +518,7 @@ function AddComment({
         aria-label={m.comments_new()}
       >
         <TextArea
+          ref={textRef}
           className="docwalk-comments-textarea"
           placeholder={m.comments_placeholder()}
           rows={3}

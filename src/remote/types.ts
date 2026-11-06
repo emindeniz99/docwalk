@@ -3,8 +3,10 @@
  *
  * A presenter opens a room; phones join as remotes, other devices as
  * followers, by QR code or link: `<origin>/?view=remote#room=<id>&k=<key>` or
- * `?view=follow#room=<id>&k=<key>`. The key never reaches the server: it lives
- * in the URL fragment. Every frame on the wire is an `EncryptedFrame`; the
+ * `?view=follow#room=<id>&v=<key>`. The keys never reach the server: they live
+ * in the URL fragment. The control key (`k`) steers the deck and reads and
+ * writes the document; the view key (`v`) only follows (decision 68). Every
+ * frame on the wire is an `EncryptedFrame`; the
  * relay (worker/) only forwards bytes. The document itself is never sent:
  * followers load it from the share link (`?src=`, `?repo=` or `#doc=`), which
  * the presenter includes in its `hello`.
@@ -102,14 +104,20 @@ export const PRESENTER_ID = "presenter";
 
 /** What travels over the WebSocket: AES-GCM ciphertext and its IV, base64url. */
 export interface EncryptedFrame {
-  v: 1;
+  v: 2;
   iv: string;
   data: string;
 }
 
-/** Parsed from the join URL fragment. */
+/**
+ * A room and the keys a participant holds, each a raw 256-bit AES-GCM key,
+ * base64url. The presenter holds both; a remote link carries only `key`, a
+ * follow link only `view`.
+ */
 export interface RoomCredentials {
   room: string;
-  /** Raw 256-bit AES-GCM key, base64url. */
-  key: string;
+  /** Control key: steer the deck, read and write the document (`k=`). */
+  key: string | null;
+  /** View key: receive the presenter's state and say hello as a follower (`v=`). */
+  view: string | null;
 }

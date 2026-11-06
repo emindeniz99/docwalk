@@ -76,6 +76,11 @@ class FakeRelay {
     };
   };
 
+  /** A hostile relay sends a frame it carried earlier to every socket again. */
+  replay(frame: string) {
+    for (const entry of this.sockets) setTimeout(() => entry.handlers.message(frame), 0);
+  }
+
   /** The server drops a socket (deploy, network loss). */
   drop(index: number) {
     const entry = [...this.sockets][index]!;
@@ -249,7 +254,11 @@ describe("room connection", () => {
     const relay = new FakeRelay();
     const creds = createRoomCredentials();
     const presenter = peer(relay, creds, "presenter");
-    const stranger = peer(relay, { room: creds.room, key: createRoomCredentials().key }, "remote");
+    const stranger = peer(
+      relay,
+      { room: creds.room, key: createRoomCredentials().key, view: null },
+      "remote",
+    );
     const friend = peer(relay, creds, "remote");
     await opened(presenter);
     await opened(stranger);
@@ -337,6 +346,64 @@ describe("room connection", () => {
     expect(presenter.received.filter((m) => m.type.startsWith("laser")).map((m) => m.type)).toEqual(
       ["laser", "laser-off"],
     );
+  });
+
+  test("a relay that replays a remote's press cannot move the deck again", async () => {
+    // The relay is untrusted (decision 8): recording one Next and sending it
+    // again later would move the presenter's deck without anyone pressing.
+    const relay = new FakeRelay();
+    const creds = createRoomCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const remote = peer(relay, creds, "remote");
+    await opened(presenter);
+    await opened(remote);
+    await vi.waitFor(() => expect(ofType(presenter, "hello")).toHaveLength(1));
+    const before = relay.wire.length;
+    await remote.conn.send({ type: "step", direction: 1 });
+    await vi.waitFor(() => expect(ofType(presenter, "step")).toHaveLength(1));
+    const press = relay.wire[before]!;
+    relay.replay(press);
+    relay.replay(press);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ofType(presenter, "step")).toHaveLength(1);
+    // A real second press still gets through.
+    await remote.conn.send({ type: "step", direction: 1 });
+    await vi.waitFor(() => expect(ofType(presenter, "step")).toHaveLength(2));
+  });
+
+  test("a follower cannot read an agent's answers, nor forge one: the view key does not reach them", async () => {
+    // Before the key split, any audience member could answer an agent's
+    // doc-get with a forged document (prompt injection) or report a failed
+    // write as done, since every frame was under the one room key.
+    const relay = new FakeRelay();
+    const creds = createRoomCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const agent = peer(relay, { ...creds, view: null }, "agent");
+    const follower = peer(relay, { ...creds, key: null }, "follower");
+    await opened(presenter);
+    await opened(agent);
+    await opened(follower);
+    const doc = (markdown: string): RemoteMessage => ({
+      type: "doc",
+      request: "GetGetGetGet",
+      to: agent.conn.id,
+      markdown,
+      revision: "r".repeat(22),
+    });
+    await follower.conn.send(doc("# Forged\n"));
+    await presenter.conn.send(doc("# Real\n"));
+    await vi.waitFor(() => expect(ofType(agent, "doc")).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ofType(agent, "doc").map((m) => m.markdown)).toEqual(["# Real\n"]);
+    expect(follower.received.filter((m) => m.type !== "hello")).toEqual([]);
+  });
+
+  test("a follow link opened as a remote cannot connect: it has no control key", async () => {
+    const relay = new FakeRelay();
+    const creds = createRoomCredentials();
+    const remote = peer(relay, { ...creds, key: null }, "remote");
+    await vi.waitFor(() => expect(remote.statuses.at(-1)).toBe("closed"));
+    expect(relay.urls).toHaveLength(0);
   });
 
   test("a handler that throws once does not stop later frames, and the error is reported", async () => {
@@ -448,10 +515,11 @@ describe("presenter host", () => {
       socketFactory: relay.factory,
       base: BASE,
     });
+    const remoteCreds = parseJoinFragment(new URL(host.current!.joinUrls.remote).hash)!;
     const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
     // The host connects once it holds the room, which is async; wait so the join order is fixed.
     await vi.waitFor(() => expect(host.current!.status).toBe("open"));
-    const remote = peer(relay, creds, "remote");
+    const remote = peer(relay, remoteCreds, "remote");
     peer(relay, creds, "follower");
     peer(relay, creds, "follower");
     await vi.waitFor(() =>
@@ -465,6 +533,52 @@ describe("presenter host", () => {
     });
     await new Promise((r) => setTimeout(r, 50));
     expect(host.current!.participants).toEqual({ remotes: 1, followers: 2, agents: 0 });
+  });
+
+  test("the follow link only follows: a modified follower client cannot steer the deck or touch the document", async () => {
+    // The follow link is posted to an audience. With the control key in it,
+    // an attendee could move the deck, read the document over the room and,
+    // with agent edits on, replace it (decision 68).
+    const relay = new FakeRelay();
+    const controller = fakeController();
+    const onAgentEdit = vi.fn<(markdown: string, name: string) => void>();
+    const host = mountHost({
+      controller,
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      markdown: "# Private notes\n",
+      onAgentEdit,
+    });
+    act(() => host.current!.setAllowAgentEdits(true));
+    const creds = parseJoinFragment(new URL(host.current!.joinUrls.follow).hash)!;
+    expect(creds.key).toBeNull();
+    const attendee = peer(relay, creds, "follower");
+    await vi.waitFor(() => expect(ofType(attendee, "state").length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(host.current!.participants.followers).toBe(1));
+
+    const from = attendee.conn.id;
+    await attendee.conn.send({ type: "hello", role: "remote", id: "PretendRemote" });
+    await attendee.conn.send({ type: "step", direction: 1 });
+    await attendee.conn.send({ type: "goto", address: "section-5/1" });
+    await attendee.conn.send({ type: "laser", x: 0.5, y: 0.5 });
+    await attendee.conn.send({ type: "doc-get", request: "GetGetGetGet", from });
+    await attendee.conn.send({
+      type: "doc-write",
+      request: "WriteWriteWr",
+      from,
+      name: "attendee",
+      markdown: "# Replaced\n",
+      base: null,
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(controller.next).not.toHaveBeenCalled();
+    expect(controller.goTo).not.toHaveBeenCalled();
+    expect(host.current!.laser).toBeNull();
+    expect(onAgentEdit).not.toHaveBeenCalled();
+    expect(attendee.received.filter((m) => m.type !== "state")).toEqual([]);
+    expect(host.current!.participants).toEqual({ remotes: 0, followers: 1, agents: 0 });
   });
 
   test("a doc link too long for the relay is left out and reported, instead of losing the whole state", async () => {
@@ -988,13 +1102,19 @@ describe("phone remote view", () => {
     mount(h(RemoteView, { creds: null }));
     expect(document.querySelector("h1")?.textContent).toBe("This remote link is incomplete");
   });
+
+  test("a follow link opened as a remote says the link is incomplete: it has no control key", () => {
+    const { room, view } = createRoomCredentials();
+    mount(h(RemoteView, { creds: { room, key: null, view } }));
+    expect(document.querySelector("h1")?.textContent).toBe("This remote link is incomplete");
+  });
 });
 
 describe("join dialog", () => {
   const host = {
     joinUrls: {
       remote: `${BASE}?view=remote#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
-      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
+      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&v=${"v".repeat(43)}`,
     },
     participants: { remotes: 1, followers: 2, agents: 0 },
     status: "open" as const,
@@ -1072,7 +1192,7 @@ describe("join dialog: agents", () => {
   const host = {
     joinUrls: {
       remote: `${BASE}?view=remote#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
-      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&k=${"k".repeat(43)}`,
+      follow: `${BASE}?view=follow#room=${"r".repeat(22)}&v=${"v".repeat(43)}`,
     },
     participants: { remotes: 0, followers: 0, agents: 1 },
     status: "open" as const,

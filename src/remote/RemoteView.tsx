@@ -34,7 +34,7 @@ export const STATUS_TEXT: Record<RemoteStatus, () => string> = {
 export const PRESENTER_AWAY = m.phone_presenter_away;
 
 export interface RemoteViewProps {
-  /** From `parseJoinFragment(location.hash)`; null shows what is wrong with the link. */
+  /** From `parseJoinFragment(location.hash)`; null, or no control key (a follow link), shows what is wrong with the link. */
   creds: RoomCredentials | null;
   socketFactory?: SocketFactory;
   /** The page URL; defaults to the current location. */
@@ -64,7 +64,7 @@ function useRemoteControl(
     let active = true;
     // connectRoom sends `hello` on every (re)connect; the presenter answers with state.
     const conn = connectRoom({
-      creds: { room, key },
+      creds: { room, key, view: null },
       role: "remote",
       onMessage: (message) => {
         if (!active || message.type !== "state") return;
@@ -186,7 +186,7 @@ export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
   // A page root: its text follows a language switch made in another docwalk tab.
   useLocale();
 
-  if (!creds) {
+  if (!creds?.key) {
     return (
       <main className="docwalk-remote" aria-labelledby="docwalk-remote-title">
         <h1 id="docwalk-remote-title" className="docwalk-remote-title">

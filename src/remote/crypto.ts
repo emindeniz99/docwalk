@@ -3,11 +3,16 @@ import { MAX_DOCUMENT_BYTES } from "../inputs/types";
 import type { EncryptedFrame, RemoteMessage, RoomCredentials } from "./types";
 
 /**
- * End-to-end encryption for remote control (decision 8). The room key lives
- * only in the join link's fragment, so the relay sees ciphertext and nothing
+ * End-to-end encryption for remote control (decision 8). The room keys live
+ * only in the join links' fragments, so the relay sees ciphertext and nothing
  * else. Everything that comes back from the relay is hostile until it both
- * decrypts under the room key and validates (decision 46): a frame that
- * fails either check is dropped, never reported to the sender.
+ * decrypts under a room key and validates (decision 46): a frame that fails
+ * either check is dropped, never reported to the sender.
+ *
+ * A room has two keys (decision 68): the control key (`k=`, the phone remote
+ * link, agents) and the view key (`v=`, the follow link). client.ts decides
+ * what each key may carry. Every plaintext also carries its sender's random
+ * session id and a counter, so a receiver can drop a replayed frame.
  *
  * This file uses no DOM types, so the Node-run unit tests can import it.
  */
@@ -65,9 +70,17 @@ function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(length));
 }
 
-/** A fresh room: 16 random bytes of id (22 chars) and a 256-bit AES-GCM key (43 chars). */
-export function createRoomCredentials(): RoomCredentials {
-  return { room: toBase64Url(randomBytes(ROOM_BYTES)), key: toBase64Url(randomBytes(KEY_BYTES)) };
+/**
+ * A fresh room: 16 random bytes of id (22 chars) and two independent 256-bit
+ * AES-GCM keys (43 chars each), control and view. Independent, so the view
+ * key reveals nothing about the control key.
+ */
+export function createRoomCredentials(): RoomCredentials & { key: string; view: string } {
+  return {
+    room: toBase64Url(randomBytes(ROOM_BYTES)),
+    key: toBase64Url(randomBytes(KEY_BYTES)),
+    view: toBase64Url(randomBytes(KEY_BYTES)),
+  };
 }
 
 /** A random participant id for `hello`, 12 base64url characters. */
@@ -79,8 +92,14 @@ const RoomId = v.pipe(v.string(), v.regex(BASE64URL), v.minLength(22), v.maxLeng
 // 32 bytes are exactly 43 unpadded base64url characters.
 const RawKey = v.pipe(v.string(), v.regex(BASE64URL), v.length(43));
 
-/** Room credentials as they arrive from a URL fragment or from storage. */
-export const RoomCredentialsSchema = v.object({ room: RoomId, key: RawKey });
+/** The presenter's room as it comes back from storage: both keys. */
+export const RoomCredentialsSchema = v.object({ room: RoomId, key: RawKey, view: RawKey });
+
+/** A join link's fragment: the room and at least one key. */
+const JoinFragmentSchema = v.pipe(
+  v.object({ room: RoomId, key: v.nullable(RawKey), view: v.nullable(RawKey) }),
+  v.check((c) => c.key !== null || c.view !== null, "a join link carries a key"),
+);
 
 /** Imports the raw room key; rejects a key that is not exactly 256 bits. */
 export async function importKey(key: string): Promise<RoomKey> {
@@ -224,29 +243,55 @@ export const RemoteMessageSchema = v.variant("type", [
 ]) satisfies v.GenericSchema<unknown, RemoteMessage>;
 
 const FrameSchema = v.object({
-  v: v.literal(1),
+  // 2: the plaintext is a sealed message ({ s, n, m }) under a control or view key.
+  v: v.literal(2),
   // A 12-byte IV is 16 base64url characters.
   iv: v.pipe(v.string(), v.length(16)),
   data: v.pipe(v.string(), v.minLength(1)),
 });
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder("utf-8", { fatal: true });
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
-/** Encrypts one message with a fresh random 96-bit IV; an IV is never reused under a key. */
-export async function encrypt(key: RoomKey, message: RemoteMessage): Promise<EncryptedFrame> {
+/**
+ * Who sent a frame and in what order: a random id per connection (randomId)
+ * and a counter that only goes up. Both sit inside the ciphertext, so the
+ * relay can neither read nor change them; a receiver drops a counter it has
+ * already seen from that sender (replay.ts).
+ */
+export interface Seal {
+  sender: string;
+  counter: number;
+}
+
+export interface Sealed extends Seal {
+  message: RemoteMessage;
+}
+
+const SealSchema = v.object({
+  s: Id,
+  n: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
+  m: v.unknown(),
+});
+
+/** Encrypts one message with its seal and a fresh random 96-bit IV; an IV is never reused under a key. */
+export async function encrypt(
+  key: RoomKey,
+  message: RemoteMessage,
+  { sender, counter }: Seal,
+): Promise<EncryptedFrame> {
   const iv = randomBytes(IV_BYTES);
-  const plaintext = encoder.encode(JSON.stringify(message));
+  const plaintext = encoder.encode(JSON.stringify({ s: sender, n: counter, m: message }));
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
-  return { v: 1, iv: toBase64Url(iv), data: toBase64Url(new Uint8Array(ciphertext)) };
+  return { v: 2, iv: toBase64Url(iv), data: toBase64Url(new Uint8Array(ciphertext)) };
 }
 
 /**
- * The message inside `frame`, or null when the frame is malformed, was
- * encrypted under another key, was altered in transit, or carries a
- * plaintext that is not a valid `RemoteMessage`.
+ * The sealed message inside `frame`, or null when the frame is malformed,
+ * was encrypted under another key, was altered in transit, or carries a
+ * plaintext that is not a valid seal around a valid `RemoteMessage`.
  */
-export async function decrypt(key: RoomKey, frame: unknown): Promise<RemoteMessage | null> {
+export async function decrypt(key: RoomKey, frame: unknown): Promise<Sealed | null> {
   const parsedFrame = v.safeParse(FrameSchema, frame);
   if (!parsedFrame.success) return null;
   const iv = fromBase64Url(parsedFrame.output.iv);
@@ -259,33 +304,49 @@ export async function decrypt(key: RoomKey, frame: unknown): Promise<RemoteMessa
   } catch {
     return null;
   }
-  const message = v.safeParse(RemoteMessageSchema, json);
-  return message.success ? message.output : null;
+  const seal = v.safeParse(SealSchema, json);
+  if (!seal.success) return null;
+  const message = v.safeParse(RemoteMessageSchema, seal.output.m);
+  if (!message.success) return null;
+  return { sender: seal.output.s, counter: seal.output.n, message: message.output };
 }
 
-/** Room credentials from a join link's fragment (`#room=<id>&k=<key>`), or null. */
+/**
+ * Room credentials from a join link's fragment, or null: `#room=<id>&k=<key>`
+ * (phone remote, agents) or `#room=<id>&v=<key>` (follow along). A key that
+ * is absent is null.
+ */
 export function parseJoinFragment(hash: string): RoomCredentials | null {
   const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
-  const parsed = v.safeParse(RoomCredentialsSchema, {
+  const parsed = v.safeParse(JoinFragmentSchema, {
     room: params.get("room"),
     key: params.get("k"),
+    view: params.get("v"),
   });
   return parsed.success ? parsed.output : null;
 }
 
 /**
  * The join link for `view`: the app at `base`'s path with `?view=<view>` and
- * the credentials in the fragment, which browsers never send to a server.
- * Other query parameters and fragments of `base` are dropped: a follower gets
- * the document from the presenter's `state`, not from this link.
+ * the room and one key in the fragment, which browsers never send to a
+ * server. A remote link carries only the control key, a follow link only the
+ * view key, so a follow link handed to an audience cannot steer the deck or
+ * read the document (decision 68). Other query parameters and fragments of
+ * `base` are dropped: a follower gets the document from the presenter's
+ * `state`, not from this link.
  */
 export function formatJoinUrl(
   base: string,
   view: "remote" | "follow",
   creds: RoomCredentials,
 ): string {
+  const key = view === "remote" ? creds.key : creds.view;
+  if (key === null) throw new Error(`These credentials have no key for a ${view} link.`);
   const url = new URL(base);
   url.search = new URLSearchParams({ view }).toString();
-  url.hash = new URLSearchParams({ room: creds.room, k: creds.key }).toString();
+  url.hash = new URLSearchParams({
+    room: creds.room,
+    [view === "remote" ? "k" : "v"]: key,
+  }).toString();
   return url.href;
 }

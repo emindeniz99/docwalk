@@ -77,6 +77,27 @@ describe("IndexedDB comment store", () => {
     expect(await store.load("bad")).toEqual([]);
   });
 
+  test("one bad comment in a record is dropped alone; the document's other comments still load", async () => {
+    // Refusing the whole record read as "no comments", and the next save wrote
+    // that short list over it: one bad timestamp cost every comment for good.
+    const name = dbName();
+    const store = await openCommentStore(name);
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const req = indexedDB.open(name);
+      req.addEventListener("success", () => resolve(req.result));
+    });
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction("documents", "readwrite");
+      tx.objectStore("documents").put({
+        key: "mixed",
+        comments: [comment, { ...comment, id: "c2", updated: 8640000000000001 }],
+      });
+      tx.addEventListener("complete", () => resolve());
+    });
+    db.close();
+    expect(await store.load("mixed")).toEqual([comment]);
+  });
+
   test("the draft alias points a reloaded draft at the comments it had", async () => {
     const store = await openCommentStore(dbName());
     expect(await store.getAlias("draft")).toBeNull();

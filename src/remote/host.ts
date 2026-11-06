@@ -20,6 +20,8 @@ import type { RemoteMessage, RoomCredentials } from "./types";
  *
  * Agents (decision 59) may read the document and the slide list; they may
  * change the document only while the presenter has "Allow agent edits" on.
+ * Both, and every step or goto, need the control key of the phone remote
+ * link; the follow link carries only the view key (decision 68).
  * The switch belongs to the room and starts off, also after a reload.
  */
 
