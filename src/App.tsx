@@ -52,7 +52,12 @@ import type { RemoteStatus } from "./remote/client";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { useDraftAutosave } from "./share/draft";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
-import { DocumentView, sectionAnchor, type DocumentTarget } from "./shell/DocumentView";
+import {
+  DocumentView,
+  linkedTarget,
+  sectionAnchor,
+  type DocumentTarget,
+} from "./shell/DocumentView";
 import { documentTitle } from "./shell/documentTitle";
 import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
@@ -240,7 +245,9 @@ export function App() {
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
 
   // Document mode reads the whole file: the outline scrolls it to a section,
-  // and entering it opens at the section the outline marks as current.
+  // and entering it opens at the section the outline marks as current. A
+  // link that opens in document mode does so before the deck has a current
+  // slide; its hash names the place instead.
   const [documentTarget, setDocumentTarget] = useState<DocumentTarget | null>(null);
   const [inDocument, setInDocument] = useState(view === "document");
   // On a phone the reading view takes the screen and the outline is a sheet.
@@ -250,7 +257,11 @@ export function App() {
     setInDocument(view === "document");
     setOutlineOpen(false);
     setDocumentTarget(
-      view === "document" && current ? { anchor: sectionAnchor(plan, current.sectionId) } : null,
+      view !== "document"
+        ? null
+        : current
+          ? { anchor: sectionAnchor(plan, current.sectionId) }
+          : linkedTarget(plan, new URL(window.location.href)),
     );
   }
 

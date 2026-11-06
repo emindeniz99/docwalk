@@ -92,8 +92,7 @@ Later rounds:
   `docwalk-mcp` is not on npm yet.
 - Markdown: decision 42 wants the sanitizer corpus on three engines, the
   browser test project runs Chromium only; a footnote list pushed to a
-  continuation page stays there; anchors cover top-level headings only;
-  document mode does not scroll to a heading hash on load.
+  continuation page stays there; anchors cover top-level headings only.
 - Comments: no markers inside scaled slides (the slide chip stands in); no
   tombstones, so a deleted comment can return from an older link or
   sidecar; swapping two diagrams under one heading orphans their node

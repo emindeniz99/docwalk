@@ -82,6 +82,23 @@ test("entering document mode opens it at the section the outline marks as curren
   expect(await headingOffset(page, "proposed-architecture")).toBeGreaterThanOrEqual(-1);
 });
 
+for (const [hash, heading] of [
+  ["#api/1", "api"],
+  // A GitHub link to a sub-heading: the H3 sits inside the "Failure handling" slide.
+  ["#clock-skew", "clock-skew"],
+] as const) {
+  test(`a link with ${hash} opens document mode at that heading`, async ({ page }) => {
+    // A reviewer sends a link to one part of the doc. The reading view
+    // opened at the top: the deck had no current slide yet when the link
+    // switched to document mode, and the browser's own jump finds no
+    // element, since heading ids carry GitHub's `user-content-` prefix.
+    await page.goto(`/?view=document${hash}`);
+    await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "document");
+    await expect.poll(() => headingOffset(page, heading), { timeout: 30_000 }).toBeLessThan(40);
+    expect(await headingOffset(page, heading)).toBeGreaterThanOrEqual(-1);
+  });
+}
+
 test("on a 390 px phone the reading view gets most of the screen and the outline is a sheet", async ({
   page,
 }) => {

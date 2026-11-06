@@ -9,6 +9,7 @@ import { m } from "../paraglide/messages.js";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import { nodesToHtml } from "../render/toHtml";
 import { headingIds, type SectionPlan } from "../sectioning/sectionize";
+import { parseViewerUrl } from "../url/state";
 
 /**
  * A place in the reading view to bring to the top: a heading anchor (a
@@ -34,6 +35,20 @@ export function sectionAnchor(plan: SectionPlan, sectionId: string): string | nu
     if (sec?.heading) return sec.id;
   }
   return null;
+}
+
+/**
+ * Where a link opens the reading view: the heading its hash names. A slide
+ * address goes to its section's heading, as entering document mode from that
+ * slide does; any other anchor (a GitHub link to a sub-heading, such as
+ * `#retry-budget`) to the heading with that anchor. Null when the hash names
+ * nothing, which leaves the reading view at the top.
+ */
+export function linkedTarget(plan: SectionPlan, url: URL): DocumentTarget | null {
+  const address = parseViewerUrl(url).address;
+  if (!address) return null;
+  const id = address.slice(0, address.lastIndexOf("/"));
+  return { anchor: plan.sections.some((sec) => sec.id === id) ? sectionAnchor(plan, id) : id };
 }
 
 /**
