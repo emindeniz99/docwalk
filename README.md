@@ -54,9 +54,14 @@ lists every settled design decision.
 - Three views: an editor with a live slide preview and an outline, a
   document view that renders the file as GitHub would, and presentation
   mode. ⌘K or Ctrl+K opens a command palette; O opens a slide overview.
+- Presenting, the slide fills the screen edge to edge, and any room a
+  screen that is not 16:9 leaves around it takes the slide's colour. More
+  actions › Fill the screen when presenting switches back to a card on a
+  dark stage.
 - While you present, the slide counter, the drawing tools and the arrows
-  fade out after three idle seconds and the slide grows to fill the screen.
-  Move the mouse, tap beside the slide or press Tab to bring them back, or
+  fade out after three idle seconds; they lie over the slide, or, on the
+  card, the slide grows into their room. Move the mouse, tap beside the
+  slide or at the top of the screen, or press Tab to bring them back, or
   keep them with More actions › Always show presenting controls. Safari on
   iPhone cannot show a web page full screen: tap Share › Add to Home Screen
   and present from the home-screen icon for a full-screen deck.

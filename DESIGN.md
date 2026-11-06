@@ -325,9 +325,12 @@ gains a border, so colour-blind readers see the state too.
 - `primary` fills buttons with `on-primary` text (5.2:1). Text links on light
   surfaces use the darker `primary-ink` (5.8:1 on white, 5.3:1 on `canvas`);
   on dark surfaces, `primary-ink-dark` (7.6:1).
-- `stage` is the ground around a slide in the preview and when presenting.
-  It is dark in both themes so the slide reads as the brightest thing in the
-  room, like a projector screen.
+- `stage` is the ground around a slide in the preview and when presenting
+  in the card frame. It is dark in both themes so the slide reads as the
+  brightest thing in the room, like a projector screen. In the fill frame,
+  the presenting default (decision 77), the slide covers the screen and the
+  room a screen that is not 16:9 leaves around it takes `slide`, so it reads
+  as more page, not as bars; `stage` stays only under the presenting bar.
 - `slide` stays white in both themes. A slide is a document page, and
   presenters expect the projected page to look the same on every laptop.
 - `note-*` colours carry diagnostics: content that was split, scaled down
@@ -376,7 +379,10 @@ Slide text is set for the room: titles at 56px and body at 26px on the
 ## Layout
 
 The slide is a fixed 1280×720 stage that reveal.js scales to the window, so
-pagination decisions do not change with window size. The editor is three
+pagination decisions do not change with window size. Presenting, it fills
+the screen up to that 16:9 fit, with the presenting bar laid over its top
+while the bar hides when idle; the card frame keeps a 10% margin and gives
+the bar a band of its own. The editor is three
 columns: outline (250px), source, preview. At phone width they stack and the
 outline becomes a sheet.
 
@@ -388,13 +394,15 @@ in the edit preview share one row height. Interactive targets are at least
 ## Elevation & Depth
 
 The app is flat. Depth appears in exactly one place: the slide casts a soft
-shadow onto the stage, because the slide is the object of attention. Dialogs
+shadow onto the stage, because the slide is the object of attention. A
+slide that fills the screen has no stage to cast it on and drops it. Dialogs
 and popovers use a 1px border plus a small shadow; nothing else floats.
 
 ## Shapes
 
 Corners are gently rounded: `md` (8px) for buttons and inputs, `lg` (10px)
-for the slide in the preview, `xl` (14px) when presenting full screen and on
+for the slide in the preview and the card frame (square when it fills the
+screen), `xl` (14px) when presenting full screen and on
 phone controls. Pills (`full`) are only for status chips.
 
 ## Components
@@ -416,8 +424,9 @@ phone controls. Pills (`full`) are only for status chips.
   mode, one list at the end, as on GitHub.
 - **Stage controls**: 44px square buttons on `stage-raised`, icon plus
   accessible label; a per-section progress bar along the bottom. While
-  presenting they fade out after three idle seconds and the slide takes
-  their room (decision 75); the first time, a `stage-raised` pill at the
+  presenting they fade out after three idle seconds (decision 75); in the
+  fill frame the bar is a `stage` strip over the top of the slide, on the
+  card the slide takes its room; the first time, a `stage-raised` pill at the
   bottom of the stage says how to bring them back.
 - **Slide overview** (O, or the grid button beside the slide counter): every
   page as a white thumbnail on the stage, numbered, with a `stage-note`

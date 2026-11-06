@@ -526,6 +526,83 @@ section[data-docwalk-id] {
   pointer-events: none;
 }
 
+/*
+ * The fill frame (decision 77, the default). reveal.js runs with no margin
+ * (Deck.tsx), the card's corners and shadow go, and everything behind the
+ * slide, the safe-area insets included, takes the slide's colour: a screen
+ * that is not 16:9 shows no bars, and a notch sits over slide-coloured
+ * padding, never over content.
+ */
+.docwalk-app[data-frame="fill"],
+.docwalk-app[data-frame="fill"] :is(.docwalk-deck-pane, .docwalk-deck) {
+  background: var(--dw-color-slide);
+}
+
+.docwalk-app[data-frame="fill"] .docwalk-deck-host .docwalk-slide {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* reveal.js's arrows and the stage's own captions sit on slide colour now. */
+.docwalk-app[data-frame="fill"]
+  :is(.docwalk-deck-host .reveal .controls, .docwalk-stage-wait, .docwalk-stage-empty) {
+  color: var(--dw-color-slide-muted);
+}
+
+/*
+ * The deck's focus ring in the fill frame. An outline on .reveal ran along
+ * the screen's edges, half hidden behind the slide, and read as a window
+ * border for the whole talk. Here it is a rounded ring drawn over the slide,
+ * inset from the edges, and it shows and fades with the presenting chrome
+ * (WCAG 2.4.7: visible whenever the controls are, and always with "Always
+ * show presenting controls"; Tab or any non-navigation key brings it back).
+ */
+.docwalk-app[data-frame="fill"] .docwalk-deck-host .reveal:focus-visible {
+  outline: none;
+}
+
+.docwalk-app[data-frame="fill"] .docwalk-deck-host .reveal:focus-visible::after {
+  position: absolute;
+  inset: var(--dw-space-xs);
+  /* Above reveal's slides box (z-index 1), so the slide never covers it. */
+  z-index: 2;
+  border: 2px solid var(--dw-color-focus);
+  border-radius: var(--dw-radius-lg);
+  content: "";
+  pointer-events: none;
+}
+
+.docwalk-app[data-frame="fill"][data-chrome="hidden"]
+  .docwalk-deck-host
+  .reveal:focus-visible::after {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .docwalk-app[data-frame="fill"] .docwalk-deck-host .reveal::after {
+    transition: opacity 200ms ease;
+  }
+}
+
+/* The bar keeps the stage look, as a strip of its own. */
+.docwalk-app[data-frame="fill"] .docwalk-preview-head {
+  padding-block-end: var(--dw-space-md);
+  background: var(--dw-color-stage);
+}
+
+/*
+ * While the chrome hides when idle, the bar lies over the top of the slide
+ * instead of taking a band, so showing it never changes the slide's size.
+ * With "Always show presenting controls" it keeps its band, or it would
+ * cover the top of every slide for the whole talk.
+ */
+.docwalk-app[data-frame="fill"][data-chrome] .docwalk-preview-head {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 40;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .docwalk-app[data-view="present"]
     :is(.docwalk-preview-head, .docwalk-deck-host .reveal .controls) {

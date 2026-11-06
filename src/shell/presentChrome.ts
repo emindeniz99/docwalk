@@ -39,9 +39,13 @@ export const CHROME_HINT_MS = 5000;
 
 export const KEEP_CHROME_KEY = "docwalk.keepPresentControls";
 export const CHROME_HINT_KEY = "docwalk.presentControlsHintSeen";
+/** Set ("true") when the viewer chose the card frame over the default fill (decision 77). */
+export const CARD_FRAME_KEY = "docwalk.presentCardFrame";
 
-/** The chrome that hides: the bar above the slide (with the tools) and reveal.js's arrows. */
-const CHROME = ".docwalk-preview-head, .reveal .controls";
+/** The bar above the slide: counter, address, overview, Exit and the tools. */
+const BAR = ".docwalk-preview-head";
+/** The chrome that hides: the bar (with the tools) and reveal.js's arrows. */
+const CHROME = `${BAR}, .reveal .controls`;
 /** Open layers that keep the chrome up: the overview, the palette, a menu, diagram focus. */
 const OPEN_LAYER = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
 /** Things on a slide a tap is meant for. */
@@ -127,6 +131,32 @@ export function useKeepChromeVisible(): boolean {
   return useSyncExternalStore(subscribe, getKeepVisible, () => false);
 }
 
+/**
+ * How the presented slide sits on the screen (decision 77). `fill`, the
+ * default, gives the slide the whole screen: no margin, no card, and the
+ * ground behind it painted the slide's own colour, so a screen that is not
+ * 16:9 shows no bars. `card` is decision 49's white card on the dark stage.
+ */
+export type PresentFrame = "fill" | "card";
+
+let cardFrame: boolean | null = null;
+
+function getFrame(): PresentFrame {
+  cardFrame ??= read(CARD_FRAME_KEY);
+  return cardFrame ? "card" : "fill";
+}
+
+/** "Fill the screen when presenting" in the More menu and the palette; kept like the setting above. */
+export function setPresentFrame(frame: PresentFrame): void {
+  cardFrame = frame === "card";
+  write(CARD_FRAME_KEY, cardFrame);
+  for (const listener of listeners) listener();
+}
+
+export function usePresentFrame(): PresentFrame {
+  return useSyncExternalStore(subscribe, getFrame, () => "fill");
+}
+
 // ---- The hook -------------------------------------------------------------
 
 export interface PresentChrome {
@@ -134,6 +164,8 @@ export interface PresentChrome {
   hidden: boolean;
   /** Show the first-time hint ("Tap or move to show controls"). */
   hint: boolean;
+  /** The chrome hides when idle (presenting, and not kept visible). */
+  hides: boolean;
 }
 
 interface Options {
@@ -143,12 +175,23 @@ interface Options {
   pane: RefObject<HTMLElement | null>;
   /** A pen, laser, arrow or eraser is selected, so the slide belongs to the tool. */
   toolActive: boolean;
+  /**
+   * The fill frame (decision 77): the slide can cover the whole screen and
+   * leave no stage beside it, so the strip the bar shows in counts as stage.
+   * Without this a tool would leave a pointer or a finger no way back.
+   */
+  barIsStage?: boolean;
 }
 
 const within = (target: EventTarget | null, selector: string): Element | null =>
   target instanceof Element ? target.closest(selector) : null;
 
-export function usePresentChrome({ active, pane, toolActive }: Options): PresentChrome {
+export function usePresentChrome({
+  active,
+  pane,
+  toolActive,
+  barIsStage = false,
+}: Options): PresentChrome {
   const keep = useKeepChromeVisible();
   const enabled = active && !keep;
   const [hidden, setHidden] = useState(false);
@@ -161,8 +204,10 @@ export function usePresentChrome({ active, pane, toolActive }: Options): Present
     setHint(false);
   }
   const tool = useRef(toolActive);
+  const barStage = useRef(barIsStage);
   useLayoutEffect(() => {
     tool.current = toolActive;
+    barStage.current = barIsStage;
   });
 
   useEffect(() => {
@@ -180,9 +225,12 @@ export function usePresentChrome({ active, pane, toolActive }: Options): Present
       const el = within(target, CHROME);
       return el !== null && root.contains(el);
     };
+    const inBox = (box: DOMRect | undefined, x: number, y: number) =>
+      !!box && x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
     const overSlide = (x: number, y: number) => {
-      const box = root.querySelector(".reveal .slides")?.getBoundingClientRect();
-      return !!box && x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+      if (barStage.current && inBox(root.querySelector(BAR)?.getBoundingClientRect(), x, y))
+        return false;
+      return inBox(root.querySelector(".reveal .slides")?.getBoundingClientRect(), x, y);
     };
     const keyboardFocusInChrome = () => {
       const el = document.activeElement;
@@ -228,9 +276,9 @@ export function usePresentChrome({ active, pane, toolActive }: Options): Present
         }
         // The bar comes before the deck in the DOM, so a plain Tab from the
         // slide would leave the page. Land on the controls instead.
-        const items = [
-          ...root.querySelectorAll<HTMLElement>(`.docwalk-preview-head :is(${TABBABLE})`),
-        ].filter((el) => !(el instanceof HTMLInputElement && el.type === "radio" && !el.checked));
+        const items = [...root.querySelectorAll<HTMLElement>(`${BAR} :is(${TABBABLE})`)].filter(
+          (el) => !(el instanceof HTMLInputElement && el.type === "radio" && !el.checked),
+        );
         const target = event.shiftKey ? items.at(-1) : items[0];
         if (!target) return;
         event.preventDefault();
@@ -320,5 +368,5 @@ export function usePresentChrome({ active, pane, toolActive }: Options): Present
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [isHidden]);
 
-  return { hidden: isHidden, hint: enabled && hint };
+  return { hidden: isHidden, hint: enabled && hint, hides: enabled };
 }

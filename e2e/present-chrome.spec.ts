@@ -7,6 +7,10 @@ import { ready } from "./helpers";
  * screen, and iPhone Safari has no Fullscreen API for pages. These tests
  * guard the trade: the slide gets the stage while nobody touches anything,
  * and nobody (mouse, touch, keyboard, screen reader) loses the controls.
+ *
+ * Tests that need a stage beside the slide, or a slide that grows when the
+ * bar leaves, run in the card frame; the fill frame (decision 77, the
+ * default) has its own spec, present-frame.spec.ts.
  */
 
 /** Longer than the 3 s idle delay plus the fade, with room for a slow CI engine. */
@@ -20,6 +24,11 @@ async function present(page: Page) {
   await ready(page);
   await page.getByRole("button", { name: "Present" }).click();
   await expect(app(page)).toHaveAttribute("data-view", "present");
+}
+
+/** Decision 49's card on the dark stage, where the bar takes a band above the slide. */
+async function useCardFrame(page: Page) {
+  await page.addInitScript(() => localStorage.setItem("docwalk.presentCardFrame", "true"));
 }
 
 async function waitHidden(page: Page) {
@@ -41,6 +50,7 @@ test.describe("phone in landscape", () => {
   // A phone on its side, where the bar costs height the slide needs. On a
   // wide desktop window the slide is bound by width and has nothing to gain.
   test.use({ viewport: { width: 844, height: 390 } });
+  test.beforeEach(({ page }) => useCardFrame(page));
 
   test("idle, the chrome hides and the slide grows into the stage; a mouse move brings both back", async ({
     page,
@@ -117,6 +127,7 @@ test("Tab while hidden shows the controls and focuses the first; focus keeps the
 
 test.describe("touch", () => {
   test.use({ hasTouch: true });
+  test.beforeEach(({ page }) => useCardFrame(page));
 
   test("a tap with the pen draws and leaves the chrome alone; the stage beside the slide toggles it", async ({
     page,
@@ -157,6 +168,7 @@ test.describe("touch", () => {
 test("with a drawing tool, a mouse over the slide keeps the slide big; the stage edge shows the bar", async ({
   page,
 }) => {
+  await useCardFrame(page);
   await present(page);
   await page.keyboard.press("l");
   await waitHidden(page);

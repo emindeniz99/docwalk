@@ -1,4 +1,4 @@
-import { Check, Ellipsis, ImageOff, PanelTopDashed, type LucideIcon } from "lucide-react";
+import { Check, Ellipsis, ImageOff, Maximize, PanelTopDashed, type LucideIcon } from "lucide-react";
 import {
   Header,
   Menu,
@@ -13,7 +13,12 @@ import { chooseLocale, localeName, locales, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { setLoadRemoteImages, useLoadRemoteImages } from "../render/remoteImages";
 import { IconButton } from "./IconButton";
-import { setKeepChromeVisible, useKeepChromeVisible } from "./presentChrome";
+import {
+  setKeepChromeVisible,
+  setPresentFrame,
+  useKeepChromeVisible,
+  usePresentFrame,
+} from "./presentChrome";
 import { useMediaQuery } from "./useMediaQuery";
 
 export interface MoreAction {
@@ -25,11 +30,13 @@ export interface MoreAction {
 
 const LOAD_REMOTE_IMAGES = "load-remote-images";
 const KEEP_CONTROLS = "keep-present-controls";
+const FILL_SCREEN = "present-fill-screen";
 
 /** Secondary header actions in one React Aria menu, so the header fits a phone. */
 export function MoreMenu({ actions }: { actions: MoreAction[] }) {
   const loadRemoteImages = useLoadRemoteImages();
   const keepControls = useKeepChromeVisible();
+  const fillScreen = usePresentFrame() === "fill";
   const editor = useStoredEditorChoice();
   const coarse = useMediaQuery(COARSE_POINTER);
   const locale = useLocale();
@@ -53,18 +60,21 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
             )}
           </MenuSection>
           {/* Checkbox items (decision 33's "always load" setting, decision 75's
-              presenting controls), so their state is announced. */}
+              presenting controls, decision 77's frame), so their state is announced. */}
           <MenuSection
             selectionMode="multiple"
             selectedKeys={[
               ...(loadRemoteImages ? [LOAD_REMOTE_IMAGES] : []),
               ...(keepControls ? [KEEP_CONTROLS] : []),
+              ...(fillScreen ? [FILL_SCREEN] : []),
             ]}
             onSelectionChange={(keys) => {
               const on = (key: string) => keys === "all" || keys.has(key);
               if (on(LOAD_REMOTE_IMAGES) !== loadRemoteImages)
                 setLoadRemoteImages(on(LOAD_REMOTE_IMAGES));
               if (on(KEEP_CONTROLS) !== keepControls) setKeepChromeVisible(on(KEEP_CONTROLS));
+              if (on(FILL_SCREEN) !== fillScreen)
+                setPresentFrame(on(FILL_SCREEN) ? "fill" : "card");
             }}
           >
             <MenuItem
@@ -96,6 +106,22 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
                     <PanelTopDashed size={16} aria-hidden="true" />
                   )}
                   {m.more_keep_controls()}
+                </>
+              )}
+            </MenuItem>
+            <MenuItem
+              id={FILL_SCREEN}
+              textValue={m.more_fill_screen()}
+              className="docwalk-menu-item"
+            >
+              {({ isSelected }) => (
+                <>
+                  {isSelected ? (
+                    <Check size={16} aria-hidden="true" />
+                  ) : (
+                    <Maximize size={16} aria-hidden="true" />
+                  )}
+                  {m.more_fill_screen()}
                 </>
               )}
             </MenuItem>
