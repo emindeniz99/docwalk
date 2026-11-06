@@ -1,3 +1,4 @@
+import { editor as monaco } from "monaco-editor/editor";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -45,8 +46,6 @@ function resolved(variable: string): string {
 
 const painted = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-const bold = (el: HTMLElement) => Number(getComputedStyle(el).fontWeight) >= 700;
-
 describe("MonacoEditor theme", () => {
   test("follows the app between light and dark, from the same tokens as the rest of the UI", async () => {
     // A light editor inside a dark app (or the reverse) is the first thing a
@@ -71,15 +70,18 @@ describe("MonacoEditor theme", () => {
     // strings, and Monaco never pair-colours brackets inside a string token.
     // Three levels deep, so each of the three rainbow colours would show.
     document.documentElement.setAttribute("data-theme", "light");
-    const box = mount("# Brackets\nPlain (round ((nested)) text) here");
-    const spans = () => [...box.querySelectorAll<HTMLElement>(".view-line span span")];
-    // Monaco loads the Markdown grammar and its bracket pairs in one lazy
-    // import and applies the pairs first. Until the heading turns bold, neither
-    // is in force and every span is plain text, with colouring on or off.
-    await expect
-      .poll(() => spans().some((s) => s.textContent?.includes("Brackets") && bold(s)))
-      .toBe(true);
-    const colours = new Set(spans().map((s) => getComputedStyle(s).color));
+    const box = mount("Plain (round ((nested)) text) here");
+    // Monaco loads Markdown's bracket pairs and grammar in one lazy import,
+    // some frames after mounting; until then no bracket is coloured, on or
+    // off. colorize() resolves once the grammar is in, and the pairs are set
+    // before it, so the next paint shows any bracket colours. (Painting the
+    // grammar's tokens waits for idle time, which a busy test page can
+    // withhold for seconds; bracket colours do not wait for it.)
+    await monaco.colorize("", "markdown", {});
+    await painted();
+    const spans = [...box.querySelectorAll<HTMLElement>(".view-line span span")];
+    expect(spans.length).toBeGreaterThan(0);
+    const colours = new Set(spans.map((s) => getComputedStyle(s).color));
     expect([...colours]).toEqual([resolved("--fg")]);
   });
 });
