@@ -73,7 +73,11 @@ pnpm exec wrangler secret put GITHUB_CLIENT_SECRET --config worker/wrangler.json
 From GitHub, `.github/workflows/docwalk-deploy-cloudflare.yml` runs the same
 build and deploy when started by hand. It reads `CLOUDFLARE_API_TOKEN` (and
 `CLOUDFLARE_ACCOUNT_ID` when the token reaches several accounts) from the
-repository secrets; the two GitHub secrets above stay Worker secrets.
+secrets of the `docwalk-cloudflare` environment. Store them there, not as
+repository secrets, and limit the environment's deployment branches to
+`main`: GitHub releases environment secrets only to jobs that pass the
+environment's rules, while any workflow on any branch can read a repository
+secret. The two GitHub secrets above stay Worker secrets.
 
 Secrets take effect without a redeploy. Leave them unset to deploy without
 sign-in: `/api/health` then omits `oauth` and the app hides the button.

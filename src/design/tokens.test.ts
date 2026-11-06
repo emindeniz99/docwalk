@@ -10,7 +10,7 @@ const designMd = readFileSync(join(root, "DESIGN.md"), "utf8");
 const frontMatter = parse(designMd.split(/^---$/m)[1] ?? "") as Record<string, unknown>;
 
 describe("DESIGN.md and src/design/tokens.ts stay equal", () => {
-  // Two sources drifted apart in another project because nothing compared
+  // Two hand-kept copies of the same values drift apart when nothing compares
   // them; this test is the comparison. It fails on a token missing on either
   // side as well as on a changed value.
   for (const group of ["colors", "typography", "rounded", "spacing"] as const) {

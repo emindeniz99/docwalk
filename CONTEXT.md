@@ -43,8 +43,8 @@ pan, reset, fullscreen, pen and laser (3, 28, 29).
 **Document mode**: the doc rendered as GitHub would show it, scrolling, no
 slides (3, 10).
 
-**Full mode**: a deployment with the Worker, so `/api` exists: OAuth and,
-from v1.1, remote control (37, 38). Opposite: **static mode**.
+**Full mode**: a deployment with the Worker, so `/api` exists: OAuth and
+remote control (37, 38). Opposite: **static mode**.
 
 **Local folder**: a folder on disk the user opened through the File System
 Access API. Its files are saved only on Save or Ctrl/Cmd+S, and reload when

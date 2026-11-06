@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * The JS and CSS the main view downloads before it can show a deck, as paths
- * relative to `dist`: what `index.html` loads (entry script, modulepreloads,
- * stylesheets) plus every file Vite preloads for the lazy chunks main.tsx
- * requests at once (`App`). Decision 43 budgets this at about 250 KB gzip;
- * the presenter and remote views load less.
+ * The app shell's JS and CSS, as paths relative to `dist`: what `index.html`
+ * loads (entry script, modulepreloads, stylesheets) plus every file Vite
+ * preloads for the lazy chunks main.tsx requests at once (`App`). This is a
+ * floor, not the whole first load: App then fetches the editor, Mermaid and
+ * each diagram type the deck uses. `e2e/perf.spec.ts` sums what the default
+ * view really downloads and holds that to decision 43's limits; this list is
+ * what `pnpm size` tracks and where the Monaco leak check looks.
  *
  * A lazy chunk's files are read from the preload list Vite writes next to its
  * `import()` in the entry chunk, which is the list the browser fetches. If

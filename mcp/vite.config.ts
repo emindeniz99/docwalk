@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 
 // Node refuses to strip TypeScript under node_modules, so an installed bin
-// must be JavaScript. This bundles the server with the
-// room code it shares with the app (../src/remote) into one ES module and
-// leaves the npm dependencies to the installer.
+// must be JavaScript, or every registry install crashes on start. This
+// bundles the server with the room code it shares with the app
+// (../src/remote) into one ES module and leaves the npm dependencies to the
+// installer.
 const pkg = JSON.parse(readFileSync(new URL("package.json", import.meta.url), "utf8")) as {
   dependencies: Record<string, string>;
 };

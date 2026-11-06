@@ -21,12 +21,23 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
   fullyParallel: true,
-  reporter: process.env.CI ? "github" : "list",
+  // A `test.only` left in after debugging would make every CI job run that
+  // one test and pass; on CI it fails the run instead.
+  forbidOnly: Boolean(process.env.CI),
+  // CI uploads test-results/ and playwright-report/ when a job fails, so the
+  // HTML report, traces and screenshots are what a failure is debugged from.
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   // The production build registers a service worker. In WebKit, requests a
   // controlled page makes bypass Playwright's routing, so the specs that
   // stub the network would reach the real one. Only e2e/pwa.spec.ts, which
   // tests the worker itself, lets it run.
-  use: { baseURL: `http://localhost:${port}`, viewport, serviceWorkers: "block" },
+  use: {
+    baseURL: `http://localhost:${port}`,
+    viewport,
+    serviceWorkers: "block",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
   projects: [
     {
       name: "chromium",

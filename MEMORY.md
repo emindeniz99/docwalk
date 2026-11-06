@@ -6,22 +6,22 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-Round 1 is merged into `claude/docwalk` (2026-11-05): nine tracks (ci, deck,
-markdown, pwa, monaco, canvas, comments, workspace, mcp), each a real merge
-commit, plus cross-track fixes. `pnpm check` passes (855 unit/browser incl.
-mcp/, 30 Worker tests, build); `pnpm size` first load is 386 kB gzip (warn 500 kB, fail
-1 MB); `pnpm test:e2e` runs every spec on Chromium, Firefox and WebKit plus
-a `/docwalk/` sub-path project. Decision rows run to 67: 60-62 Markdown
-fidelity, 63 offline, 64 canvas, 65 comments, 66 workspace, 67 agent parts.
-None of the new GitHub workflows (three-engine e2e, Lighthouse, Stryker,
+v1 and the v2 workspace and agent work are built (2026-11-06): round 1's
+tracks (CI, deck, Markdown, PWA, Monaco, canvas, comments, workspace, MCP),
+then i18n with a Turkish UI and a design polish round, each merged with a
+real merge commit. Review pass 1 is being fixed. Decision rows run to 68.
+`pnpm size` tracks only the app shell (index.html plus App's preloads);
+`e2e/perf.spec.ts` (Chromium) holds the default view's real download to
+1 MB gzip and times the fixture's open and repaginate against decision 43.
+None of the GitHub workflows (three-engine e2e, Lighthouse, Stryker,
 deploys) has run on GitHub yet. Open work is in ROADMAP "Follow-ups".
 
-Local run in the cloud container: `PATH=/opt/node24/bin:$PATH npx -y
-pnpm@12.16.1 --dir <project> <script>`; browser tests need
-`DOCWALK_CHROMIUM_PATH=/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell`,
-e2e `DOCWALK_CHROMIUM_FULL_PATH=/opt/pw-browsers/chromium`; Firefox and
-WebKit come from `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`. A busy port:
-`DOCWALK_E2E_PORT` (the sub-path build takes the next one).
+Local runs: browser tests take a Chromium binary from
+`DOCWALK_CHROMIUM_PATH` (a headless shell is enough); e2e takes a full
+Chromium from `DOCWALK_CHROMIUM_FULL_PATH` (fullscreen and pop-ups), and
+Firefox and WebKit from `PLAYWRIGHT_BROWSERS_PATH`. A busy port:
+`DOCWALK_E2E_PORT` (the sub-path build takes the next one). Playwright
+reuses a server already listening on both ports outside CI.
 
 ## Decisions
 
@@ -60,6 +60,8 @@ WebKit come from `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`. A busy port:
 - 2026-11-05: Monaco sits behind the decision 4 contract (one driver per editor in `SourceEditor.browser.test.ts`); its markers do not move with edits (re-derived per change), the editor-level bracket colouring option is ignored (set it on the model), glyph hovers render Markdown (escape them), and it is 831 kB gzip (`pnpm size` fails if `MonacoEnvironment` reaches the first load).
 - 2026-11-05: Agent messages over the relay's 16 KB frame travel as deflated, encrypted, addressed parts (decision 67); agent writes take the editor's `onEdit`, so comments and the workspace treat them as typed edits.
 - 2026-11-05: Stryker 10's tsconfig preprocessor needs a TypeScript JS API that TypeScript 7 dropped (point `tsconfigFile` at a missing file). CI's pnpm/action-setup needs `package_json_file`; `pnpm deploy` is pnpm's own command (`pnpm run deploy`).
+- 2026-11-06: A size budget built from the HTML and preload lists misses what the app fetches after mount (the editor chunk, Mermaid's diagram types, ELK): 398 kB counted against 1339 kB downloaded. Sum the real responses in Playwright.
+- 2026-11-06: Repository secrets reach every workflow on every branch; only environment secrets wait for the environment's branch rules and reviewers.
 
 ## Done
 
