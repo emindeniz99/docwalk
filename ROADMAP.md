@@ -32,9 +32,6 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
 Still open in v1:
 
 - Decision row 8 needs a later row or an ADR (remote control moved into v1).
-- Decision 31's notice for browsers below the floor is not built: an old
-  browser gets a blank page. Build an inline feature check in `index.html`,
-  or narrow the row.
 - Decision 39's screenshot and ARIA-snapshot assertions are not written
   (screenshots are optional review captures). Write them, or narrow the row.
 - Decision 43's 1.5 s open budget: `e2e/perf.spec.ts` measured about 2.5 s
@@ -92,8 +89,7 @@ Later rounds:
   `docwalk-mcp` is not on npm yet.
 - Markdown: decision 42 wants the sanitizer corpus on three engines, the
   browser test project runs Chromium only; a footnote list pushed to a
-  continuation page stays there; anchors cover top-level headings only;
-  document mode does not scroll to a heading hash on load.
+  continuation page stays there; anchors cover top-level headings only.
 - Comments: no markers inside scaled slides (the slide chip stands in); no
   tombstones, so a deleted comment can return from an older link or
   sidecar; swapping two diagrams under one heading orphans their node
@@ -125,8 +121,7 @@ Later rounds:
   windowed until a second Escape.
 - Presenting controls (decision 75): check on a real iPhone, in Safari and
   from the Home Screen, since Playwright's WebKit emulates no notch or
-  safe-area insets. The update toast and the centred dialogs do not pad for
-  the safe area yet; only the app and its full-screen layers do.
+  safe-area insets (Chromium's CDP override stands in for the tests).
 - Aspect-adaptive slides (decision 77): a slide sized to the screen's
   aspect would leave no bars at all on a 16:10 or 4:3 screen, but its page
   breaks would depend on the device, and followers, the presenter window

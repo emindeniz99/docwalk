@@ -47,29 +47,35 @@ function Localized({ children }: { children: ReactNode }) {
   return <I18nProvider locale={ariaLocale(useLocale())}>{children}</I18nProvider>;
 }
 
-createRoot(root).render(
-  <StrictMode>
-    <Localized>
-      {view === "presenter" ? (
-        <Suspense fallback={null}>
-          <PresenterView />
-        </Suspense>
-      ) : view === "remote" ? (
-        <Suspense fallback={null}>
-          <RemoteView />
-        </Suspense>
-      ) : (
-        <>
+// index.html's check found a browser below the floor and wrote its notice
+// into #root (decision 78); mounting would replace it with a page that fails.
+if (!root.hasAttribute("data-unsupported")) mount(root);
+
+function mount(container: HTMLElement) {
+  createRoot(container).render(
+    <StrictMode>
+      <Localized>
+        {view === "presenter" ? (
           <Suspense fallback={null}>
-            <App />
+            <PresenterView />
           </Suspense>
-          {import.meta.env.PROD && (
+        ) : view === "remote" ? (
+          <Suspense fallback={null}>
+            <RemoteView />
+          </Suspense>
+        ) : (
+          <>
             <Suspense fallback={null}>
-              <PwaUpdates />
+              <App />
             </Suspense>
-          )}
-        </>
-      )}
-    </Localized>
-  </StrictMode>,
-);
+            {import.meta.env.PROD && (
+              <Suspense fallback={null}>
+                <PwaUpdates />
+              </Suspense>
+            )}
+          </>
+        )}
+      </Localized>
+    </StrictMode>,
+  );
+}

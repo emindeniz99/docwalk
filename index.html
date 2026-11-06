@@ -9,6 +9,82 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Decision 78: a browser below the floor (decision 31) gets a notice,
+      // not a blank page. ES5 on purpose, so old browsers can run it. The
+      // Content-Security-Policy allows this script by its SHA-256 hash; a
+      // test fails when the two differ, so any edit here updates worker/csp.ts.
+      (function () {
+        var css = window.CSS;
+        if (
+          typeof Promise.withResolvers === "function" &&
+          typeof Object.groupBy === "function" &&
+          typeof Array.prototype.toSorted === "function" &&
+          typeof window.structuredClone === "function" &&
+          css &&
+          css.supports &&
+          css.supports("selector(:has(*))")
+        ) {
+          return;
+        }
+        var root = document.getElementById("root");
+        root.setAttribute("data-unsupported", "");
+        var stored = null;
+        try {
+          stored = localStorage.getItem("docwalk.locale");
+        } catch (e) {}
+        var languages = [stored].concat(navigator.languages || [navigator.language]);
+        var tr = false;
+        for (var i = 0; i < languages.length; i++) {
+          var tag = String(languages[i] || "")
+            .toLowerCase()
+            .split("-")[0];
+          if (tag === "en" || tag === "tr") {
+            tr = tag === "tr";
+            break;
+          }
+        }
+        var text = tr
+          ? {
+              lang: "tr",
+              title: "docwalk daha yeni bir tarayıcı gerektiriyor",
+              body: "Bu tarayıcı, docwalk'un desteklediği sürümlerden eski. Tarayıcıyı güncelleyin ya da bu sayfayı Chrome, Edge, Firefox veya Safari 17.4 ve sonrasıyla açın.",
+              link: "Markdown dosyasını aç",
+            }
+          : {
+              lang: "en",
+              title: "docwalk needs a newer browser",
+              body: "This browser is older than the versions docwalk supports. Update it, or open this page in Chrome, Edge, Firefox, or Safari 17.4 or later.",
+              link: "Open the Markdown file",
+            };
+        document.documentElement.lang = text.lang;
+        var main = document.createElement("main");
+        main.style.cssText =
+          "max-width:36em;margin:0 auto;padding:2em 1em;font:1.125em/1.5 system-ui,sans-serif";
+        var h1 = document.createElement("h1");
+        h1.textContent = text.title;
+        var p = document.createElement("p");
+        p.textContent = text.body;
+        main.appendChild(h1);
+        main.appendChild(p);
+        // A shared ?src= link still reaches its plain Markdown: link the file itself.
+        var src = /[?&]src=([^&#]*)/.exec(location.search);
+        var href = null;
+        try {
+          href = src && decodeURIComponent(src[1].replace(/\+/g, " "));
+        } catch (e) {}
+        if (href && /^https:\/\/[^\s]+$/i.test(href)) {
+          var a = document.createElement("a");
+          a.href = href;
+          a.rel = "noreferrer";
+          a.textContent = text.link;
+          var line = document.createElement("p");
+          line.appendChild(a);
+          main.appendChild(line);
+        }
+        root.appendChild(main);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

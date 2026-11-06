@@ -9,7 +9,7 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 v1 and the v2 workspace and agent work are built (2026-11-06): round 1's
 tracks (CI, deck, Markdown, PWA, Monaco, canvas, comments, workspace, MCP),
 then i18n with a Turkish UI and a design polish round, each merged with a
-real merge commit. Review pass 3 is being fixed. Decision rows run to 77.
+real merge commit. Review pass 3 is being fixed. Decision rows run to 78.
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
 1 MB gzip and times the fixture's open and repaginate against decision 43.
@@ -66,10 +66,15 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-06: reveal.js rounds its scale to 0.01 after `maxScale`; with `margin: 0` the slide overhung the screen by up to 0.5% (1446 px at 1440). Capping `maxScale` at the fit rounded down (set before reveal's own resize listener) keeps it inside. Its default `maxScale` of 2 also stops a slide short of screens wider than 2560 CSS px.
 - 2026-11-06: Chromium 1243 emulates safe-area insets through CDP `Emulation.setSafeAreaInsetsOverride` (present-frame.spec); Firefox and WebKit have no such switch.
 - 2026-11-06: Shiki: `@shikijs/primitive` (tokenizer only) is 6 kB gzip smaller than `@shikijs/core`'s highlighter; the JavaScript regex engine is about 20 kB of it. The CSS-variables theme's colours (`var(--prefix-token-…)`) work as lookup keys, and `fontStyle: false` drops weight and italics. Grammars imported from docwalk's own code are precached unless listed in `RUNTIME_CACHED_PACKAGES`. `DOMPurify` here forbids `style`, so colour must travel as classes.
+- 2026-11-06: WebKit lays out hidden, off-screen elements again on every forced layout elsewhere on the page: the presenter's 23 attached hidden slides made pagination and notes 4.5 s instead of 1 s (`contain: strict` did not help; detaching did). The audience deck does not pay this (reveal.js keeps its sections out of layout).
+- 2026-11-06: In WebKit a popup opened with `window.open` shares the opener's main thread: a long task in the presenter window stalls the audience deck. Build in slices; WebKit has no `scheduler.yield` (fall back to a zero timeout). A 10 ms timer's longest gap in each window measures the stall; WebKit has no Long Tasks API.
+- 2026-11-06: A test that types several characters and then waits for "the" rebuilt deck can meet two rebuilds when the typing pauses past `REBUILD_DELAY_MS` under load; wait for the deck that shows the whole edit.
+- 2026-11-06: Any edit to index.html's inline script changes its CSP hash (decision 78): recompute the SHA-256 of the script text and update `worker/csp.ts` and `public/_headers`; `csp-plugin.test.ts` fails until they match.
 - 2026-11-06: At 1440×900 the presented slide is bound by width, so hiding the presenting controls (decision 75) does not grow it; a size test needs a phone-landscape viewport (844×390). Playwright's `devices["iPhone 15 landscape"]` is 734×343 and has no safe-area insets.
 
 ## Done
 
+- 2026-11-06: Presenter previews built off the page and slide by slide, current and next first (WebKit opener stall 5-6 s to under 1 s); document mode opens a linked heading; old browsers get a notice (decision 78); toast and centred dialogs pad for the safe area; pen-marks test waits for the final rebuilt deck.
 - 2026-11-06: Present frame (decision 77): the slide fills the screen by default, the bar lies over it while it hides, the ground takes the slide's colour; the card stays as a More menu and palette option.
 - 2026-11-06: Code blocks coloured by language (decision 76): Shiki tokenizer as a lazy chunk, DOM colouring after both sanitizers, GitHub's colours as tokens with a contrast test, grammars cached on first use.
 - 2026-11-06: Presenting controls hide when idle and the slide takes the stage (decision 75); safe-area padding under `viewport-fit=cover`; Home Screen note for iPhone in the README.

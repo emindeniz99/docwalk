@@ -336,3 +336,33 @@ for (const [width, height] of [
     });
   }
 }
+
+// viewport-fit=cover (decision 75) lets a phone's notch and home indicator
+// overlap the page. The prompt took its offsets from the viewport's edges, so
+// in landscape it sat under the notch, and the status bar it clears sits
+// above the home indicator, by the inset.
+test("the prompt keeps to a phone's safe area in landscape", async ({
+  page,
+  context,
+  browserName,
+}) => {
+  test.skip(browserName !== "chromium", "only Chromium emulates safe-area insets (CDP)");
+  const [width, height] = [844, 390];
+  const insets = { top: 0, left: 47, bottom: 21, right: 47 };
+  const site = await deployment();
+  try {
+    await page.setViewportSize({ width, height });
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Emulation.setSafeAreaInsetsOverride" as never, { insets } as never);
+    await openThenUpdate(page, site);
+    const toast = page.locator(".docwalk-toast");
+    await expect(toast).toBeVisible();
+    const box = await toast.boundingBox();
+    const next = await page.locator(".reveal .controls .navigate-right").boundingBox();
+    if (!box || !next) throw new Error("toast or next-slide arrow not laid out");
+    expect(box.x + box.width).toBeLessThanOrEqual(width - insets.right);
+    expect(box.y + box.height).toBeLessThanOrEqual(next.y);
+  } finally {
+    await site.close();
+  }
+});

@@ -223,3 +223,32 @@ test("while presenting, Exit is as tall as the other stage controls", async ({ p
   expect(exit?.height ?? 0).toBeGreaterThanOrEqual(44 - 0.01);
   expect(Math.abs((exit?.height ?? 0) - (pen?.height ?? 0))).toBeLessThanOrEqual(0.5);
 });
+
+// viewport-fit=cover (decision 75) lets a notch overlap the page. Centred
+// dialogs took their width from the whole viewport, so on a phone in
+// landscape, zoomed in until the dialog spans the screen, its edges sat
+// under the notch and the rounded corners.
+test("centred dialogs keep clear of a phone's notch", async ({ page, context, browserName }) => {
+  test.skip(browserName !== "chromium", "only Chromium emulates safe-area insets (CDP)");
+  const insets = { top: 0, left: 47, bottom: 21, right: 47 };
+  const width = 600;
+  await page.setViewportSize({ width, height: 340 });
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setSafeAreaInsetsOverride" as never, { insets } as never);
+  await ready(page);
+  const withinInsets = async (selector: string) => {
+    const box = await page.locator(selector).boundingBox();
+    if (!box) throw new Error(`${selector} not laid out`);
+    expect(box.x).toBeGreaterThanOrEqual(insets.left);
+    expect(box.x + box.width).toBeLessThanOrEqual(width - insets.right);
+  };
+
+  await page.keyboard.press("Control+k");
+  await expect(page.locator(".docwalk-palette")).toBeVisible();
+  await withinInsets(".docwalk-palette");
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "Share" }).click();
+  await expect(page.getByRole("dialog", { name: "Share this document" })).toBeVisible();
+  await withinInsets(".docwalk-share");
+});

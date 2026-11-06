@@ -191,15 +191,21 @@ export async function renderDiagram(
  * Replace every ```mermaid code block under `root` with a diagram host and render them in order.
  * `stop` is checked before each diagram, so a build that a newer one has replaced stops
  * queueing Mermaid renders that would delay the current build.
+ *
+ * A caller that renders one deck in parts passes the same `seen` set to each call, so a
+ * diagram that repeats in a later part still gets its own SVG. `pause` is awaited between
+ * two diagrams, for a caller that must hand the main thread back (a Mermaid render is one
+ * long task).
  */
 export async function renderDiagrams(
   root: ParentNode,
   stop: () => boolean = () => false,
+  { seen = new Set<string>(), pause }: { seen?: Set<string>; pause?: () => Promise<void> } = {},
 ): Promise<DiagramResult[]> {
   const blocks = [...root.querySelectorAll<HTMLElement>("pre > code.language-mermaid")];
   const results: DiagramResult[] = [];
-  const seen = new Set<string>();
-  for (const code of blocks) {
+  for (const [i, code] of blocks.entries()) {
+    if (i > 0 && pause) await pause();
     if (stop()) break;
     const pre = code.parentElement as HTMLElement;
     const host = document.createElement("figure");

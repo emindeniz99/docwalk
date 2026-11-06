@@ -31,8 +31,9 @@ protects:
   `url()`; docwalk refuses a diagram that names a remote image, and passes
   Mermaid's SVG through DOMPurify too. Code colours are added after both
   sanitizers, as text and class names only. The deployed site sends
-  a content security policy with `script-src 'self'` and
-  `frame-ancestors 'none'`. A static host gets the same policy from a
+  a content security policy with `script-src 'self'` (plus, by its hash,
+  the one inline script: the check for browsers too old to run docwalk)
+  and `frame-ancestors 'none'`. A static host gets the same policy from a
   `<meta>` tag, which cannot forbid framing.
 - **The viewer's privacy.** Remote images load only on a click or with the
   "Always load remote images" setting. A `?src=` link to a host other than

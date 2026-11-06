@@ -92,6 +92,18 @@ const caption = (el: HTMLElement, cls: string) =>
 const previewHeading = (el: HTMLElement, cls: string) =>
   el.querySelector(`.${cls} .docwalk-presenter-canvas h2`)?.textContent ?? "";
 
+/** Calls `check` on every DOM change until the preview `cls` shows `heading`; returns its result then. */
+function whenPreviewShows<T>(el: HTMLElement, cls: string, heading: string, check: () => T) {
+  return new Promise<T>((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (previewHeading(el, cls) !== heading) return;
+      observer.disconnect();
+      resolve(check());
+    });
+    observer.observe(el, { childList: true, subtree: true, characterData: true });
+  });
+}
+
 describe("presenter view", () => {
   test("says it is waiting until the audience answers, so a blank window is never mistaken for a broken one", async () => {
     const el = renderView();
@@ -253,6 +265,95 @@ describe("presenter view", () => {
     const canvas = el.querySelector(".docwalk-presenter-current .docwalk-presenter-canvas");
     expect(canvas?.querySelector("[onerror], script, a[href^='javascript']")).toBeNull();
     expect((globalThis as { docwalkPwned?: number }).docwalkPwned).toBeUndefined();
+  });
+
+  describe("a long document", () => {
+    // Enough slides that building all of them takes many turns of the event loop.
+    const markdown = [
+      "# Long talk",
+      "",
+      "Intro.",
+      "",
+      ...Array.from({ length: 40 }, (_, i) => [
+        `## Part ${i + 1}`,
+        "",
+        `Body of part ${i + 1}.`,
+        "",
+        "- one",
+        "- two",
+        "",
+      ]).flat(),
+    ].join("\n");
+    const addresses = sectionize(parseMarkdown(markdown), "auto").sections.map((s) => `${s.id}/1`);
+    const stateAt = (current: string) => ({
+      type: "state",
+      markdown,
+      level: "auto",
+      current,
+      addresses,
+      startedAt: Date.now(),
+    });
+
+    // In WebKit the presenter window shares the audience tab's main thread.
+    // Built in one piece, the previews froze the deck the room is watching
+    // for seconds; and the presenter, who needs only two of them to go on,
+    // waited for all of them.
+    test("shows the slides the presenter is on before the rest are built, and says it is still rendering", async () => {
+      const channel = fakeChannel();
+      const el = renderView(channel.factory);
+      const shown = whenPreviewShows(el, "docwalk-presenter-current", "Part 30", () => ({
+        status: status(el),
+        next: previewHeading(el, "docwalk-presenter-next"),
+      }));
+      await channel.deliver(stateAt(addresses[30] as string));
+      const atFirstSight = await shown;
+      expect(atFirstSight.next).toBe("Part 31");
+      expect(atFirstSight.status).toMatch(/rendering/i);
+      // The status line clears only once every slide has a preview, so it
+      // never claims a finished list that still shows bare addresses.
+      await expect.poll(() => status(el), { timeout: 30_000 }).toBe("");
+      const titles = [...el.querySelectorAll('[role="option"]')].map((o) => o.textContent);
+      expect(titles.filter((t) => t?.includes("/1"))).toEqual([]);
+    }, 40_000);
+
+    test("brings forward the slide the presenter moves to while the rest are still building", async () => {
+      const channel = fakeChannel();
+      const el = renderView(channel.factory);
+      await channel.deliver(stateAt(addresses[1] as string));
+      await expect.poll(() => previewHeading(el, "docwalk-presenter-current")).toBe("Part 1");
+      const shown = whenPreviewShows(el, "docwalk-presenter-current", "Part 40", () => status(el));
+      await channel.deliver(stateAt(addresses[40] as string));
+      // Built in document order, the last slide would come last, with the status already clear.
+      expect(await shown).toMatch(/rendering/i);
+    }, 40_000);
+
+    // The build shares a main thread with the audience deck in WebKit. Work
+    // for a document the window no longer shows (the audience sent another,
+    // or the window is closing) only takes turns from the deck and from the
+    // build that matters. Both cases stop the build the same way.
+    test("stops building as soon as the previews are no longer wanted", async () => {
+      const channel = fakeChannel();
+      const el = renderView(channel.factory);
+      await channel.deliver(stateAt(addresses[1] as string));
+      await expect.poll(() => previewHeading(el, "docwalk-presenter-current")).toBe("Part 1");
+      expect(status(el)).toMatch(/rendering/i);
+      // Every slide the build paginates is measured in a box of its own on <body>.
+      let measured = 0;
+      const observer = new MutationObserver((records) => {
+        for (const r of records) {
+          for (const n of r.addedNodes) {
+            if (n instanceof HTMLElement && n.classList.contains("docwalk-measure")) measured++;
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true });
+      root?.unmount();
+      root = null;
+      // Long enough for several more slides: each one waits for a frame.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      observer.disconnect();
+      expect(measured).toBe(0);
+    }, 40_000);
   });
 
   test("controls meet the 44px touch target and carry accessible names", async () => {

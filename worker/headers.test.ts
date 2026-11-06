@@ -43,8 +43,9 @@ describe("security headers", () => {
     expect(securityHeadersOf(response)).toEqual(SECURITY_HEADERS);
   });
 
-  it("keeps the policy the decision names: no inline script, no framing, confirmed hosts and the relay reachable", () => {
-    expect(CONTENT_SECURITY_POLICY).toContain("script-src 'self';");
+  it("keeps the policy the decisions name: one hashed inline script, no framing, confirmed hosts and the relay reachable", () => {
+    // Decision 78: the only inline script is index.html's browser check, allowed by its hash.
+    expect(CONTENT_SECURITY_POLICY).toMatch(/script-src 'self' 'sha256-[A-Za-z0-9+/]{43}=';/);
     expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*unsafe/);
     expect(CONTENT_SECURITY_POLICY).toContain("frame-ancestors 'none'");
     expect(CONTENT_SECURITY_POLICY).toContain("img-src 'self' https: data: blob:");

@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, ListBox, ListBoxItem } from "react-aria-components";
 import { fitDiagrams, settled, slideBodySize } from "../deck/measure";
 import { renderDiagrams } from "../deck/mermaid";
@@ -27,7 +27,9 @@ interface PresenterViewProps {
 
 interface Previews {
   key: string;
-  pages: Map<string, HTMLElement>;
+  pages: ReadonlyMap<string, HTMLElement>;
+  /** False while slides are still being built; `pages` holds those done so far. */
+  done: boolean;
   error: boolean;
 }
 
@@ -63,24 +65,37 @@ export function PresenterView({ channel }: PresenterViewProps) {
   // Previews carry slide chrome and overflow notes, so a language switch rebuilds them too.
   const key = markdown === undefined ? null : `${locale}\n${levelKey}\n${markdown}`;
 
+  const addresses = state?.addresses ?? NO_ADDRESSES;
+  const index = state ? addresses.indexOf(state.current) : -1;
+  const nextAddress = index >= 0 ? addresses[index + 1] : undefined;
+
+  // The build reads which slides to do first as it goes, so a slide change
+  // during a long build brings that slide's preview forward.
+  const wanted = useRef<readonly string[]>([]);
+  useLayoutEffect(() => {
+    wanted.current = [state?.current, nextAddress].filter((a): a is string => Boolean(a));
+  });
+
   // Rebuild only when the document or level changes, not on every slide change or heartbeat.
   useEffect(() => {
     if (markdown === undefined || levelKey === null || key === null) return;
     let cancelled = false;
-    buildPreviews(markdown, JSON.parse(levelKey) as LevelOption).then(
-      (pages) => !cancelled && setPreviews({ key, pages, error: false }),
-      () => !cancelled && setPreviews({ key, pages: new Map(), error: true }),
+    buildPreviews(markdown, JSON.parse(levelKey) as LevelOption, {
+      wanted: () => wanted.current,
+      stopped: () => cancelled,
+      // Only between slides, after `stopped` said no: a replaced build never gets here.
+      onProgress: (pages) => setPreviews({ key, pages: new Map(pages), done: false, error: false }),
+    }).then(
+      (pages) => !cancelled && pages && setPreviews({ key, pages, done: true, error: false }),
+      () => !cancelled && setPreviews({ key, pages: new Map(), done: true, error: true }),
     );
     return () => {
       cancelled = true;
     };
   }, [key, markdown, levelKey]);
 
-  const addresses = state?.addresses ?? NO_ADDRESSES;
-  const index = state ? addresses.indexOf(state.current) : -1;
-  const nextAddress = index >= 0 ? addresses[index + 1] : undefined;
-  const ready = previews !== null && previews.key === key;
-  const pages = ready ? previews.pages : null;
+  const ready = previews !== null && previews.key === key && previews.done;
+  const pages = previews !== null && previews.key === key ? previews.pages : null;
 
   const items = useMemo(
     () => addresses.map((address, i) => ({ address, n: i + 1, title: titleOf(address, pages) })),
@@ -308,43 +323,84 @@ function SlidePreview({ className, label, title, page, empty }: SlidePreviewProp
 }
 
 /**
+ * Hands the main thread back for a turn. WebKit has no `scheduler.yield`;
+ * a zero timeout is the portable fallback.
+ */
+function yieldToEventLoop(): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  return scheduler?.yield ? scheduler.yield() : new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+interface BuildOptions {
+  /** The addresses the presenter looks at now (current and next), read before each slide. */
+  wanted: () => readonly string[];
+  /** True once a newer document or level has replaced this build. */
+  stopped: () => boolean;
+  /**
+   * Receives the pages built so far after each slide but the last, once the
+   * wanted slides are among them.
+   */
+  onProgress: (pages: ReadonlyMap<string, HTMLElement>) => void;
+}
+
+/** The section id in a `<section-id>/<n>` address. */
+const sectionOf = (address: string) => address.slice(0, address.lastIndexOf("/"));
+
+/**
  * The audience's pipeline, run again here: sections, diagrams, fitting,
  * settling, pagination, overflow notes. The pages are slide-sized and do not depend on this
  * window's size, so they match the audience's addresses.
+ *
+ * It runs one slide at a time, the slides the presenter is looking at first,
+ * and gives the main thread back between slides and between diagrams. In
+ * WebKit the presenter window shares its main thread with the audience tab
+ * that opened it, so a build in one piece froze the deck the room watches.
+ * Returns the finished pages, or `null` when stopped.
  */
 async function buildPreviews(
   markdown: string,
   level: LevelOption,
-): Promise<Map<string, HTMLElement>> {
-  const slides = buildSlides(sectionize(parseMarkdown(markdown), level));
-  // Attached but invisible, like the audience deck while it renders.
-  const box = document.createElement("div");
-  Object.assign(box.style, {
-    position: "fixed",
-    left: "-100000px",
-    top: "0",
-    visibility: "hidden",
-    pointerEvents: "none",
-    width: `${SLIDE_SIZE.width}px`,
-    height: `${SLIDE_SIZE.height}px`,
-  });
-  box.append(...slides);
-  document.body.append(box);
-  try {
-    await Promise.all([highlightCode(box), renderDiagrams(box)]);
-    fitDiagrams(box, slideBodySize(SLIDE_SIZE));
-    await settled(box);
-    const pages = slides.flatMap((s) => paginateSlide(s, { size: SLIDE_SIZE }));
+  { wanted, stopped, onProgress }: BuildOptions,
+): Promise<Map<string, HTMLElement> | null> {
+  const remaining = buildSlides(sectionize(parseMarkdown(markdown), level));
+  const body = slideBodySize(SLIDE_SIZE);
+  const seen = new Set<string>();
+  const pages = new Map<string, HTMLElement>();
+  while (remaining.length > 0) {
+    const ids = wanted().map(sectionOf);
+    const pick = ids.map((id) => remaining.findIndex((s) => s.dataset["docwalkId"] === id));
+    const [slide] = remaining.splice(pick.find((i) => i >= 0) ?? 0, 1);
+    if (!slide) break;
+    // Kept off the page. Nothing here needs the slide laid out where it is:
+    // diagrams are fitted from their viewBox, and pagination and the
+    // overflow notes measure clones in boxes of their own. Attached (hidden,
+    // off-screen), the slides made every one of those measurements lay them
+    // out again in WebKit: about 4.5 s of pagination and notes for the
+    // fixture, against about 1 s with them detached. A stopped build
+    // colours no more code and renders no more diagrams.
+    await Promise.all([
+      highlightCode(slide, { stop: stopped }),
+      renderDiagrams(slide, stopped, { seen, pause: yieldToEventLoop }),
+    ]);
+    fitDiagrams(slide, body);
+    // Also a turn of the event loop: it waits for an animation frame.
+    await settled(slide);
+    if (stopped()) return null;
+    const built = paginateSlide(slide, { size: SLIDE_SIZE });
     // The presenter must see the same notes the audience deck shows, or a
     // clipped slide or an unreadable diagram looks fine in the preview.
-    flagPages(pages, SLIDE_SIZE);
-    return new Map(pages.map((p) => [slideAddress(p), p]));
-  } finally {
-    box.remove();
+    flagPages(built, SLIDE_SIZE);
+    for (const page of built) pages.set(slideAddress(page), page);
+    // Current and next appear together, then the rest one by one.
+    const pending = new Set(wanted().map(sectionOf));
+    if (remaining.length > 0 && !remaining.some((s) => pending.has(s.dataset["docwalkId"] ?? ""))) {
+      onProgress(pages);
+    }
   }
+  return pages;
 }
 
-function titleOf(address: string, pages: Map<string, HTMLElement> | null): string {
+function titleOf(address: string, pages: ReadonlyMap<string, HTMLElement> | null): string {
   const page = pages?.get(address);
   if (!page) return address;
   const title = page.dataset["title"] || address;

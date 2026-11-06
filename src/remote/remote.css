@@ -197,13 +197,15 @@
   display: grid;
   align-items: start;
   justify-items: center;
-  padding-top: 6vh;
+  /* Below a phone's notch and clear of its rounded corners (decision 75). */
+  padding: calc(6vh + env(safe-area-inset-top)) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
   overflow-y: auto;
   background: var(--dw-color-slide-shadow);
 }
 
 .docwalk-join {
-  width: min(640px, calc(100vw - 2 * var(--dw-space-lg)));
+  width: min(640px, calc(100% - 2 * var(--dw-space-lg)));
   margin-bottom: var(--dw-space-xl);
   border: 1px solid var(--border-strong);
   border-radius: var(--dw-radius-xl);

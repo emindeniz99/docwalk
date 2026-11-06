@@ -112,9 +112,10 @@ test("presenter window", async ({ page, context }) => {
   // A separate page with its own landmarks, timer and controls.
   // The fixture is rendered twice, as the audience deck and again as the
   // presenter's previews (decision 8), on top of a second page load and the
-  // audit. On WebKit that took 25-33 s on a loaded 4-core machine and 50-66 s
-  // on the CI runner, so the default 60 s is too tight for this one test.
-  test.setTimeout(120_000);
+  // audit. On WebKit with two busy cores that took 19-22 s (20-26 s before
+  // the previews were built slide by slide); the CI runner has been about
+  // twice as slow, which leaves the default 60 s too tight for this one test.
+  test.setTimeout(90_000);
   await ready(page);
   const popup = context.waitForEvent("page");
   await page.keyboard.press("Control+k");

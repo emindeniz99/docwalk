@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { CONTENT_SECURITY_POLICY } from "../worker/csp.ts";
+import { CONTENT_SECURITY_POLICY, FLOOR_CHECK_HASH } from "../worker/csp.ts";
 import viteConfig from "../vite.config.ts";
 import { docwalkCspMeta, metaContentSecurityPolicy, withCspMeta } from "./csp-plugin.ts";
 
@@ -56,5 +58,18 @@ describe("static-mode CSP <meta> (decision 34)", () => {
 
   test("it applies to builds only, because dev needs an inline React Refresh script", () => {
     expect(docwalkCspMeta().apply).toBe("build");
+  });
+
+  // Decision 78. A policy that blocks the browser check brings back the
+  // blank page the check exists to replace.
+  test("the CSP allows index.html's one inline script by its hash, and nothing else inline", () => {
+    const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
+    expect(inline).toHaveLength(1);
+    const hash = `sha256-${createHash("sha256")
+      .update(inline[0] ?? "")
+      .digest("base64")}`;
+    expect(FLOOR_CHECK_HASH).toBe(hash);
+    expect(metaContentSecurityPolicy()).toContain(`script-src 'self' '${hash}';`);
   });
 });
