@@ -53,7 +53,8 @@ lists every settled design decision.
   image taller than a slide gets a visible note.
 - Three views: an editor with a live slide preview and an outline, a
   document view that renders the file as GitHub would, and presentation
-  mode. ⌘K or Ctrl+K opens a command palette; O opens a slide overview.
+  mode. ⌘K or Ctrl+K opens a command palette that finds a slide by its title
+  or by any words on it; O opens a slide overview.
 - Presenting, the slide fills the screen edge to edge, and any room a
   screen that is not 16:9 leaves around it takes the slide's colour. More
   actions › Fill the screen when presenting switches back to a card on a

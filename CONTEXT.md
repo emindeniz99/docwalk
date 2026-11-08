@@ -112,6 +112,11 @@ audience deck, document mode and exports (79). Code: `speakerNotes`.
 **Static mode**: a deployment without the Worker. Everything except OAuth
 and remote control works (37, 38).
 
+**Text hit**: a slide the command palette lists because its text holds the
+query, not its title. It shows a snippet with the match marked and opens
+the paginated page that holds the words. Diagrams and speaker notes are not
+searched (81). Code: `SlideInfo.text`, `searchText`.
+
 **Title slide**: a slide for a heading above the base level that has its own
 content (15).
 
@@ -151,6 +156,7 @@ Add a row here before introducing a new one.
 | outline                     | ana hat                     |                                            |
 | section                     | bölüm                       |                                            |
 | slide overview              | slaytlara genel bakış       |                                            |
+| text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |
 | diagram, node               | diyagram, düğüm             |                                            |
 | sketch                      | çizim                       |                                            |
 | comment, resolved, orphaned | yorum, çözüldü, sahipsiz    |                                            |

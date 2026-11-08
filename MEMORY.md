@@ -12,7 +12,7 @@ github.com/emindeniz99/docwalk with the static build on GitHub Pages
 (`deploy-pages.yml` runs after CI passes on `main`, or by hand). On
 2026-11-06 code colours (76), the fill frame (77), per-slide presenter
 previews, the old-browser notice (78), document-mode hash links and
-safe-area padding landed. Decision rows run to 80. CI (three-engine e2e,
+safe-area padding landed. Decision rows run to 81. CI (three-engine e2e,
 Lighthouse, zizmor) is green on GitHub; the nightly Stryker run was fixed
 on 2026-11-08 (`disableTypeChecks` must skip HTML). Small safe changes go
 straight to `main`, larger work on a branch merged with `--no-ff`
@@ -84,9 +84,11 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-08: Vitest's `expect.poll` moves fake timers 50 ms per try, so a test that polls after `useFakeTimers` starts its clock late (use a loop of message-channel tasks); React commits in a message-channel task the fake clock leaves alone, so read the page after one. `pacing.ts` and `Pacing.tsx` cannot share a folder on a case-insensitive disk (TS1149).
 - 2026-11-08: Playwright's `context.clock.install()` fakes `Date` and timers in the main tab and in a popup, and lets time run between jumps; `fastForward` fires each due timer once, so a test that needs the page to have seen the jump waits on a second clock (the Elapsed timer). A popup opened with `window.open` starts with a copy of its opener's `sessionStorage`; the countdown key is never written there.
 - 2026-11-08: CommonMark lets an unclosed `<!--` swallow the rest of the document as one `html` node, and a comment above the first heading opens a slide of its own (`intro`, blank in the presenter list). Speaker notes ignore the first and hand the second's notes to the next slide.
+- 2026-11-08: React Aria's Menu draws its empty state ("No match") inside a `role="menuitem"` wrapper, so a test that counts menu items must leave out the one holding `.docwalk-palette-empty`. `useFilter({ sensitivity: "base" })` collates with the UI locale: under `tr-TR` ç, ğ, ö, ş and ü are separate letters (`gec` misses `geç`), I matches ı and i matches İ; under `en-US` İ matches i and I, and ı matches neither. A sliding `Intl.Collator.compare` over a 30 kB document costs under 2 ms per query.
 
 ## Done
 
+- 2026-11-08: Full-text slide search in the palette (decision 81, branch `feat/roadmap-next-up`): `SlideInfo.text` is read lazily from the paginated page (`src/deck/slideText.ts`), `src/shell/slideSearch.ts` finds the first match with the title filter's collator and cuts a snippet, and the palette lists hits under "In slide text" (ten at most, a count of the rest). Mermaid labels and speaker notes are not searched.
 - 2026-11-08: Countdown, pacing bar and screen wake lock (decision 80, branch `feat/roadmap-next-up`): the presenter window takes a target in minutes and counts down with pause and reset, goes negative with words and an icon when over, and sets time used against slides done from the address list; the clock lives in the window's `sessionStorage`, apart from the bridge's `startedAt`; the wake lock is held while presenting and while the presenter window is open.
 - 2026-11-08: Speaker notes (decision 79, branch `feat/roadmap-next-up`): the closed HTML comments of a section, minus tool directives, show under the current slide in the presenter window; read from the AST in `src/sectioning/notes.ts`, printed as text, no new bridge field and no other surface sees them.
 - 2026-11-06: Presenter previews built off the page and slide by slide, current and next first (WebKit opener stall 5-6 s to under 1 s); document mode opens a linked heading; old browsers get a notice (decision 78); toast and centred dialogs pad for the safe area; pen-marks test waits for the final rebuilt deck.
