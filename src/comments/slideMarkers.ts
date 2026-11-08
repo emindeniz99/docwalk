@@ -77,7 +77,7 @@ export function attachSlideMarkers(
     const slide = current();
     const page = slide ? pageOf(stage, slide) : null;
     if (!index || !page) return;
-    const counts = openCounts(comments);
+    const counts = openCounts(comments, index);
     if (counts.size === 0) return;
 
     const box = stage.getBoundingClientRect();

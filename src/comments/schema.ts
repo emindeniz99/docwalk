@@ -33,6 +33,8 @@ const AnchorSchema = v.variant("kind", [
     heading: v.pipe(v.string(), v.maxLength(512), v.regex(NAME)),
     diagram: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(10_000)),
     node: v.pipe(v.string(), v.minLength(1), v.maxLength(200), v.regex(NAME)),
+    // A hash of the diagram's source, in hex (decision 96). Short, so it cannot carry anything else.
+    sig: v.optional(v.pipe(v.string(), v.regex(/^[0-9a-f]{1,16}$/))),
   }),
 ]);
 
@@ -187,6 +189,7 @@ export function commentsFile(
               heading: c.anchor.heading,
               diagram: c.anchor.diagram,
               node: c.anchor.node,
+              ...(c.anchor.sig === undefined ? {} : { sig: c.anchor.sig }),
             },
       text: c.text,
       created: c.created,

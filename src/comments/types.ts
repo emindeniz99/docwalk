@@ -15,11 +15,13 @@
  * - `node`: node `node` (the id written in the Mermaid source, such as
  *   `api_gw` in `api_gw[API gateway]`) of the `diagram`-th Mermaid block
  *   (0-based) under the heading `heading`; `heading` is `""` for diagrams
- *   that come before the first heading.
+ *   that come before the first heading. `sig` (decision 96) is a hash of
+ *   that diagram's source when the comment was written, so the comment can
+ *   follow the diagram when it moves.
  */
 export type Anchor =
   | { kind: "heading"; slug: string }
-  | { kind: "node"; heading: string; diagram: number; node: string };
+  | { kind: "node"; heading: string; diagram: number; node: string; sig?: string | undefined };
 
 export interface DocComment {
   id: string;

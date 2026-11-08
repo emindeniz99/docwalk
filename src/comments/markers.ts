@@ -6,7 +6,7 @@
  * counts and heading titles set as text; no comment text reaches the DOM here.
  */
 import { m } from "../paraglide/messages.js";
-import { anchorKey, type AnchorIndex } from "./anchors";
+import { anchorKey, currentKey, type AnchorIndex } from "./anchors";
 import { matchDiagramHosts, sourceNodeId } from "./diagramNodes";
 import type { DocComment } from "./types";
 
@@ -15,12 +15,15 @@ export const NODE_ATTR = "data-docwalk-comments";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-/** Open comments per anchor key. */
-export function openCounts(comments: readonly DocComment[]): Map<string, number> {
+/** Open comments per anchor key, by where each comment points now (decision 96). */
+export function openCounts(
+  comments: readonly DocComment[],
+  index: AnchorIndex,
+): Map<string, number> {
   const out = new Map<string, number>();
   for (const c of comments) {
     if (c.resolved) continue;
-    const k = anchorKey(c.anchor);
+    const k = currentKey(c.anchor, index);
     out.set(k, (out.get(k) ?? 0) + 1);
   }
   return out;
@@ -62,7 +65,7 @@ export function markHeadings(
   onOpen: (slug: string) => void,
 ): void {
   for (const old of article.querySelectorAll(`.${MARKER_CLASS}`)) old.remove();
-  const counts = openCounts(comments);
+  const counts = openCounts(comments, index);
   let next = 0;
   for (const el of article.querySelectorAll<HTMLElement>(":scope > :is(h1, h2, h3, h4, h5, h6)")) {
     const title = normalize(el.textContent ?? "");
@@ -89,7 +92,7 @@ export function markDiagramNodes(
   index: AnchorIndex,
   comments: readonly DocComment[],
 ): void {
-  const counts = openCounts(comments);
+  const counts = openCounts(comments, index);
   for (const { host, target } of matchDiagramHosts(container, index)) {
     for (const g of host.querySelectorAll<SVGGElement>("svg g.node[id]")) {
       const node = sourceNodeId(g);

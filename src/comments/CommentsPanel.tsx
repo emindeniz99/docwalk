@@ -43,6 +43,7 @@ import { m } from "../paraglide/messages.js";
 import { IconButton } from "../shell/IconButton";
 import {
   anchorKey,
+  currentKey,
   diagramKey,
   resolveAnchor,
   type AnchorIndex,
@@ -112,7 +113,14 @@ function anchorOptions(
   const diagramNodes: Option[] = [];
   for (const d of index.diagrams) {
     for (const n of nodes.get(diagramKey(d.heading, d.diagram)) ?? []) {
-      const anchor: Anchor = { kind: "node", heading: d.heading, diagram: d.diagram, node: n.id };
+      // The signature goes on the comment, so it can follow this diagram if diagrams are reordered (decision 96).
+      const anchor: Anchor = {
+        kind: "node",
+        heading: d.heading,
+        diagram: d.diagram,
+        node: n.id,
+        sig: d.sig,
+      };
       const number = d.diagram + 1;
       diagramNodes.push({
         key: anchorKey(anchor),
@@ -240,7 +248,7 @@ function PanelBody({
     [];
   for (const { comment, where } of shown) {
     if (where.status !== "attached") continue;
-    const key = anchorKey(comment.anchor);
+    const key = currentKey(comment.anchor, index);
     const last = groups.at(-1);
     if (last?.key === key) last.items.push(comment);
     else groups.push({ key, label: where.label, sectionId: where.sectionId, items: [comment] });

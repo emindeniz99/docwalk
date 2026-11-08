@@ -26,6 +26,8 @@ export interface DiagramTarget {
   /** 0-based position among the diagrams under that heading. */
   diagram: number;
   source: string;
+  /** `diagramSig` of the source, so comments can find the diagram again when it moves. */
+  sig: string;
   sectionId: string | null;
 }
 
@@ -47,6 +49,26 @@ export type DiagramNodes = ReadonlyMap<string, readonly DiagramNode[]>;
 
 export function diagramKey(heading: string, diagram: number): string {
   return `${heading}\u0000${diagram}`;
+}
+
+/**
+ * A 53-bit hash (cyrb53), in hex, of a diagram's source with its whitespace
+ * collapsed (decision 96). Not a security hash: it only tells two diagrams
+ * apart, and a node anchor carries it so the comment can follow its diagram
+ * when diagrams are reordered.
+ */
+export function diagramSig(source: string): string {
+  const text = source.replace(/\s+/g, " ").trim();
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
 }
 
 /** A string that is equal for two anchors exactly when they point at the same thing. */
@@ -112,6 +134,7 @@ export function buildAnchorIndex(root: Root, plan: SectionPlan): AnchorIndex {
         heading: currentHeading,
         diagram: n,
         source: code.value,
+        sig: diagramSig(code.value),
         sectionId: sectionOf.get(node) ?? null,
       });
     });
@@ -133,6 +156,27 @@ export function describeAnchor(anchor: Anchor): string {
 }
 
 /**
+ * The anchor as it reads against the current document (decision 96): a node
+ * anchor whose diagram moved gets the diagram's number now. The stored
+ * anchor is never rewritten. `null` when the comment cannot be placed
+ * without a guess: several diagrams under the heading are equal to the one
+ * it was written on, and none sits at the recorded number.
+ */
+export function currentAnchor(anchor: Anchor, index: AnchorIndex): Anchor | null {
+  if (anchor.kind === "heading" || anchor.sig === undefined) return anchor;
+  const same = index.diagrams.filter((d) => d.heading === anchor.heading && d.sig === anchor.sig);
+  // No equal diagram (it was edited, or left the heading): the recorded number decides.
+  if (same.length === 0 || same.some((d) => d.diagram === anchor.diagram)) return anchor;
+  const [only] = same;
+  return same.length === 1 && only ? { ...anchor, diagram: only.diagram } : null;
+}
+
+/** Like `anchorKey`, for where the anchor points now: a moved comment groups, counts and marks with its diagram. */
+export function currentKey(anchor: Anchor, index: AnchorIndex): string {
+  return anchorKey(currentAnchor(anchor, index) ?? anchor);
+}
+
+/**
  * Finds what an anchor points at now. A node anchor whose diagram has not
  * rendered yet counts as attached (its diagram exists); once the diagram
  * has rendered without that node, or the heading or diagram is gone, the
@@ -146,8 +190,10 @@ export function resolveAnchor(anchor: Anchor, index: AnchorIndex, nodes: Diagram
       ? { status: "attached", sectionId: h.sectionId, label: h.title || h.slug, order: at * 1000 }
       : { status: "orphaned", label: describeAnchor(anchor) };
   }
+  const here = currentAnchor(anchor, index);
+  if (here?.kind !== "node") return { status: "orphaned", label: describeAnchor(anchor) };
   const at = index.diagrams.findIndex(
-    (d) => d.heading === anchor.heading && d.diagram === anchor.diagram,
+    (d) => d.heading === here.heading && d.diagram === here.diagram,
   );
   const d = index.diagrams[at];
   if (!d) return { status: "orphaned", label: describeAnchor(anchor) };
