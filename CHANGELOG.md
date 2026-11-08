@@ -90,7 +90,11 @@ The first release.
   Saved sketches panel deletes stored sketches, and full storage or a missing
   `crypto.subtle` is reported as such.
 - Comments on headings and diagram nodes, carried in share links and
-  exported as `<name>.comments.json` sidecars.
+  exported as `<name>.comments.json` sidecars. Count markers sit beside
+  commented headings on the slide itself; a deleted comment stays deleted
+  when an older link, sidecar or tab is imported; node comments follow
+  their diagram when diagrams are reordered; a new comment can carry a
+  display name, kept in this browser.
 - A browser workspace (files, folders, templates, zip import and export)
   and, in Chromium, local folders that reload on change and save on request.
   The workspace follows edits from another tab and asks before it writes over
