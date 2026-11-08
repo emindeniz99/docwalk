@@ -169,6 +169,18 @@ function write(key: string, value: unknown): void {
   }
 }
 
+const PERSIST_KEY = "docwalk.workspace.persist-refused";
+
+/** When the browser last refused to keep the workspace (milliseconds since 1970), or `null`. */
+export function persistRefusedAt(): number | null {
+  const value = read(PERSIST_KEY);
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function rememberPersistRefused(at: number | null): void {
+  write(PERSIST_KEY, at);
+}
+
 /** The workspace file this browser showed last, which a plain visit reopens. */
 export function rememberedFile(): OpenFile | null {
   const parsed = v.safeParse(OpenSchema, read(OPEN_KEY));

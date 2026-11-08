@@ -150,8 +150,12 @@ without a message when the API is missing or refuses (80). Code:
 
 **Workspace**: the files and folders docwalk keeps for the user, either in
 the browser's origin private file system (autosaved) or in a **local
-folder**. The file panel above the outline shows it (57, 66). Code:
-`src/workspace/`, document source `{ kind: "workspace" }`.
+folder**. The file panel above the outline shows it (57, 66). Several tabs
+share the browser workspace through a `BroadcastChannel` and a Web Lock; an
+edit one of them cannot write (the file is gone, or other text is on disk) is
+**held back** until the user answers (90). The browser may clear it unless
+**persistent** (91). Code: `src/workspace/`, document source
+`{ kind: "workspace" }`.
 
 ## Turkish UI terms
 

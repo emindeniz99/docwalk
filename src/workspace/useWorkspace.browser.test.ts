@@ -14,9 +14,9 @@ import { DRAFT_STORAGE_KEY } from "../share/types";
 import { useDocument } from "../shell/useDocument";
 import { workspaceCommands } from "./commands";
 import { FilesPanel } from "./FilesPanel";
-import { writeText } from "./fs";
+import { kindAt, writeText } from "./fs";
 import { folderId, opfsRoot, rememberedFile, rememberFile, saveFolderHandle } from "./store";
-import type { WorkspaceNode } from "./types";
+import { MAX_LISTED_ENTRIES, type WorkspaceNode } from "./types";
 import { AUTOSAVE_MS, useWorkspace, type Workspace } from "./useWorkspace";
 import { WorkspaceDialogs } from "./WorkspaceDialogs";
 
@@ -38,6 +38,8 @@ function Harness({ report }: { report: (wired: Wired) => void }) {
 }
 
 let root: Root | null = null;
+/** The roots of further "tabs" a test mounted next to the first. */
+const extraRoots: Root[] = [];
 /** A folder of the real OPFS workspace that only this test uses. */
 let dir = "";
 
@@ -51,6 +53,18 @@ async function mount() {
   return result;
 }
 
+/** Another tab: a second workspace hook on the same origin, in the same page. */
+async function mountTab() {
+  const result: { current: Wired | null } = { current: null };
+  const container = document.createElement("div");
+  document.body.append(container);
+  const tab = createRoot(container);
+  extraRoots.push(tab);
+  act(() => tab.render(h(Harness, { report: (r) => (result.current = r) })));
+  await vi.waitFor(() => expect(result.current!.workspace.listing).not.toBeNull());
+  return result;
+}
+
 const PASTED = { markdown: "# My own draft\n\nOnly copy.\n", source: { kind: "paste" } };
 
 beforeEach(() => {
@@ -60,6 +74,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const extra of extraRoots.splice(0)) act(() => extra.unmount());
   act(() => root?.unmount());
   root = null;
   document.body.replaceChildren();
@@ -689,4 +705,304 @@ describe("an external change to an open local file (review pass 3, findings 5 an
     await vi.waitFor(() => expect(wired.current!.workspace.dialog?.kind).toBe("conflict"));
     expect(wired.current!.workspace.source?.path).toBe("a.md");
   });
+});
+
+const opfsText = async (path: string) => {
+  try {
+    const parts = path.split("/");
+    const name = parts.pop()!;
+    let folder = await opfsRoot();
+    for (const part of parts) folder = await folder.getDirectoryHandle(part);
+    return await (await (await folder.getFileHandle(name)).getFile()).text();
+  } catch {
+    return null;
+  }
+};
+
+/** Two tabs of the browser workspace with `plan.md` open in both. */
+async function bothOpen() {
+  const path = `${dir}/plan.md`;
+  await writeText(await opfsRoot(), path, "# Plan\n");
+  const a = await mount();
+  const b = await mountTab();
+  for (const tab of [a, b]) {
+    act(() => tab.current!.workspace.openFile(path));
+    await vi.waitFor(() => expect(tab.current!.workspace.source?.path).toBe(path));
+    await vi.waitFor(() => expect(tab.current!.workspace.saveState).toBe("saved"));
+  }
+  return { a, b, path };
+}
+
+describe("the browser workspace in two tabs (decision 90)", () => {
+  test("an edit in one tab reaches the other, which had no edits of its own", async () => {
+    // OPFS edits in another tab were not watched: this tab kept showing the old text.
+    const { a, b } = await bothOpen();
+    act(() => b.current!.inputs.edit("# Plan, from tab B\n"));
+    await vi.waitFor(() => expect(a.current!.inputs.doc?.markdown).toBe("# Plan, from tab B\n"));
+  });
+
+  test("a new file made in one tab shows in the other's tree without a focus event", async () => {
+    const a = await mount();
+    const b = await mountTab();
+    expect(await act(() => b.current!.workspace.newFile(dir, "fresh"))).toBeNull();
+    await vi.waitFor(() =>
+      expect(JSON.stringify(a.current!.workspace.listing?.nodes)).toContain(`${dir}/fresh.md`),
+    );
+  });
+
+  test("two tabs that both edited ask instead of letting the slower one overwrite the other", async () => {
+    const { a, b, path } = await bothOpen();
+    act(() => a.current!.inputs.edit("# From tab A\n"));
+    act(() => b.current!.inputs.edit("# From tab B\n"));
+    const [winner, loser] = await vi.waitFor(() => {
+      const asking = [a, b].map((tab) => tab.current!.workspace.dialog?.kind === "conflict");
+      expect(asking.filter(Boolean)).toHaveLength(1);
+      return asking[0] ? [b, a] : [a, b];
+    });
+    const winning = winner!.current!.inputs.doc!.markdown;
+    const losing = loser!.current!.inputs.doc!.markdown;
+    // The text that reached OPFS first is still there while the question is open.
+    expect(await opfsText(path)).toBe(winning);
+
+    await userEvent.click(alertButton("Keep my edits"));
+    await vi.waitFor(async () => expect(await opfsText(path)).toBe(losing));
+  });
+
+  test("a file deleted in another tab is not created again by autosave, and Save writes it back", async () => {
+    const { a, b, path } = await bothOpen();
+    const node: WorkspaceNode = { path, name: "plan.md", kind: "file" };
+    await act(() => b.current!.workspace.removeEntry(node));
+    await vi.waitFor(() => expect(a.current!.workspace.saveState).toBe("missing"));
+
+    act(() => a.current!.inputs.edit("# Kept typing\n"));
+    await act(() => new Promise((r) => setTimeout(r, AUTOSAVE_MS + 400)));
+    expect(await kindAt(await opfsRoot(), path)).toBeNull();
+
+    let saved: boolean | null = null;
+    await act(async () => {
+      saved = await a.current!.workspace.save();
+    });
+    expect(saved).toBe(true);
+    expect(await opfsText(path)).toBe("# Kept typing\n");
+  });
+
+  test("edits held back because the file is gone are asked about before another file opens", async () => {
+    const { a, b, path } = await bothOpen();
+    await writeText(await opfsRoot(), `${dir}/other.md`, "# Other\n");
+    await act(() => b.current!.workspace.removeEntry({ path, name: "plan.md", kind: "file" }));
+    await vi.waitFor(() => expect(a.current!.workspace.saveState).toBe("missing"));
+    act(() => a.current!.inputs.edit("# Only copy\n"));
+    await act(() => new Promise((r) => setTimeout(r, AUTOSAVE_MS + 400)));
+
+    act(() => a.current!.workspace.openFile(`${dir}/other.md`));
+    expect(a.current!.workspace.dialog?.kind).toBe("discard");
+    expect(a.current!.workspace.source?.path).toBe(path);
+  });
+});
+
+/** Runs `body` with no FileSystemObserver, as in a Chromium that predates it. */
+async function withoutObserver(body: () => Promise<void>) {
+  const g = globalThis as { FileSystemObserver?: unknown };
+  const real = g.FileSystemObserver;
+  delete g.FileSystemObserver;
+  try {
+    await body();
+  } finally {
+    if (real !== undefined) g.FileSystemObserver = real;
+  }
+}
+const listed = (wired: { current: Wired | null }) =>
+  wired.current!.workspace.listing?.nodes.map((n) => n.path);
+
+/** Makes listing the folder named `fa` fail with `name`, until the returned restore runs. */
+function breakListing(name: string) {
+  const proto = FileSystemDirectoryHandle.prototype as unknown as {
+    entries: () => AsyncIterable<unknown>;
+  };
+  const real = proto.entries;
+  proto.entries = function (this: FileSystemDirectoryHandle) {
+    if (this.name !== "fa") return real.call(this);
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new DOMException("", name)),
+      }),
+    };
+  };
+  return () => {
+    proto.entries = real;
+  };
+}
+
+describe("a local folder's tree without FileSystemObserver (decision 91)", () => {
+  test("a file made on disk shows up within seconds while the window keeps focus", async () => {
+    await withoutObserver(async () => {
+      await writeText(await disk("fa"), "a.md", "# A\n");
+      pickNext("fa");
+      const wired = await mount();
+      await openInFolder(wired, "fa", "a.md");
+      await writeText(await disk("fa"), "later.md", "# Later\n");
+      await vi.waitFor(() => expect(listed(wired)).toContain("later.md"), { timeout: 9000 });
+    });
+  });
+
+  test("a listing that fails keeps the tree on screen instead of showing an empty folder", async () => {
+    // It showed "No Markdown files" and invited writes into a folder that was not there.
+    await writeText(await disk("fa"), "a.md", "# A\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "a.md");
+    const restore = breakListing("UnknownError");
+    try {
+      globalThis.dispatchEvent(new Event("focus"));
+      await act(() => new Promise((r) => setTimeout(r, 300)));
+      expect(listed(wired)).toEqual(["a.md"]);
+    } finally {
+      restore();
+    }
+  });
+
+  test("a listing the browser refuses turns the folder back into Reconnect", async () => {
+    await writeText(await disk("fa"), "a.md", "# A\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "a.md");
+    const restore = breakListing("NotAllowedError");
+    try {
+      globalThis.dispatchEvent(new Event("focus"));
+      await vi.waitFor(() => expect(wired.current!.workspace.folderPermission).toBe("prompt"));
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("keeping the browser workspace (decision 91)", () => {
+  test("is asked for after the first save, not at start-up, and a refusal shows as a note", async () => {
+    const persist = vi.spyOn(navigator.storage, "persist").mockResolvedValue(false);
+    vi.spyOn(navigator.storage, "persisted").mockResolvedValue(false);
+    const path = `${dir}/plan.md`;
+    await writeText(await opfsRoot(), path, "# Plan\n");
+    const wired = await mount();
+    act(() => wired.current!.workspace.openFile(path));
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+    expect(persist).not.toHaveBeenCalled();
+
+    act(() => wired.current!.inputs.edit("# Plan, saved\n"));
+    await vi.waitFor(() => expect(persist).toHaveBeenCalledTimes(1));
+    act(() => wired.current!.inputs.edit("# Plan, saved twice\n"));
+    await vi.waitFor(async () => expect(await opfsText(path)).toBe("# Plan, saved twice\n"));
+    expect(persist).toHaveBeenCalledTimes(1);
+
+    await vi.waitFor(() => expect(wired.current!.workspace.persistent).toBe(false));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".docwalk-files")?.textContent).toContain("may clear"),
+    );
+  });
+
+  test("storage that is already persistent is not asked again and shows no note", async () => {
+    const persist = vi.spyOn(navigator.storage, "persist").mockResolvedValue(true);
+    vi.spyOn(navigator.storage, "persisted").mockResolvedValue(true);
+    const path = `${dir}/plan.md`;
+    await writeText(await opfsRoot(), path, "# Plan\n");
+    const wired = await mount();
+    act(() => wired.current!.workspace.openFile(path));
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+    act(() => wired.current!.inputs.edit("# Plan, saved\n"));
+    await vi.waitFor(async () => expect(await opfsText(path)).toBe("# Plan, saved\n"));
+    expect(persist).not.toHaveBeenCalled();
+    expect(wired.current!.workspace.persistent).toBe(true);
+    expect(document.querySelector(".docwalk-files")?.textContent).not.toContain("may clear");
+  });
+
+  test("a full storage says how much is used", async () => {
+    vi.spyOn(navigator.storage, "estimate").mockResolvedValue({
+      usage: 50 * 1024 * 1024,
+      quota: 60 * 1024 * 1024,
+    });
+    await writeText(await opfsRoot(), `${dir}/plan.md`, "# Plan\n");
+    const wired = await mount();
+    act(() => wired.current!.workspace.openFile(`${dir}/plan.md`));
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+    vi.spyOn(FileSystemFileHandle.prototype, "createWritable").mockRejectedValue(
+      new DOMException("", "QuotaExceededError"),
+    );
+    act(() => wired.current!.inputs.edit("# Plan, too big\n"));
+    await vi.waitFor(() =>
+      expect(wired.current!.inputs.notice?.message).toContain("50 MB of 60 MB"),
+    );
+  });
+});
+
+describe("a local file that cannot be read on disk (decision 93)", () => {
+  test("Save does not write over it", async () => {
+    // The check failed to read the file and counted that as "no change", then wrote over it.
+    await writeText(await disk("fa"), "notes.md", "# V0\n");
+    pickNext("fa");
+    const wired = await mount();
+    await openInFolder(wired, "fa", "notes.md");
+    await vi.waitFor(() => expect(wired.current!.workspace.saveState).toBe("saved"));
+    act(() => wired.current!.inputs.edit("# V0, my edits\n"));
+    const binary = new Uint8Array([0xff, 0xfe, 0x80, 0x81]);
+    await writeText(await disk("fa"), "notes.md", binary);
+
+    let saved: boolean | null = null;
+    await act(async () => {
+      saved = await wired.current!.workspace.save();
+    });
+    expect(saved).toBe(false);
+    const file = await (await (await disk("fa")).getFileHandle("notes.md")).getFile();
+    expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([...binary]);
+    expect(wired.current!.inputs.notice?.tone).toBe("error");
+    expect(wired.current!.workspace.saveState).toBe("error");
+  });
+});
+
+describe("a workspace past the listing's 5000-entry cap (decisions 92, 93)", () => {
+  let big = "";
+  beforeAll(async () => {
+    big = `ws-big-${crypto.randomUUID()}`;
+    const folder = await (await opfsRoot()).getDirectoryHandle(big, { create: true });
+    for (let i = 0; i <= MAX_LISTED_ENTRIES; i++) {
+      await folder.getFileHandle(`n${String(i).padStart(4, "0")}.md`, { create: true });
+    }
+  }, 120_000);
+  afterAll(async () => {
+    await (await opfsRoot()).removeEntry(big, { recursive: true }).catch(() => undefined);
+  });
+
+  test("the zip export refuses a listing that was cut short, instead of leaving files out", async () => {
+    const download = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:docwalk-test");
+    const wired = await mount();
+    expect(wired.current!.workspace.listing?.truncated).toBe(true);
+    await act(() => wired.current!.workspace.exportZip());
+    expect(download).not.toHaveBeenCalled();
+    expect(wired.current!.inputs.notice?.tone).toBe("error");
+    expect(wired.current!.inputs.notice?.message).toContain("too large to export");
+  }, 60_000);
+
+  test("deleting the folder drops the comments of a file the listing never reached", async () => {
+    // Only the listed files were cleaned: a new file at that path inherited the old comments.
+    const wired = await mount();
+    const flatten = (nodes: WorkspaceNode[]): string[] =>
+      nodes.flatMap((n) => (n.kind === "file" ? [n.path] : flatten(n.children ?? [])));
+    const node = wired.current!.workspace.listing!.nodes.find((n) => n.path === big) ?? {
+      path: big,
+      name: big,
+      kind: "directory" as const,
+    };
+    const reached = new Set(flatten([node]));
+    const bigDir = await (await opfsRoot()).getDirectoryHandle(big);
+    let unreached = "";
+    for await (const name of bigDir.keys()) {
+      if (!reached.has(`${big}/${name}`)) {
+        unreached = `${big}/${name}`;
+        break;
+      }
+    }
+    expect(unreached).not.toBe("");
+    await (await openCommentStore()).save(sourceKey(at(unreached))!, [comment]);
+
+    await act(() => wired.current!.workspace.removeEntry(node));
+    expect(await commentsAt(unreached)).toEqual([]);
+  }, 60_000);
 });
