@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, type RefObject } from "react";
+import { inFocusView } from "../deck/focusView";
 import type { AnnotationMode } from "./types";
 
 export type AnnotationShortcut = { mode: AnnotationMode } | { action: "undo" | "redo" };
@@ -38,6 +39,8 @@ export function isTextEntry(target: EventTarget | null): boolean {
 /** The shortcut a key press asks for, or null when it is not one of ours. */
 export function annotationShortcut(event: KeyboardEvent): AnnotationShortcut | null {
   if (event.defaultPrevented || event.isComposing || isTextEntry(event.target)) return null;
+  // An open focus view (decision 87) is its own layer: P, L, A, E and Escape are not for the pen.
+  if (inFocusView(event.target)) return null;
   const key = event.key.toLowerCase();
   const command = event.ctrlKey || event.metaKey;
   if (command && !event.altKey && key === "z") {

@@ -1,4 +1,5 @@
 import DOMPurify, { type Config } from "dompurify";
+import { unmarkFocusTargets } from "../deck/focusTargets";
 import { rewriteCssUrls } from "./cssText";
 import { m } from "../paraglide/messages.js";
 import rawPageCss from "./page.css?raw";
@@ -103,6 +104,8 @@ export function prepareSlide(el: HTMLElement, policy: ResourcePolicy): HTMLEleme
   for (const attr of ["style", "hidden", "aria-hidden", "inert"]) el.removeAttribute(attr);
   el.classList.remove("present", "past", "future");
   for (const hidden of el.querySelectorAll("[hidden]")) hidden.remove();
+  // Code, tables and images open in the focus view on a slide; a static page has none (decision 87).
+  unmarkFocusTargets(el);
   for (const host of el.querySelectorAll<HTMLElement>(".docwalk-diagram")) {
     for (const attr of ["tabindex", "role", "aria-label", "data-source"])
       host.removeAttribute(attr);

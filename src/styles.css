@@ -466,6 +466,76 @@ section[data-docwalk-id] {
   cursor: pointer;
 }
 
+/*
+ * Code and tables in the focus view (decision 87) scroll natively and scale their type.
+ * The sheet wears the slide's own classes for table, code and colour rules, so only the
+ * size and the room around it are set here. The stage stays white in both themes.
+ */
+.docwalk-focus-stage[data-mode="sheet"] {
+  display: block;
+  /* The canvas stage centres its child; a block child would inherit that as justify-self and overhang on the left. */
+  place-items: start;
+  overflow: auto;
+  touch-action: auto;
+}
+
+.docwalk-focus-stage[data-mode="sheet"] :focus-visible,
+.docwalk-focus-stage[data-mode="sheet"]:focus-visible {
+  outline: 2px solid var(--dw-color-focus);
+  outline-offset: -2px;
+}
+
+.docwalk-focus-sheet {
+  box-sizing: border-box;
+  width: fit-content;
+  min-width: 100%;
+  padding: var(--dw-space-xl);
+  overflow: visible;
+  font-size: calc(var(--dw-type-slide-body-size) * var(--focus-scale, 1));
+}
+
+.docwalk-focus-sheet pre {
+  margin: 0;
+  overflow: visible;
+}
+
+.docwalk-focus-sheet pre code {
+  display: block;
+}
+
+.docwalk-focus-sheet table {
+  margin: 0;
+}
+
+/* One line, one toggle. The bar on the inline start is reserved on every line, so a mark moves nothing. */
+.docwalk-code-line {
+  display: block;
+  border-inline-start: 4px solid transparent;
+  padding-inline-start: var(--dw-space-sm);
+  white-space: pre;
+  cursor: pointer;
+}
+
+.docwalk-code-line:hover {
+  background: var(--dw-color-canvas);
+}
+
+/* A mark is a fill and a bar, not colour alone; the bar is the note ink, 3:1 or more on the slide white. */
+.docwalk-code-line[aria-pressed="true"] {
+  border-inline-start-color: var(--dw-color-note-ink);
+  background: var(--dw-color-note-surface);
+}
+
+/* Code, tables and images open in the focus view; the pointer says so, as it does for diagrams. */
+.docwalk-slide-body [data-docwalk-focus] {
+  cursor: zoom-in;
+}
+
+.docwalk-slide-body [data-docwalk-focus]:focus-visible {
+  outline: 2px solid var(--dw-color-focus);
+  outline-offset: 2px;
+}
+
 /* ---- Shell: layout per view ---------------------------------------------- */
 
 .docwalk-overline {

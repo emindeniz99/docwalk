@@ -52,3 +52,26 @@ describe("text colours stay readable on the surface they are drawn on", () => {
     expect(code.filter((name) => !checked.has(name))).toEqual([]);
   });
 });
+
+describe("a marked code line in the focus view (decision 87)", () => {
+  // The focus view's ground is the slide white and a marked line takes the note
+  // fill, so every colour a token can have must still read on it.
+  const colors = tokens.colors as Record<string, string>;
+  const onMark = ["keyword", "string", "comment", "constant", "function", "parameter"];
+
+  test.each(onMark)("code-%s passes 4.5:1 on the note fill", (kind) => {
+    expect(
+      contrast(colors[`code-${kind}`] ?? "", colors["note-surface"] ?? ""),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test("plain code text passes 4.5:1 on the note fill", () => {
+    expect(
+      contrast(colors["slide-ink"] ?? "", colors["note-surface"] ?? ""),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test("the bar beside a marked line passes 3:1 on the slide white", () => {
+    expect(contrast(colors["note-ink"] ?? "", colors["slide"] ?? "")).toBeGreaterThanOrEqual(3);
+  });
+});

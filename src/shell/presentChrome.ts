@@ -49,7 +49,7 @@ const CHROME = `${BAR}, .reveal .controls`;
 /** Open layers that keep the chrome up: the overview, the palette, a menu, diagram focus. */
 const OPEN_LAYER = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
 /** Things on a slide a tap is meant for. */
-const SLIDE_TARGET = "a, button, input, summary, img, .docwalk-diagram";
+const SLIDE_TARGET = "a, button, input, summary, img, pre, table, .docwalk-diagram";
 const TABBABLE =
   'button:not(:disabled), a[href], input:not(:disabled):not([type="hidden"]), [tabindex]:not([tabindex="-1"])';
 

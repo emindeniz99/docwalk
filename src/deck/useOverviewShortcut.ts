@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, type RefObject } from "react";
 import { isTextEntry } from "../annotate/useAnnotationShortcuts";
+import { inFocusView } from "./focusView";
 
 /** True when a key press asks for the slide overview: a plain O outside text entry. */
 export function isOverviewKey(event: KeyboardEvent): boolean {
@@ -10,7 +11,8 @@ export function isOverviewKey(event: KeyboardEvent): boolean {
     !event.altKey &&
     !event.shiftKey &&
     !event.isComposing &&
-    !isTextEntry(event.target)
+    !isTextEntry(event.target) &&
+    !inFocusView(event.target)
   );
 }
 
