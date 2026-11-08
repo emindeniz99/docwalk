@@ -1,5 +1,5 @@
-import { expect, test, type BrowserContext, type WebSocketRoute } from "@playwright/test";
-import { ready, replaceSource, SHORT_DOC } from "./helpers";
+import { expect, test } from "@playwright/test";
+import { fakeWorker, ready, replaceSource, SHORT_DOC } from "./helpers";
 
 /**
  * Remote control and followers (decision 8) across real pages. The Worker's
@@ -8,26 +8,6 @@ import { ready, replaceSource, SHORT_DOC } from "./helpers";
  * end-to-end encrypted, so this proves the pages agree on keys, message
  * shapes and the follow-up loading of the presenter's document.
  */
-
-/** Offer "remote" from /api/health and relay room frames between every page of the context. */
-async function fakeWorker(context: BrowserContext) {
-  await context.route("**/api/health", (route) =>
-    route.fulfill({ json: { ok: true, features: ["remote"] } }),
-  );
-  const sockets = new Set<WebSocketRoute>();
-  /** The `?seat=` each socket opened with, in order; null when it sent none. */
-  const seats: (string | null)[] = [];
-  // Control-key holders add `?seat=` (decision 71), so the room id is not the end of the URL.
-  await context.routeWebSocket(/\/api\/remote\/[\w-]{22,64}(\?.*)?$/, (ws) => {
-    seats.push(new URL(ws.url()).searchParams.get("seat"));
-    sockets.add(ws);
-    ws.onMessage((frame) => {
-      for (const other of sockets) if (other !== ws) other.send(frame);
-    });
-    ws.onClose(() => sockets.delete(ws));
-  });
-  return seats;
-}
 
 test("a phone remote moves the presenter's deck and points its laser; a follower follows", async ({
   context,

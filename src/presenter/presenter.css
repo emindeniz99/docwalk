@@ -454,3 +454,8 @@
     justify-self: start;
   }
 }
+
+/* The audience window's laser and marks lie over the current slide's preview (decision 88). */
+.docwalk-presenter-marks {
+  pointer-events: none;
+}
