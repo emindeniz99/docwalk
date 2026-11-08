@@ -163,8 +163,7 @@ Later rounds:
   place; an agent or phone remote that joins before the
   presenter's socket is open is not counted (hello is not resent);
   `docwalk-mcp` is not on npm yet.
-- Markdown: decision 42 wants the sanitizer corpus on three engines, the
-  browser test project runs Chromium only; a footnote list pushed to a
+- Markdown: a footnote list pushed to a
   continuation page stays there; anchors cover top-level headings only.
 - Comments: no markers inside scaled slides (the slide chip stands in); no
   tombstones, so a deleted comment can return from an older link or
