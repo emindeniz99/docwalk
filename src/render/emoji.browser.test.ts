@@ -115,6 +115,26 @@ describe("the list loads only when it can matter", () => {
     expect(loads).toBe(0);
   });
 
+  test("times and timestamps never load it", async () => {
+    // `14:03:00` holds `:03:`, and the sample document has such a timestamp
+    // in a table: the list (30 kB gzip) would join every first visit.
+    let loads = 0;
+    const box = html("| Opened | Closed |\n| - | - |\n| 2026-11-05T14:03:00Z | 10:30:45 |\n");
+    await renderEmoji(box, {
+      load: async () => {
+        loads++;
+        return names;
+      },
+    });
+    expect(loads).toBe(0);
+  });
+
+  test("the four names without a letter still count", async () => {
+    const box = html(":100: :1234: :+1: :-1:");
+    await renderEmoji(box);
+    expect(box.textContent).toBe("💯 🔢 👍 👎");
+  });
+
   test("a shortcode shape loads it once for the whole root", async () => {
     let loads = 0;
     const box = html(":rocket: one\n\n:rocket: two");
