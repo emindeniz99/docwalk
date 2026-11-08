@@ -81,6 +81,21 @@ function drawArrow(points: number[]): SVGGElement {
   return group;
 }
 
+/**
+ * Whether `next` draws as `before` did. The points count too: a stroke can be
+ * replaced by one of the same id and length (ids restart after a presenter
+ * reload). The store hands out a new array for every change, so the
+ * reference usually answers before any number is compared.
+ */
+function sameStroke(before: StoredStroke, next: StoredStroke): boolean {
+  if (before.tool !== next.tool || before.color !== next.color) return false;
+  if (before.points === next.points) return true;
+  return (
+    before.points.length === next.points.length &&
+    before.points.every((n, i) => n === next.points[i])
+  );
+}
+
 function draw(stroke: StoredStroke): SVGElement | null {
   if (stroke.tool === "arrow") {
     // An arrow needs both ends; a shorter list is a stroke that is still arriving.
@@ -126,7 +141,7 @@ export function attachMirror(
   attach(host);
 
   /** The element drawn for a stroke, with what it was drawn from. */
-  const drawn = new Map<number, { signature: string; element: SVGElement }>();
+  const drawn = new Map<number, { from: StoredStroke; element: SVGElement }>();
   let laserTimer: ReturnType<typeof setTimeout> | undefined;
   let lastLaser: { x: number; y: number } | null = null;
   let pending: ReturnType<typeof setTimeout> | undefined;
@@ -139,9 +154,8 @@ export function attachMirror(
     const live = new Set<number>();
     for (const stroke of strokes) {
       live.add(stroke.id);
-      const signature = `${stroke.tool}:${stroke.color}:${stroke.points.length}`;
       let entry = drawn.get(stroke.id);
-      if (!entry || entry.signature !== signature) {
+      if (!entry || !sameStroke(entry.from, stroke)) {
         const element = draw(stroke);
         if (!element) {
           drawn.delete(stroke.id);
@@ -150,7 +164,7 @@ export function attachMirror(
         element.dataset["mark"] = String(stroke.id);
         element.dataset["color"] = stroke.color;
         element.dataset["tool"] = stroke.tool;
-        entry = { signature, element };
+        entry = { from: stroke, element };
         drawn.set(stroke.id, entry);
       }
       elements.push(entry.element);

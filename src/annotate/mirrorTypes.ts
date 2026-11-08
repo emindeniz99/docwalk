@@ -25,12 +25,18 @@ export const MAX_CHUNK_POINTS = 128;
 /** While a pen stroke is being drawn its new points go out this often (about 12 frames a second). */
 export const STROKE_FLUSH_MS = 80;
 
-/** What a receiver keeps for one slide, and for all slides: anything above is ignored. */
+/**
+ * What a receiver keeps per slide, and how many slides. A stroke or point
+ * over a slide's limit is ignored; a 17th slide is not: the receiver forgets
+ * the least recently touched slide to make room (mirrorStore.ts).
+ */
 export const MAX_SLIDE_STROKES = 200;
 export const MAX_SLIDE_POINTS = 30_000;
 export const MAX_MARK_SLIDES = 16;
 /** Ids in one `drop`. */
 export const MAX_DROP_IDS = 64;
+/** Ids in one `keep`: every stroke a receiver keeps for a slide (decision 103). */
+export const MAX_KEEP_IDS = MAX_SLIDE_STROKES;
 /** The longest address a message may carry (the same ceiling as a `goto`). */
 export const MAX_SLIDE_ADDRESS_CHARS = 2048;
 /** Diagrams are numbered from 1 on their slide; no slide has more than this. */
@@ -48,6 +54,29 @@ export const MIRROR_FOCUS_VIEW_MS = 100;
 
 /** A phone remote's laser disappears after this long without an update (host.ts), and so does a mirrored one. */
 export const MIRROR_LASER_IDLE_MS = 3000;
+
+/**
+ * A resync is never sooner than this after the last one (decision 88), and
+ * on the room it waits longer the more the last one cost: max(2 s, cost /
+ * RESYNC_BYTES_PER_SECOND), so however often followers say hello, resyncs
+ * cost the presenter at most about 64 KB of sealed frames a second
+ * (decision 103). The presenter window's bridge keeps the 2 s floor.
+ */
+export const RESYNC_MIN_GAP_MS = 2000;
+export const RESYNC_BYTES_PER_SECOND = 64 * 1024;
+/** What a signed, sealed room frame adds to the base64 of its op: seal, signature, tag and frame fields (258 measured). */
+const FRAME_OVERHEAD_BYTES = 260;
+const utf8 = new TextEncoder();
+
+/** About what `op` costs as a signed, sealed room frame; src/remote/crypto.test.ts holds it to the real frames. */
+export function mirrorFrameBytes(op: MirrorOp): number {
+  return Math.ceil((utf8.encode(JSON.stringify(op)).length * 4) / 3) + FRAME_OVERHEAD_BYTES;
+}
+
+/** How long the presenter waits after a resync whose frames cost `bytes` (`mirrorFrameBytes` summed). */
+export function resyncGapMs(bytes: number): number {
+  return Math.max(RESYNC_MIN_GAP_MS, Math.ceil((bytes * 1000) / RESYNC_BYTES_PER_SECOND));
+}
 
 /**
  * Pen colours as keys. A message names a key, never a colour: the receiver
@@ -96,6 +125,12 @@ export type MirrorOp =
   | { op: "drop"; slide: string; ids: number[] }
   /** Every stroke of the slide is gone. */
   | { op: "clear"; slide: string }
+  /**
+   * The strokes of the slide that stay; every other one is gone. A resync
+   * opens with it and then sends those strokes from 0 (decision 103), so a
+   * receiver that has them never shows the slide empty.
+   */
+  | { op: "keep"; slide: string; ids: number[] }
   /** The presenter opened the focus view on the `diagram`-th diagram (from 1) of a slide. */
   | { op: "focus-open"; slide: string; diagram: number }
   /** Zoom and pan of the open focus view; the pan is a fraction of the stage, so any screen frames alike. */

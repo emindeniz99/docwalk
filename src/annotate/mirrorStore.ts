@@ -16,6 +16,8 @@ import {
  * limits that keep a signed but hostile or buggy sender from growing it
  * without bound, and it ignores an op that does not fit what it holds
  * (a chunk that does not continue its stroke, a view with no focus open).
+ * A resync repeats what a receiver may hold already (decision 103); an op
+ * that changes nothing tells no listener, so nothing redraws.
  * No DOM types: the Node-run unit tests import it.
  */
 
@@ -36,6 +38,9 @@ export interface FocusMirror {
 
 const MAX_STROKE_NUMBERS = 2 * MAX_STROKE_POINTS;
 const MAX_SLIDE_NUMBERS = 2 * MAX_SLIDE_POINTS;
+
+const startsWith = (held: readonly number[], start: readonly number[]) =>
+  start.length <= held.length && start.every((n, i) => held[i] === n);
 
 export class MirrorStore {
   laser: { x: number; y: number } | null = null;
@@ -84,6 +89,18 @@ export class MirrorStore {
       case "clear":
         changed = this.slides.delete(op.slide);
         break;
+      case "keep": {
+        // Never creates a slide: a keep for one the receiver holds nothing of
+        // must not push out a slide that has marks.
+        const strokes = this.slides.get(op.slide);
+        if (!strokes) break;
+        const named = new Set(op.ids);
+        for (const id of strokes.keys()) {
+          if (!named.has(id)) changed = strokes.delete(id) || changed;
+        }
+        if (strokes.size === 0) this.slides.delete(op.slide);
+        break;
+      }
       case "focus-open": {
         const open = this.focus;
         if (open?.slide === op.slide && open.diagram === op.diagram) break;
@@ -117,6 +134,16 @@ export class MirrorStore {
 
     let points: number[];
     if (op.from === 0) {
+      // A resync sends a stroke again from 0, a chunk at a time (decision 103).
+      // A chunk that matches the start of the stroke held changes nothing, so
+      // a receiver that has the stroke keeps it whole and redraws nothing.
+      const same = known?.tool === op.tool && known.color === op.color;
+      if (strokes && known && same && startsWith(known.points, op.points)) {
+        // Still touched: a resynced slide is not the next to be forgotten.
+        this.slides.delete(op.slide);
+        this.slides.set(op.slide, strokes);
+        return false;
+      }
       points = op.points;
       if (!known && strokes && strokes.size >= MAX_SLIDE_STROKES) return false;
     } else {

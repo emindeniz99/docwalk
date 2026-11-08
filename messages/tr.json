@@ -64,6 +64,7 @@
   "cm_replaced_matches": "$ eşleşme değiştirildi",
   "cm_replaced_on_line": "$. satırdaki eşleşme değiştirildi",
   "cm_selection_deleted": "Seçim silindi",
+  "cmd_editor": "Düzenleyici: {editor} kullan",
   "cmd_language": "Dil: {language}",
   "cmd_overview": "Slaytlara genel bakış",
   "cmd_palette": "Slayda veya komuta git",

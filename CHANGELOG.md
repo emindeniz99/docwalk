@@ -64,7 +64,10 @@ The first release.
   marks sit at the same place of the slide on any screen size. A follower
   who joins late or reconnects gets the slide's marks again. The presenter
   window shows the laser and marks over its current slide, with or without
-  the Worker. Marks stay in memory and are not saved.
+  the Worker. Marks stay in memory and are not saved. A resync no longer
+  clears a follower's marks first, a follower who joins during a stroke no
+  longer cuts it, and resyncs slow down when they cost more, so a burst of
+  followers cannot flood the presenter's connection.
 - Task list items (`- [x]`, `- [ ]`) show their state as read-only boxes on
   slides, in document view, in the presenter's previews and in the HTML, PNG
   and print exports. A tick, not a colour, marks a done item, and a screen
@@ -76,7 +79,11 @@ The first release.
   chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
   only for the languages a document uses.
-- Monaco as an optional desktop editor beside CodeMirror.
+- Monaco as an optional desktop editor beside CodeMirror. A switch of
+  editor keeps the cursor line, the command palette offers the other
+  editor, a pick in one tab applies in the others, a list item's indented
+  paragraphs are coloured as text, and Monaco's own panels are Turkish for
+  Turkish viewers.
 - Canvas mode: a Mermaid diagram as an editable Excalidraw sketch, kept in
   the browser and exported as `.excalidraw`, PNG or SVG. The sketch menu and
   zoom buttons have names, the Library no longer links to excalidraw.com, a

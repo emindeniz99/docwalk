@@ -34,6 +34,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type DragEvent,
 } from "react";
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
@@ -43,9 +44,21 @@ import { clonePages, type DeckController, type SlideInfo } from "./deck/controll
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
 import { observeFocus } from "./deck/focusEvents";
 import { useOverviewShortcut } from "./deck/useOverviewShortcut";
-import { useEditorChoice } from "./editor/choice";
-import { chooseLocale, localeName, locales, useLocale, type Locale } from "./i18n/locale";
-import type { EditorDiagnostic } from "./editor/types";
+import {
+  COARSE_POINTER,
+  setEditorChoice,
+  useEditorChoice,
+  useStoredEditorChoice,
+} from "./editor/choice";
+import {
+  chooseLocale,
+  getAppLocale,
+  localeName,
+  locales,
+  useLocale,
+  type Locale,
+} from "./i18n/locale";
+import type { EditorDiagnostic, SourceEditorProps } from "./editor/types";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
 import type { HealthResponse } from "./api/types";
@@ -91,9 +104,13 @@ const SourceEditor = lazy(() =>
   import("./editor/SourceEditor").then((mod) => ({ default: mod.SourceEditor })),
 );
 // Monaco (decision 53) is larger still and loads only for viewers who pick it.
-const MonacoEditor = lazy(() =>
-  import("./editor/monaco/MonacoEditor").then((mod) => ({ default: mod.MonacoEditor })),
-);
+// Its own text (find panel, context menu) comes from a table that its modules
+// read as they run, so a Turkish viewer's table loads first (decision 102).
+const MonacoEditor = lazy(async () => {
+  if (getAppLocale() === "tr") await import("monaco-editor/nls/lang/tr");
+  const mod = await import("./editor/monaco/MonacoEditor");
+  return { default: mod.MonacoEditor };
+});
 // Dialogs and the exporters (modern-screenshot, the HTML sanitizer, the QR
 // encoder) stay out of the first-load bundle (decision 43).
 const ShareDialog = lazy(() =>
@@ -154,6 +171,35 @@ function useLazyDialog() {
     setOpen(open);
   }, []);
   return { isOpen, mounted, onOpenChange, open: () => onOpenChange(true) };
+}
+
+/**
+ * The editor in the Edit view. A switch of editor mounts the other one on the
+ * line where this document's cursor last was (decision 102). The line lives
+ * here rather than in App, so a cursor move re-renders the editor only; this
+ * slot unmounts with the Edit view, so coming back starts on line 1.
+ */
+function EditorSlot({
+  Editor,
+  onCursorLine,
+  ...props
+}: Omit<SourceEditorProps, "initialLine"> & { Editor: ComponentType<SourceEditorProps> }) {
+  const [cursor, setCursor] = useState<{ line: number; doc: number | undefined } | null>(null);
+  const { documentId } = props;
+  const report = useCallback(
+    (line: number) => {
+      setCursor({ line, doc: documentId });
+      onCursorLine?.(line);
+    },
+    [documentId, onCursorLine],
+  );
+  return (
+    <Editor
+      {...props}
+      onCursorLine={report}
+      initialLine={cursor && cursor.doc === documentId ? cursor.line : null}
+    />
+  );
 }
 
 export function App() {
@@ -218,6 +264,9 @@ export function App() {
   // The update prompt (src/pwa/update.css) sits above the status bar, whose height varies.
   const statusbarRef = useBlockSizeProperty<HTMLElement>("--docwalk-statusbar-size");
   const Editor = useEditorChoice() === "monaco" ? MonacoEditor : SourceEditor;
+  // The palette offers the editor not in use, as the More menu does (decisions 53, 102).
+  const storedEditor = useStoredEditorChoice();
+  const coarse = useMediaQuery(COARSE_POINTER);
   // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
   const [health, setHealth] = useState<HealthResponse | null>(null);
   useEffect(() => {
@@ -665,6 +714,22 @@ export function App() {
     { id: "sections", label: m.cmd_sections(), run: sectionPicker.open },
     { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
     { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
+    // Touch screens keep CodeMirror and are not offered Monaco.
+    ...(coarse
+      ? []
+      : [
+          storedEditor === "monaco"
+            ? {
+                id: "editor-codemirror",
+                label: m.cmd_editor({ editor: "CodeMirror" }),
+                run: () => setEditorChoice("codemirror"),
+              }
+            : {
+                id: "editor-monaco",
+                label: m.cmd_editor({ editor: "Monaco" }),
+                run: () => setEditorChoice("monaco"),
+              },
+        ]),
     { id: "share", label: m.cmd_share(), run: share.open },
     ...(comments.command ? [comments.command] : []),
     { id: "token", label: m.cmd_token(), run: () => inputs.setTokenOpen(true) },
@@ -942,7 +1007,8 @@ export function App() {
           <section className="docwalk-source" aria-label={m.app_markdown_source()}>
             {doc ? (
               <Suspense fallback={<p className="docwalk-loading">{m.app_loading_editor()}</p>}>
-                <Editor
+                <EditorSlot
+                  Editor={Editor}
                   value={markdown}
                   documentId={inputs.docId}
                   onChange={onEdit}

@@ -100,6 +100,12 @@ here. Playwright's WebKit on Windows leaves OPFS writes empty, so 9 of its 15
 tests fail on that engine on the base branch too; WebKit rests on the fork's
 CI.
 
+Done 2026-11-09 (decision 102): a switch of editor keeps the cursor line;
+the palette offers the other editor; a pick in one tab applies in the
+others; Monaco's own Markdown grammar colours a list item's indented
+paragraphs as text; Monaco's panels are Turkish for Turkish viewers.
+`e2e/editor-choice.spec.ts` passes 10 of 10 on Chromium.
+
 Done 2026-11-09 (decisions 98 and 99): canvas mode names Excalidraw's menu
 and zoom buttons, so axe runs on it without exclusions; the Library hides
 its Browse libraries link; a Saved sketches panel deletes stored sketches;
@@ -168,10 +174,10 @@ Later rounds:
   it); stored sketches are deleted by hand from the Saved sketches panel,
   never pruned automatically; cylinders convert to rectangles; the Turkish
   strings have not been read by a native speaker.
-- Monaco: the cursor line is not carried across an editor switch (the
-  decision 4 contract has no initial cursor); Monarch colours 4-space list
-  continuations as code; the chunk is 831 kB gzip; the palette does not
-  offer the editor choice.
+- Monaco: its own text keeps the language it loaded with until a reload;
+  the chunk is 833 kB gzip and stays whole, because the hover that shows
+  notes pulls in most of what could be split (decision 102); list content
+  offsets past 16 columns count as 16, and a tab ends a list item.
 - PWA: the file launch is tested with a stand-in `launchQueue`; no real
   file-manager launch has been tried.
 - CI and quality: mutation survivors are reported, not fixed, except in
@@ -216,8 +222,11 @@ Later rounds:
   Escape or the next resync; a follower's own close of the mirrored view
   holds until the presenter opens another diagram; a phone remote that
   moves the slide while a diagram view is open leaves that view open on
-  both screens; a follower that joins within 2 s of the last resync waits
-  for the next one.
+  both screens; a follower that joins inside the resync gap waits for the
+  next resync: 2 s, longer after a costly one (about 7.6 s for a slide at
+  the receiver's limits). Decision 103 (2026-11-09) fixed the review's
+  findings: a resync opens with `keep` instead of clearing, a stroke in
+  progress resyncs only as far as it was sent, and hellos are coalesced.
 - Choosing sections (decision 100): the share link and the follow link
   leave out `?sections=` (the owner decides whether the share link should
   carry it); a follower counts every slide; the presenter window still
