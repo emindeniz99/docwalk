@@ -6,7 +6,12 @@ import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { MirrorFeed } from "../annotate/mirrorFeed";
-import type { MarkStroke } from "../annotate/mirrorTypes";
+import {
+  MAX_STROKE_POINTS,
+  mirrorFrameBytes,
+  resyncGapMs,
+  type MarkStroke,
+} from "../annotate/mirrorTypes";
 import { API_LIMITS } from "../api/types";
 import type { DeckController, SlideInfo } from "../deck/controller";
 import {
@@ -491,6 +496,30 @@ describe("presenter host", () => {
       }),
     );
     await vi.waitFor(() => expect(host.current!.status).toBe("open"));
+  });
+
+  test("a burst of hellos gets one state at once and one more after 250 ms, not one each (decision 103)", async () => {
+    // Each state is signed and sealed under both keys and carries the doc
+    // link; a hello still gets an answer, from the deck as it is then.
+    const relay = new FakeRelay();
+    const host = mountHost({
+      controller: fakeController(),
+      docLink: "https://docwalk.example/?src=x",
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+    // Past the window of the follower's own first hello.
+    await new Promise((r) => setTimeout(r, 400));
+    const before = ofType(follower, "state").length;
+    for (let i = 0; i < 20; i++) {
+      const id = `FloodFlood${String(i).padStart(2, "0")}`;
+      await follower.conn.send({ type: "hello", role: "follower", id });
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    expect(ofType(follower, "state").length - before).toBe(2);
   });
 
   test("a remote's step and goto drive the presenter's deck, and every change is announced", async () => {
@@ -1560,7 +1589,9 @@ describe("mirror messages (decision 88)", () => {
       () => expect(mirrors(follower).filter((m) => m.op === "stroke")).toHaveLength(2),
       SETTLE,
     );
-    expect(mirrors(follower).map((m) => m.op)).toContain("clear");
+    // The resync names what to keep and never empties the slide first (decision 103).
+    expect(mirrors(follower).map((m) => m.op)).toContain("keep");
+    expect(mirrors(follower).map((m) => m.op)).not.toContain("clear");
     // The state is the size it was: no marks ride in it.
     const state = ofType(follower, "state")[0]!;
     expect(Object.keys(state).toSorted()).toEqual(
@@ -1582,15 +1613,43 @@ describe("mirror messages (decision 88)", () => {
     feed.ingest({ kind: "marks", slide: "section-0/1", strokes: [stroke(1)], reset: true });
     const follower = peer(relay, follow, "follower");
     await opened(follower);
-    const clears = () => mirrors(follower).filter((m) => m.op === "clear");
-    await vi.waitFor(() => expect(clears()).toHaveLength(1), SETTLE);
+    const keeps = () => mirrors(follower).filter((m) => m.op === "keep");
+    await vi.waitFor(() => expect(keeps()).toHaveLength(1), SETTLE);
     for (let i = 0; i < 6; i++) {
       await follower.conn.send({ type: "hello", role: "follower", id: `HelloHello${i}x` });
     }
     await quiet();
     await quiet();
-    expect(clears()).toHaveLength(1);
+    expect(keeps()).toHaveLength(1);
   });
+
+  test("a heavy resync is not repeated until its frames are paid for at 64 KB/s (decision 103)", async () => {
+    // Twelve full strokes are about 270 KB of signed frames: however often a
+    // follower says hello, the next resync waits about 4 s, not the 2 s floor,
+    // and it still comes.
+    const { relay, feed, follow } = await hostWithFeed();
+    const heavy = Array.from({ length: 12 }, (_, i) => stroke(i + 1, MAX_STROKE_POINTS));
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: heavy, reset: true });
+    let cost = 0;
+    feed.resync((op) => (cost += mirrorFrameBytes(op)));
+    const gap = resyncGapMs(cost);
+    expect(gap).toBeGreaterThan(3500);
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    const keeps = () => mirrors(follower).filter((m) => m.op === "keep").length;
+    const arrivals: number[] = [];
+    const deadline = performance.now() + 3 * gap;
+    while (arrivals.length < 2 && performance.now() < deadline) {
+      await follower.conn.send({ type: "hello", role: "follower", id: "HeavyHeavy01" });
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        while (keeps() > arrivals.length) arrivals.push(performance.now());
+      }
+    }
+    expect(arrivals).toHaveLength(2);
+    expect(arrivals[1]! - arrivals[0]!).toBeGreaterThan(gap - 500);
+    expect(arrivals[1]! - arrivals[0]!).toBeLessThan(gap + 2000);
+  }, 20_000);
 
   test("a long stroke goes out in frames the relay accepts, and arrives whole", async () => {
     const { relay, feed, follow } = await hostWithFeed();

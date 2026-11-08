@@ -85,6 +85,76 @@ describe("strokes", () => {
   });
 });
 
+describe("a resync that keeps what the receiver holds (decision 103)", () => {
+  test("keep removes the slide's strokes it does not name and leaves the rest of the slide and other slides alone", () => {
+    const store = new MirrorStore();
+    for (const id of [1, 2, 3]) store.apply(stroke({ id }));
+    store.apply(stroke({ slide: "b/1", id: 9 }));
+    store.apply({ op: "keep", slide: "a/1", ids: [3, 1, 77] });
+    expect(ids(store)).toEqual([1, 3]);
+    expect(ids(store, "b/1")).toEqual([9]);
+  });
+
+  test("keep with no ids empties the slide, so it no longer counts against the 16 slides", () => {
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/1" }));
+    store.apply(stroke({ slide: "b/1" }));
+    store.apply({ op: "keep", slide: "a/1", ids: [] });
+    expect(ids(store)).toEqual([]);
+    expect(store.slideCount).toBe(1);
+  });
+
+  test("keep for a slide the receiver holds nothing of changes nothing and makes no room for itself", () => {
+    // A keep must not create a slide entry: 16 of them would push out the real ones.
+    const store = new MirrorStore();
+    for (let n = 0; n < MAX_MARK_SLIDES; n++) store.apply(stroke({ slide: `s${n}/1` }));
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    store.apply({ op: "keep", slide: "never/1", ids: [1] });
+    expect(store.slideCount).toBe(MAX_MARK_SLIDES);
+    expect(ids(store, "s0/1")).toEqual([1]);
+    expect(heard).not.toHaveBeenCalled();
+  });
+
+  test("a keep that names every stroke and a stroke sent again unchanged tell nobody, so nothing redraws", () => {
+    const store = new MirrorStore();
+    const long = Array.from({ length: 600 }, (_, i) => i % 4096);
+    store.apply(stroke({ id: 1, points: long.slice(0, 256) }));
+    store.apply(stroke({ id: 1, from: 256, points: long.slice(256, 512) }));
+    store.apply(stroke({ id: 1, from: 512, points: long.slice(512), end: true }));
+    store.apply(stroke({ id: 2 }));
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    // The resync of a stroke that took three chunks: each matches what is held.
+    store.apply({ op: "keep", slide: "a/1", ids: [1, 2] });
+    store.apply(stroke({ id: 1, points: long.slice(0, 256) }));
+    store.apply(stroke({ id: 1, from: 256, points: long.slice(256, 512) }));
+    store.apply(stroke({ id: 1, from: 512, points: long.slice(512), end: true }));
+    store.apply(stroke({ id: 2 }));
+    expect(heard).not.toHaveBeenCalled();
+    expect(store.strokes("a/1")[0]!.points).toEqual(long);
+  });
+
+  test("a stroke from 0 that differs from the held one still replaces it, even at the same length", () => {
+    const store = new MirrorStore();
+    store.apply(stroke({ id: 1, points: [10, 10, 20, 20] }));
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    store.apply(stroke({ id: 1, points: [30, 30, 40, 40] }));
+    expect(store.strokes("a/1")[0]!.points).toEqual([30, 30, 40, 40]);
+    expect(heard).toHaveBeenCalledOnce();
+  });
+
+  test("a stroke sent again unchanged still counts as touched, so a resynced slide is not the next forgotten", () => {
+    const store = new MirrorStore();
+    for (let n = 0; n < MAX_MARK_SLIDES; n++) store.apply(stroke({ slide: `s${n}/1` }));
+    store.apply(stroke({ slide: "s0/1" }));
+    store.apply(stroke({ slide: "new/1" }));
+    expect(ids(store, "s0/1")).toEqual([1]);
+    expect(ids(store, "s1/1")).toEqual([]);
+  });
+});
+
 describe("limits (a signed sender is still bounded)", () => {
   test("a stroke stops growing at the point limit", () => {
     const store = new MirrorStore();

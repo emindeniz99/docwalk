@@ -290,14 +290,8 @@ describe("a receiver that joins late (resync)", () => {
     sent.length = 0;
     others.length = 0;
     feed.resync((op) => late.push(op));
-    expect(kinds(late)).toEqual([
-      "clear",
-      "stroke",
-      "stroke",
-      "stroke",
-      "focus-open",
-      "focus-view",
-    ]);
+    expect(kinds(late)).toEqual(["keep", "stroke", "stroke", "stroke", "focus-open", "focus-view"]);
+    expect(late[0]).toEqual({ op: "keep", slide: "a/1", ids: [1, 2, 3] });
     expect(strokeOps(late).map((s) => [s.id, s.from, s.end])).toEqual([
       [1, 0, true],
       [2, 0, true],
@@ -312,7 +306,7 @@ describe("a receiver that joins late (resync)", () => {
     const late: MirrorOp[] = [];
     feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
     feed.resync((op) => late.push(op));
-    expect(kinds(late)).toEqual(["clear", "focus-close"]);
+    expect(late).toEqual([{ op: "keep", slide: "a/1", ids: [] }, { op: "focus-close" }]);
   });
 
   test("never sends more than 200 strokes or 30,000 points, whatever the slide holds", () => {
@@ -331,6 +325,204 @@ describe("a receiver that joins late (resync)", () => {
     feed.resync((op) => again.push(op));
     const points = strokeOps(again).reduce((n, c) => n + c.points.length / 2, 0);
     expect(points).toBeLessThanOrEqual(MAX_SLIDE_POINTS);
+  });
+});
+
+const ids = (store: MirrorStore, slide = "a/1") => store.strokes(slide).map((s) => s.id);
+
+describe("a resync keeps what receivers hold (decision 103)", () => {
+  test("no receiver loses a mark at any point of it: the strokes replace by id, none is cleared first", () => {
+    const { feed } = setup();
+    const marks = [mark(1, 40), mark(2, 40), mark(3, 40)];
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: marks, reset: true });
+    const holder = new MirrorStore();
+    for (const m of marks)
+      holder.apply({ op: "stroke", slide: "a/1", from: 0, end: true, ...m, points: [...m.points] });
+    const seen: number[][] = [];
+    feed.resync((op) => {
+      holder.apply(op);
+      seen.push(ids(holder));
+    });
+    expect(seen.length).toBeGreaterThan(3);
+    for (const after of seen) expect(after).toEqual([1, 2, 3]);
+  });
+
+  test("a receiver that holds everything is not told anything changed, so it draws nothing again", () => {
+    const { feed } = setup();
+    const marks = [mark(1, 40), mark(2, 300)];
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: marks, reset: true });
+    const holder = new MirrorStore();
+    feed.resync((op) => holder.apply(op));
+    const changed = vi.fn<() => void>();
+    holder.subscribe(changed);
+    feed.resync((op) => holder.apply(op));
+    expect(changed).not.toHaveBeenCalled();
+    expect(ids(holder)).toEqual([1, 2]);
+  });
+
+  test("a stroke the presenter no longer has is removed from a receiver that missed its drop", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1), mark(2)], reset: true });
+    const stale = new MirrorStore();
+    for (const id of [1, 99, 2])
+      stale.apply({
+        op: "stroke",
+        slide: "a/1",
+        id,
+        tool: "pen",
+        color: "primary",
+        from: 0,
+        points: [1, 1, 2, 2],
+        end: true,
+      });
+    feed.resync((op) => stale.apply(op));
+    expect(ids(stale)).toEqual([1, 2]);
+  });
+
+  test("a receiver full of stale strokes still takes the presenter's, because the stale ones go first", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1), mark(2)], reset: true });
+    const stale = new MirrorStore();
+    for (let id = 100; id < 100 + MAX_SLIDE_STROKES; id++) {
+      stale.apply({
+        op: "stroke",
+        slide: "a/1",
+        id,
+        tool: "pen",
+        color: "primary",
+        from: 0,
+        points: [1, 1],
+        end: true,
+      });
+    }
+    feed.resync((op) => stale.apply(op));
+    expect(ids(stale)).toEqual([1, 2]);
+  });
+
+  test("other slides on the receiver are left alone", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    const holder = new MirrorStore();
+    holder.apply({
+      op: "stroke",
+      slide: "b/1",
+      id: 7,
+      tool: "pen",
+      color: "primary",
+      from: 0,
+      points: [1, 1],
+      end: true,
+    });
+    feed.resync((op) => holder.apply(op));
+    expect(ids(holder, "b/1")).toEqual([7]);
+  });
+
+  test("keep never names more than 200 strokes, the stroke in progress included", () => {
+    const { feed } = setup();
+    const many = Array.from({ length: MAX_SLIDE_STROKES + 50 }, (_, i) => mark(i + 1, 4));
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
+    feed.ingest({ kind: "stroke", slide: "a/1", end: false, ...mark(9000, 30) });
+    vi.advanceTimersByTime(STROKE_FLUSH_MS + 1);
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: many, reset: false });
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    const keep = late.find((o) => o.op === "keep");
+    expect(keep?.op === "keep" && keep.ids.length).toBeLessThanOrEqual(MAX_SLIDE_STROKES);
+    expect(keep?.op === "keep" && keep.ids).toContain(9000);
+    const store = new MirrorStore();
+    for (const op of late) store.apply(op);
+    expect(ids(store)).toContain(9000);
+    expect(store.strokes("a/1").length).toBeLessThanOrEqual(MAX_SLIDE_STROKES);
+    for (const op of late) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+  });
+});
+
+/** A feed on an empty slide, a receiver present from the start, and one that has not joined yet. */
+function twoFollowers() {
+  const feed = new MirrorFeed();
+  const early = new MirrorStore();
+  const joined = new MirrorStore();
+  feed.addSink((op) => early.apply(op));
+  feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
+  return { feed, early, joined };
+}
+
+describe("a resync while a pen stroke is being drawn (decision 103)", () => {
+  const all = line(120, 5);
+  const progress = (feed: MirrorFeed, n: number) =>
+    feed.ingest({
+      kind: "stroke",
+      slide: "a/1",
+      end: false,
+      id: 9,
+      tool: "pen",
+      color: "primary",
+      points: all.slice(0, 2 * n),
+    });
+  const finish = (feed: MirrorFeed) =>
+    feed.ingest(committed("a/1", { id: 9, tool: "pen", color: "primary", points: all }));
+
+  test("a follower that joins between two flushes does not cut the stroke on any follower", () => {
+    const { feed, early, joined } = twoFollowers();
+    progress(feed, 30);
+    vi.advanceTimersByTime(STROKE_FLUSH_MS + 1);
+    // 30 more points are recorded; the next flush has not run.
+    progress(feed, 60);
+    feed.addSink((op) => joined.apply(op));
+    feed.resync();
+    progress(feed, 100);
+    vi.advanceTimersByTime(STROKE_FLUSH_MS + 1);
+    finish(feed);
+    expect(early.strokes("a/1").map((s) => s.points)).toEqual([all]);
+    expect(joined.strokes("a/1").map((s) => s.points)).toEqual([all]);
+  });
+
+  test("a resync to one window alone does not cut the stroke on the others either", () => {
+    const { feed, early } = twoFollowers();
+    const window = new MirrorStore();
+    progress(feed, 30);
+    vi.advanceTimersByTime(STROKE_FLUSH_MS + 1);
+    progress(feed, 60);
+    feed.resync((op) => window.apply(op));
+    feed.addSink((op) => window.apply(op));
+    progress(feed, 100);
+    vi.advanceTimersByTime(STROKE_FLUSH_MS + 1);
+    finish(feed);
+    expect(early.strokes("a/1").map((s) => s.points)).toEqual([all]);
+    expect(window.strokes("a/1").map((s) => s.points)).toEqual([all]);
+  });
+
+  test("it sends what every receiver was sent and no more: the next flush sends the rest", () => {
+    const { feed } = twoFollowers();
+    progress(feed, 30);
+    vi.advanceTimersByTime(STROKE_FLUSH_MS + 1);
+    progress(feed, 60);
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    const live = strokeOps(late).filter((s) => s.id === 9);
+    expect(live.flatMap((s) => s.points)).toEqual(all.slice(0, 60));
+    expect(live.every((s) => !s.end)).toBe(true);
+    expect(live[0]!.from).toBe(0);
+  });
+
+  test("a stroke abandoned after a resync that came before its first flush leaves no ghost", () => {
+    const { feed, early, joined } = twoFollowers();
+    progress(feed, 30);
+    feed.addSink((op) => joined.apply(op));
+    feed.resync();
+    feed.ingest({ kind: "cancel", id: 9 });
+    vi.advanceTimersByTime(500);
+    expect(early.strokes("a/1")).toEqual([]);
+    expect(joined.strokes("a/1")).toEqual([]);
+  });
+
+  test("a resync before the first flush sends nothing of the stroke, since no receiver has any of it", () => {
+    const { feed } = twoFollowers();
+    progress(feed, 30);
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(strokeOps(late)).toEqual([]);
+    expect(late[0]).toEqual({ op: "keep", slide: "a/1", ids: [] });
   });
 });
 
@@ -368,7 +560,7 @@ describe("sinks", () => {
     const heard: MirrorOp[] = [];
     const off = feed.addSink((op) => heard.push(op));
     feed.resync();
-    expect(kinds(heard)).toEqual(["clear", "stroke", "focus-close"]);
+    expect(kinds(heard)).toEqual(["keep", "stroke", "focus-close"]);
     off();
     heard.length = 0;
     feed.ingest({ kind: "laser", x: 0.5, y: 0.5 });
@@ -378,14 +570,22 @@ describe("sinks", () => {
 
 describe("sender and receiver agree (a model check)", () => {
   // A small model of the layer (strokes, undo, redo, erase, clear, slide
-  // changes) drives the feed; two receivers, one present from the start and
-  // one that asks for a resync at a random moment, must end up showing what
-  // the model shows on the current slide, whatever the order of operations.
+  // changes, a pen stroke that grows over several flushes and is then
+  // committed or cancelled) drives the feed. Resyncs come at random moments:
+  // to every receiver, as when a follower says hello, and to one alone. Two
+  // receivers, one present from the start and one that joins at a random
+  // moment, must show what the model shows on the current slide after every
+  // step, whatever the order of operations; the stroke in progress is the
+  // only one they may hold a part of. Checking only at the end missed a cut
+  // stroke and a ghost, because a later resync repaired both. The presenter
+  // has one pointer, so the layer changes no other mark while the pen is down.
   function run(seed: number) {
     let s = seed;
+    // The high bits: an LCG's low bits repeat with a short period, and
+    // `s % 16` walked the same 16 rolls, so some sequences never ran.
     const rand = (n: number) => {
       s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-      return s % n;
+      return Math.floor((s / 2 ** 32) * n);
     };
     const feed = new MirrorFeed();
     const early = new MirrorStore();
@@ -410,55 +610,128 @@ describe("sender and receiver agree (a model check)", () => {
       feed.ingest({ kind: "marks", slide, strokes: [...of(slide).visible], reset });
     report(true);
 
-    for (let step = 0; step < 120; step++) {
+    /** The pen stroke being drawn: all its points, and how many the layer has reported. */
+    let drawing: { id: number; points: number[]; reported: number } | null = null;
+    const grow = () => {
+      if (!drawing) return;
+      drawing.reported = Math.min(drawing.points.length / 2, drawing.reported + 1 + rand(40));
+      feed.ingest({
+        kind: "stroke",
+        slide,
+        end: false,
+        id: drawing.id,
+        tool: "pen",
+        color: "primary",
+        points: drawing.points.slice(0, 2 * drawing.reported),
+      });
+    };
+    const abandon = () => {
+      if (!drawing) return;
+      feed.ingest({ kind: "cancel", id: drawing.id });
+      drawing = null;
+    };
+    const commit = () => {
+      if (!drawing) return;
+      const stroke: MarkStroke = {
+        id: drawing.id,
+        tool: "pen",
+        color: "primary",
+        points: drawing.points.slice(0, 2 * Math.max(1, drawing.reported)),
+      };
+      drawing = null;
+      feed.ingest(committed(slide, stroke));
+      const entry = of(slide);
+      entry.visible.push(stroke);
+      entry.undone.length = 0;
+      report(false);
+    };
+
+    const got = (store: MirrorStore) => store.strokes(slide).map((m) => [m.id, m.tool, m.points]);
+    const wanted = () => of(slide).visible.map((m) => [m.id, m.tool, m.points]);
+    /** What a receiver shows of the slide, less the stroke in progress. */
+    const held = (store: MirrorStore) =>
+      got(store).filter(([id]) => drawing === null || id !== drawing.id);
+    const check = (when: string) => {
+      const want = wanted();
+      expect(held(early), `seed ${seed}, ${when}, receiver present from the start`).toEqual(want);
+      // Before it joins the late receiver has been sent nothing.
+      expect(held(late), `seed ${seed}, ${when}, receiver that joined late`).toEqual(
+        lateJoined ? want : [],
+      );
+    };
+
+    for (let step = 0; step < 160; step++) {
       if (!lateJoined && step >= joinAt) {
         lateJoined = true;
         feed.addSink((op) => late.apply(op));
         feed.resync((op) => late.apply(op));
       }
       const entry = of(slide);
-      const roll = rand(10);
-      if (roll < 4) {
+      const roll = rand(16);
+      if (roll < 7 && drawing) {
+        // The pen is down: it keeps moving, and nothing else changes until it is lifted.
+        grow();
+      } else if (roll < 3) {
         const stroke = mark(nextId++, 2 + rand(30), { tool: rand(5) === 0 ? "arrow" : "pen" });
         feed.ingest(committed(slide, stroke));
         entry.visible.push(stroke);
         entry.undone.length = 0;
         report(false);
-      } else if (roll === 4 && entry.visible.length > 0) {
+      } else if (roll === 3 && entry.visible.length > 0) {
         entry.undone.push([entry.visible.pop()!]);
         report(false);
-      } else if (roll === 5 && entry.undone.length > 0) {
+      } else if (roll === 4 && entry.undone.length > 0) {
         entry.visible.push(...entry.undone.pop()!);
         report(false);
-      } else if (roll === 6 && entry.visible.length > 0) {
+      } else if (roll === 5 && entry.visible.length > 0) {
         const at = rand(entry.visible.length);
         entry.undone.push(entry.visible.splice(at, 1));
         report(false);
-      } else if (roll === 7) {
+      } else if (roll === 6) {
         entry.visible = [];
         entry.undone = [];
         report(false);
-      } else if (roll >= 8) {
+      } else if (roll === 7 || roll === 8) {
+        // The layer abandons a stroke in progress when the slide changes.
+        abandon();
         slide = slides[rand(slides.length)]!;
         report(true);
+      } else if (roll === 9 && !drawing) {
+        drawing = { id: nextId++, points: line(40 + rand(300), nextId), reported: 0 };
+        grow();
+      } else if (roll === 10 || roll === 11) {
+        grow();
+      } else if (roll === 12) {
+        if (rand(2) === 0) commit();
+        else abandon();
+      } else if (roll === 13) {
+        // A follower says hello: everyone is sent the resync.
+        feed.resync();
+      } else if (roll === 14 && lateJoined) {
+        // The presenter window asks alone.
+        feed.resync((op) => late.apply(op));
       }
-      vi.advanceTimersByTime(20);
+      // A moving pen reports every few milliseconds, several times per 80 ms flush.
+      vi.advanceTimersByTime(drawing ? 4 + rand(40) : 10 + rand(110));
+      check(`step ${step}`);
     }
+    if (rand(2) === 0) commit();
+    else abandon();
     vi.advanceTimersByTime(500);
     if (!lateJoined) {
+      lateJoined = true;
       feed.addSink((op) => late.apply(op));
       feed.resync((op) => late.apply(op));
     }
-    const want = of(slide).visible.map((m) => [m.id, m.tool, m.points]);
-    const got = (store: MirrorStore) => store.strokes(slide).map((m) => [m.id, m.tool, m.points]);
-    return { want, early: got(early), late: got(late) };
+    return { want: wanted(), early: got(early), late: got(late) };
   }
 
-  test("after any run of operations both receivers show the model's marks", () => {
-    for (let seed = 1; seed <= 60; seed++) {
+  test("after every step of any run both receivers show the model's marks", () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      // run() also compares after every step.
       const { want, early, late } = run(seed);
-      expect(early, `seed ${seed}, receiver present from the start`).toEqual(want);
-      expect(late, `seed ${seed}, receiver that joined late`).toEqual(want);
+      expect(early, `seed ${seed} at the end, receiver present from the start`).toEqual(want);
+      expect(late, `seed ${seed} at the end, receiver that joined late`).toEqual(want);
     }
   });
 });
