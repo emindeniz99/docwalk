@@ -321,7 +321,10 @@ test("the presenter window lists the chosen slides only", async ({ page, context
   await ready(page, "/?sections=summary,rollout");
   const n = await slideCount(page);
   const presenter = await openPresenter(page, context);
-  await expect(presenter.getByRole("option", { name: /Rollout/ })).toBeVisible({ timeout: 30_000 });
+  // Rollout spans two pages, so two options name it.
+  await expect(presenter.getByRole("option", { name: /Rollout/ }).first()).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(presenter.getByRole("option")).toHaveCount(n);
   await expect(presenter.getByRole("option", { name: /Goals and non-goals/ })).toHaveCount(0);
 });
