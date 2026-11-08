@@ -498,6 +498,30 @@ describe("presenter host", () => {
     await vi.waitFor(() => expect(host.current!.status).toBe("open"));
   });
 
+  test("a burst of hellos gets one state at once and one more after 250 ms, not one each (decision 103)", async () => {
+    // Each state is signed and sealed under both keys and carries the doc
+    // link; a hello still gets an answer, from the deck as it is then.
+    const relay = new FakeRelay();
+    const host = mountHost({
+      controller: fakeController(),
+      docLink: "https://docwalk.example/?src=x",
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+    // Past the window of the follower's own first hello.
+    await new Promise((r) => setTimeout(r, 400));
+    const before = ofType(follower, "state").length;
+    for (let i = 0; i < 20; i++) {
+      const id = `FloodFlood${String(i).padStart(2, "0")}`;
+      await follower.conn.send({ type: "hello", role: "follower", id });
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    expect(ofType(follower, "state").length - before).toBe(2);
+  });
+
   test("a remote's step and goto drive the presenter's deck, and every change is announced", async () => {
     const relay = new FakeRelay();
     const controller = fakeController();
