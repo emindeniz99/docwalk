@@ -33,6 +33,13 @@ The first release.
   section. Comments that address a tool (`prettier-ignore`,
   `markdownlint-…`, `eslint-…`, `textlint-…`, `cspell:…`, `toc`) are
   skipped. GitHub hides comments, so the file reads the same there.
+- A countdown in the presenter window: enter a target in minutes, pause and
+  reset it, and read the time left, which goes below zero once you run over,
+  with a label and an icon as well as colour. A pacing bar sets the share of
+  time used against the share of slides done and says whether you are ahead,
+  on pace or behind. The countdown survives a reload of the window.
+- The screen stays awake while you present and while the presenter window is
+  open, where the browser supports the Screen Wake Lock API.
 - Inputs: paste, file drop, `?src=` links, `?repo=&path=` links, pasted
   fine-grained tokens and GitHub App sign-in.
 - Share links with the document compressed into the URL fragment.

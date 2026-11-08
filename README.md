@@ -68,7 +68,10 @@ lists every settled design decision.
 - Diagram focus: click a Mermaid diagram to fit, zoom, pan, draw on it with
   a pen or point with a laser.
 - A presenter window with the current and next slide and a timer, synced
-  over `BroadcastChannel` on the same machine.
+  over `BroadcastChannel` on the same machine. Enter a target time in
+  minutes for a countdown with pause and reset, and a pacing bar that shows
+  whether the slides keep up with the clock. The screen stays on while you
+  present.
 - Speaker notes: write an HTML comment (`<!-- … -->`) under a heading and
   the presenter window shows it under that slide. GitHub hides comments, so
   the document reads the same there. The notes are plain text; tool

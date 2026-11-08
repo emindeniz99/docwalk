@@ -12,7 +12,7 @@ github.com/emindeniz99/docwalk with the static build on GitHub Pages
 (`deploy-pages.yml` runs after CI passes on `main`, or by hand). On
 2026-11-06 code colours (76), the fill frame (77), per-slide presenter
 previews, the old-browser notice (78), document-mode hash links and
-safe-area padding landed. Decision rows run to 79. CI (three-engine e2e,
+safe-area padding landed. Decision rows run to 80. CI (three-engine e2e,
 Lighthouse, zizmor) is green on GitHub; the nightly Stryker run was fixed
 on 2026-11-08 (`disableTypeChecks` must skip HTML). Small safe changes go
 straight to `main`, larger work on a branch merged with `--no-ff`
@@ -81,10 +81,13 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-06: At 1440×900 the presented slide is bound by width, so hiding the presenting controls (decision 75) does not grow it; a size test needs a phone-landscape viewport (844×390). Playwright's `devices["iPhone 15 landscape"]` is 734×343 and has no safe-area insets.
 - 2026-11-08: Stryker's default `disableTypeChecks` also writes `// @ts-nocheck` into HTML script blocks, which changed index.html's inline script and its CSP hash in the sandbox; the config now names source files only.
 - 2026-11-08: Dependabot's npm job refuses an exact `devEngines.runtime` Node pin that differs from its own Node ("tool_version_not_supported"); move the pin to its version once that release is seven days old. GitHub's CI run on `main` cancels the previous one (concurrency group), so a cancelled run after a quick second push is expected.
+- 2026-11-08: Vitest's `expect.poll` moves fake timers 50 ms per try, so a test that polls after `useFakeTimers` starts its clock late (use a loop of message-channel tasks); React commits in a message-channel task the fake clock leaves alone, so read the page after one. `pacing.ts` and `Pacing.tsx` cannot share a folder on a case-insensitive disk (TS1149).
+- 2026-11-08: Playwright's `context.clock.install()` fakes `Date` and timers in the main tab and in a popup, and lets time run between jumps; `fastForward` fires each due timer once, so a test that needs the page to have seen the jump waits on a second clock (the Elapsed timer). A popup opened with `window.open` starts with a copy of its opener's `sessionStorage`; the countdown key is never written there.
 - 2026-11-08: CommonMark lets an unclosed `<!--` swallow the rest of the document as one `html` node, and a comment above the first heading opens a slide of its own (`intro`, blank in the presenter list). Speaker notes ignore the first and hand the second's notes to the next slide.
 
 ## Done
 
+- 2026-11-08: Countdown, pacing bar and screen wake lock (decision 80, branch `feat/roadmap-next-up`): the presenter window takes a target in minutes and counts down with pause and reset, goes negative with words and an icon when over, and sets time used against slides done from the address list; the clock lives in the window's `sessionStorage`, apart from the bridge's `startedAt`; the wake lock is held while presenting and while the presenter window is open.
 - 2026-11-08: Speaker notes (decision 79, branch `feat/roadmap-next-up`): the closed HTML comments of a section, minus tool directives, show under the current slide in the presenter window; read from the AST in `src/sectioning/notes.ts`, printed as text, no new bridge field and no other surface sees them.
 - 2026-11-06: Presenter previews built off the page and slide by slide, current and next first (WebKit opener stall 5-6 s to under 1 s); document mode opens a linked heading; old browsers get a notice (decision 78); toast and centred dialogs pad for the safe area; pen-marks test waits for the final rebuilt deck.
 - 2026-11-06: Present frame (decision 77): the slide fills the screen by default, the bar lies over it while it hides, the ground takes the slide's colour; the card stays as a More menu and palette option.

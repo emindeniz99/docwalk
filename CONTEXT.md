@@ -34,6 +34,12 @@ It becomes the cover slide. Code: `findTitleHeading`.
 section. Its title carries "· continued"; a table on it repeats its header
 (18).
 
+**Countdown**: the presenter window's clock to a target time in whole
+minutes. It pauses, resets, and goes below zero when the presenter runs
+over. It is the window's own clock in `sessionStorage`, apart from the
+Elapsed clock that reads the bridge's `startedAt` (80). Code: `Countdown`,
+`src/presenter/pacing.ts`.
+
 **Diagnostic**: a visible warning that content does not fit or cannot be
 rendered. docwalk shows one instead of clipping or shrinking (19).
 
@@ -56,6 +62,11 @@ for overflow, run in the order of decision 22.
 **Orphaned comment**: a comment whose **anchor** is no longer in the
 document. It stays listed apart until the user deletes it; it is never
 dropped (55).
+
+**Pacing bar**: two bars in the presenter window, the share of the target
+used and the share of the slides done, with a verdict (ahead, on pace,
+behind, over time). The slide on screen counts as half done, and the position
+comes from the audience's address list (80). Code: `PacingBar`, `slideShare`.
 
 **Part**: one encrypted piece of an agent message too large for a relay
 frame, addressed to one participant (67). Code: `src/remote/parts.ts`.
@@ -104,6 +115,11 @@ and remote control works (37, 38).
 **Title slide**: a slide for a heading above the base level that has its own
 content (15).
 
+**Wake lock**: the browser's Screen Wake Lock, held while presenting and
+while the presenter window is open, so the screen does not dim. It fails
+without a message when the API is missing or refuses (80). Code:
+`holdScreenAwake`, `useWakeLock`.
+
 **Workspace**: the files and folders docwalk keeps for the user, either in
 the browser's origin private file system (autosaved) or in a **local
 folder**. The file panel above the outline shows it (57, 66). Code:
@@ -125,6 +141,9 @@ Add a row here before introducing a new one.
 | fill the screen, card       | ekranı doldur, kart         | the two present frames                     |
 | presenter (the person)      | sunumu yapan kişi           | not "sunucu", which also means server      |
 | speaker notes               | konuşmacı notları           | the comments panel in the presenter view   |
+| target time, countdown      | hedef süre, geri sayım      | "kalan süre" for the time left             |
+| pacing bar                  | tempo çubuğu                | the group's name in the UI is "Tempo"      |
+| over time                   | süre aşıldı                 | also the verdict when the clock is past 0  |
 | audience window             | ana sunum penceresi         | the presenter's own main tab               |
 | follower, follow along      | izleyici, sunumu izle       | "izleyici" names people, never a window    |
 | phone remote                | telefon kumandası           |                                            |

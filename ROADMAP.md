@@ -132,6 +132,12 @@ Later rounds:
   the next slide, the blank slide stays. Notes are not exported (no
   handout, no notes in PDF), show Markdown as plain text, and travel in
   the document text, so a share link or a remote room carries them.
+- Countdown, pacing bar and wake lock (decision 80): the target cannot change
+  while it runs (Reset, then a new value, restarts the clock), and the
+  countdown ends when the presenter window closes. The real wake lock is
+  tested in Chromium only; Firefox and WebKit run the tests for a missing or
+  refusing API. A phone remote or follow link shows neither the clock nor
+  the bar.
 - Accessibility judgement to confirm: in the fill frame (decision 77) the
   deck's focus ring hides with the idle controls, read as meeting WCAG
   2.4.7 because it shows whenever they do. A stricter reading keeps it
@@ -166,7 +172,7 @@ Later rounds:
 ## Next up
 
 Features from [`docs/feature-gaps.md`](./docs/feature-gaps.md), in this
-order unless the owner picks differently. The first four give the most for
+order unless the owner picks differently. The first three give the most for
 the least work. Each starts with a decision row, then failing tests, then
 code.
 
@@ -174,13 +180,12 @@ code.
    click-to-highlight code lines (reuses the diagram focus).
 2. Laser, strokes and diagram focus mirrored to followers and the presenter
    window, inside the signed, encrypted room messages (decisions 68, 73).
-3. Countdown with a target time, a pacing bar, and Screen Wake Lock.
-4. Full-text search in the command palette.
-5. Picking which sections to present, kept in the URL.
-6. Saved annotations, included in PDF and PNG exports.
-7. Math and emoji shortcodes, which GitHub renders natively.
-8. A step-through tour of a Mermaid diagram's nodes and paths.
-9. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+3. Full-text search in the command palette.
+4. Picking which sections to present, kept in the URL.
+5. Saved annotations, included in PDF and PNG exports.
+6. Math and emoji shortcodes, which GitHub renders natively.
+7. A step-through tour of a Mermaid diagram's nodes and paths.
+8. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 
