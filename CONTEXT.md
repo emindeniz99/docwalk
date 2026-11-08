@@ -204,6 +204,7 @@ Add a row here before introducing a new one.
 | comment, resolved, orphaned | yorum, çözüldü, sahipsiz    |                                            |
 | workspace, local folder     | çalışma alanı, yerel klasör |                                            |
 | draft                       | taslak                      |                                            |
+| editor                      | düzenleyici                 | CodeMirror and Monaco keep their names     |
 | token                       | erişim anahtarı             | "anahtar" once the context is clear        |
 | agent, room                 | ajan, oda                   |                                            |
 | export, import              | dışa aktar, içe aktar       |                                            |

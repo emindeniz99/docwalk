@@ -6,7 +6,7 @@
  * counts and heading titles set as text; no comment text reaches the DOM here.
  */
 import { m } from "../paraglide/messages.js";
-import { anchorKey, type AnchorIndex } from "./anchors";
+import { anchorKey, openCounts, type AnchorIndex } from "./anchors";
 import { matchDiagramHosts, sourceNodeId } from "./diagramNodes";
 import type { DocComment } from "./types";
 
@@ -15,19 +15,8 @@ export const NODE_ATTR = "data-docwalk-comments";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-/** Open comments per anchor key. */
-export function openCounts(comments: readonly DocComment[]): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const c of comments) {
-    if (c.resolved) continue;
-    const k = anchorKey(c.anchor);
-    out.set(k, (out.get(k) ?? 0) + 1);
-  }
-  return out;
-}
-
 /** Lucide's message-square, drawn here because these buttons live outside React. */
-function icon(): SVGSVGElement {
+export function markerIcon(): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("width", "14");
@@ -62,7 +51,7 @@ export function markHeadings(
   onOpen: (slug: string) => void,
 ): void {
   for (const old of article.querySelectorAll(`.${MARKER_CLASS}`)) old.remove();
-  const counts = openCounts(comments);
+  const counts = openCounts(comments, index);
   let next = 0;
   for (const el of article.querySelectorAll<HTMLElement>(":scope > :is(h1, h2, h3, h4, h5, h6)")) {
     const title = normalize(el.textContent ?? "");
@@ -77,7 +66,7 @@ export function markHeadings(
     button.type = "button";
     button.className = MARKER_CLASS;
     button.setAttribute("aria-label", m.comments_marker({ count: n, title: target.title }));
-    button.append(icon(), document.createTextNode(String(n)));
+    button.append(markerIcon(), document.createTextNode(String(n)));
     button.addEventListener("click", () => onOpen(target.slug));
     el.append(button);
   }
@@ -89,7 +78,7 @@ export function markDiagramNodes(
   index: AnchorIndex,
   comments: readonly DocComment[],
 ): void {
-  const counts = openCounts(comments);
+  const counts = openCounts(comments, index);
   for (const { host, target } of matchDiagramHosts(container, index)) {
     for (const g of host.querySelectorAll<SVGGElement>("svg g.node[id]")) {
       const node = sourceNodeId(g);

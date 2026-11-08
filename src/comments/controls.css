@@ -91,6 +91,43 @@
   outline-offset: 2px;
 }
 
+/* The markers on the scaled slide (decision 94). They live in a layer of their own
+ * on the stage, which reveal.js scales; slideMarkers.ts draws each one `max(1, 1/scale)`
+ * times its size, so on screen it is never under 24 CSS px (44 on a coarse pointer).
+ * The slide stays white in both themes, so these use the light note colours. */
+.docwalk-slide-markers {
+  position: absolute;
+  inset: 0;
+  /* Above reveal.js's slides (z-index 10 to 12), below the pen and mirror layers (20). */
+  z-index: 19;
+  pointer-events: none;
+}
+
+.docwalk-slide-marker {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 var(--dw-space-sm);
+  border: 1px solid var(--dw-color-note-border);
+  border-radius: var(--dw-radius-full);
+  background: var(--dw-color-note-surface);
+  color: var(--dw-color-note-ink);
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-caption-size);
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.docwalk-slide-marker:focus-visible {
+  outline: 2px solid var(--dw-color-focus);
+  outline-offset: 2px;
+}
+
 /* A commented diagram node glows in the note colour. Mermaid's own scoped
  * style sets the shape stroke with an id selector, so the glow is a filter
  * on the node group, which that style never sets. */
@@ -101,6 +138,11 @@
 
 @media (pointer: coarse), (max-width: 640px) {
   .docwalk-comment-chip {
+    min-height: var(--dw-space-target);
+  }
+
+  .docwalk-slide-marker {
+    min-width: var(--dw-space-target);
     min-height: var(--dw-space-target);
   }
 

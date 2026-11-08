@@ -1709,6 +1709,12 @@ kbd {
     flex: 0 1 12rem;
   }
 
+  /* Decision 100: below the level row the button cost the outline its third
+     row; More actions and the palette open the section picker here. */
+  .docwalk-level .docwalk-sections-trigger {
+    display: none;
+  }
+
   /* Proportional figures and a tighter gap keep the counts on one line. */
   .docwalk-statusbar {
     gap: 0 var(--dw-space-sm);

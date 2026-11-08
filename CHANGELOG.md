@@ -79,14 +79,22 @@ The first release.
   chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
   only for the languages a document uses.
-- Monaco as an optional desktop editor beside CodeMirror.
+- Monaco as an optional desktop editor beside CodeMirror. A switch of
+  editor keeps the cursor line, the command palette offers the other
+  editor, a pick in one tab applies in the others, a list item's indented
+  paragraphs are coloured as text, and Monaco's own panels are Turkish for
+  Turkish viewers.
 - Canvas mode: a Mermaid diagram as an editable Excalidraw sketch, kept in
   the browser and exported as `.excalidraw`, PNG or SVG. The sketch menu and
   zoom buttons have names, the Library no longer links to excalidraw.com, a
   Saved sketches panel deletes stored sketches, and full storage or a missing
   `crypto.subtle` is reported as such.
 - Comments on headings and diagram nodes, carried in share links and
-  exported as `<name>.comments.json` sidecars.
+  exported as `<name>.comments.json` sidecars. Count markers sit beside
+  commented headings on the slide itself; a deleted comment stays deleted
+  when an older link, sidecar or tab is imported; node comments follow
+  their diagram when diagrams are reordered; a new comment can carry a
+  display name, kept in this browser.
 - A browser workspace (files, folders, templates, zip import and export)
   and, in Chromium, local folders that reload on change and save on request.
   The workspace follows edits from another tab and asks before it writes over
