@@ -190,7 +190,8 @@
   aspect-ratio: 16 / 9;
 }
 
-.docwalk-presenter-canvas {
+.docwalk-presenter-canvas,
+.docwalk-presenter-marks {
   position: absolute;
   top: 0;
   left: 0;

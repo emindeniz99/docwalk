@@ -130,6 +130,41 @@ export async function listTree(root: FileSystemDirectoryHandle): Promise<Workspa
   return { nodes, truncated };
 }
 
+/**
+ * Every document file at or under `path`, read from the directory itself and
+ * not from a listing: a listing stops at `MAX_LISTED_ENTRIES`, and the
+ * comments and sketches of a file past that point must still follow it
+ * (decision 92). Skips what a listing skips.
+ */
+export async function documentPathsUnder(
+  root: FileSystemDirectoryHandle,
+  path: string,
+): Promise<string[]> {
+  if (path !== "" && (await kindAt(root, path)) === "file") return [path];
+  const out: string[] = [];
+  const walk = async (dir: FileSystemDirectoryHandle, base: string) => {
+    for await (const [name, handle] of dir.entries()) {
+      const child = joinPath(base, name);
+      if (handle.kind === "directory") {
+        if (!skipped(name)) await walk(handle as FileSystemDirectoryHandle, child);
+      } else if (isDocumentName(name)) out.push(child);
+    }
+  };
+  await walk(await directoryAt(root, path), path);
+  return out;
+}
+
+/** Whether two listings show the same tree, so a poll that finds nothing new changes nothing on screen. */
+export function sameListing(a: WorkspaceListing, b: WorkspaceListing): boolean {
+  const same = (x: WorkspaceNode[], y: WorkspaceNode[]): boolean =>
+    x.length === y.length &&
+    x.every((n, i) => {
+      const o = y[i]!;
+      return n.path === o.path && n.kind === o.kind && same(n.children ?? [], o.children ?? []);
+    });
+  return a.truncated === b.truncated && same(a.nodes, b.nodes);
+}
+
 export interface FileText {
   text: string;
   lastModified: number;

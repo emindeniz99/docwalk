@@ -399,7 +399,7 @@ function SlidePreview({ className, label, title, page, empty, marks }: SlidePrev
         {marks && (
           <div
             ref={overlay}
-            className="docwalk-presenter-canvas docwalk-presenter-marks"
+            className="docwalk-presenter-marks"
             hidden={!page}
             style={{
               width: SLIDE_SIZE.width,

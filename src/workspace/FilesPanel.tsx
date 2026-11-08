@@ -373,7 +373,11 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
           </div>
         ) : w.listing === null ? (
           <p className="docwalk-files-note">
-            {w.supported.opfs ? m.ws_loading() : m.ws_unsupported()}
+            {w.listFailed
+              ? m.ws_err_list()
+              : w.supported.opfs
+                ? m.ws_loading()
+                : m.ws_unsupported()}
           </p>
         ) : nodes.length === 0 ? (
           <div className="docwalk-files-note">
@@ -420,6 +424,10 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
               {renderNode}
             </Tree>
             {w.listing.truncated && <p className="docwalk-files-note">{m.ws_truncated()}</p>}
+            {/* Said while the browser has not promised to keep these files (decision 91). */}
+            {w.root === "opfs" && w.persistent === false && (
+              <p className="docwalk-files-note">{m.ws_not_persistent()}</p>
+            )}
           </>
         )}
       </DisclosurePanel>
