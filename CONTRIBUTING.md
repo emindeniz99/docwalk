@@ -19,6 +19,26 @@ names things; use its words in code, docs and commit messages.
 - New UI strings go into `messages/en.json` and `messages/tr.json`. The
   Turkish glossary in `CONTEXT.md` lists the words to use.
 
+## Picking up work
+
+For maintainers and agents continuing the project:
+
+1. Read [`AGENTS.md`](./AGENTS.md), then [`MEMORY.md`](./MEMORY.md) for
+   the current state and local test setup.
+2. Take work from [`ROADMAP.md`](./ROADMAP.md): "Next up" first, then
+   "Follow-ups". Items under "Needs the owner" are the maintainer's.
+3. A feature starts with a row in `docs/decisions.md`, then tests that
+   fail, then code. Update ROADMAP and MEMORY in the same branch.
+4. Before merging, run `pnpm check` and the end-to-end suite on the
+   engines the change touches. After a merge to `main`, run the
+   "docwalk deploy (GitHub Pages)" workflow by hand; it does not run on
+   push.
+5. A test that fails only sometimes is a race to find, not a retry to add.
+   Reproduce it under load: keep two CPU cores busy with spin loops, pin
+   the test run to them (`taskset`), repeat it 40 times or more, and
+   record the failure count before and after the fix. Wait for the
+   condition the next step needs, not for an earlier sign of readiness.
+
 ## Commit messages
 
 docwalk uses [Conventional Commits](https://www.conventionalcommits.org)

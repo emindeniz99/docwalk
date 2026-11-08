@@ -120,7 +120,17 @@ Later rounds:
   periodic update check.
 - CI and quality: mutation survivors are reported, not fixed (no unit test
   feeds `src/share/fragment.ts` a fragment its schema rejects); Lighthouse
-  SEO is 0.82 and unbudgeted.
+  SEO is 0.82 and unbudgeted. "Editing the source … notes in the gutter"
+  (`e2e/app.spec.ts`) failed once on WebKit under load and never again in
+  40 runs; one lead is that `App.tsx` diagnostics fall back to line 1
+  (`?? 1`) for a slide from a stale deck. The presenter axe test's 90 s
+  budget assumes CI is about twice as slow as a local run; it was not
+  measured on CI.
+- Accessibility judgement to confirm: in the fill frame (decision 77) the
+  deck's focus ring hides with the idle controls, read as meeting WCAG
+  2.4.7 because it shows whenever they do. A stricter reading keeps it
+  visible at all times. In Firefox the deck's focus stays invisible after
+  Present's click until Tab moves it.
 - Layout: with the comments panel open at 1440 px the deck pane is about
   500 px and the annotation toolbar wraps to two rows; on a phone an
   expanded file panel leaves the outline about one row inside the 40dvh
@@ -147,14 +157,27 @@ Later rounds:
   the card on the dark stage and keeps its bar; a room's second screen
   would gain the same room the presenter's did.
 
+## Next up
+
+Features from [`docs/feature-gaps.md`](./docs/feature-gaps.md), in this
+order unless the owner picks differently. The first five give the most for
+the least work. Each starts with a decision row, then failing tests, then
+code.
+
+1. Speaker notes from HTML comments, shown in the presenter window.
+2. A focus view for code blocks, images and wide tables, with
+   click-to-highlight code lines (reuses the diagram focus).
+3. Laser, strokes and diagram focus mirrored to followers and the presenter
+   window, inside the signed, encrypted room messages (decisions 68, 73).
+4. Countdown with a target time, a pacing bar, and Screen Wake Lock.
+5. Full-text search in the command palette.
+6. Picking which sections to present, kept in the URL.
+7. Saved annotations, included in PDF and PNG exports.
+8. Math and emoji shortcodes, which GitHub renders natively.
+9. A step-through tour of a Mermaid diagram's nodes and paths.
+10. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+
 ## Later
 
-- Feature candidates from [`docs/feature-gaps.md`](./docs/feature-gaps.md),
-  ranked there: speaker notes from HTML comments; a focus view for code,
-  images and wide tables; laser, strokes and diagram focus mirrored to
-  followers; picking sections to present; saved annotations; countdown,
-  pacing bar and Wake Lock; math and emoji shortcodes; a Mermaid diagram
-  tour; full-text search; a blank whiteboard and shapes. Each needs a
-  decision row before code.
 - More locales after Turkish through Weblate; RTL with CSS logical
   properties.

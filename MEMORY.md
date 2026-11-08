@@ -79,6 +79,8 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-06: A test that types several characters and then waits for "the" rebuilt deck can meet two rebuilds when the typing pauses past `REBUILD_DELAY_MS` under load; wait for the deck that shows the whole edit.
 - 2026-11-06: Any edit to index.html's inline script changes its CSP hash (decision 78): recompute the SHA-256 of the script text and update `worker/csp.ts` and `public/_headers`; `csp-plugin.test.ts` fails until they match.
 - 2026-11-06: At 1440×900 the presented slide is bound by width, so hiding the presenting controls (decision 75) does not grow it; a size test needs a phone-landscape viewport (844×390). Playwright's `devices["iPhone 15 landscape"]` is 734×343 and has no safe-area insets.
+- 2026-11-08: Stryker's default `disableTypeChecks` also writes `// @ts-nocheck` into HTML script blocks, which changed index.html's inline script and its CSP hash in the sandbox; the config now names source files only.
+- 2026-11-08: Dependabot's npm job refuses an exact `devEngines.runtime` Node pin that differs from its own Node ("tool_version_not_supported"); move the pin to its version once that release is seven days old. GitHub's CI run on `main` cancels the previous one (concurrency group), so a cancelled run after a quick second push is expected.
 
 ## Done
 

@@ -6,6 +6,48 @@ checked on 2026-11-06 against `main` plus the code-highlighting branch
 the architecture. Candidates that docwalk takes on move to
 [`ROADMAP.md`](../ROADMAP.md) and get a decision row before code.
 
+## How this list was made
+
+1. Start from the tools [`prior-art.md`](./prior-art.md) already covered,
+   and add 2025–2026 tools found by search (presenterm, margo, md2slides
+   and AI deck makers).
+2. Read each tool's feature docs, README or source. A feature counts only
+   when a page or a line of code shows it; the rest is marked unverified
+   at the end of this file.
+3. Check docwalk's own source for each feature before calling it a gap, so
+   nothing it already has is listed (the next section).
+4. Rate each gap for docwalk's audience (a team walking through a design
+   document), estimate the effort, and test it against the project rules
+   in [`AGENTS.md`](../AGENTS.md), above all rule 1: syntax GitHub does not
+   render is rejected unless it degrades to clean text.
+
+## Re-check
+
+Repeat the survey before choosing a new batch of features, or every three
+months, whichever comes first. Re-verify the unverified items at the end
+first. Sources to read again:
+
+- Presentation tools: [Slidev features](https://sli.dev/features/),
+  [Marp CLI](https://github.com/marp-team/marp-cli) and
+  [Marpit](https://github.com/marp-team/marpit/tree/main/docs),
+  [reveal.js](https://revealjs.com/) and its releases,
+  [Quarto reveal.js](https://quarto.org/docs/presentations/revealjs/),
+  [presenterm](https://github.com/mfontanini/presenterm),
+  [deckrun](https://github.com/arpitbbhayani/deckrun),
+  [Slidekick](https://github.com/chraltro/slidekick),
+  [md2slides](https://github.com/wenlanstudio/md2slides),
+  [margo](https://github.com/jjanuszczak/margo).
+- What GitHub renders, since rule 1 follows it:
+  [basic formatting](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax),
+  [math](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/writing-mathematical-expressions)
+  and
+  [diagrams](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams).
+  A new GitHub-native syntax is a fidelity gap for docwalk.
+- The libraries docwalk is built on, for features worth adopting:
+  [Mermaid releases](https://github.com/mermaid-js/mermaid/releases),
+  [Shiki](https://shiki.style/), [drauu](https://github.com/antfu/drauu),
+  [Excalidraw](https://github.com/excalidraw/excalidraw/releases).
+
 ## Already in docwalk (confirmed in source)
 
 Reveal.js progress bar (`progress: true`), blackout/pause (B, `.`), arrows; elapsed timer and clock in
