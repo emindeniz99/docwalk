@@ -48,6 +48,15 @@ export interface HtmlOptions {
 export const SANITIZE_SCHEMA = {
   ...defaultSchema,
   strip: [...(defaultSchema.strip ?? []), "style", "svg", "math"],
+  // GitHub's schema keeps a disabled checkbox for task lists. docwalk draws
+  // those from the Markdown tree instead (decision 86), so no `<input>` of
+  // the document's own gets through either. The one attribute is the
+  // placeholder `rehypeMarkTasks` leaves; `rehypeDrawTasks` checks it.
+  tagNames: (defaultSchema.tagNames ?? []).filter((name) => name !== "input"),
+  attributes: {
+    ...defaultSchema.attributes,
+    span: [...(defaultSchema.attributes?.["span"] ?? []), "dataDocwalkTask"],
+  },
 };
 
 /** The schema for a tree it already sanitized: ids carry their `user-content-` prefix, so none is added again. */
@@ -174,6 +183,65 @@ export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
   };
 }
 
+/** Class on the empty `<span>` that stands where a task item's checkbox was (decision 86). */
+export const TASK_BOX_CLASS = "docwalk-task-box";
+
+/** What a task mark is told to the viewer, by state. `data-state` carries the same value for CSS. */
+const TASK_LABELS = { done: m.render_task_done, open: m.render_task_open };
+
+/** A value nothing in a document can guess, for one render: placeholders without it are not ours. */
+function taskNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Before the sanitizers: remark-rehype turns a GFM task item into
+ * `<li class="task-list-item"><input type="checkbox" checked disabled>`, and
+ * no `<input>` may reach the page. Each one becomes an empty placeholder that
+ * names the item's state with this render's nonce. Only the Markdown tree
+ * has produced elements at this point (raw HTML is still text), so every
+ * `<input>` here is a task item's.
+ */
+function rehypeMarkTasks(nonce: string) {
+  return () => (tree: HastRoot) => {
+    visit(tree, "element", (node: Element, index, parent) => {
+      if (node.tagName !== "input" || !parent || index === undefined) return;
+      const state = node.properties["checked"] ? "done" : "open";
+      parent.children[index] = {
+        type: "element",
+        tagName: "span",
+        properties: { dataDocwalkTask: `${nonce}:${state}` },
+        children: [],
+      };
+      return SKIP;
+    });
+  };
+}
+
+/**
+ * After the sanitizers: a placeholder with this render's nonce becomes the
+ * mark, a read-only drawing and not a form control (decision 86); one
+ * without it, which only a document can have written, loses the attribute and
+ * stays a plain span. Like the alerts of decision 25, the markup is ours, so
+ * the schema needs no class, role or label that raw HTML could then forge.
+ */
+function rehypeDrawTasks(nonce: string) {
+  return () => (tree: HastRoot) => {
+    visit(tree, "element", (node: Element) => {
+      const value = node.properties["dataDocwalkTask"];
+      if (value === undefined) return;
+      delete node.properties["dataDocwalkTask"];
+      const state = value === `${nonce}:done` ? "done" : value === `${nonce}:open` ? "open" : null;
+      if (node.tagName !== "span" || !state) return;
+      node.properties["className"] = [TASK_BOX_CLASS];
+      node.properties["dataState"] = state;
+      node.properties["role"] = "img";
+      node.properties["ariaLabel"] = TASK_LABELS[state]();
+    });
+  };
+}
+
 export interface RenderContext extends HtmlOptions {
   /** Anchors from `headingIds`, written on each heading as `id="user-content-<anchor>"`, as GitHub does. */
   headingIds?: ReadonlyMap<Heading, string>;
@@ -203,7 +271,9 @@ export interface RenderContext extends HtmlOptions {
  * 4. rehype-github-alert turns `> [!NOTE]` quotes into alerts. It runs after
  *    the sanitizer (decision 25), so the alert markup it adds is ours and the
  *    schema needs no class or SVG allowances that raw HTML could then forge;
- * 5. the remote image gate (decision 33).
+ * 5. the remote image gate (decision 33);
+ * 6. task list marks: the checkbox remark-rehype writes is replaced before
+ *    the sanitizers and drawn after them (decision 86).
  *
  * DOMPurify runs again in the browser before insertion (`src/deck/purify.ts`).
  */
@@ -220,6 +290,7 @@ export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): 
     hasRawHtml = true;
     return false;
   });
+  const nonce = taskNonce();
   const render = (rawHtml: typeof rehypeRaw | typeof rehypeDropRaw) => {
     const processor = unified()
       // The sanitizer adds the `user-content-` prefix; remark-rehype's own
@@ -234,12 +305,14 @@ export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): 
             reference: `${reference + 1}${rereference > 1 ? `-${rereference}` : ""}`,
           }),
       })
+      .use(rehypeMarkTasks(nonce))
       .use(rawHtml)
       .use(rehypePrefixFootnoteLabel, footnotePrefix)
       .use(rehypeSanitize, SANITIZE_SCHEMA)
       // Markdown alone builds a tree the parser would build too; raw HTML may not.
       // unified's on/off switch: `false` leaves the plugin out.
       .use(rehypeSettle, rawHtml === rehypeRaw && hasRawHtml)
+      .use(rehypeDrawTasks(nonce))
       .use(rehypeGithubAlert)
       .use(rehypeLocalizeAlertTitles)
       .use(rehypeBlockRemoteImages, options)

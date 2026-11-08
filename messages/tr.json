@@ -353,6 +353,8 @@
   "render_footnotes": "Dipnotlar",
   "render_load_image": "Görseli yükle: {host}",
   "render_load_image_alt": "“{alt}” görselini yükle: {host}",
+  "render_task_done": "Görev tamamlandı",
+  "render_task_open": "Görev tamamlanmadı",
   "share_build_failed": "docwalk burada bağlantı oluşturamadı.",
   "share_comments_dropped": "Yorumlar bağlantıya sığmadı; bağlantı yalnızca belgeyi taşıyor. Yorumları Yorumlar panelinden dışa aktarıp dosyayı ayrıca gönderin.",
   "share_comments_privacy": "Yorumlar da bağlantının içinde: hiçbir sunucuya gönderilmez, ancak tarayıcı geçmişinde kalır.",

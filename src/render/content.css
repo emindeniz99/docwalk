@@ -259,3 +259,51 @@
   background: var(--code-deleted-surface);
   color: var(--code-deleted);
 }
+
+/* ---- Task list marks (decision 86) ------------------------------------------- */
+
+/*
+ * `- [x]` and `- [ ]` become an empty, read-only <span class="docwalk-task-box"> where
+ * GitHub draws its checkbox; src/render/toHtml.ts names the state for screen readers.
+ * State is a shape, not a colour: an outlined square, with a tick in the done one.
+ * Both are drawn from borders, which print without backgrounds, follow forced colours
+ * and need no url() (the HTML export's CSP allows images only as data: URLs). The
+ * outline is the muted ink at 3:1 or more on its surface; slides keep the light set.
+ */
+:is(.docwalk-slide-body, .docwalk-document) li.task-list-item {
+  /* The box takes the bullet's place, so the item must not show a bullet too. */
+  list-style: none;
+}
+
+.docwalk-task-box {
+  --task-box: var(--muted);
+  --task-tick: var(--fg);
+  position: relative;
+  display: inline-block;
+  box-sizing: border-box;
+  width: 0.9em;
+  height: 0.9em;
+  /* Hangs in the list gutter, so the item's text lines up with its plain neighbours. */
+  margin-inline: -1.4em 0.25em;
+  vertical-align: -0.1em;
+  border: 0.1em solid var(--task-box);
+  border-radius: var(--dw-radius-sm);
+}
+
+.docwalk-slide-body .docwalk-task-box {
+  --task-box: var(--dw-color-slide-muted);
+  --task-tick: var(--dw-color-slide-ink);
+}
+
+.docwalk-task-box[data-state="done"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  width: 0.24em;
+  height: 0.46em;
+  border-style: solid;
+  border-color: var(--task-tick);
+  border-width: 0 0.1em 0.1em 0;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
