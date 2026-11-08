@@ -328,9 +328,9 @@ describe("a receiver that joins late (resync)", () => {
   });
 });
 
-describe("a resync keeps what receivers hold (decision 103)", () => {
-  const ids = (store: MirrorStore, slide = "a/1") => store.strokes(slide).map((s) => s.id);
+const ids = (store: MirrorStore, slide = "a/1") => store.strokes(slide).map((s) => s.id);
 
+describe("a resync keeps what receivers hold (decision 103)", () => {
   test("no receiver loses a mark at any point of it: the strokes replace by id, none is cleared first", () => {
     const { feed } = setup();
     const marks = [mark(1, 40), mark(2, 40), mark(3, 40)];
@@ -353,7 +353,7 @@ describe("a resync keeps what receivers hold (decision 103)", () => {
     feed.ingest({ kind: "marks", slide: "a/1", strokes: marks, reset: true });
     const holder = new MirrorStore();
     feed.resync((op) => holder.apply(op));
-    const changed = vi.fn();
+    const changed = vi.fn<() => void>();
     holder.subscribe(changed);
     feed.resync((op) => holder.apply(op));
     expect(changed).not.toHaveBeenCalled();
@@ -437,6 +437,16 @@ describe("a resync keeps what receivers hold (decision 103)", () => {
   });
 });
 
+/** A feed on an empty slide, a receiver present from the start, and one that has not joined yet. */
+function twoFollowers() {
+  const feed = new MirrorFeed();
+  const early = new MirrorStore();
+  const joined = new MirrorStore();
+  feed.addSink((op) => early.apply(op));
+  feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
+  return { feed, early, joined };
+}
+
 describe("a resync while a pen stroke is being drawn (decision 103)", () => {
   const all = line(120, 5);
   const progress = (feed: MirrorFeed, n: number) =>
@@ -451,15 +461,6 @@ describe("a resync while a pen stroke is being drawn (decision 103)", () => {
     });
   const finish = (feed: MirrorFeed) =>
     feed.ingest(committed("a/1", { id: 9, tool: "pen", color: "primary", points: all }));
-
-  function twoFollowers() {
-    const feed = new MirrorFeed();
-    const early = new MirrorStore();
-    const joined = new MirrorStore();
-    feed.addSink((op) => early.apply(op));
-    feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
-    return { feed, early, joined };
-  }
 
   test("a follower that joins between two flushes does not cut the stroke on any follower", () => {
     const { feed, early, joined } = twoFollowers();
@@ -646,14 +647,17 @@ describe("sender and receiver agree (a model check)", () => {
     };
 
     const got = (store: MirrorStore) => store.strokes(slide).map((m) => [m.id, m.tool, m.points]);
+    const wanted = () => of(slide).visible.map((m) => [m.id, m.tool, m.points]);
+    /** What a receiver shows of the slide, less the stroke in progress. */
+    const held = (store: MirrorStore) =>
+      got(store).filter(([id]) => drawing === null || id !== drawing.id);
     const check = (when: string) => {
-      const want = of(slide).visible.map((m) => [m.id, m.tool, m.points]);
-      const held = (store: MirrorStore) =>
-        got(store).filter(([id]) => drawing === null || id !== drawing.id);
+      const want = wanted();
       expect(held(early), `seed ${seed}, ${when}, receiver present from the start`).toEqual(want);
-      if (lateJoined) {
-        expect(held(late), `seed ${seed}, ${when}, receiver that joined late`).toEqual(want);
-      }
+      // Before it joins the late receiver has been sent nothing.
+      expect(held(late), `seed ${seed}, ${when}, receiver that joined late`).toEqual(
+        lateJoined ? want : [],
+      );
     };
 
     for (let step = 0; step < 160; step++) {
@@ -719,10 +723,15 @@ describe("sender and receiver agree (a model check)", () => {
       feed.addSink((op) => late.apply(op));
       feed.resync((op) => late.apply(op));
     }
-    check("at the end");
+    return { want: wanted(), early: got(early), late: got(late) };
   }
 
   test("after every step of any run both receivers show the model's marks", () => {
-    for (let seed = 1; seed <= 200; seed++) run(seed);
+    for (let seed = 1; seed <= 200; seed++) {
+      // run() also compares after every step.
+      const { want, early, late } = run(seed);
+      expect(early, `seed ${seed} at the end, receiver present from the start`).toEqual(want);
+      expect(late, `seed ${seed} at the end, receiver that joined late`).toEqual(want);
+    }
   });
 });
