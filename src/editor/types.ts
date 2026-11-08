@@ -17,6 +17,13 @@ export interface SourceEditorProps {
   onChange: (value: string) => void;
   /** Reports the 1-based line of the cursor, so the preview can follow it. */
   onCursorLine?: (line: number) => void;
+  /**
+   * The 1-based line the cursor starts on when the editor mounts, scrolled
+   * into the middle of the pane and clamped into the document. It is not
+   * reported through `onCursorLine` (the shell passed it in) and later
+   * changes are ignored: from then on the cursor belongs to the editor.
+   */
+  initialLine?: number | null;
   /** Lines to scroll into view and highlight briefly, e.g. when the outline is clicked. */
   revealLine?: number | null;
   diagnostics?: EditorDiagnostic[];
