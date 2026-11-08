@@ -162,7 +162,11 @@ export class MirrorFeed {
       emit({ op: "clear", slide });
       for (const stroke of this.fit(strokes)) this.sendChunks(emit, slide, stroke, 0, true);
       for (const [id, live] of this.live) {
-        if (live.slide === slide) this.sendChunks(emit, slide, { id, ...live }, 0, false);
+        // Only what every sink has been sent; the next flush sends the rest
+        // from `sent`, which a receiver holding more would refuse.
+        if (live.slide !== slide || live.sent === 0) continue;
+        const points = live.points.slice(0, live.sent);
+        this.sendChunks(emit, slide, { id, ...live, points }, 0, false);
       }
     }
     if (this.focusOpen) {
