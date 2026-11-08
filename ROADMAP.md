@@ -36,19 +36,30 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   a time so the audience tab no longer stalls in WebKit; a notice instead
   of a blank page below the browser floor (78); document-mode links scroll
   to their heading; the update toast and dialogs pad for the safe area.
+- Done 2026-11-08: the v1 gaps in the decision list (rows 82 to 85):
+  remote control recorded as part of v1 (refines 8); the app's slide
+  overview recorded as replacing reveal.js's (refines 3, 17, 27); the
+  Lighthouse floors recorded (refines 43); `e2e/aria-snapshots.spec.ts`
+  pins the accessible tree of the edit, document, present and presenter
+  views, the overview, the palette and two dialogs on three engines. No
+  screenshot assertion: PNG baselines are per engine and operating system,
+  and nothing here can make Ubuntu ones (85).
 
 Still open in v1:
 
-- Decision row 8 needs a later row or an ADR (remote control moved into v1).
-- Decision 39's screenshot and ARIA-snapshot assertions are not written
-  (screenshots are optional review captures). Write them, or narrow the row.
-- Decision 43's 1.5 s open budget: `e2e/perf.spec.ts` measured about 2.5 s
-  for the 809-line fixture on a build that still bundled ELK. It warns above
-  the budget and fails only above three times it; re-measure on the current
-  build.
-- Record the round-1 refinements as decisions if wanted: the app's overview
-  replaces reveal.js's (refines 3, 17, 27); Lighthouse performance floor 0.5
-  and zero third-party requests (refines 43).
+- Decision 43's 1.5 s open budget does not hold. Re-measured 2026-11-08 on
+  the current build with `e2e/perf.spec.ts` (809-line fixture, 14 diagrams,
+  Chromium 156 as Playwright's full Chrome, AMD Ryzen 7 7800X3D, 31 GB,
+  Windows 11, `--workers=1`): 7 runs gave 1731, 1751, 1773,
+  1774, 1786, 1788 and 1973 ms, median 1774 ms and worst 1973 ms. The CI
+  runner (run 42501338111, single sample) took 2559 ms. Before ELK left the
+  bundle the spec read about 2.5 s, so the build improved and is still
+  about 18 % over on this machine, 70 % over on CI. The other budgets hold:
+  repaginate had a median of 214 ms and a worst of 230 ms against 300 ms (CI
+  325 ms, one sample, over), and the default view's first load is 979 kB
+  gzip against the 1 MB limit. The spec warns above the budget and fails
+  above three times it; the threshold is unchanged. A perf pass on the open
+  path is the next step.
 
 ## v2: workspace and agents
 
@@ -143,6 +154,15 @@ Later rounds:
   Turkish UI `gec` does not find `geç`, because the collation that the title
   filter always used treats ç, ğ, ö, ş and ü as letters of their own. Ten
   text hits show at most.
+- Shortcut hints: on Apple platforms `ModShortcut` draws the command glyph
+  as an `aria-hidden` icon, so the palette button's accessible name ends in
+  "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
+  reader user on a Mac hears the key without knowing it needs Command.
+  Judgement call, not changed here.
+- `pnpm size` exits 1 without output on Windows: `tooling/size-check.ts`
+  runs `size-limit` through `execFileSync` without a shell, which cannot
+  start the `.cmd` shim. `pnpm exec size-limit` works there (409 kB for
+  the app shell on 2026-11-08).
 - Accessibility judgement to confirm: in the fill frame (decision 77) the
   deck's focus ring hides with the idle controls, read as meeting WCAG
   2.4.7 because it shows whenever they do. A stricter reading keeps it

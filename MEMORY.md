@@ -21,8 +21,10 @@ work and owner tasks are in ROADMAP "Follow-ups".
 
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
-1 MB gzip (977 kB used) and times the fixture's open and repaginate
-against decision 43.
+1 MB gzip (979 kB used) and times the fixture's open and repaginate
+against decision 43. The 1.5 s open budget does not hold: on 2026-11-08 a
+Windows desktop (Ryzen 7 7800X3D) took a median of 1774 ms over 7 runs
+(worst 1973 ms), the CI runner 2559 ms; repaginate holds (214 ms median).
 
 Local runs: browser tests take a Chromium binary from
 `DOCWALK_CHROMIUM_PATH` (a headless shell is enough); e2e takes a full
@@ -85,9 +87,11 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-08: Playwright's `context.clock.install()` fakes `Date` and timers in the main tab and in a popup, and lets time run between jumps; `fastForward` fires each due timer once, so a test that needs the page to have seen the jump waits on a second clock (the Elapsed timer). A popup opened with `window.open` starts with a copy of its opener's `sessionStorage`; the countdown key is never written there.
 - 2026-11-08: CommonMark lets an unclosed `<!--` swallow the rest of the document as one `html` node, and a comment above the first heading opens a slide of its own (`intro`, blank in the presenter list). Speaker notes ignore the first and hand the second's notes to the next slide.
 - 2026-11-08: React Aria's Menu draws its empty state ("No match") inside a `role="menuitem"` wrapper, so a test that counts menu items must leave out the one holding `.docwalk-palette-empty`. `useFilter({ sensitivity: "base" })` collates with the UI locale: under `tr-TR` ç, ğ, ö, ş and ü are separate letters (`gec` misses `geç`), I matches ı and i matches İ; under `en-US` İ matches i and I, and ı matches neither. A sliding `Intl.Collator.compare` over a 30 kB document costs under 2 ms per query.
+- 2026-11-08: Playwright's `toMatchAriaSnapshot` matches a template as a subsequence, so name only what the engines share (`e2e/aria-snapshots.spec.ts`). Real differences: WebKit lacks the Files panel and workspace commands (no OPFS in a throwaway context) and reads the palette hint as "K" (its Desktop Safari profile is a Mac, and the ⌘ glyph is `aria-hidden`); only Chromium offers "Open local folder…". The template syntax breaks on `: ` inside a regex name (`/Theme: system/` fails to parse). Port 4190 (ManageSieve) is a restricted port: Firefox and WebKit cannot load pages from it, so `DOCWALK_E2E_PORT=4190` fails there while Chromium passes. A Playwright run on Windows can leave its `vite preview` running; the next run on that port reuses it and its old `dist`, so rebuild or change the port after editing source.
 
 ## Done
 
+- 2026-11-08: Closed ROADMAP "Still open in v1" (decisions 82 to 85, branch `feat/roadmap-next-up`): remote control, overview and Lighthouse refinements recorded; `e2e/aria-snapshots.spec.ts` (8 tests, three engines, no screenshot assertions because PNG baselines cannot be made for Ubuntu here); the 1.5 s open budget re-measured and still missed (see Now).
 - 2026-11-08: Full-text slide search in the palette (decision 81, branch `feat/roadmap-next-up`): `SlideInfo.text` is read lazily from the paginated page (`src/deck/slideText.ts`), `src/shell/slideSearch.ts` finds the first match with the title filter's collator and cuts a snippet, and the palette lists hits under "In slide text" (ten at most, a count of the rest). Mermaid labels and speaker notes are not searched.
 - 2026-11-08: Countdown, pacing bar and screen wake lock (decision 80, branch `feat/roadmap-next-up`): the presenter window takes a target in minutes and counts down with pause and reset, goes negative with words and an icon when over, and sets time used against slides done from the address list; the clock lives in the window's `sessionStorage`, apart from the bridge's `startedAt`; the wake lock is held while presenting and while the presenter window is open.
 - 2026-11-08: Speaker notes (decision 79, branch `feat/roadmap-next-up`): the closed HTML comments of a section, minus tool directives, show under the current slide in the presenter window; read from the AST in `src/sectioning/notes.ts`, printed as text, no new bridge field and no other surface sees them.
