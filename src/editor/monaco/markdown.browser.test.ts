@@ -4,6 +4,7 @@ import { EditorState } from "@codemirror/state";
 import { editor as monaco } from "monaco-editor/editor";
 import { describe, expect, test } from "vitest";
 // Importing the editor registers its Markdown grammar, however it is wired.
+// oxlint-disable-next-line import/no-unassigned-import -- imported for that registration
 import "./MonacoEditor";
 
 /**
@@ -60,11 +61,7 @@ const cases: [name: string, source: string, code: number[]][] = [
     [],
   ],
   ["a nested bullet at four spaces is a list item", "- item\n    - nested bullet\n", []],
-  [
-    "four spaces after a plain paragraph is still code",
-    "Paragraph\n\n    real code\n",
-    [3],
-  ],
+  ["four spaces after a plain paragraph is still code", "Paragraph\n\n    real code\n", [3]],
   [
     "code indented deeper inside a list item is code",
     "- item\n\n        code inside the item\n",

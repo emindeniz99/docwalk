@@ -14,7 +14,6 @@ import "monaco-editor/features/linesOperations/register";
 import "monaco-editor/features/multicursor/register";
 import "monaco-editor/features/toggleTabFocusMode/register";
 import "monaco-editor/features/wordOperations/register";
-import "monaco-editor/languages/definitions/markdown/register";
 // Self-hosted: Vite emits the worker as a file of this build, so CSP
 // `worker-src 'self'` holds and nothing loads from a CDN (decision 53).
 // oxlint-disable-next-line import/default -- Vite adds the default export for `?worker`.
@@ -31,9 +30,11 @@ import {
 } from "../sync";
 import type { EditorDiagnostic, SourceEditorProps } from "../types";
 import { escapeMarkdown } from "./escape";
+import { registerMarkdown } from "./markdown";
 import { monacoTheme, readPalette } from "./theme";
 
 globalThis.MonacoEnvironment = { getWorker: () => new EditorWorker() };
+registerMarkdown();
 
 /** How long a revealed line stays highlighted; the same as the CodeMirror editor. */
 const REVEAL_MS = 1200;
