@@ -7,7 +7,8 @@ name: docwalk CI
 #   WebKit (decision 39), plus the static build served from a /docwalk/
 #   sub-path the way GitHub Pages serves it (decision 37). The Chromium leg
 #   also holds the default view's real download and the open and repaginate
-#   times to decision 43 (e2e/perf.spec.ts);
+#   times to decision 43 (e2e/perf.spec.ts). The Firefox and WebKit legs
+#   also run the sanitizer corpus on their engine (decision 42);
 # - lighthouse: Lighthouse CI budgets on the built app (decision 43).
 # The static build is tested from day one because static hosting must keep
 # working without the Worker (decision 37, AGENTS rule 6).
@@ -95,6 +96,13 @@ jobs:
         run: |
           # shellcheck disable=SC2086 # word splitting is the point here
           pnpm exec playwright test $PROJECTS
+      # Decision 42: the sanitizer corpus on every engine. Chromium runs it in
+      # `check` with the other browser tests; this job has the engine installed.
+      - name: Sanitizer corpus on this engine
+        if: ${{ !cancelled() && matrix.engine != 'chromium' }}
+        env:
+          DOCWALK_SANITIZER_ENGINE: ${{ matrix.engine }}
+        run: pnpm exec vitest run --project sanitizer-engines
       - name: Keep the report of a failed run
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
