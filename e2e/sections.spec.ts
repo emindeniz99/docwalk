@@ -230,7 +230,9 @@ test("Select all applies as no selection, so the link goes back to the plain one
   await expect(dialog).toBeHidden();
   await expect(sectionsButton(page)).toHaveText("Sections: all");
   // The button changes at once; the outline waits for the deck to rebuild from the whole plan.
-  await expect.poll(() => outlineTitles(page).count()).toBeGreaterThan(5);
+  // That rebuild paginates the whole sample document again, which is the first open's work, so
+  // it gets the first open's budget (`ready`): WebKit on CI took longer than the default 5 s.
+  await expect.poll(() => outlineTitles(page).count(), { timeout: 30_000 }).toBeGreaterThan(5);
   await expect.poll(() => queryParam(page, "sections")).toBeNull();
 });
 
