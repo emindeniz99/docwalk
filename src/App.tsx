@@ -49,7 +49,14 @@ import {
   useEditorChoice,
   useStoredEditorChoice,
 } from "./editor/choice";
-import { chooseLocale, localeName, locales, useLocale, type Locale } from "./i18n/locale";
+import {
+  chooseLocale,
+  getAppLocale,
+  localeName,
+  locales,
+  useLocale,
+  type Locale,
+} from "./i18n/locale";
 import type { EditorDiagnostic, SourceEditorProps } from "./editor/types";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
@@ -95,9 +102,13 @@ const SourceEditor = lazy(() =>
   import("./editor/SourceEditor").then((mod) => ({ default: mod.SourceEditor })),
 );
 // Monaco (decision 53) is larger still and loads only for viewers who pick it.
-const MonacoEditor = lazy(() =>
-  import("./editor/monaco/MonacoEditor").then((mod) => ({ default: mod.MonacoEditor })),
-);
+// Its own text (find panel, context menu) comes from a table that its modules
+// read as they run, so a Turkish viewer's table loads first (decision 102).
+const MonacoEditor = lazy(async () => {
+  if (getAppLocale() === "tr") await import("monaco-editor/nls/lang/tr");
+  const mod = await import("./editor/monaco/MonacoEditor");
+  return { default: mod.MonacoEditor };
+});
 // Dialogs and the exporters (modern-screenshot, the HTML sanitizer, the QR
 // encoder) stay out of the first-load bundle (decision 43).
 const ShareDialog = lazy(() =>
