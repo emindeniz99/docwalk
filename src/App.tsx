@@ -69,6 +69,7 @@ import { useTheme, type ThemeChoice } from "./shell/theme";
 import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
 import { useDocument } from "./shell/useDocument";
 import { useMediaQuery } from "./shell/useMediaQuery";
+import { useWakeLock } from "./shell/wakeLock";
 import type { FollowUpdate } from "./shell/RemoteFollower";
 import { useUrlSync } from "./url/useUrlSync";
 import { m } from "./paraglide/messages.js";
@@ -405,6 +406,8 @@ export function App() {
   // frame (decision 77).
   const frame = usePresentFrame();
   const fill = view === "present" && !follow && frame === "fill";
+  // The screen stays on while presenting (decision 80).
+  useWakeLock(view === "present");
   // Presenting, the bar and tools step aside after a few idle seconds so the
   // slide can take the whole stage (decision 75); usePresentChrome has the rules.
   const chrome = usePresentChrome({

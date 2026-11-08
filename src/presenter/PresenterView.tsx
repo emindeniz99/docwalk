@@ -11,12 +11,15 @@ import { m } from "../paraglide/messages.js";
 import { highlightCode } from "../render/highlight";
 import { speakerNotes } from "../sectioning/notes";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
+import { useWakeLock } from "../shell/wakeLock";
 import {
   connectPresenter,
   type ChannelFactory,
   type PresenterConnection,
   type PresenterState,
 } from "./bridge";
+import { formatClock } from "./pacing";
+import { CountdownControls, PacingBar, useCountdown } from "./PacingControls";
 import "./presenter.css";
 
 const NO_ADDRESSES: string[] = [];
@@ -47,6 +50,9 @@ export function PresenterView({ channel }: PresenterViewProps) {
   const [previews, setPreviews] = useState<Previews | null>(null);
   const connection = useRef<PresenterConnection | null>(null);
   const now = useNow();
+  const [countdown, setCountdown] = useCountdown();
+  // The screen stays on while this window is open (decision 80).
+  useWakeLock(true);
   // The window's language follows the main tab's switch (a storage event).
   const locale = useLocale();
 
@@ -193,6 +199,7 @@ export function PresenterView({ channel }: PresenterViewProps) {
             {state ? `${index >= 0 ? index + 1 : "–"} / ${addresses.length}` : "– / –"}
           </span>
         </div>
+        <CountdownControls countdown={countdown} onChange={setCountdown} now={now} />
         <div className="docwalk-presenter-nav">
           <Button
             className="docwalk-presenter-control"
@@ -211,6 +218,14 @@ export function PresenterView({ channel }: PresenterViewProps) {
             <ChevronRight size={22} aria-hidden="true" />
           </Button>
         </div>
+        {countdown && state && (
+          <PacingBar
+            countdown={countdown}
+            now={now}
+            addresses={addresses}
+            current={state.current}
+          />
+        )}
       </header>
 
       <p className="docwalk-presenter-status" role="status">
@@ -454,13 +469,7 @@ function titleOf(address: string, pages: ReadonlyMap<string, HTMLElement> | null
   return n > 1 ? `${title} (${n})` : title;
 }
 
-export function formatElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const min = Math.floor((total % 3600) / 60);
-  const s = String(total % 60).padStart(2, "0");
-  return h > 0 ? `${h}:${String(min).padStart(2, "0")}:${s}` : `${min}:${s}`;
-}
+export const formatElapsed = formatClock;
 
 function useNow(): number {
   const [now, setNow] = useState(() => Date.now());
