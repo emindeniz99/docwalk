@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { diagramHash, documentKey, sketchKey, sketchKeyBounds } from "./identity";
+import {
+  diagramHash,
+  documentKey,
+  sketchKey,
+  sketchKeyBounds,
+  sketchKeyDocument,
+} from "./identity";
 
 describe("sketch identity (decision 54)", () => {
   test("a document loaded from a link is keyed by that link, so its sketches come back with it", () => {
@@ -52,5 +58,12 @@ describe("sketch identity (decision 54)", () => {
     expect(within(sketchKey("workspace:opfs:a.md.bak", "0".repeat(64)))).toBe(false);
     expect(within(sketchKey("workspace:opfs:a.md/x.md", "0".repeat(64)))).toBe(false);
     expect(within(sketchKey("workspace:opfs:a.m", "f".repeat(64)))).toBe(false);
+  });
+
+  test("a sketch's key gives back its document, whatever the document's name holds (decision 89)", () => {
+    const hash = "ab".repeat(32);
+    expect(sketchKeyDocument(sketchKey("file:a.md", hash))).toBe("file:a.md");
+    // A file name may hold a line break; the hash never does, so the last one is the divider.
+    expect(sketchKeyDocument(sketchKey("file:a\nb.md", hash))).toBe("file:a\nb.md");
   });
 });
