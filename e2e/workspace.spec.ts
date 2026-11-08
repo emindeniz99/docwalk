@@ -317,7 +317,8 @@ test("a second tab follows the first, and a file deleted there is not brought ba
   await newProject(page, "Shared", "Blank");
   await expect(docTitle(page)).toHaveText("Shared");
   const other = await context.newPage();
-  await ready(other);
+  // `ready` waits for a plural "slides"; this one-slide file reads "1 slide".
+  await other.goto("/");
   await expect(docTitle(other)).toHaveText("Shared");
   await expect(row(other, "README.md")).toHaveAttribute("aria-selected", "true");
 
