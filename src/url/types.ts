@@ -12,6 +12,7 @@ import type { HeadingDepth } from "../sectioning/sectionize";
  * The query string carries viewer settings that are not in the document:
  *   ?level=auto|1|2|3|1,3   slide level override (decision 20)
  *   ?view=edit|document|present|presenter
+ *   ?sections=<id>,<id>     the sections to present (decision 100)
  */
 
 export interface ViewerUrlState {
@@ -20,4 +21,6 @@ export interface ViewerUrlState {
   /** A list has two or more levels, sorted and without duplicates. */
   level: "auto" | HeadingDepth | HeadingDepth[] | null;
   view: "edit" | "document" | "present" | "presenter" | null;
+  /** Section ids to present, without repeats; `null` presents every section. */
+  sections: string[] | null;
 }
