@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { createAnnotationLayer, LASER_TRAIL_MS } from "./layer";
+import { quantize, type MarkEvent } from "./mirrorTypes";
 import type { AnnotationLayer } from "./types";
 
 let layer: AnnotationLayer | null = null;
@@ -280,5 +281,182 @@ describe("annotation layer (decision 29)", () => {
     layer = null;
     expect(host.querySelector(".docwalk-annotate")).toBeNull();
     expect(host.style.position).toBe("");
+  });
+});
+
+describe("what the layer reports to the mirror (decision 88)", () => {
+  /** Observes the layer on a slide `a/1` and collects what it reports. */
+  function observed() {
+    const result = mount();
+    const events: MarkEvent[] = [];
+    layer!.observe((event) => events.push(event));
+    layer!.setKey("a/1#abc", "a/1");
+    events.length = 0;
+    return { ...result, events };
+  }
+  const ends = (events: MarkEvent[]) =>
+    events.flatMap((e) => (e.kind === "stroke" && e.end ? [e] : []));
+  const lastMarks = (events: MarkEvent[]) =>
+    events.flatMap((e) => (e.kind === "marks" ? [e] : [])).at(-1);
+
+  test("a pen stroke is reported in slide units, from where it began to where it was released", () => {
+    // The 400 by 300 stand-in is a slide here: (40, 30) is a tenth of each way.
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    stroke(host, [40, 30], [360, 270]);
+    const [done] = ends(events);
+    expect(done).toMatchObject({ slide: "a/1", tool: "pen", color: "primary", end: true });
+    const points = done!.points;
+    expect(points.length).toBeGreaterThanOrEqual(10);
+    expect(points.length % 2).toBe(0);
+    expect(Math.abs(points[0]! - quantize(0.1))).toBeLessThanOrEqual(2);
+    expect(Math.abs(points[1]! - quantize(0.1))).toBeLessThanOrEqual(2);
+    expect(Math.abs(points.at(-2)! - quantize(0.9))).toBeLessThanOrEqual(2);
+    expect(Math.abs(points.at(-1)! - quantize(0.9))).toBeLessThanOrEqual(2);
+  });
+
+  test("the stroke grows in the open while it is drawn, so a follower sees it as it goes", () => {
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    stroke(host, [40, 30], [360, 270]);
+    const growing = events.flatMap((e) => (e.kind === "stroke" && !e.end ? [e] : []));
+    expect(growing.length).toBeGreaterThan(3);
+    // One stroke, one id, from first point to last.
+    expect(new Set(events.flatMap((e) => (e.kind === "stroke" ? [e.id] : []))).size).toBe(1);
+  });
+
+  test("a point within 2 slide px of the last is not recorded, so a slow hand does not flood the wire", () => {
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    const svg = host.querySelector(DRAW) as SVGSVGElement;
+    pointer("pointerdown", svg, 100, 100);
+    // 0.05 css px steps on a 400 px slide are 0.16 slide px: far below the 2 px rule.
+    for (let i = 1; i <= 40; i++) pointer("pointermove", svg, 100 + i * 0.05, 100);
+    pointer("pointerup", svg, 102, 100);
+    const [done] = ends(events);
+    expect(done!.points.length / 2).toBeLessThan(8);
+  });
+
+  test("the colour key travels, never the colour", () => {
+    const { host, events } = observed();
+    layer!.setColor("rgb(1, 2, 3)", "ink");
+    layer!.setMode("pen");
+    stroke(host, [40, 30], [360, 270]);
+    expect(ends(events)[0]).toMatchObject({ color: "ink" });
+    expect(JSON.stringify(events)).not.toContain("rgb(");
+  });
+
+  test("an arrow is reported once, on release, with the line the drawing shows", () => {
+    const { host, events } = observed();
+    layer!.setMode("arrow");
+    stroke(host, [40, 30], [360, 270]);
+    const strokes = events.flatMap((e) => (e.kind === "stroke" ? [e] : []));
+    expect(strokes).toHaveLength(1);
+    expect(strokes[0]).toMatchObject({ tool: "arrow", end: true });
+    expect(strokes[0]!.points).toHaveLength(4);
+    expect(Math.abs(strokes[0]!.points[0]! - quantize(0.1))).toBeLessThanOrEqual(2);
+    expect(Math.abs(strokes[0]!.points[3]! - quantize(0.9))).toBeLessThanOrEqual(2);
+  });
+
+  test("an arrow too short to draw is not reported as a mark", () => {
+    const { host, events } = observed();
+    layer!.setMode("arrow");
+    stroke(host, [40, 30], [41, 31]);
+    expect(ends(events)).toEqual([]);
+    expect(lastMarks(events)?.strokes ?? []).toEqual([]);
+  });
+
+  test("undo, redo and clear report the marks that are visible after them", () => {
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    stroke(host, [40, 30], [360, 270]);
+    stroke(host, [40, 270], [360, 30]);
+    expect(lastMarks(events)?.strokes).toHaveLength(2);
+    layer!.undo();
+    expect(lastMarks(events)).toMatchObject({ slide: "a/1", reset: false });
+    expect(lastMarks(events)?.strokes).toHaveLength(1);
+    layer!.redo();
+    expect(lastMarks(events)?.strokes).toHaveLength(2);
+    layer!.clear();
+    expect(lastMarks(events)?.strokes).toHaveLength(0);
+  });
+
+  test("a redone stroke is the same stroke: same id, same points", () => {
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    stroke(host, [40, 30], [360, 270]);
+    const before = lastMarks(events)!.strokes[0]!;
+    layer!.undo();
+    layer!.redo();
+    const after = lastMarks(events)!.strokes[0]!;
+    expect(after.id).toBe(before.id);
+    expect(after.points).toEqual(before.points);
+  });
+
+  test("the eraser reports what is left", () => {
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    stroke(host, [40, 150], [360, 150]);
+    expect(lastMarks(events)?.strokes).toHaveLength(1);
+    layer!.setMode("eraser");
+    stroke(host, [200, 40], [200, 260]);
+    expect(lastMarks(events)?.strokes).toHaveLength(0);
+  });
+
+  test("a change of slide reports that slide's marks with reset, so a receiver is brought up to date", () => {
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    stroke(host, [40, 30], [360, 270]);
+    layer!.setKey("b/1#def", "b/1");
+    expect(lastMarks(events)).toMatchObject({ slide: "b/1", strokes: [], reset: true });
+    layer!.setKey("a/1#abc", "a/1");
+    expect(lastMarks(events)).toMatchObject({ slide: "a/1", reset: true });
+    expect(lastMarks(events)?.strokes).toHaveLength(1);
+  });
+
+  test("a stroke cut short by a change of slide is cancelled, not left half drawn on the receivers", () => {
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    const svg = host.querySelector(DRAW) as SVGSVGElement;
+    pointer("pointerdown", svg, 40, 30);
+    pointer("pointermove", svg, 100, 80);
+    layer!.setKey("b/1#def", "b/1");
+    expect(events.some((e) => e.kind === "cancel")).toBe(true);
+    expect(ends(events)).toEqual([]);
+  });
+
+  test("marks dropped by a rebuild are reported for their slide, but not for the slide on screen", () => {
+    const { host, events } = observed();
+    layer!.setMode("pen");
+    stroke(host, [40, 30], [360, 270]);
+    layer!.setKey("b/1#def", "b/1");
+    events.length = 0;
+    layer!.retain(["b/1#def"]);
+    expect(events).toEqual([{ kind: "marks", slide: "a/1", strokes: [], reset: false }]);
+  });
+
+  test("the laser is reported in slide units and ends when the pointer leaves", () => {
+    const { host, events } = observed();
+    layer!.setMode("laser");
+    const surface = host.querySelector(".docwalk-annotate-laser") as SVGSVGElement;
+    pointer("pointermove", surface, 100, 225);
+    const points = events.flatMap((e) => (e.kind === "laser" ? [e] : []));
+    expect(points).toHaveLength(1);
+    expect(points[0]!.x).toBeCloseTo(0.25, 2);
+    expect(points[0]!.y).toBeCloseTo(0.75, 2);
+    pointer("pointerleave", surface, 100, 225);
+    expect(events.at(-1)).toEqual({ kind: "laser-off" });
+  });
+
+  test("an observer that stops listening hears nothing more", () => {
+    const { host } = mount();
+    const heard: MarkEvent[] = [];
+    const stop = layer!.observe((event) => heard.push(event));
+    layer!.setKey("a/1#abc", "a/1");
+    stop();
+    heard.length = 0;
+    layer!.setMode("pen");
+    stroke(host, [40, 30], [360, 270]);
+    expect(heard).toEqual([]);
   });
 });

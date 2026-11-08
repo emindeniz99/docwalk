@@ -3,7 +3,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { ready, replaceSource } from "./helpers";
 
 /**
- * Choosing which sections to present (decision 89). These tests run the
+ * Choosing which sections to present (decision 100). These tests run the
  * assembled app on the acceptance fixture (the default document), whose H2
  * sections include Summary, Goals and non-goals, Rollout and Security: the
  * choice is made in the dialog or read from the link, and every surface that

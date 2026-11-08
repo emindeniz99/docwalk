@@ -48,7 +48,12 @@ protects:
   relays ciphertext, caps frame size and room size, and never sees a key or
   a document. A replayed frame is dropped. The control key steers the deck
   and reads and writes the document; the view key in a follow link only
-  receives state, and only state the presenter signed. The join links
+  receives state, and only state the presenter signed. The presenter's
+  laser, pen marks and diagram focus view reach followers the same way: as
+  signed `mirror` messages under the view key, never to remotes or agents.
+  A mirror message holds numbers, a tool, a colour key and a slide address
+  only; a receiver draws the marks itself, caps what it keeps, and a
+  follower can neither send nor sign one. The join links
   appear once the presenter's socket is open, and a presenter whose room
   someone else reached first moves to a new room. Agent writes apply only
   while the presenter has switched on "Allow agent edits".
@@ -59,8 +64,10 @@ Known limits, by design:
   deck. Share it like a password.
 - Followers share one view key, but they take state only when the
   presenter's per-room signing key signed it; the public half is in the
-  follow link. A follower can still show other followers an older state the
-  presenter signed, until the presenter's next state. A tab that reloads can
+  follow link. A follower can still show other followers an older state, or
+  an older mark, laser point or focus view, that the presenter signed, until
+  the presenter's next one. A relay can drop the message that hides a laser
+  or closes a focus view. A tab that reloads can
   receive a frame it saw before the reload.
 - The relay sees room ids, frame sizes and timing.
 - Whoever hosts docwalk serves its code. A hostile host, a compromised
