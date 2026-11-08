@@ -201,7 +201,7 @@ test("while presenting, the sketch owns its keys and Escape leaves only the sket
 test("the sketch dialog and Excalidraw's controls pass axe", async ({ page }) => {
   // The dialog (header, export menu, close) and all of Excalidraw's UI must pass WCAG 2.2 AA.
   // Excalidraw 0.18.1 left its menu button unnamed and labelled its zoom button "Reset zoom"
-  // over a visible "60%"; the dialog names both (decision 89), so nothing is excluded.
+  // over a visible "60%"; the dialog names both (decision 98), so nothing is excluded.
   await ready(page);
   await openSketch(page, "Current architecture");
   const results = await new AxeBuilder({ page })
@@ -215,7 +215,7 @@ test("the sketch dialog and Excalidraw's controls pass axe", async ({ page }) =>
 
 test("the Library sidebar offers no link to another site", async ({ page }) => {
   // Excalidraw's "Browse libraries" opens libraries.excalidraw.com with the page address in the
-  // query, and nothing brings an item back (decision 89, rule 8).
+  // query, and nothing brings an item back (decision 98, rule 8).
   await ready(page);
   const dialog = await openSketch(page, "Current architecture");
   await dialog.locator(".default-sidebar-trigger").click();

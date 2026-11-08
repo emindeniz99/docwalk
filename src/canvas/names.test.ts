@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { sketchFileName } from "./names";
 
-describe("sketch export names (decision 89)", () => {
+describe("sketch export names (decision 98)", () => {
   test("the diagram's number and the document's title name the file", () => {
     expect(sketchFileName("Ledgerline: Payment Ledger", 2, "flowchart")).toBe(
       "ledgerline-payment-ledger-diagram-2",

@@ -49,7 +49,7 @@ describe("sketch store (decision 54)", () => {
     expect(await loadSketch("broken")).toBeNull();
   });
 
-  test("the stored sketches are listed newest first with a size, so a viewer can choose what to delete (decision 89)", async () => {
+  test("the stored sketches are listed newest first with a size, so a viewer can choose what to delete (decision 98)", async () => {
     await saveSketch({ ...sketch("doc-a\nhash-1", "a1"), savedAt: 10 });
     await saveSketch({ ...sketch("doc-b\nhash-1", "b1".repeat(5000)), savedAt: 20 });
     // A record this version cannot read is not offered: the viewer could not tell what it is.

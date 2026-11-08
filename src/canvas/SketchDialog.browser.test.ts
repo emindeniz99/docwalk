@@ -285,7 +285,7 @@ function dropScene(canvas: HTMLCanvasElement) {
   );
 }
 
-describe("when a sketch cannot be loaded or kept (decision 89)", () => {
+describe("when a sketch cannot be loaded or kept (decision 98)", () => {
   test("a page without crypto.subtle opens the sketch, unsaved, and does not wait forever", async () => {
     // Plain http outside localhost has no crypto.subtle; hashing the diagram threw and the dialog
     // stayed on "Converting…" with no canvas.
@@ -356,7 +356,7 @@ describe("when a sketch cannot be loaded or kept (decision 89)", () => {
   });
 });
 
-describe("Excalidraw's controls (decision 89)", () => {
+describe("Excalidraw's controls (decision 98)", () => {
   test("the menu button and the zoom button have names that match what they show", async () => {
     // Excalidraw 0.18.1 gives the menu button no name and labels the zoom button "Reset zoom"
     // while it reads "100%"; axe rejects both (button-name, label-content-name-mismatch).
@@ -390,7 +390,7 @@ describe("Excalidraw's controls (decision 89)", () => {
   });
 });
 
-describe("the Saved sketches panel (decision 89)", () => {
+describe("the Saved sketches panel (decision 98)", () => {
   async function openPanel() {
     await rawPut({ key, appState: {}, savedAt: 3, elements: [], files: {} });
     await saveSketch({ key: OTHERS[0]!, elements: [], appState: {}, files: {}, savedAt: 1 });
