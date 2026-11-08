@@ -1,8 +1,13 @@
 name: docwalk deploy (GitHub Pages)
 
 # Static mode on GitHub Pages (decision 37): the build alone, no Worker, so
-# OAuth and remote control hide themselves. Manual only. Turn Pages on with
+# OAuth and remote control hide themselves. Turn Pages on with
 # "Source: GitHub Actions" first.
+#
+# Runs by itself after "docwalk CI" passes on a push to main, so only a
+# commit that passed the full gate goes live, and by hand from the Actions
+# tab. A CI run cancelled by a newer push deploys nothing; the newer run
+# deploys its own commit.
 #
 # A project site lives under /<repo>/ (https://emindeniz99.github.io/docwalk/
 # for this repository), so the build takes its base path from
@@ -15,6 +20,14 @@ name: docwalk deploy (GitHub Pages)
 
 on:
   workflow_dispatch:
+  # zizmor flags workflow_run because it can hand a fork's artifacts to a
+  # privileged job. Here it fires only for CI runs on this repository's
+  # main branch, triggered by a push, and uses no artifact from that run:
+  # it checks out the commit CI tested and builds it again.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: ["docwalk CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -25,12 +38,20 @@ concurrency:
 
 jobs:
   build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The commit CI tested; empty for a manual run, which takes the
+          # branch it was started on.
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           package_json_file: package.json

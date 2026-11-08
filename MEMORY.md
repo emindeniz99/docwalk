@@ -9,7 +9,7 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 2026-11-08: v1 and the v2 workspace and agent work are built, three
 review passes are fixed, and the project is public at
 github.com/emindeniz99/docwalk with the static build on GitHub Pages
-(manual `deploy-pages.yml` dispatch after each merge to `main`). On
+(`deploy-pages.yml` runs after CI passes on `main`, or by hand). On
 2026-11-06 code colours (76), the fill frame (77), per-slide presenter
 previews, the old-browser notice (78), document-mode hash links and
 safe-area padding landed. Decision rows run to 78. CI (three-engine e2e,

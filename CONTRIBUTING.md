@@ -30,9 +30,9 @@ For maintainers and agents continuing the project:
 3. A feature starts with a row in `docs/decisions.md`, then tests that
    fail, then code. Update ROADMAP and MEMORY in the same branch.
 4. Before merging, run `pnpm check` and the end-to-end suite on the
-   engines the change touches. After a merge to `main`, run the
-   "docwalk deploy (GitHub Pages)" workflow by hand; it does not run on
-   push.
+   engines the change touches. The Pages site deploys by itself once
+   "docwalk CI" passes on `main`; the deploy workflow can also be run by
+   hand from the Actions tab.
 5. A test that fails only sometimes is a race to find, not a retry to add.
    Reproduce it under load: keep two CPU cores busy with spin loops, pin
    the test run to them (`taskset`), repeat it 40 times or more, and
