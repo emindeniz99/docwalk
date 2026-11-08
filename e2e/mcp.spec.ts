@@ -2,6 +2,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { opfsTest, outline, ready, replaceSource, SHORT_DOC } from "./helpers";
 
@@ -73,7 +74,7 @@ interface ToolResult {
 /** A minimal MCP client over the bin's stdio: newline-delimited JSON-RPC. */
 async function startAgent(link: string, name: string) {
   expect(existsSync(BIN), "build docwalk-mcp first (pnpm build)").toBe(true);
-  const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [BIN.pathname, link]);
+  const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [fileURLToPath(BIN), link]);
   const waiting = new Map<number, (message: { result?: unknown; error?: unknown }) => void>();
   let buffer = "";
   child.stdout.on("data", (chunk: Buffer) => {

@@ -14,7 +14,9 @@ import { join } from "node:path";
 // Run one module locally: pnpm mutation --mutate src/share/fragment.ts
 
 const here = import.meta.dirname;
+// globSync returns backslashes on Windows; Stryker's patterns use "/".
 const browserOnly = globSync("src/**/*.browser.test.ts", { cwd: here })
+  .map((test) => test.replaceAll("\\", "/"))
   .map((test) => test.replace(/\.browser\.test\.ts$/, ".ts"))
   .filter((module) => existsSync(join(here, module)))
   .filter((module) => !existsSync(join(here, module.replace(/\.ts$/, ".test.ts"))))
