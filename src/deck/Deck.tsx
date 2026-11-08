@@ -1,8 +1,10 @@
 import Reveal from "reveal.js";
 import "reveal.js/reveal.css";
 import { useEffect, useRef, useState } from "react";
+import { renderEmoji } from "../render/emoji";
 import { focusTarget, fragmentAddress, fragmentTarget } from "../render/fragments";
 import { highlightCode } from "../render/highlight";
+import { renderMath } from "../render/math";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import type { Locale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
@@ -189,12 +191,15 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
     const stopClickToLoad = enableClickToLoad(revealEl);
 
     void (async () => {
-      // Code colours load beside the diagrams (they touch other blocks) and
-      // both finish before anything is measured (rule 4). Colours change no
-      // line break; a grammar that fails to load leaves its block plain.
+      // Code colours, formulas and emoji load beside the diagrams (they touch
+      // other nodes) and all finish before anything is measured (rule 4).
+      // Colours change no line break; a grammar that fails to load leaves its
+      // block plain, and a formula that cannot be drawn stays as its source.
       // A newer build makes this one stale; stop it between diagrams.
-      const [, diagramResults] = await Promise.all([
+      const [, , , diagramResults] = await Promise.all([
         highlightCode(slidesEl, { stop: () => cancelled }),
+        renderMath(slidesEl, { stop: () => cancelled }),
+        renderEmoji(slidesEl, { stop: () => cancelled }),
         renderDiagrams(slidesEl, () => cancelled),
       ]);
       if (cancelled) return;
