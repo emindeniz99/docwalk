@@ -52,6 +52,29 @@ export const MIRROR_FOCUS_VIEW_MS = 100;
 export const MIRROR_LASER_IDLE_MS = 3000;
 
 /**
+ * A resync is never sooner than this after the last one (decision 88), and
+ * on the room it waits longer the more the last one cost: max(2 s, cost /
+ * RESYNC_BYTES_PER_SECOND), so however often followers say hello, resyncs
+ * cost the presenter at most about 64 KB of sealed frames a second
+ * (decision 103). The presenter window's bridge keeps the 2 s floor.
+ */
+export const RESYNC_MIN_GAP_MS = 2000;
+export const RESYNC_BYTES_PER_SECOND = 64 * 1024;
+/** What a signed, sealed room frame adds to the base64 of its op: seal, signature, tag and frame fields (258 measured). */
+const FRAME_OVERHEAD_BYTES = 260;
+const utf8 = new TextEncoder();
+
+/** About what `op` costs as a signed, sealed room frame; src/remote/crypto.test.ts holds it to the real frames. */
+export function mirrorFrameBytes(op: MirrorOp): number {
+  return Math.ceil((utf8.encode(JSON.stringify(op)).length * 4) / 3) + FRAME_OVERHEAD_BYTES;
+}
+
+/** How long the presenter waits after a resync whose frames cost `bytes` (`mirrorFrameBytes` summed). */
+export function resyncGapMs(bytes: number): number {
+  return Math.max(RESYNC_MIN_GAP_MS, Math.ceil((bytes * 1000) / RESYNC_BYTES_PER_SECOND));
+}
+
+/**
  * Pen colours as keys. A message names a key, never a colour: the receiver
  * maps it to its own design token (`--dw-color-<key>`), so the theme decides
  * the colour and nothing from the wire reaches a style.
