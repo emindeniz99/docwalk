@@ -34,7 +34,9 @@ export const opfsTest = base.extend({
 /** Opens `path` and waits until the deck has rendered and reported its slides. */
 export async function ready(page: Page, path = "/") {
   await page.goto(path);
-  await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slides/, { timeout: 30_000 });
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slides?/, {
+    timeout: 30_000,
+  });
 }
 
 /**

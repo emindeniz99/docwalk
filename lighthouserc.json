@@ -21,6 +21,7 @@
           { "minScore": 0.95, "aggregationMethod": "median-run" }
         ],
         "categories:performance": ["error", { "minScore": 0.5, "aggregationMethod": "median-run" }],
+        "categories:seo": ["error", { "minScore": 0.95, "aggregationMethod": "median-run" }],
         "resource-summary:third-party:count": ["error", { "maxNumericValue": 0 }]
       }
     },

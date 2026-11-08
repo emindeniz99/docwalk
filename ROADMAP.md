@@ -57,6 +57,11 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   `mirrorView.browser.test.ts`, `src/remote/remote.browser.test.ts` and
   `e2e/mirror.spec.ts` cover it on Chromium; Firefox and WebKit run in the
   fork's CI.
+- Done 2026-11-09: choosing the sections to present (decision 100): a
+  dialog from the sidebar, the palette or More actions, kept in the link as
+  `?sections=`; the deck, outline, palette, overview, presenter list and
+  exports hold the chosen sections, and document mode and the editor keep
+  the whole file. `e2e/sections.spec.ts` covers it (19 tests on Chromium).
 
 Still open in v1:
 
@@ -94,6 +99,16 @@ out files past the cap. `e2e/workspace.spec.ts` passes on Chromium and Firefox
 here. Playwright's WebKit on Windows leaves OPFS writes empty, so 9 of its 15
 tests fail on that engine on the base branch too; WebKit rests on the fork's
 CI.
+
+Done 2026-11-09 (decisions 98 and 99): canvas mode names Excalidraw's menu
+and zoom buttons, so axe runs on it without exclusions; the Library hides
+its Browse libraries link; a Saved sketches panel deletes stored sketches;
+full storage and a missing `crypto.subtle` are reported as such. The
+installed app opens Markdown files from the file manager (Chromium), checks
+for a new version once an hour while visible and online, and F6 reaches the
+update prompt; `pnpm size` starts size-limit through Node, so it runs on
+Windows. `e2e/canvas.spec.ts` (7) and `e2e/pwa.spec.ts` (12) pass on
+Chromium here.
 
 ## Follow-ups
 
@@ -136,8 +151,10 @@ Later rounds:
   rename in another tab reads as a deletion in this one (decision 90).
   Without `FileSystemObserver` a change can show up to about 3 s late.
 - Agents: the e2e relay copies `worker/room.ts` instead of running the
-  Worker under Miniflare; a real-socket session ran on Node 24 only
-  (`engines` says >=22); an agent or phone remote that joins before the
+  Worker under Miniflare; `e2e/mcp.spec.ts`, a real-socket session with the
+  built bin, passed 3 of 3 on Node 22.23.4 on 2026-11-09 (the MCP unit tests
+  20 of 20), but CI runs Node 24 only, so nothing holds `engines` (>=22) in
+  place; an agent or phone remote that joins before the
   presenter's socket is open is not counted (hello is not resent);
   `docwalk-mcp` is not on npm yet.
 - Markdown: decision 42 wants the sanitizer corpus on three engines, the
@@ -147,18 +164,21 @@ Later rounds:
   tombstones, so a deleted comment can return from an older link or
   sidecar; swapping two diagrams under one heading orphans their node
   comments; no author names.
-- Canvas: axe excludes two upstream Excalidraw controls by selector; the
-  Library sidebar links to libraries.excalidraw.com on click; stored
-  sketches are never pruned; cylinders convert to rectangles.
+- Canvas: the Library's Publish form remains (Excalidraw has no switch for
+  it); stored sketches are deleted by hand from the Saved sketches panel,
+  never pruned automatically; cylinders convert to rectangles; the Turkish
+  strings have not been read by a native speaker.
 - Monaco: the cursor line is not carried across an editor switch (the
   decision 4 contract has no initial cursor); Monarch colours 4-space list
   continuations as code; the chunk is 831 kB gzip; the palette does not
   offer the editor choice.
-- PWA: F6 to the update toast is unverified; no `file_handlers` and no
-  periodic update check.
-- CI and quality: mutation survivors are reported, not fixed (no unit test
-  feeds `src/share/fragment.ts` a fragment its schema rejects); Lighthouse
-  SEO is 0.82 and unbudgeted. "Editing the source … notes in the gutter"
+- PWA: the file launch is tested with a stand-in `launchQueue`; no real
+  file-manager launch has been tried.
+- CI and quality: mutation survivors are reported, not fixed, except in
+  `src/share/fragment.ts`, whose tests now hold real documents that only its
+  schema refuses (65 to 68 killed on 2026-11-09; the 8 left are equivalent
+  mutants, such as padding that `atob` does not need); Lighthouse SEO has a
+  0.95 floor since 2026-11-09 (decision 104). "Editing the source … notes in the gutter"
   (`e2e/app.spec.ts`) failed once on WebKit under load and never again in
   40 runs; one lead is that `App.tsx` diagnostics fall back to line 1
   (`?? 1`) for a slide from a stale deck. The presenter axe test's 90 s
@@ -198,15 +218,15 @@ Later rounds:
   moves the slide while a diagram view is open leaves that view open on
   both screens; a follower that joins within 2 s of the last resync waits
   for the next one.
+- Choosing sections (decision 100): the share link and the follow link
+  leave out `?sections=` (the owner decides whether the share link should
+  carry it); a follower counts every slide; the presenter window still
+  builds previews for skipped sections.
 - Shortcut hints: on Apple platforms `ModShortcut` draws the command glyph
   as an `aria-hidden` icon, so the palette button's accessible name ends in
   "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
   reader user on a Mac hears the key without knowing it needs Command.
   Judgement call, not changed here.
-- `pnpm size` exits 1 without output on Windows: `tooling/size-check.ts`
-  runs `size-limit` through `execFileSync` without a shell, which cannot
-  start the `.cmd` shim. `pnpm exec size-limit` works there (409 kB for
-  the app shell on 2026-11-08).
 - Accessibility judgement to confirm: in the fill frame (decision 77) the
   deck's focus ring hides with the idle controls, read as meeting WCAG
   2.4.7 because it shows whenever they do. A stricter reading keeps it
@@ -248,11 +268,10 @@ code.
 1. The code, table and image focus views, with their line marks, mirrored
    to followers inside the signed, encrypted room messages. The laser,
    strokes and the diagram view already are (decisions 87, 88).
-2. Picking which sections to present, kept in the URL.
-3. Saved annotations, included in PDF and PNG exports.
-4. Math and emoji shortcodes, which GitHub renders natively.
-5. A step-through tour of a Mermaid diagram's nodes and paths.
-6. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+2. Saved annotations, included in PDF and PNG exports.
+3. Math and emoji shortcodes, which GitHub renders natively.
+4. A step-through tour of a Mermaid diagram's nodes and paths.
+5. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 
