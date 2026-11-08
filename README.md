@@ -119,7 +119,7 @@ pages.
 
 ## Develop
 
-You need Node 24.22.1 and pnpm 12.16.1 (with [mise](https://mise.jdx.dev),
+You need Node 24.22.2 and pnpm 12.16.1 (with [mise](https://mise.jdx.dev),
 `mise install` reads both from `package.json`).
 
 ```bash
