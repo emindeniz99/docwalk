@@ -79,6 +79,10 @@ The first release.
   exported as `<name>.comments.json` sidecars.
 - A browser workspace (files, folders, templates, zip import and export)
   and, in Chromium, local folders that reload on change and save on request.
+  The workspace follows edits from another tab and asks before it writes over
+  a file another tab changed or deleted. Save refuses to write over a local
+  file it cannot read, and the zip export refuses to leave out files past the
+  listing cap.
 - `docwalk-mcp`, a local MCP server through which a coding agent reads the
   presenter's document, moves the deck and, when allowed, edits it.
 - English and Turkish UI.
