@@ -33,6 +33,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type DragEvent,
 } from "react";
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
@@ -44,7 +45,7 @@ import { observeFocus } from "./deck/focusEvents";
 import { useOverviewShortcut } from "./deck/useOverviewShortcut";
 import { useEditorChoice } from "./editor/choice";
 import { chooseLocale, localeName, locales, useLocale, type Locale } from "./i18n/locale";
-import type { EditorDiagnostic } from "./editor/types";
+import type { EditorDiagnostic, SourceEditorProps } from "./editor/types";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
 import type { HealthResponse } from "./api/types";
@@ -149,6 +150,35 @@ function useLazyDialog() {
     setOpen(open);
   }, []);
   return { isOpen, mounted, onOpenChange, open: () => onOpenChange(true) };
+}
+
+/**
+ * The editor in the Edit view. A switch of editor mounts the other one on the
+ * line where this document's cursor last was (decision 102). The line lives
+ * here rather than in App, so a cursor move re-renders the editor only; this
+ * slot unmounts with the Edit view, so coming back starts on line 1.
+ */
+function EditorSlot({
+  Editor,
+  onCursorLine,
+  ...props
+}: Omit<SourceEditorProps, "initialLine"> & { Editor: ComponentType<SourceEditorProps> }) {
+  const [cursor, setCursor] = useState<{ line: number; doc: number | undefined } | null>(null);
+  const { documentId } = props;
+  const report = useCallback(
+    (line: number) => {
+      setCursor({ line, doc: documentId });
+      onCursorLine?.(line);
+    },
+    [documentId, onCursorLine],
+  );
+  return (
+    <Editor
+      {...props}
+      onCursorLine={report}
+      initialLine={cursor && cursor.doc === documentId ? cursor.line : null}
+    />
+  );
 }
 
 export function App() {
@@ -891,7 +921,8 @@ export function App() {
           <section className="docwalk-source" aria-label={m.app_markdown_source()}>
             {doc ? (
               <Suspense fallback={<p className="docwalk-loading">{m.app_loading_editor()}</p>}>
-                <Editor
+                <EditorSlot
+                  Editor={Editor}
                   value={markdown}
                   documentId={inputs.docId}
                   onChange={onEdit}
