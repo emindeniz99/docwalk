@@ -47,6 +47,8 @@ export interface CommentsUiInput {
 /** Comment payload for the share dialog. */
 export interface ShareComments {
   count: number;
+  /** True when a comment carries its writer's display name (decision 97): the link shows it in the clear. */
+  named: boolean;
   /** The link values, fullest first: with the deletions, then without when the first does not fit (decision 95). */
   encode: () => Promise<string[]>;
 }
@@ -190,6 +192,7 @@ export function useCommentsUi({
   const share: ShareComments = useMemo(
     () => ({
       count: api.comments.length,
+      named: api.comments.some((c) => c.author !== undefined),
       encode: async () => {
         const full = await encodeComments(api.comments, api.deleted);
         return api.deleted.length === 0 ? [full] : [full, await encodeComments(api.comments)];

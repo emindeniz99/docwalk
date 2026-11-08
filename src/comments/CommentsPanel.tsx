@@ -23,6 +23,7 @@ import {
   Dialog,
   FileTrigger,
   Header,
+  Input,
   Label,
   ListBox,
   ListBoxItem,
@@ -32,6 +33,7 @@ import {
   Popover,
   Select,
   SelectValue,
+  Text,
   TextArea,
   TextField,
   ToggleButton,
@@ -50,7 +52,7 @@ import {
   type DiagramNodes,
 } from "./anchors";
 import { serializeComments } from "./schema";
-import { MAX_COMMENT_CHARS, type Anchor, type DocComment } from "./types";
+import { MAX_AUTHOR_CHARS, MAX_COMMENT_CHARS, type Anchor, type DocComment } from "./types";
 import type { CommentNotice, CommentsApi } from "./useComments";
 import "./comments.css";
 
@@ -295,7 +297,14 @@ function PanelBody({
                 }),
                 sidecarName,
               );
-              announce({ message: m.comments_saved_file({ name: sidecarName }), tone: "info" });
+              // A name is part of the comment: the file carries it in the clear (decision 97).
+              const named = api.comments.some((c) => c.author !== undefined);
+              announce({
+                message: (named ? m.comments_saved_file_named : m.comments_saved_file)({
+                  name: sidecarName,
+                }),
+                tone: "info",
+              });
             }}
           >
             <Download size={16} aria-hidden="true" />
@@ -312,6 +321,8 @@ function PanelBody({
           <span>{api.unreadable ? m.comments_unreadable() : m.comments_not_persistent()}</span>
         </p>
       )}
+
+      <AuthorField api={api} />
 
       <AddComment
         api={api}
@@ -409,6 +420,28 @@ function PanelBody({
         {status?.message ?? ""}
       </p>
     </div>
+  );
+}
+
+/** The writer's display name (decision 97): kept in this browser, shown on the comments written under it. */
+function AuthorField({ api }: { api: CommentsApi }) {
+  return (
+    <TextField
+      className="docwalk-comments-author-field"
+      value={api.author}
+      onChange={api.setAuthor}
+      maxLength={MAX_AUTHOR_CHARS}
+      autoComplete="off"
+    >
+      <Label className="docwalk-overline">{m.comments_name()}</Label>
+      <Input
+        className="docwalk-comments-author-input"
+        placeholder={m.comments_name_placeholder()}
+      />
+      <Text slot="description" className="docwalk-comments-note">
+        {m.comments_name_note()}
+      </Text>
+    </TextField>
   );
 }
 
@@ -616,6 +649,13 @@ function CommentItem({
       <>
         <p className="docwalk-comments-text">{comment.text}</p>
         <p className="docwalk-comments-meta">
+          {comment.author !== undefined && (
+            <>
+              {/* Plain text in its own bidi isolate: a name cannot reorder the text around it. */}
+              <bdi className="docwalk-comments-author">{comment.author}</bdi>
+              <span> · </span>
+            </>
+          )}
           <time dateTime={new Date(comment.created).toISOString()}>
             {dateFormat(locale).format(comment.created)}
           </time>

@@ -28,6 +28,8 @@ export interface DocComment {
   anchor: Anchor;
   /** Plain text, shown as text: never parsed as Markdown or HTML. */
   text: string;
+  /** The writer's display name (decision 97). Plain text, never trusted as an identity. */
+  author?: string | undefined;
   /** Milliseconds since the epoch. */
   created: number;
   updated: number;
@@ -51,6 +53,8 @@ export interface CommentSet {
 
 /** Longest comment, in UTF-16 code units: a long review note, not a document. */
 export const MAX_COMMENT_CHARS = 4000;
+/** Longest display name (decision 97). */
+export const MAX_AUTHOR_CHARS = 40;
 /** Most comments one document keeps; a hostile sidecar cannot fill the disk. */
 export const MAX_COMMENTS = 500;
 /** Most tombstones one document keeps; past this the oldest go (decision 95). */

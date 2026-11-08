@@ -2,9 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedDocument } from "../inputs/types";
 import { m } from "../paraglide/messages.js";
 import { draftWouldBeReplaced } from "../share/draft";
+import { readAuthor, writeAuthor } from "./author";
 import { contentKey, DRAFT_ALIAS, sourceKey } from "./identity";
 import { commentsParam, decodeComments, hashWithoutComments } from "./payload";
-import { dedupeTombstones, mergeSets, parseCommentsText, tombstoneFor } from "./schema";
+import {
+  cleanAuthor,
+  dedupeTombstones,
+  mergeSets,
+  parseCommentsText,
+  tombstoneFor,
+} from "./schema";
 import { openCommentStore, type CommentStore } from "./store";
 import {
   MAX_COMMENTS,
@@ -28,6 +35,9 @@ export interface CommentsApi {
   persistent: boolean;
   /** True when the document's saved comments could not be read: new ones stay in this page until they can be. */
   unreadable: boolean;
+  /** The display name typed in the panel, as typed (decision 97). Empty when none is set. */
+  author: string;
+  setAuthor: (name: string) => void;
   /** Call before handing an editor change to the document: an edit keeps the document's identity. */
   markEdit: (markdown: string) => void;
   add: (anchor: Anchor, text: string) => boolean;
@@ -79,10 +89,13 @@ export function useComments({
 }): CommentsApi {
   const [store, setStore] = useState<CommentStore | null>(null);
   const [state, setState] = useState<State>(EMPTY);
+  const [author, setAuthorState] = useState(readAuthor);
   const stateRef = useRef(state);
+  const authorRef = useRef(author);
   const notify = useRef(onNotice);
   useEffect(() => {
     stateRef.current = state;
+    authorRef.current = author;
     notify.current = onNotice;
   });
 
@@ -266,11 +279,20 @@ export function useComments({
       const { key, comments } = stateRef.current;
       if (key === null || text.trim() === "" || comments.length >= MAX_COMMENTS) return false;
       const now = Date.now();
+      const name = cleanAuthor(authorRef.current);
       change((set) => ({
         ...set,
         comments: [
           ...set.comments,
-          { id: newId(), anchor, text, created: now, updated: now, resolved: false },
+          {
+            id: newId(),
+            anchor,
+            text,
+            ...(name === null ? {} : { author: name }),
+            created: now,
+            updated: now,
+            resolved: false,
+          },
         ],
       }));
       return true;
@@ -339,12 +361,19 @@ export function useComments({
     [change],
   );
 
+  const setAuthor = useCallback((name: string) => {
+    setAuthorState(name);
+    writeAuthor(name);
+  }, []);
+
   return {
     comments: state.comments,
     deleted: state.deleted,
     ready: state.key !== null,
     persistent: (store?.persistent ?? true) && !state.loadFailed,
     unreadable: state.loadFailed,
+    author,
+    setAuthor,
     markEdit,
     add,
     update,

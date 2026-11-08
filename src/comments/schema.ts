@@ -9,6 +9,7 @@ import * as v from "valibot";
 import { m } from "../paraglide/messages.js";
 import {
   FUTURE_SKEW_MS,
+  MAX_AUTHOR_CHARS,
   MAX_COMMENT_CHARS,
   MAX_COMMENTS,
   MAX_TOMBSTONES,
@@ -42,6 +43,21 @@ const Timestamp = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(8.64
 
 const Id = v.pipe(v.string(), v.regex(/^[\w-]{1,64}$/));
 
+/** A display name (decision 97): plain text, no control characters, 1 to 40 characters. */
+const AuthorSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.minLength(1),
+  v.maxLength(MAX_AUTHOR_CHARS),
+  v.regex(NAME),
+);
+
+/** The name as it would be stored on a comment, or `null` when it is empty or not a valid name. */
+export function cleanAuthor(raw: string): string | null {
+  const result = v.safeParse(AuthorSchema, raw);
+  return result.success ? result.output : null;
+}
+
 /** The latest time a stored time may have and still be believed. */
 const trustedLimit = () => Date.now() + FUTURE_SKEW_MS;
 
@@ -61,6 +77,7 @@ export const CommentSchema = v.pipe(
       v.maxLength(MAX_COMMENT_CHARS),
       v.check((t) => t.trim() !== "", "empty comment"),
     ),
+    author: v.optional(AuthorSchema),
     created: Timestamp,
     updated: Timestamp,
     resolved: v.boolean(),
@@ -192,6 +209,7 @@ export function commentsFile(
               ...(c.anchor.sig === undefined ? {} : { sig: c.anchor.sig }),
             },
       text: c.text,
+      ...(c.author === undefined ? {} : { author: c.author }),
       created: c.created,
       updated: c.updated,
       resolved: c.resolved,
