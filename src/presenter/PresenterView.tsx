@@ -1,6 +1,8 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, ListBox, ListBoxItem } from "react-aria-components";
+import { MirrorStore } from "../annotate/mirrorStore";
+import { attachMirror } from "../annotate/mirrorView";
 import { fitDiagrams, settled, slideBodySize } from "../deck/measure";
 import { renderDiagrams } from "../deck/mermaid";
 import { paginateSlide } from "../deck/paginate";
@@ -49,6 +51,8 @@ export function PresenterView({ channel }: PresenterViewProps) {
   const [connected, setConnected] = useState(true);
   const [previews, setPreviews] = useState<Previews | null>(null);
   const connection = useRef<PresenterConnection | null>(null);
+  // The audience window's laser and pen marks (decision 88), drawn over the current slide.
+  const [mirror] = useState(() => new MirrorStore());
   const now = useNow();
   const [countdown, setCountdown] = useCountdown();
   // The screen stays on while this window is open (decision 80).
@@ -59,6 +63,7 @@ export function PresenterView({ channel }: PresenterViewProps) {
   useEffect(() => {
     const c = connectPresenter(setState, {
       onConnectionChange: setConnected,
+      onMirror: (op) => mirror.apply(op),
       ...(channel ? { channel } : {}),
     });
     connection.current = c;
@@ -66,7 +71,7 @@ export function PresenterView({ channel }: PresenterViewProps) {
       c.close();
       connection.current = null;
     };
-  }, [channel]);
+  }, [channel, mirror]);
 
   const markdown = state?.markdown;
   const levelKey = state ? JSON.stringify(state.level) : null;
@@ -241,6 +246,7 @@ export function PresenterView({ channel }: PresenterViewProps) {
               title={titleOf(state.current, pages)}
               page={pages?.get(state.current)}
               empty={ready ? m.presenter_no_preview() : ""}
+              marks={{ store: mirror, address: state.current }}
             />
             <SpeakerNotes notes={notes.get(sectionOf(state.current)) ?? NO_NOTES} />
           </div>
@@ -328,16 +334,29 @@ interface SlidePreviewProps {
   title: string;
   page: HTMLElement | undefined;
   empty: string;
+  /** The audience window's laser and marks, drawn over this slide when it is the one at `address`. */
+  marks?: { store: MirrorStore; address: string };
 }
 
 /**
  * A slide-sized clone of a page, scaled to fit its frame. The clone is inert:
  * the presenter looks at it, and diagram hosts inside must not take focus.
  */
-function SlidePreview({ className, label, title, page, empty }: SlidePreviewProps) {
+function SlidePreview({ className, label, title, page, empty, marks }: SlidePreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
+  const overlay = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState({ scale: 0, x: 0, y: 0 });
+  const markStore = marks?.store;
+  const markAddress = marks?.address;
+
+  // The overlay has the canvas's size and transform, so a mark sits where it sits on the slide.
+  useEffect(() => {
+    const el = overlay.current;
+    if (!el || !markStore || markAddress === undefined) return;
+    const view = attachMirror(el, markStore, () => markAddress);
+    return () => view.destroy();
+  }, [markStore, markAddress]);
 
   useEffect(() => {
     const el = frame.current;
@@ -377,6 +396,18 @@ function SlidePreview({ className, label, title, page, empty }: SlidePreviewProp
             transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`,
           }}
         />
+        {marks && (
+          <div
+            ref={overlay}
+            className="docwalk-presenter-canvas docwalk-presenter-marks"
+            hidden={!page}
+            style={{
+              width: SLIDE_SIZE.width,
+              height: SLIDE_SIZE.height,
+              transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`,
+            }}
+          />
+        )}
         {!page && empty && <p className="docwalk-presenter-empty">{empty}</p>}
       </div>
     </figure>

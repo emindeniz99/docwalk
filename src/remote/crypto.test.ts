@@ -43,6 +43,24 @@ const MESSAGES: RemoteMessage[] = [
   { type: "laser", x: 0, y: 1 },
   { type: "laser-off" },
   { type: "hello", role: "follower", id: "AbCdEfGhIjKl" },
+  { type: "mirror", op: "laser", x: 0.25, y: 0.75 },
+  { type: "mirror", op: "laser-off" },
+  {
+    type: "mirror",
+    op: "stroke",
+    slide: "retries/2",
+    id: 7,
+    tool: "pen",
+    color: "primary",
+    from: 0,
+    points: [0, 0, 2048, 1024, 4096, 4096],
+    end: false,
+  },
+  { type: "mirror", op: "drop", slide: "retries/2", ids: [7, 8] },
+  { type: "mirror", op: "clear", slide: "retries/2" },
+  { type: "mirror", op: "focus-open", slide: "retries/2", diagram: 2 },
+  { type: "mirror", op: "focus-view", scale: 2.5, x: -0.25, y: 0.1 },
+  { type: "mirror", op: "focus-close" },
 ];
 
 /** A seal for tests: any sender id, any counter. */
@@ -397,5 +415,115 @@ describe("join links", () => {
     ]) {
       expect(parseJoinFragment(hash)).toBeNull();
     }
+  });
+});
+
+describe("mirror messages (decision 88)", () => {
+  // The presenter's laser, marks and focus view go to every follower. Every
+  // follower holds the view key, so only the presenter's signature makes a
+  // mirror message true, and the schema keeps even a signed one small.
+  const STROKE = MESSAGES.find((m) => m.type === "mirror" && m.op === "stroke")!;
+
+  test("a mirror message the presenter signed verifies, and every op keeps its shape", async () => {
+    const { view, signer, verifier } = await signedRoom();
+    for (const message of MESSAGES.filter((m) => m.type === "mirror")) {
+      const opened = await decrypt(view, await encrypt(view, message, SEAL, signer), verifier);
+      expect(opened?.signed).toBe(true);
+      expect(opened?.message).toEqual(message);
+    }
+  });
+
+  test("an unsigned mirror message, one signed by another key or for another room, does not verify", async () => {
+    const { creds, view, signer, verifier } = await signedRoom();
+    const forger = await signedRoom();
+    const forged = [
+      await encrypt(view, STROKE, SEAL),
+      await encrypt(view, STROKE, SEAL, forger.signer),
+      await encrypt(view, STROKE, SEAL, { ...signer, room: forger.creds.room }),
+    ];
+    for (const frame of forged) expect((await decrypt(view, frame, verifier))?.signed).toBe(false);
+    expect(creds.room).not.toBe(forger.creds.room);
+  });
+
+  test("an edited signed mirror message, or one re-sealed under a new counter, fails the check", async () => {
+    const { view, signer, verifier } = await signedRoom();
+    const frame = await encrypt(view, STROKE, SEAL, signer);
+    const plain = JSON.parse(
+      new TextDecoder().decode(
+        await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: fromBase64Url(frame.iv)! },
+          view,
+          fromBase64Url(frame.data)!,
+        ),
+      ),
+    ) as { s: string; n: number; m: Record<string, unknown>; g: string };
+    const resealed = await encryptRaw(view, JSON.stringify({ ...plain, n: plain.n + 1 }));
+    expect((await decrypt(view, resealed, verifier))?.signed).toBe(false);
+    const moved = await encryptRaw(
+      view,
+      JSON.stringify({ ...plain, m: { ...plain.m, points: [1, 1, 2, 2] } }),
+    );
+    expect((await decrypt(view, moved, verifier))?.signed).toBe(false);
+  });
+
+  test("values outside the ranges the receiver draws are dropped even from a key holder", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const stroke = {
+      type: "mirror",
+      op: "stroke",
+      slide: "a/1",
+      id: 1,
+      tool: "pen",
+      color: "primary",
+      from: 0,
+      points: [1, 2, 3, 4],
+      end: false,
+    };
+    const hostile: unknown[] = [
+      { type: "mirror", op: "laser", x: 1.5, y: 0.5 },
+      { type: "mirror", op: "laser", x: 0.5, y: Number.NaN },
+      { type: "mirror", op: "launch" },
+      { type: "mirror", op: "laser-off", extra: "<img onerror=x>" },
+      { ...stroke, points: [1, 2, 3] },
+      { ...stroke, points: [0, 4097] },
+      { ...stroke, points: [0, -1] },
+      { ...stroke, points: [0.5, 1] },
+      { ...stroke, points: Array.from({ length: 258 }, () => 1) },
+      { ...stroke, from: 3 },
+      { ...stroke, from: 3000 },
+      { ...stroke, from: 2990, points: Array.from({ length: 20 }, () => 1) },
+      { ...stroke, id: -1 },
+      { ...stroke, id: 2 ** 31 },
+      { ...stroke, tool: "rectangle" },
+      { ...stroke, color: "#ff0000" },
+      { ...stroke, color: "url(javascript:x)" },
+      { ...stroke, slide: "" },
+      { ...stroke, slide: "x".repeat(2049) },
+      { ...stroke, html: "<script>" },
+      { type: "mirror", op: "drop", slide: "a/1", ids: Array.from({ length: 65 }, (_, i) => i) },
+      { type: "mirror", op: "drop", slide: "a/1", ids: [1.5] },
+      { type: "mirror", op: "clear" },
+      { type: "mirror", op: "focus-open", slide: "a/1", diagram: 0 },
+      { type: "mirror", op: "focus-open", slide: "a/1", diagram: 1001 },
+      { type: "mirror", op: "focus-view", scale: 20, x: 0, y: 0 },
+      { type: "mirror", op: "focus-view", scale: 0, x: 0, y: 0 },
+      { type: "mirror", op: "focus-view", scale: 1, x: 9, y: 0 },
+    ];
+    for (const message of hostile) {
+      expect(await decrypt(key, await encryptRaw(key, sealed(message)))).toBeNull();
+    }
+  });
+
+  test("the largest stroke chunk fits a relay frame with room to spare", async () => {
+    // worker/room.ts drops anything over 16 KB; 128 points of the widest numbers is the ceiling.
+    const { view, signer } = await signedRoom();
+    const widest = {
+      ...STROKE,
+      slide: `${"s".repeat(100)}/12`,
+      points: Array.from({ length: 256 }, () => 4096),
+      end: true,
+    } as RemoteMessage;
+    const frame = await encrypt(view, widest, SEAL, signer);
+    expect(JSON.stringify(frame).length).toBeLessThan(6 * 1024);
   });
 });

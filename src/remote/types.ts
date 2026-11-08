@@ -11,6 +11,9 @@
  * followers load it from the share link (`?src=`, `?repo=` or `#doc=`), which
  * the presenter includes in its `hello`.
  *
+ * The presenter also mirrors its laser, pen marks and diagram focus view to
+ * followers (decision 88): `mirror` messages, signed like `state`.
+ *
  * Agents (decision 59) are the exception: a local MCP server (`mcp/`) joins
  * with a room's link and asks the presenter for the document, the slide list,
  * or a document write. Those messages are addressed (`from` on a request,
@@ -19,6 +22,7 @@
  * while "Allow agent edits" is on.
  */
 
+import type { MirrorOp } from "../annotate/mirrorTypes";
 import type { HeadingDepth } from "../sectioning/sectionize";
 
 /** Plaintext messages, encrypted before sending. */
@@ -81,7 +85,13 @@ export type RemoteMessage =
   | { type: "result"; request: string; to: string; ok: true; revision: string }
   | { type: "result"; request: string; to: string; ok: false; error: AgentError }
   /** One piece of a message too large for a relay frame, for one participant (parts.ts). */
-  | { type: "part"; to: string; id: string; seq: number; total: number; data: string };
+  | { type: "part"; to: string; id: string; seq: number; total: number; data: string }
+  /**
+   * Presenter -> followers: the presenter's laser, pen marks or diagram focus
+   * view (decision 88). Sent under the view key, signed like `state`; a
+   * follower takes it only with a valid signature.
+   */
+  | ({ type: "mirror" } & MirrorOp);
 
 /** One slide as an agent sees it. `note` is the slide's diagnostic (overflow, diagram error). */
 export interface AgentSlide {
