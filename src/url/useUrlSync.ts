@@ -14,6 +14,12 @@ export interface UrlSyncOptions {
   documentId: number;
   level: LevelOption | null;
   view: ViewerUrlState["view"];
+  /**
+   * The sections presented (decision 100), `null` for all of them. Left out
+   * by a page that does not manage the choice, which then never touches
+   * `?sections=`.
+   */
+  sections?: readonly string[] | null | undefined;
   /** Called once on mount when the URL carries a valid `?level=`. */
   onLevel: (level: NonNullable<ViewerUrlState["level"]>) => void;
   /** Called once on mount when the URL carries a valid `?view=`. */
@@ -39,6 +45,11 @@ function guarded<T>(fn: () => T): T | undefined {
 
 function currentState(): ViewerUrlState | undefined {
   return guarded(() => parseViewerUrl(new URL(window.location.href)));
+}
+
+/** The valid `?sections=` the page was opened with, or `null`; the app seeds its state from it. */
+export function readInitialSections(): string[] | null {
+  return currentState()?.sections ?? null;
 }
 
 /** Rewrites the current history entry; a slide change must not add one. */
@@ -93,13 +104,14 @@ function relocate({ slides, index }: Position, next: SlideInfo[]): string | null
 
 /**
  * Keeps the slide address (hash) and the viewer settings (query) in the URL
- * (decisions 20 and 21), so a link reopens the deck where it was shared.
+ * (decisions 20, 21 and 100), so a link reopens the deck where it was shared.
  */
 export function useUrlSync({
   controller,
   documentId,
   level,
   view,
+  sections,
   onLevel,
   onView,
 }: UrlSyncOptions): void {
@@ -124,6 +136,17 @@ export function useUrlSync({
     reflected.current = { level, view };
     replaceUrl({ level: typeof level === "object" && level !== null ? [...level] : level, view });
   }, [level, view]);
+
+  // The choice of sections: written only when it changes, and compared by
+  // content because the app may hand over a new array with the same ids.
+  const sectionsKey = sections === undefined ? undefined : JSON.stringify(sections);
+  const reflectedSections = useRef(sectionsKey);
+  useEffect(() => {
+    if (sectionsKey === reflectedSections.current) return;
+    reflectedSections.current = sectionsKey;
+    if (sectionsKey !== undefined)
+      replaceUrl({ sections: JSON.parse(sectionsKey) as string[] | null });
+  }, [sectionsKey]);
 
   // The slide the viewer is on, kept across rebuilds: the hash cannot hold it
   // under a `#doc=` fragment or without history access.
