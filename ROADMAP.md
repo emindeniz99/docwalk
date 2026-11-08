@@ -141,8 +141,10 @@ Later rounds:
   rename in another tab reads as a deletion in this one (decision 90).
   Without `FileSystemObserver` a change can show up to about 3 s late.
 - Agents: the e2e relay copies `worker/room.ts` instead of running the
-  Worker under Miniflare; a real-socket session ran on Node 24 only
-  (`engines` says >=22); an agent or phone remote that joins before the
+  Worker under Miniflare; `e2e/mcp.spec.ts`, a real-socket session with the
+  built bin, passed 3 of 3 on Node 22.23.4 on 2026-11-09 (the MCP unit tests
+  20 of 20), but CI runs Node 24 only, so nothing holds `engines` (>=22) in
+  place; an agent or phone remote that joins before the
   presenter's socket is open is not counted (hello is not resent);
   `docwalk-mcp` is not on npm yet.
 - Markdown: decision 42 wants the sanitizer corpus on three engines, the
