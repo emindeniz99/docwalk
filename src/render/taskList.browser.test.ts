@@ -145,12 +145,12 @@ describe("task list marks", () => {
   });
 });
 
-describe("task lists on slides", () => {
-  const listOf = (n: number) =>
-    Array.from({ length: n }, (_, i) => `- [${i % 3 === 0 ? "x" : " "}] Task number ${i + 1}`).join(
-      "\n",
-    );
+const listOf = (n: number) =>
+  Array.from({ length: n }, (_, i) => `- [${i % 3 === 0 ? "x" : " "}] Task number ${i + 1}`).join(
+    "\n",
+  );
 
+describe("task lists on slides", () => {
   test("a task list longer than a page splits between items and loses no item or state", () => {
     const n = 60;
     const section = sectionize(parseMarkdown(`## Plan\n\n${listOf(n)}\n`)).sections[0];
