@@ -39,7 +39,7 @@ export function UpdateToast({ queue }: { queue: ToastQueue<UpdateToastContent> }
     <ToastRegion
       queue={queue}
       className="docwalk-toast-region"
-      aria-label={shown ? m.pwa_notifications() : undefined}
+      {...(shown ? { "aria-label": m.pwa_notifications() } : {})}
     >
       {({ toast }) => (
         <Toast toast={toast} className="docwalk-toast">
