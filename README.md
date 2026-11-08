@@ -87,7 +87,10 @@ lists every settled design decision.
   room carries them too.
 - A phone remote and a follow-along link for other screens (full mode).
   The room key stays in the link's fragment, so the relay passes only
-  ciphertext.
+  ciphertext. A follower sees your laser, your pen marks and the diagram
+  you open in focus, in the same place on its own screen size; the
+  presenter window shows the laser and marks too. Nothing a follower does
+  reaches you or other followers.
 - Export to PDF through the print view, to one self-contained HTML file, or
   to a PNG per slide.
 - GitHub alerts, footnotes on the slide that cites them, raw HTML filtered

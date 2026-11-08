@@ -105,7 +105,7 @@ export async function fakeRelay(context: BrowserContext) {
     seats,
     state,
     async dropFollowers() {
-      for (const [ws, control] of [...sockets]) if (!control) await ws.close();
+      for (const [ws, control] of sockets) if (!control) await ws.close();
     },
   };
 }

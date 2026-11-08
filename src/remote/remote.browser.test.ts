@@ -5,6 +5,9 @@ import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import { MirrorFeed } from "../annotate/mirrorFeed";
+import type { MarkStroke } from "../annotate/mirrorTypes";
+import { API_LIMITS } from "../api/types";
 import type { DeckController, SlideInfo } from "../deck/controller";
 import {
   connectRoom,
@@ -1436,6 +1439,174 @@ describe("join dialog: agents", () => {
     expect(dialog().textContent).toContain(describeAgentEdit({ name: "claude-code", at }));
     expect(describeAgentEdit({ name: "claude-code", at })).toMatch(
       /^Last changed by claude-code at .*03/,
+    );
+  });
+});
+
+describe("mirror messages (decision 88)", () => {
+  // The presenter's laser, marks and focus view reach followers inside the
+  // same encrypted, signed room as its state, and nowhere else.
+  const mirrors = (p: Peer) => ofType(p, "mirror");
+  const laser = (p: Peer) => mirrors(p).filter((m) => m.op === "laser");
+  const stroke = (id: number, n = 3): MarkStroke => ({
+    id,
+    tool: "pen",
+    color: "primary",
+    points: Array.from({ length: n * 2 }, (_, i) => (id * 100 + i) % 4097),
+  });
+  const quiet = () => new Promise((r) => setTimeout(r, 120));
+  // A hello makes the presenter resync once, 150 ms on or up to 2 s later.
+  const SETTLE = { timeout: 4000 };
+  const settled = (p: Peer) =>
+    vi.waitFor(() => expect(mirrors(p).some((m) => m.op === "focus-close")).toBe(true), SETTLE);
+
+  async function hostWithFeed() {
+    const relay = new FakeRelay();
+    const feed = new MirrorFeed();
+    const host = mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      mirror: feed,
+    });
+    const follow = await joinCreds(host, "follow");
+    const remote = await joinCreds(host, "remote");
+    return { relay, feed, host, follow, remote };
+  }
+
+  test("a mark the presenter makes reaches a follower and never a phone remote", async () => {
+    const { relay, feed, follow, remote } = await hostWithFeed();
+    const follower = peer(relay, follow, "follower");
+    const phone = peer(relay, remote, "remote");
+    await opened(follower);
+    await opened(phone);
+    feed.ingest({ kind: "laser", x: 0.25, y: 0.75 });
+    await vi.waitFor(() =>
+      expect(laser(follower)).toEqual([{ type: "mirror", op: "laser", x: 0.25, y: 0.75 }]),
+    );
+    await quiet();
+    expect(mirrors(phone)).toEqual([]);
+  });
+
+  test("a phone's laser reaches followers as the presenter's own", async () => {
+    const { relay, follow, remote } = await hostWithFeed();
+    const follower = peer(relay, follow, "follower");
+    const phone = peer(relay, remote, "remote");
+    await opened(follower);
+    await opened(phone);
+    await settled(follower);
+    await phone.conn.send({ type: "laser", x: 0.5, y: 0.25 });
+    await vi.waitFor(() => expect(laser(follower)).toHaveLength(1));
+    expect(laser(follower)[0]).toMatchObject({ x: 0.5, y: 0.25 });
+    await phone.conn.send({ type: "laser-off" });
+    await vi.waitFor(() =>
+      expect(mirrors(follower).at(-1)).toEqual({ type: "mirror", op: "laser-off" }),
+    );
+  });
+
+  test("a follower cannot make another follower show anything: only the presenter's signature counts", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const { sign: _sign, ...followLink } = creds;
+    const forger = peer(relay, { ...followLink, key: null }, "follower");
+    const watcher = peer(relay, { ...followLink, key: null }, "follower");
+    await opened(presenter);
+    await opened(forger);
+    await opened(watcher);
+    const forged: RemoteMessage = { type: "mirror", op: "laser", x: 0.9, y: 0.9 };
+    await forger.conn.send(forged);
+    // Even a forger with a signing key of its own: it is not the room's.
+    const own = await createPresenterCredentials();
+    const impostor = peer(
+      relay,
+      { room: creds.room, key: own.key, view: creds.view, sign: own.sign },
+      "presenter",
+    );
+    await opened(impostor);
+    await impostor.conn.send(forged);
+    await quiet();
+    expect(mirrors(watcher)).toEqual([]);
+    await presenter.conn.send({ type: "mirror", op: "laser", x: 0.1, y: 0.2 });
+    await vi.waitFor(() => expect(laser(watcher)).toHaveLength(1));
+    expect(laser(watcher)[0]).toMatchObject({ x: 0.1, y: 0.2 });
+    // The presenter takes nothing but a follower's hello under the view key.
+    expect(mirrors(presenter)).toEqual([]);
+  });
+
+  test("a relay that repeats a mirror frame cannot show it twice", async () => {
+    const { relay, feed, follow } = await hostWithFeed();
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    await settled(follower);
+    feed.ingest({ kind: "laser", x: 0.4, y: 0.4 });
+    await vi.waitFor(() => expect(laser(follower)).toHaveLength(1));
+    const frame = relay.wire.at(-1)!;
+    relay.replay(frame);
+    relay.replay(frame);
+    await quiet();
+    expect(laser(follower)).toHaveLength(1);
+  });
+
+  test("a follower that joins late gets the current slide's marks apart from the state", async () => {
+    const { relay, feed, follow } = await hostWithFeed();
+    const slide = "section-0/1";
+    feed.ingest({ kind: "marks", slide, strokes: [stroke(1), stroke(2)], reset: true });
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    await vi.waitFor(
+      () => expect(mirrors(follower).filter((m) => m.op === "stroke")).toHaveLength(2),
+      SETTLE,
+    );
+    expect(mirrors(follower).map((m) => m.op)).toContain("clear");
+    // The state is the size it was: no marks ride in it.
+    const state = ofType(follower, "state")[0]!;
+    expect(Object.keys(state).toSorted()).toEqual(
+      [
+        "current",
+        "docLink",
+        "docLinkTooLong",
+        "index",
+        "level",
+        "title",
+        "total",
+        "type",
+      ].toSorted(),
+    );
+  });
+
+  test("a follower that says hello again and again gets one resync, not one for each", async () => {
+    const { relay, feed, follow } = await hostWithFeed();
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: [stroke(1)], reset: true });
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    const clears = () => mirrors(follower).filter((m) => m.op === "clear");
+    await vi.waitFor(() => expect(clears()).toHaveLength(1), SETTLE);
+    for (let i = 0; i < 6; i++) {
+      await follower.conn.send({ type: "hello", role: "follower", id: `HelloHello${i}x` });
+    }
+    await quiet();
+    await quiet();
+    expect(clears()).toHaveLength(1);
+  });
+
+  test("a long stroke goes out in frames the relay accepts, and arrives whole", async () => {
+    const { relay, feed, follow } = await hostWithFeed();
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    await settled(follower);
+    const long = stroke(7, 1500);
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: [], reset: true });
+    feed.ingest({ kind: "stroke", slide: "section-0/1", end: true, ...long });
+    await vi.waitFor(() =>
+      expect(mirrors(follower).some((m) => m.op === "stroke" && m.end)).toBe(true),
+    );
+    const chunks = mirrors(follower).flatMap((m) => (m.op === "stroke" ? [m] : []));
+    expect(chunks.flatMap((c) => c.points)).toEqual(long.points);
+    expect(Math.max(...relay.wire.map((frame) => frame.length))).toBeLessThanOrEqual(
+      API_LIMITS.maxFrameBytes,
     );
   });
 });

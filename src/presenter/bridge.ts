@@ -1,4 +1,7 @@
 import * as v from "valibot";
+import type { MirrorFeed } from "../annotate/mirrorFeed";
+import { MirrorMessageSchema } from "../annotate/mirrorSchema";
+import type { MirrorOp } from "../annotate/mirrorTypes";
 import { PRESENTER_CHANNEL, type PresenterMessage } from "./types";
 
 /**
@@ -70,7 +73,7 @@ const StateMessage = v.object({
 
 /** What the audience accepts: requests from presenter windows only. */
 const PresenterRequest = v.variant("type", [
-  v.object({ type: v.literal("hello") }),
+  v.object({ type: v.literal("hello"), resync: v.optional(v.boolean()) }),
   v.object({ type: v.literal("goto"), address: v.pipe(address, v.minLength(1)) }),
   v.object({ type: v.literal("step"), direction: v.picklist([1, -1]) }),
 ]);
@@ -81,6 +84,14 @@ export interface PresenterBridgeOptions {
   step: (direction: 1 | -1) => void;
   /** Calls `onChange` after every deck change; returns an unsubscribe function. */
   subscribe: (onChange: () => void) => () => void;
+  /**
+   * The laser and marks the audience window shows (decision 88). The window
+   * sends them to presenter windows as `mirror` messages, and sends the
+   * current slide's marks again to one that says hello for the first time.
+   * The diagram focus view stays out: the presenter window shows scaled,
+   * inert copies of the slides.
+   */
+  mirror?: MirrorFeed;
   channel?: ChannelFactory;
 }
 
@@ -96,18 +107,28 @@ export function startPresenterBridge(options: PresenterBridgeOptions): () => voi
     // oxlint-disable-next-line unicorn/require-post-message-target-origin
     channel.postMessage(message);
   };
+  const postOp = (op: MirrorOp) => {
+    if (op.op.startsWith("focus")) return;
+    const message: PresenterMessage = { type: "mirror", ...op };
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin
+    channel.postMessage(message);
+  };
   channel.listen((data) => {
     const parsed = v.safeParse(PresenterRequest, data);
     if (!parsed.success) return;
     const request = parsed.output;
-    if (request.type === "hello") post();
-    else if (request.type === "goto") options.goTo(request.address);
+    if (request.type === "hello") {
+      post();
+      if (request.resync) options.mirror?.resync(postOp);
+    } else if (request.type === "goto") options.goTo(request.address);
     else options.step(request.direction);
   });
   const unsubscribe = options.subscribe(post);
+  const stopMirror = options.mirror?.addSink(postOp);
   post();
   return () => {
     unsubscribe();
+    stopMirror?.();
     channel.close();
   };
 }
@@ -121,13 +142,16 @@ export interface PresenterConnection {
 export interface ConnectPresenterOptions {
   /** `false` when no state arrived for `DISCONNECT_AFTER_MS`, `true` when one arrives again. */
   onConnectionChange?: (connected: boolean) => void;
+  /** Called with each laser or mark op from the audience window that validates (decision 88). */
+  onMirror?: (op: MirrorOp) => void;
   channel?: ChannelFactory;
 }
 
 /**
  * Presenter side. Says hello on connect and every `HEARTBEAT_MS`, so it
  * finds an audience window that started later and notices one that closed;
- * passes on only `state` messages that validate.
+ * passes on only `state` and `mirror` messages that validate. The first
+ * hello also asks for the current slide's marks, which the heartbeat does not.
  */
 export function connectPresenter(
   onState: (state: PresenterState) => void,
@@ -146,6 +170,12 @@ export function connectPresenter(
   };
 
   channel.listen((data) => {
+    const mirrored = v.safeParse(MirrorMessageSchema, data);
+    if (mirrored.success) {
+      const { type: _kind, ...op } = mirrored.output;
+      options.onMirror?.(op);
+      return;
+    }
     const parsed = v.safeParse(StateMessage, data);
     if (!parsed.success) return;
     const { type: _type, ...state } = parsed.output;
@@ -155,7 +185,7 @@ export function connectPresenter(
     onState(state);
   });
 
-  send({ type: "hello" });
+  send({ type: "hello", resync: true });
   const heartbeat = setInterval(() => send({ type: "hello" }), HEARTBEAT_MS);
 
   return {

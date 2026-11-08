@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as v from "valibot";
+import type { MirrorFeed } from "../annotate/mirrorFeed";
+import type { MirrorOp } from "../annotate/mirrorTypes";
 import type { DeckController } from "../deck/controller";
 import type { LevelOption } from "../sectioning/sectionize";
 import { answerAgent, isAgentRequest, type AgentHostContext } from "./agent";
@@ -40,6 +42,14 @@ export const LASER_IDLE_MS = 3000;
 const MAX_TRACKED = 1000;
 /** An agent asking for the slide list waits at most this long for the deck to catch up with the document. */
 export const DECK_WAIT_MS = 10_000;
+/**
+ * A follower's hello (and the room reopening) makes the presenter resend the
+ * mirrored marks of the current slide, once the state has gone out and at most
+ * this often (decision 88): a hostile follower that says hello often cannot
+ * make the presenter sign more than one resync per gap.
+ */
+export const RESYNC_DELAY_MS = 150;
+export const RESYNC_MIN_GAP_MS = 2000;
 
 export interface RemoteHostOptions {
   controller: DeckController | null;
@@ -61,6 +71,12 @@ export interface RemoteHostOptions {
   onAgentEdit?: (markdown: string, name: string) => void;
   /** An agent tried to write while agent edits are off. */
   onAgentEditRefused?: (name: string) => void;
+  /**
+   * What the presenter mirrors to followers (decision 88): the laser, marks
+   * and diagram focus view. The host sends its ops to the room signed, relays
+   * a phone's laser through it, and resyncs a follower that joins late.
+   */
+  mirror?: MirrorFeed | null;
 }
 
 export interface RemoteHost {
@@ -148,6 +164,7 @@ export function useRemoteHost({
   markdown = null,
   onAgentEdit,
   onAgentEditRefused,
+  mirror = null,
 }: RemoteHostOptions): RemoteHost {
   /** Null while a new room's keys are generated (none stored, a duplicated tab, a taken seat). */
   const [creds, setCreds] = useState(readStoredCredentials);
@@ -247,6 +264,20 @@ export function useRemoteHost({
     let laserTimer: ReturnType<typeof setTimeout> | undefined;
     let active = true;
 
+    // The mirror's ops reach the room as signed `mirror` messages, under the view key only.
+    const sendOp = (op: MirrorOp) => void conn.send({ type: "mirror", ...op });
+    let resyncTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastResync = Number.NEGATIVE_INFINITY;
+    const scheduleResync = () => {
+      if (!mirror || resyncTimer !== undefined) return;
+      const wait = Math.max(RESYNC_DELAY_MS, lastResync + RESYNC_MIN_GAP_MS - Date.now());
+      resyncTimer = setTimeout(() => {
+        resyncTimer = undefined;
+        lastResync = Date.now();
+        if (active) mirror.resync(sendOp);
+      }, wait);
+    };
+
     const agentContext: AgentHostContext = {
       markdown: () => markdownRef.current,
       slides: () =>
@@ -309,6 +340,7 @@ export function useRemoteHost({
             });
           }
           void sendState();
+          if (message.role === "follower") scheduleResync();
           break;
         }
         case "step":
@@ -324,18 +356,25 @@ export function useRemoteHost({
         }
         case "laser":
           setLaser({ x: message.x, y: message.y });
+          // A phone's laser is the presenter's laser: followers and the presenter window see it too.
+          mirror?.laser(message.x, message.y);
           clearTimeout(laserTimer);
-          laserTimer = setTimeout(() => setLaser(null), LASER_IDLE_MS);
+          laserTimer = setTimeout(() => {
+            setLaser(null);
+            mirror?.laserOff();
+          }, LASER_IDLE_MS);
           break;
         case "laser-off":
           clearTimeout(laserTimer);
           setLaser(null);
+          mirror?.laserOff();
           break;
         case "state":
         case "doc":
         case "slides":
         case "result":
         case "part":
+        case "mirror":
           // Only the presenter announces state and answers agents; another tab claiming to is ignored.
           break;
       }
@@ -353,6 +392,8 @@ export function useRemoteHost({
         if (next === "open") {
           setOpened(room.room);
           void sendState();
+          // Followers that stayed may have missed marks while the socket was down.
+          scheduleResync();
         }
       },
       // Someone reached the relay with a seat token first. Their room is not
@@ -364,15 +405,18 @@ export function useRemoteHost({
       ...(base ? { base } : {}),
     });
     connection.current = conn;
+    const stopMirror = mirror?.addSink(sendOp);
     return () => {
       active = false;
       clearTimeout(laserTimer);
+      clearTimeout(resyncTimer);
+      stopMirror?.();
       conn.close();
       connection.current = null;
       setStatus("connecting");
       setLaser(null);
     };
-  }, [room, socketFactory, base, sendState]);
+  }, [room, socketFactory, base, sendState, mirror]);
 
   // Subscribing announces the current slide at once, and again on every change,
   // including after the deck is rebuilt or the doc link changes.

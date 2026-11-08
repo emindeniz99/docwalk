@@ -37,6 +37,10 @@ one ("Last changed by claude-code at 14:03").
 4. Switch on **Allow agent edits** when you want the agent to change the
    document.
 
+An agent holds the control key only. The presenter's laser, pen marks and
+diagram focus view go to followers under the view key, so an agent never
+receives them.
+
 The link contains the room key. Anyone who has it can follow the deck, move
 it, and, with agent edits on, replace the document. Keep it out of files
 that are committed or shared: use the local or user scope of your client's
