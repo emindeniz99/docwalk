@@ -75,7 +75,7 @@ export function webManifest() {
     start_url: "./",
     scope: "./",
     display: "standalone",
-    // Decision 89: Chromium offers the installed app for Markdown files.
+    // Decision 99: Chromium offers the installed app for Markdown files.
     file_handlers: [{ action: "./", accept: { "text/markdown": [".md", ".markdown"] } }],
     background_color: c.canvas,
     theme_color: c.canvas,

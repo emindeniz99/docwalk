@@ -67,6 +67,13 @@ Markdown or the address, and it is gone when the view closes (87). Code:
 Access API. Its files are saved only on Save or Ctrl/Cmd+S, and reload when
 they change on disk (58). Code: root `"folder"`.
 
+**Mirror**: what the presenter shows others as it happens: the laser, pen
+and arrow marks, and the diagram focus view. Followers get it as signed
+`mirror` messages in slide units, and the presenter window gets the laser and
+marks over the bridge. It goes outward only, stays in memory and is never
+written to the Markdown (88). Code: `src/annotate/mirrorFeed.ts`,
+`mirrorStore.ts`, `mirrorView.ts`.
+
 **Measurement pass**: the post-render check of a slide and each Mermaid host
 for overflow, run in the order of decision 22.
 
@@ -177,6 +184,7 @@ Add a row here before introducing a new one.
 | diagram, node               | diyagram, düğüm             |                                            |
 | focus view                  | odak görünümü               | "tam ekran" in the dialog's names          |
 | line mark                   | satır işareti               | the "Temizle" button removes them          |
+| mirror, mirrored            | yansıtma, yansıtılan        | the presenter's laser and marks on others  |
 | sketch                      | çizim                       |                                            |
 | comment, resolved, orphaned | yorum, çözüldü, sahipsiz    |                                            |
 | workspace, local folder     | çalışma alanı, yerel klasör |                                            |

@@ -107,7 +107,7 @@ describe("web app manifest (decision 11)", () => {
       expect(path.startsWith("/")).toBe(false);
   });
 
-  // Decision 89: a Markdown file opened with the installed app. Chromium
+  // Decision 99: a Markdown file opened with the installed app. Chromium
   // lists the app next to "Open with" for these extensions and starts it with
   // the file in launchQueue; other browsers ignore the member.
   describe("file_handlers", () => {

@@ -1,0 +1,132 @@
+/**
+ * What the presenter mirrors to followers and to the presenter window
+ * (decision 88): the laser, pen and arrow strokes, and the diagram focus view.
+ * This file has no DOM types and no schema library, so the first-load bundle,
+ * the Node-run unit tests and the `docwalk-mcp` agent can all import it.
+ *
+ * Everything travels in slide units: x over the width and y over the height
+ * of the 1280 by 720 slide box, on a grid of `COORD_MAX` steps (0.3 px), so a
+ * mark lands on the same spot of the slide on any screen and in any frame.
+ */
+
+/** One step more than the grid: 0 is the left or top edge, `COORD_MAX` the right or bottom one. */
+export const COORD_MAX = 4096;
+
+/** A point closer than this to the last recorded one (slide px) is not recorded. */
+export const MIN_STEP_PX = 2;
+/** Slide box the grid spans; the same size as `SLIDE_SIZE` in src/deck/pages.ts. */
+export const MIRROR_WIDTH = 1280;
+export const MIRROR_HEIGHT = 720;
+
+/** A stroke stops growing here: points beyond it are drawn on the presenter's slide but not sent. */
+export const MAX_STROKE_POINTS = 1500;
+/** Most points one message carries; a longer stroke goes out as several chunks. */
+export const MAX_CHUNK_POINTS = 128;
+/** While a pen stroke is being drawn its new points go out this often (about 12 frames a second). */
+export const STROKE_FLUSH_MS = 80;
+
+/** What a receiver keeps for one slide, and for all slides: anything above is ignored. */
+export const MAX_SLIDE_STROKES = 200;
+export const MAX_SLIDE_POINTS = 30_000;
+export const MAX_MARK_SLIDES = 16;
+/** Ids in one `drop`. */
+export const MAX_DROP_IDS = 64;
+/** The longest address a message may carry (the same ceiling as a `goto`). */
+export const MAX_SLIDE_ADDRESS_CHARS = 2048;
+/** Diagrams are numbered from 1 on their slide; no slide has more than this. */
+export const MAX_DIAGRAMS = 1000;
+
+/** The focus view's zoom range (Panzoom's, in src/deck/focus.ts) and the pan a receiver follows. */
+export const FOCUS_SCALE_MIN = 0.1;
+export const FOCUS_SCALE_MAX = 12;
+export const FOCUS_PAN_LIMIT = 8;
+
+/** The laser goes out at most this often (about 30 messages a second); the same pace as a phone remote's. */
+export const MIRROR_LASER_MS = 33;
+/** Zoom and pan of the focus view go out at most this often. */
+export const MIRROR_FOCUS_VIEW_MS = 100;
+
+/** A phone remote's laser disappears after this long without an update (host.ts), and so does a mirrored one. */
+export const MIRROR_LASER_IDLE_MS = 3000;
+
+/**
+ * Pen colours as keys. A message names a key, never a colour: the receiver
+ * maps it to its own design token (`--dw-color-<key>`), so the theme decides
+ * the colour and nothing from the wire reaches a style.
+ */
+export const MARK_COLORS = ["primary", "focus", "ink"] as const;
+export type MarkColor = (typeof MARK_COLORS)[number];
+export const MARK_TOOLS = ["pen", "arrow"] as const;
+export type MarkTool = (typeof MARK_TOOLS)[number];
+
+/** One of the three pen colours' token names (`--dw-color-primary`), as a key; null for anything else. */
+export function markColorOf(variable: string): MarkColor | null {
+  const key = variable.startsWith("--dw-color-") ? variable.slice("--dw-color-".length) : variable;
+  return (MARK_COLORS as readonly string[]).includes(key) ? (key as MarkColor) : null;
+}
+
+/** A unit fraction on the grid, clamped to the slide. */
+export function quantize(unit: number): number {
+  if (!Number.isFinite(unit)) return 0;
+  return Math.round(Math.min(1, Math.max(0, unit)) * COORD_MAX);
+}
+
+/** The ops that travel to a receiver. The same shapes go in a room message and over the bridge. */
+export type MirrorOp =
+  /** The presenter's laser in slide units (0..1). */
+  | { op: "laser"; x: number; y: number }
+  | { op: "laser-off" }
+  /**
+   * A pen or arrow stroke, or a chunk of one. `points` is flat (x0, y0, x1,
+   * y1, ...) on the grid; `from` is how many numbers the receiver must hold
+   * already (0 starts the stroke, or replaces one with the same id); `end`
+   * marks the last chunk.
+   */
+  | {
+      op: "stroke";
+      slide: string;
+      id: number;
+      tool: MarkTool;
+      color: MarkColor;
+      from: number;
+      points: number[];
+      end: boolean;
+    }
+  /** Strokes that are gone from the slide (erased, undone). */
+  | { op: "drop"; slide: string; ids: number[] }
+  /** Every stroke of the slide is gone. */
+  | { op: "clear"; slide: string }
+  /** The presenter opened the focus view on the `diagram`-th diagram (from 1) of a slide. */
+  | { op: "focus-open"; slide: string; diagram: number }
+  /** Zoom and pan of the open focus view; the pan is a fraction of the stage, so any screen frames alike. */
+  | { op: "focus-view"; scale: number; x: number; y: number }
+  | { op: "focus-close" };
+
+/** A mark as the layer reports it (src/annotate/layer.ts) and the feed keeps it. */
+export interface MarkStroke {
+  id: number;
+  tool: MarkTool;
+  color: MarkColor;
+  /** Flat grid points. */
+  points: readonly number[];
+}
+
+/** What the annotation layer tells its observers (src/annotate/layer.ts `observe`). */
+export type MarkEvent =
+  | { kind: "laser"; x: number; y: number }
+  | { kind: "laser-off" }
+  /** A pen stroke grew (`end` false), or any stroke was committed (`end` true). */
+  | ({ kind: "stroke"; slide: string; end: boolean } & MarkStroke)
+  /** The stroke in progress was abandoned (a slide change, a too-short arrow). */
+  | { kind: "cancel"; id: number }
+  /**
+   * The strokes that are visible on a slide now. `reset` marks a change of
+   * slide: the receiver may hold anything for it, so it is sent in full.
+   */
+  | { kind: "marks"; slide: string; strokes: readonly MarkStroke[]; reset: boolean };
+
+/** What the focus view tells its observers (src/deck/focusEvents.ts). */
+export type FocusEvent =
+  | { kind: "open"; slide: string; diagram: number }
+  | { kind: "view"; scale: number; x: number; y: number }
+  | { kind: "close" };

@@ -7,7 +7,7 @@ import { UpdateToast, type UpdateToastContent } from "./UpdateToast";
 /**
  * Registers the service worker, shows the update prompt when a new version
  * is waiting, and opens a Markdown file the OS launched the app with
- * (decision 89). Mounted by main.tsx in the main view of a production
+ * (decision 99). Mounted by main.tsx in the main view of a production
  * build only; the presenter window and phone remote stay quiet.
  */
 export function PwaUpdates() {

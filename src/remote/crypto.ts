@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { MirrorMessageSchema } from "../annotate/mirrorSchema";
 import { MAX_DOCUMENT_BYTES } from "../inputs/types";
 import type { EncryptedFrame, RemoteMessage, RoomCredentials } from "./types";
 
@@ -18,7 +19,8 @@ import type { EncryptedFrame, RemoteMessage, RoomCredentials } from "./types";
  * presenter's state from a follower's forgery (decision 73). The presenter
  * therefore signs each state with an ECDSA P-256 key of the room; the
  * public half travels in the follow link (`p=`), and a follower drops any
- * state that does not verify.
+ * state that does not verify. The presenter's mirror messages (laser, marks,
+ * diagram focus; decision 88) are signed the same way.
  *
  * This file uses no DOM types, so the Node-run unit tests can import it.
  */
@@ -313,6 +315,7 @@ export const RemoteMessageSchema = v.variant("type", [
     }),
     v.check((m) => m.seq < m.total, "seq must be inside the transfer"),
   ),
+  MirrorMessageSchema,
 ]) satisfies v.GenericSchema<unknown, RemoteMessage>;
 
 const FrameSchema = v.object({

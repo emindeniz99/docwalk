@@ -56,6 +56,15 @@ The first release.
   clear the marks. Images open only once loaded, so the click-to-load gate
   for remote images is unchanged. While a view is open, O, the pen letters
   and the arrow keys do nothing outside it.
+- Followers see what the presenter points at and draws: the laser (the
+  presenter's own and a phone's), pen and arrow strokes with erase, undo,
+  redo and clear, each slide's marks, and the diagram focus view with its
+  zoom and pan. They travel in the room's encrypted messages, signed by the
+  presenter, so another follower cannot put anything on your screen, and
+  marks sit at the same place of the slide on any screen size. A follower
+  who joins late or reconnects gets the slide's marks again. The presenter
+  window shows the laser and marks over its current slide, with or without
+  the Worker. Marks stay in memory and are not saved.
 - Task list items (`- [x]`, `- [ ]`) show their state as read-only boxes on
   slides, in document view, in the presenter's previews and in the HTML, PNG
   and print exports. A tick, not a colour, marks a done item, and a screen

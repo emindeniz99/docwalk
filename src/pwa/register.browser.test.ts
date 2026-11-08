@@ -78,7 +78,7 @@ describe("the update prompt's Reload button", () => {
   });
 });
 
-describe("checking for a new version while the page stays open (decision 89)", () => {
+describe("checking for a new version while the page stays open (decision 99)", () => {
   /** A visible, online tab that registered a worker, with timers and the clock under test control. */
   async function openTab(state: { visible?: boolean; online?: boolean } = {}) {
     // Only the interval and the clock: the page's other timers keep running.

@@ -1,4 +1,4 @@
-/** The part of Chromium's launch queue that docwalk uses (the manifest's `file_handlers`, decision 89). */
+/** The part of Chromium's launch queue that docwalk uses (the manifest's `file_handlers`, decision 99). */
 interface LaunchQueue {
   setConsumer(consumer: (params: { files: readonly { getFile(): Promise<File> }[] }) => void): void;
 }

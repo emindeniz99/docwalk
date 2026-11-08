@@ -49,6 +49,14 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   lines can be marked and cleared, and an open view closes on a rebuild or a
   slide change. `e2e/focus-view.spec.ts` and
   `src/deck/focusTargets.browser.test.ts` cover it on Chromium.
+- Done 2026-11-08: the presenter's laser (its own and a phone's), pen and
+  arrow strokes, erase, undo, redo, clear, slide changes and the diagram
+  focus view mirrored to followers, signed like the state; the laser and
+  marks also reach the presenter window over the bridge (decision 88).
+  `src/annotate/mirrorFeed.test.ts`, `mirrorStore.test.ts`,
+  `mirrorView.browser.test.ts`, `src/remote/remote.browser.test.ts` and
+  `e2e/mirror.spec.ts` cover it on Chromium; Firefox and WebKit run in the
+  fork's CI.
 
 Still open in v1:
 
@@ -165,7 +173,17 @@ Later rounds:
   marks are not kept between openings; code has no line numbers; a table
   fitted at the 0.75 floor still scrolls sideways; a double-click that
   selects a word in code or a table opens the view on its first click; the
-  view is not mirrored to followers and is not in any export.
+  view is not in any export, and only the diagram view is mirrored to
+  followers (decision 88).
+- Mirroring (decision 88), known gaps: a follower that paginates a section
+  differently shows marks only on a page with the presenter's address; a
+  slide with over 200 strokes is mirrored with the newest 200; a relay that
+  drops a `focus-close` leaves a follower's view open until it presses
+  Escape or the next resync; a follower's own close of the mirrored view
+  holds until the presenter opens another diagram; a phone remote that
+  moves the slide while a diagram view is open leaves that view open on
+  both screens; a follower that joins within 2 s of the last resync waits
+  for the next one.
 - Shortcut hints: on Apple platforms `ModShortcut` draws the command glyph
   as an `aria-hidden` icon, so the palette button's accessible name ends in
   "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
@@ -213,9 +231,9 @@ order unless the owner picks differently. The first two give the most for
 the least work. Each starts with a decision row, then failing tests, then
 code.
 
-1. Laser, strokes and the open focus view (diagram, code, table, image,
-   with line marks) mirrored to followers and the presenter window, inside
-   the signed, encrypted room messages (decisions 68, 73, 87).
+1. The code, table and image focus views, with their line marks, mirrored
+   to followers inside the signed, encrypted room messages. The laser,
+   strokes and the diagram view already are (decisions 87, 88).
 2. Picking which sections to present, kept in the URL.
 3. Saved annotations, included in PDF and PNG exports.
 4. Math and emoji shortcodes, which GitHub renders natively.

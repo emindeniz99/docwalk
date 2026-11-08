@@ -6,6 +6,8 @@
  * same origin only, so nothing leaves the machine.
  */
 
+import type { MirrorOp } from "../annotate/mirrorTypes";
+
 export const PRESENTER_CHANNEL = "docwalk-presenter";
 
 export type PresenterMessage =
@@ -22,8 +24,13 @@ export type PresenterMessage =
   | { type: "goto"; address: string }
   /** Presenter -> audience: next / previous. */
   | { type: "step"; direction: 1 | -1 }
-  /** Presenter -> audience: a new presenter window asks for the state. */
-  | { type: "hello" };
+  /**
+   * Presenter -> audience: a presenter window asks for the state. `resync`, on
+   * its first hello, also asks for the current slide's marks (decision 88).
+   */
+  | { type: "hello"; resync?: boolean }
+  /** Audience -> presenter: the audience window's laser or pen marks (decision 88). */
+  | ({ type: "mirror" } & MirrorOp);
 
 // `OpenPresenterWindow` lives in ./window.ts: this file stays free of DOM
 // types so the Node-run bridge tests can import it (tsconfig.node.json has

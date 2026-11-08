@@ -29,7 +29,7 @@ function warmWhenControlled(sw: ServiceWorkerContainer): void {
   sw.addEventListener("controllerchange", flush);
 }
 
-/** How long a visible, online tab waits between checks for a new version (decision 89). */
+/** How long a visible, online tab waits between checks for a new version (decision 99). */
 export const UPDATE_CHECK_MS = 60 * 60 * 1000;
 
 /**
