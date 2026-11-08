@@ -4,6 +4,7 @@ import { MirrorMessageSchema } from "./mirrorSchema";
 import { MirrorStore } from "./mirrorStore";
 import {
   MAX_CHUNK_POINTS,
+  MAX_MARKED_LINES,
   MAX_SLIDE_POINTS,
   MAX_SLIDE_STROKES,
   MAX_STROKE_POINTS,
@@ -284,7 +285,7 @@ describe("a receiver that joins late (resync)", () => {
     const done = [mark(1), mark(2)];
     feed.ingest({ kind: "marks", slide: "a/1", strokes: done, reset: true });
     feed.ingest({ kind: "stroke", slide: "a/1", end: false, ...mark(3, 6) });
-    feed.focus({ kind: "open", slide: "a/1", diagram: 2 });
+    feed.focus({ kind: "open", slide: "a/1", block: "diagram", n: 2 });
     feed.focus({ kind: "view", scale: 2, x: 0.1, y: -0.1 });
     vi.advanceTimersByTime(500);
     sent.length = 0;
@@ -529,7 +530,7 @@ describe("a resync while a pen stroke is being drawn (decision 103)", () => {
 describe("the diagram focus view", () => {
   test("open and close are sent at once; zoom and pan at most every 100 ms, the last one always", () => {
     const { feed, sent } = setup();
-    feed.focus({ kind: "open", slide: "d/1", diagram: 1 });
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 1 });
     for (let i = 1; i <= 50; i++) {
       feed.focus({ kind: "view", scale: 1 + i / 50, x: i / 100, y: 0 });
       vi.advanceTimersByTime(4);
@@ -550,6 +551,128 @@ describe("the diagram focus view", () => {
       x: 0,
       y: 0,
     });
+  });
+});
+
+describe("the code, table and image views (decision 106)", () => {
+  test("open names the block by its kind and place on the slide, as the diagram's op does", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 2 });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "table", n: 1 });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "image", n: 3 });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "diagram", n: 4 });
+    expect(sent).toEqual([
+      { op: "focus-open", slide: "c/1", code: 2 },
+      { op: "focus-close" },
+      { op: "focus-open", slide: "c/1", table: 1 },
+      { op: "focus-close" },
+      { op: "focus-open", slide: "c/1", image: 3 },
+      { op: "focus-close" },
+      { op: "focus-open", slide: "c/1", diagram: 4 },
+    ]);
+  });
+
+  test("marked lines go out at once, ascending and once each, and an unchanged list is not sent again", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 1 });
+    feed.focus({ kind: "lines", lines: [4, 1] });
+    feed.focus({ kind: "lines", lines: [1, 4, 4] });
+    feed.focus({ kind: "lines", lines: [1, 4, 6] });
+    feed.focus({ kind: "lines", lines: [] });
+    expect(sent.filter((o) => o.op === "focus-lines")).toEqual([
+      { op: "focus-lines", lines: [1, 4] },
+      { op: "focus-lines", lines: [1, 4, 6] },
+      { op: "focus-lines", lines: [] },
+    ]);
+  });
+
+  test("a presenter who marks more than 256 lines mirrors the first 256, and numbers out of range are left out", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 1 });
+    const many = Array.from({ length: 400 }, (_, i) => 400 - i);
+    feed.focus({ kind: "lines", lines: [0, -3, 1.5, 200_000, Number.NaN, ...many] });
+    const [op] = sent.filter((o) => o.op === "focus-lines");
+    expect(op).toEqual({
+      op: "focus-lines",
+      lines: Array.from({ length: MAX_MARKED_LINES }, (_, i) => i + 1),
+    });
+    expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+  });
+
+  test("lines are sent only for an open code view: a table, an image or no view sends none", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "lines", lines: [1] });
+    feed.focus({ kind: "open", slide: "c/1", block: "table", n: 1 });
+    feed.focus({ kind: "lines", lines: [1] });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "image", n: 1 });
+    feed.focus({ kind: "lines", lines: [1] });
+    expect(sent.filter((o) => o.op === "focus-lines")).toEqual([]);
+  });
+
+  test("a new view starts with no marks: the lines of the last one are not resent for it", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "c/1", strokes: [], reset: true });
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 1 });
+    feed.focus({ kind: "lines", lines: [2, 3] });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 2 });
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(late.filter((o) => o.op.startsWith("focus"))).toEqual([
+      { op: "focus-open", slide: "c/1", code: 2 },
+      { op: "focus-lines", lines: [] },
+    ]);
+  });
+
+  test("a resync sends the open block, its zoom and scroll, and its marks, empty ones too", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "c/1", strokes: [mark(1)], reset: true });
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 2 });
+    feed.focus({ kind: "view", scale: 1.25, x: 0, y: 0.75 });
+    feed.focus({ kind: "lines", lines: [3, 5] });
+    vi.advanceTimersByTime(500);
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(kinds(late)).toEqual(["keep", "stroke", "focus-open", "focus-view", "focus-lines"]);
+    expect(late.slice(2)).toEqual([
+      { op: "focus-open", slide: "c/1", code: 2 },
+      { op: "focus-view", scale: 1.25, x: 0, y: 0.75 },
+      { op: "focus-lines", lines: [3, 5] },
+    ]);
+    // Cleared marks go out as an empty list, so a follower that held them drops them.
+    feed.focus({ kind: "lines", lines: [] });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(late.at(-1)).toEqual({ op: "focus-lines", lines: [] });
+    // A table or an image view has no marks to send.
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "table", n: 1 });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(late.filter((o) => o.op.startsWith("focus"))).toEqual([
+      { op: "focus-open", slide: "c/1", table: 1 },
+    ]);
+  });
+
+  test("every focus op it makes passes the schema a receiver checks", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "marks", slide: "c/1", strokes: [], reset: true });
+    for (const block of ["diagram", "code", "table", "image"] as const) {
+      feed.focus({ kind: "open", slide: "c/1", block, n: 1000 });
+      feed.focus({ kind: "view", scale: 5.333_333, x: 1, y: 0.123_456 });
+      feed.focus({ kind: "lines", lines: [100_000] });
+      vi.advanceTimersByTime(200);
+      feed.resync();
+      feed.focus({ kind: "close" });
+    }
+    for (const op of ["focus-open", "focus-view", "focus-lines", "focus-close"]) {
+      expect(kinds(sent)).toContain(op);
+    }
+    for (const op of sent) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
   });
 });
 

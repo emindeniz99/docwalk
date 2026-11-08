@@ -1,10 +1,10 @@
 import Panzoom, { type PanzoomObject } from "@panzoom/panzoom";
+import type { FocusViewKind } from "../annotate/mirrorTypes";
 import { requestSketch } from "../canvas/request";
 import { m } from "../paraglide/messages.js";
 import { emitFocus } from "./focusEvents";
 import { FOCUS_VIEW_CLASS } from "./focusView";
-import { focusKind, isLoadedImage, unmarkFocusTargets, type FocusKind } from "./focusTargets";
-import { slideAddress } from "./pages";
+import { focusKind, isLoadedImage, locateBlock, unmarkFocusTargets } from "./focusTargets";
 
 /**
  * Focus view: a full-window view of one diagram, code block, table or image.
@@ -17,9 +17,13 @@ import { slideAddress } from "./pages";
  * accident; pinch zoom works on touch screens). Code and tables are text:
  * they scroll natively and zoom by type size, so selection, touch scroll and
  * line marks keep working (decision 87).
+ *
+ * Each view tells `focusEvents.ts` which block it shows, how it is zoomed
+ * and scrolled, and which code lines are marked, so the presenter's view
+ * can be mirrored to followers (decisions 88 and 106).
  */
 
-type ViewKind = "diagram" | FocusKind;
+type ViewKind = FocusViewKind;
 
 /** What a stage hands the shell: how it zooms, and what else its toolbar holds. */
 interface Stage {
@@ -31,11 +35,20 @@ interface Stage {
   start(): void;
   /** Extra toolbar buttons, between Fullscreen and Close. */
   extras?(add: AddButton): void;
-  /** Sets zoom and pan to a view a presenter sent (decision 88); pan is a fraction of the stage. */
+  /**
+   * Sets zoom and position to a view a presenter sent (decisions 88 and 106): for a
+   * canvas the pan as a fraction of the stage, for text the scroll as a fraction of its reach.
+   */
   setTransform?(view: FocusTransform): void;
+  /** Marks exactly these lines of a code view, from 1 (decision 106). */
+  setLines?(lines: readonly number[]): void;
   dispose(): void;
 }
-/** Zoom and pan of a canvas view: the scale relative to Fit, and the pan as fractions of the stage. */
+/**
+ * Zoom and position of a view, as the mirror carries it: the scale relative
+ * to Fit, and for a canvas the pan as fractions of the stage, for text how
+ * far it is scrolled as fractions of how far it can scroll.
+ */
 export interface FocusTransform {
   scale: number;
   x: number;
@@ -54,23 +67,15 @@ export function closeContentFocus(): void {
   if (current && current.kind !== "diagram") current.close();
 }
 
-/**
- * Where a diagram sits: its slide's address and its number among the diagrams
- * of that page, from 1. A follower finds the same diagram from these two.
- */
-export function locateDiagram(diagram: HTMLElement): { slide: string; diagram: number } | null {
-  const page = diagram.closest<HTMLElement>("section[data-docwalk-id]");
-  if (!page) return null;
-  const at = [...page.querySelectorAll(".docwalk-diagram")].indexOf(diagram);
-  return at < 0 ? null : { slide: slideAddress(page), diagram: at + 1 };
-}
+/** Called when a view closes; `byViewer` is true for Escape, Close or Sketch, false for a rebuild or a slide change. */
+type OnClosed = (byViewer: boolean) => void;
 
 function mountView(
   origin: HTMLElement,
   kind: ViewKind,
   label: string,
   makeStage: (stage: HTMLElement, close: () => void) => Stage,
-  onClosed?: () => void,
+  onClosed?: OnClosed,
 ): { close: () => void; view: Stage } {
   // React keeps this element across deck rebuilds; the `.reveal` inside it is replaced.
   const deckHost = origin.closest(".docwalk-deck-host");
@@ -96,7 +101,7 @@ function mountView(
   for (const el of madeInert) el.inert = true;
   document.body.append(overlay);
 
-  const view = makeStage(stage, () => close());
+  const view = makeStage(stage, () => close(true));
 
   const button: AddButton = (text, title, action) => {
     const b = document.createElement("button");
@@ -116,7 +121,7 @@ function mountView(
     else void overlay.requestFullscreen?.();
   });
   view.extras?.(button);
-  const closeButton = button("✕", m.close(), () => close());
+  const closeButton = button("✕", m.close(), () => close(true));
 
   const onWheel = (event: WheelEvent) => {
     if (!event.ctrlKey && !event.metaKey) return;
@@ -140,7 +145,7 @@ function mountView(
         event.preventDefault();
         target.focus();
       }
-    } else if (event.key === "Escape") close();
+    } else if (event.key === "Escape") close(true);
     else if (event.key === "+" || event.key === "=") view.zoomIn();
     else if (event.key === "-") view.zoomOut();
     else if (event.key === "0") view.fit();
@@ -153,11 +158,11 @@ function mountView(
 
   let closed = false;
   let announced = false;
-  function close() {
+  function close(byViewer = false) {
     if (closed) return;
     closed = true;
     if (announced) emitFocus({ kind: "close" });
-    onClosed?.();
+    onClosed?.(byViewer);
     stage.removeEventListener("wheel", onWheel);
     overlay.removeEventListener("keydown", onKey);
     view.dispose();
@@ -179,14 +184,15 @@ function mountView(
   }
 
   current = { kind, close };
-  view.start();
-  closeButton.focus();
-  // The diagram view is mirrored to followers (decision 88); the other kinds are not.
-  const where = kind === "diagram" ? locateDiagram(origin) : null;
+  // Every kind is mirrored to followers (decisions 88 and 106). The open goes
+  // first, so the view a stage reports as it starts belongs to this block.
+  const where = locateBlock(origin, kind);
   if (where) {
     announced = true;
     emitFocus({ kind: "open", ...where });
   }
+  view.start();
+  closeButton.focus();
   return { close, view };
 }
 
@@ -314,6 +320,8 @@ function cleanCopy<T extends HTMLElement>(origin: T): T {
 }
 
 const LINE_CLASS = "docwalk-code-line";
+/** A fraction from the wire, kept to 0..1 (decision 106). */
+const unit = (n: number) => Math.min(1, Math.max(0, n));
 
 /**
  * Splits the children of a `<code>` into one block per line. A line holds
@@ -371,29 +379,61 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
   stage.append(sheet);
 
   let scale = 1;
+  // What Fit chose. The mirror carries the scale as a share of it, so each
+  // screen zooms from its own Fit (decision 106).
+  let fitted = 1;
   const apply = (next: number) => {
     scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, next));
     sheet.style.setProperty("--focus-scale", String(scale));
   };
+  const reach = () => ({
+    across: Math.max(0, stage.scrollWidth - stage.clientWidth),
+    down: Math.max(0, stage.scrollHeight - stage.clientHeight),
+  });
+  // How far the view is scrolled, as a share of how far it can scroll: the
+  // start and the end of a listing meet on screens of any size.
+  const report = () => {
+    const { across, down } = reach();
+    emitFocus({
+      kind: "view",
+      scale: scale / fitted,
+      x: across > 0 ? stage.scrollLeft / across : 0,
+      y: down > 0 ? stage.scrollTop / down : 0,
+    });
+  };
+  const zoom = (next: number) => {
+    apply(next);
+    report();
+  };
   // The largest size that needs no sideways scroll and, above 1, no vertical scroll. A
   // line or column that is wider than the screen at FIT_MIN scrolls; smaller is not readable.
   const fit = () => {
-    for (let next = FIT_MAX; next >= FIT_MIN; next -= SCALE_STEP) {
+    let next = FIT_MAX;
+    for (; next >= FIT_MIN; next -= SCALE_STEP) {
       apply(next);
       const sideways = stage.scrollWidth > stage.clientWidth + 1;
       const tall = stage.scrollHeight > stage.clientHeight + 1;
-      if (!sideways && (next <= 1 || !tall)) return;
+      if (!sideways && (next <= 1 || !tall)) break;
     }
-    apply(FIT_MIN);
+    if (next < FIT_MIN) apply(FIT_MIN);
+    fitted = scale;
+    report();
   };
+  stage.addEventListener("scroll", report, { passive: true });
 
   const base: Stage = {
-    zoomOut: () => apply(scale - SCALE_STEP),
-    zoomIn: () => apply(scale + SCALE_STEP),
+    zoomOut: () => zoom(scale - SCALE_STEP),
+    zoomIn: () => zoom(scale + SCALE_STEP),
     fit,
-    wheel: (event) => apply(scale + (event.deltaY < 0 ? SCALE_STEP : -SCALE_STEP)),
+    wheel: (event) => zoom(scale + (event.deltaY < 0 ? SCALE_STEP : -SCALE_STEP)),
     start: fit,
-    dispose: () => undefined,
+    setTransform(view) {
+      apply(fitted * view.scale);
+      const { across, down } = reach();
+      stage.scrollLeft = unit(view.x) * across;
+      stage.scrollTop = unit(view.y) * down;
+    },
+    dispose: () => stage.removeEventListener("scroll", report),
   };
   if (kind === "table") {
     // Nothing inside a table takes focus, and axe wants a scrolling region to be reachable.
@@ -422,6 +462,12 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
   });
   let clear: HTMLButtonElement | null = null;
   const anyMarked = () => rows.some((row) => row.getAttribute("aria-pressed") === "true");
+  // Every change of marks goes to the mirror as the whole list (decision 106).
+  const reportLines = () =>
+    emitFocus({
+      kind: "lines",
+      lines: rows.flatMap((row, i) => (row.getAttribute("aria-pressed") === "true" ? [i + 1] : [])),
+    });
   const rove = (to: number) => {
     const next = rows[Math.min(rows.length - 1, Math.max(0, to))];
     if (!next) return;
@@ -431,6 +477,7 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
   const toggle = (row: HTMLElement) => {
     row.setAttribute("aria-pressed", String(row.getAttribute("aria-pressed") !== "true"));
     if (clear) clear.disabled = !anyMarked();
+    reportLines();
   };
   copy.addEventListener("click", (event) => {
     const row = lineOf(event);
@@ -459,8 +506,14 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
       clear = add(m.focus_clear(), m.focus_clear_title(), () => {
         for (const row of rows) row.setAttribute("aria-pressed", "false");
         if (clear) clear.disabled = true;
+        reportLines();
       });
       clear.disabled = true;
+    },
+    setLines(lines) {
+      const marked = new Set(lines);
+      rows.forEach((row, i) => row.setAttribute("aria-pressed", String(marked.has(i + 1))));
+      if (clear) clear.disabled = !anyMarked();
     },
   };
 }
@@ -471,47 +524,80 @@ function imageStage(stage: HTMLElement, origin: HTMLImageElement): Stage {
   const copy = document.createElement("img");
   copy.alt = origin.alt;
   copy.src = origin.currentSrc;
-  return canvasStage(stage, copy, origin.naturalWidth, origin.naturalHeight);
+  return canvasStage(stage, copy, origin.naturalWidth, origin.naturalHeight, (view) =>
+    emitFocus({ kind: "view", ...view }),
+  );
+}
+
+/**
+ * Opens the view of `kind` on `block`, or nothing when the block has
+ * nothing to show: a diagram with no drawing, a block that was never marked
+ * as `kind`, an image that has not loaded (decision 87).
+ */
+function mountFocus(block: HTMLElement, kind: ViewKind, onClosed?: OnClosed) {
+  if (kind === "diagram") {
+    if (!block.querySelector("svg")) return null;
+    return mountView(
+      block,
+      kind,
+      m.focus_label(),
+      (stage, close) => diagramStage(stage, block, close),
+      onClosed,
+    );
+  }
+  if (focusKind(block) !== kind) return null;
+  if (kind === "image") {
+    if (!(block instanceof HTMLImageElement) || !isLoadedImage(block)) return null;
+    return mountView(
+      block,
+      kind,
+      m.focus_label_image(),
+      (stage) => imageStage(stage, block),
+      onClosed,
+    );
+  }
+  const label = kind === "code" ? m.focus_label_code() : m.focus_label_table();
+  return mountView(block, kind, label, (stage) => textStage(stage, block, kind), onClosed);
 }
 
 export function openDiagramFocus(diagram: HTMLElement): () => void {
-  if (!diagram.querySelector("svg")) return () => undefined;
-  return mountView(diagram, "diagram", m.focus_label(), (stage, close) =>
-    diagramStage(stage, diagram, close),
-  ).close;
+  const opened = mountFocus(diagram, "diagram");
+  return opened ? () => opened.close() : () => undefined;
 }
 
-/** The diagram view a presenter opened, as a follower holds it (decision 88). */
+/** A view a presenter opened, as a follower holds it (decisions 88 and 106). */
 export interface MirroredFocus {
-  /** Zoom and pan as the presenter has them; `null` leaves the view at Fit. */
+  /** Zoom and position as the presenter has them; `null` leaves the view at Fit. */
   setView(view: FocusTransform | null): void;
+  /** The presenter's marked lines of a code view; other kinds ignore it. */
+  setLines(lines: readonly number[]): void;
   close(): void;
 }
 
 /**
- * Opens the focus view on `diagram` for a follower, because the presenter
- * opened it. It is the view a click opens, with the same keys and toolbar,
- * and the follower may close it with Escape (`onClosed` hears that); the
- * presenter's next zoom or pan moves it again. Null when the diagram has no
- * drawing to show.
+ * Opens the focus view of `kind` on `block` for a follower, because the
+ * presenter opened it. It is the view a click opens, with the same keys and
+ * toolbar. The follower may close it with Escape or Close, and `onClosed`
+ * hears whether the viewer did; the presenter's next zoom, scroll or marks
+ * move it again. Null when the block has nothing to show, an image this
+ * follower has not loaded included: mirroring never loads one (rule 5).
  */
-export function openMirroredDiagram(
-  diagram: HTMLElement,
-  onClosed: () => void,
+export function openMirroredFocus(
+  block: HTMLElement,
+  kind: ViewKind,
+  onClosed: OnClosed,
 ): MirroredFocus | null {
-  if (!diagram.querySelector("svg")) return null;
-  const { close, view } = mountView(
-    diagram,
-    "diagram",
-    m.focus_label(),
-    (stage, shut) => diagramStage(stage, diagram, shut),
-    onClosed,
-  );
+  const opened = mountFocus(block, kind, onClosed);
+  if (!opened) return null;
+  const { close, view } = opened;
   return {
     setView(next) {
       if (next) view.setTransform?.(next);
     },
-    close,
+    setLines(lines) {
+      view.setLines?.(lines);
+    },
+    close: () => close(),
   };
 }
 
@@ -522,12 +608,6 @@ export function openMirroredDiagram(
  */
 export function openBlockFocus(block: HTMLElement): () => void {
   const kind = focusKind(block);
-  if (kind === "image" && block instanceof HTMLImageElement && isLoadedImage(block)) {
-    return mountView(block, kind, m.focus_label_image(), (stage) => imageStage(stage, block)).close;
-  }
-  if (kind === "code" || kind === "table") {
-    const label = kind === "code" ? m.focus_label_code() : m.focus_label_table();
-    return mountView(block, kind, label, (stage) => textStage(stage, block, kind)).close;
-  }
-  return () => undefined;
+  const opened = kind ? mountFocus(block, kind) : null;
+  return opened ? () => opened.close() : () => undefined;
 }

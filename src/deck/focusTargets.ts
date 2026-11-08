@@ -1,5 +1,7 @@
+import type { FocusPlace, FocusViewKind } from "../annotate/mirrorTypes";
 import { m } from "../paraglide/messages.js";
 import { FOCUS_VIEW_CLASS } from "./focusView";
+import { slideAddress } from "./pages";
 
 /**
  * The blocks of a slide that open in the focus view next to diagrams
@@ -34,14 +36,57 @@ function hasOwnName(el: Element): boolean {
   );
 }
 
+const BLOCK_SELECTOR: Record<FocusViewKind, string> = {
+  diagram: ".docwalk-diagram",
+  code: "pre",
+  table: "table",
+  image: "img",
+};
+
+/**
+ * Whether `el`, found by the selector of `kind`, is a block of that kind
+ * whether or not it has loaded. Nothing inside a diagram or a view counts,
+ * and an image in a link belongs to the link.
+ */
+function isBlock(el: Element, kind: FocusViewKind): boolean {
+  if (kind === "diagram") return true;
+  if (el.closest(`.docwalk-diagram, .${FOCUS_VIEW_CLASS}`)) return false;
+  return kind !== "image" || !el.closest("a");
+}
+
+/**
+ * The blocks of `kind` on a page in document order, loaded or not, so a
+ * follower that blocked an image numbers the ones after it as the presenter
+ * does (decision 106).
+ */
+function blocksOf(page: Element, kind: FocusViewKind): HTMLElement[] {
+  return [...page.querySelectorAll<HTMLElement>(BLOCK_SELECTOR[kind])].filter((el) =>
+    isBlock(el, kind),
+  );
+}
+
+/** Where a block sits: its page's address, its kind and its number among that kind on the page. */
+export function locateBlock(el: HTMLElement, kind: FocusViewKind): FocusPlace | null {
+  const page = el.closest<HTMLElement>("section[data-docwalk-id]");
+  if (!page) return null;
+  const at = blocksOf(page, kind).indexOf(el);
+  return at < 0 ? null : { slide: slideAddress(page), block: kind, n: at + 1 };
+}
+
+/** The block `place` names among the pages of `stage`, if this deck has it. */
+export function findBlock(stage: ParentNode, place: FocusPlace): HTMLElement | null {
+  for (const page of stage.querySelectorAll<HTMLElement>(":scope > section[data-docwalk-id]")) {
+    if (slideAddress(page) === place.slide) return blocksOf(page, place.block)[place.n - 1] ?? null;
+  }
+  return null;
+}
+
 function kindOf(el: Element): FocusKind | null {
-  if (el.closest(`.docwalk-diagram, .${FOCUS_VIEW_CLASS}`)) return null;
-  if (el instanceof HTMLPreElement) return "code";
-  if (el instanceof HTMLTableElement) return "table";
+  if (el instanceof HTMLPreElement) return isBlock(el, "code") ? "code" : null;
+  if (el instanceof HTMLTableElement) return isBlock(el, "table") ? "table" : null;
   if (!(el instanceof HTMLImageElement)) return null;
-  // A blocked image has no \`src\` yet, so it is never loaded (decision 33); an image in a link
-  // belongs to the link.
-  return isLoadedImage(el) && !el.closest("a") ? "image" : null;
+  // A blocked image has no `src` yet, so it is never loaded (decision 33).
+  return isBlock(el, "image") && isLoadedImage(el) ? "image" : null;
 }
 
 /** Marks one element when it qualifies, and does nothing otherwise. */
