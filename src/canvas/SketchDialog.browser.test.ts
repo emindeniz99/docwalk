@@ -1,7 +1,7 @@
 import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
@@ -58,6 +58,26 @@ let root: Root | null = null;
 let key = "";
 /** Sketches of other documents that a test stores beside the open one. */
 const OTHERS = [sketchKey("file:old.md", "h1"), sketchKey("file:new.md", "h2")];
+
+/**
+ * The Saved sketches panel lists every sketch on the origin, and "Delete all
+ * others" deletes them, while other test files store sketches on this origin
+ * side by side (src/workspace's rename test leaves one behind). This file
+ * keeps its sketches in a database of its own, so a panel test sees only what
+ * it stored and cannot delete another file's sketch in the middle of its test.
+ */
+const openDatabase = IDBFactory.prototype.open;
+beforeAll(() => {
+  IDBFactory.prototype.open = function (name: string, version?: number) {
+    const own = name === "docwalk-canvas" ? "docwalk-canvas-sketch-dialog-test" : name;
+    return version === undefined
+      ? openDatabase.call(this, own)
+      : openDatabase.call(this, own, version);
+  };
+});
+afterAll(() => {
+  IDBFactory.prototype.open = openDatabase;
+});
 
 /** Writes a record the way an earlier version saved it: straight into IndexedDB, unfiltered. */
 function rawPut(record: object): Promise<void> {
