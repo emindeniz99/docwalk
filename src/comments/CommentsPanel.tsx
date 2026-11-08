@@ -282,7 +282,9 @@ function PanelBody({
             isDisabled={api.comments.length === 0}
             onPress={() => {
               downloadBlob(
-                new Blob([serializeComments(api.comments)], { type: "application/json" }),
+                new Blob([serializeComments(api.comments, api.deleted)], {
+                  type: "application/json",
+                }),
                 sidecarName,
               );
               announce({ message: m.comments_saved_file({ name: sidecarName }), tone: "info" });
@@ -299,7 +301,7 @@ function PanelBody({
       {!api.persistent && (
         <p className="docwalk-comments-warning">
           <TriangleAlert size={16} aria-hidden="true" />
-          <span>{m.comments_not_persistent()}</span>
+          <span>{api.unreadable ? m.comments_unreadable() : m.comments_not_persistent()}</span>
         </p>
       )}
 

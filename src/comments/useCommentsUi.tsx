@@ -47,7 +47,8 @@ export interface CommentsUiInput {
 /** Comment payload for the share dialog. */
 export interface ShareComments {
   count: number;
-  encode: () => Promise<string>;
+  /** The link values, fullest first: with the deletions, then without when the first does not fit (decision 95). */
+  encode: () => Promise<string[]>;
 }
 
 /**
@@ -187,8 +188,14 @@ export function useCommentsUi({
     ) : null;
 
   const share: ShareComments = useMemo(
-    () => ({ count: api.comments.length, encode: () => encodeComments(api.comments) }),
-    [api.comments],
+    () => ({
+      count: api.comments.length,
+      encode: async () => {
+        const full = await encodeComments(api.comments, api.deleted);
+        return api.deleted.length === 0 ? [full] : [full, await encodeComments(api.comments)];
+      },
+    }),
+    [api.comments, api.deleted],
   );
 
   return {
