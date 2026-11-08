@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { API_LIMITS } from "../api/types";
 import {
   createPresenterCredentials,
   createRoomCredentials,
@@ -58,6 +59,8 @@ const MESSAGES: RemoteMessage[] = [
   },
   { type: "mirror", op: "drop", slide: "retries/2", ids: [7, 8] },
   { type: "mirror", op: "clear", slide: "retries/2" },
+  { type: "mirror", op: "keep", slide: "retries/2", ids: [7, 8] },
+  { type: "mirror", op: "keep", slide: "retries/2", ids: [] },
   { type: "mirror", op: "focus-open", slide: "retries/2", diagram: 2 },
   { type: "mirror", op: "focus-view", scale: 2.5, x: -0.25, y: 0.1 },
   { type: "mirror", op: "focus-close" },
@@ -508,10 +511,41 @@ describe("mirror messages (decision 88)", () => {
       { type: "mirror", op: "focus-view", scale: 20, x: 0, y: 0 },
       { type: "mirror", op: "focus-view", scale: 0, x: 0, y: 0 },
       { type: "mirror", op: "focus-view", scale: 1, x: 9, y: 0 },
+      // keep (decision 103): a slide and at most 200 whole, bounded ids, nothing else.
+      { type: "mirror", op: "keep", slide: "a/1", ids: Array.from({ length: 201 }, (_, i) => i) },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [1.5] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [-1] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [2 ** 31] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [Number.NaN] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: ["1"] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: "1,2" },
+      { type: "mirror", op: "keep", slide: "a/1" },
+      { type: "mirror", op: "keep", ids: [1] },
+      { type: "mirror", op: "keep", slide: "", ids: [1] },
+      { type: "mirror", op: "keep", slide: "x".repeat(2049), ids: [1] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [1], html: "<img onerror=x>" },
     ];
     for (const message of hostile) {
       expect(await decrypt(key, await encryptRaw(key, sealed(message)))).toBeNull();
     }
+  });
+
+  test("the largest keep a presenter can send fits a relay frame and arrives intact (decision 103)", async () => {
+    // A mirror message cannot be split into parts, so the widest keep must
+    // fit one 16 KB frame signed: 200 of the largest ids and the longest
+    // address, in characters that take three bytes each.
+    const { view, signer, verifier } = await signedRoom();
+    const widest: RemoteMessage = {
+      type: "mirror",
+      op: "keep",
+      slide: "語".repeat(2048),
+      ids: Array.from({ length: 200 }, (_, i) => 2 ** 31 - 1 - i),
+    };
+    const frame = await encrypt(view, widest, SEAL, signer);
+    expect(JSON.stringify(frame).length).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(widest);
   });
 
   test("the largest stroke chunk fits a relay frame with room to spare", async () => {

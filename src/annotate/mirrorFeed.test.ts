@@ -290,14 +290,8 @@ describe("a receiver that joins late (resync)", () => {
     sent.length = 0;
     others.length = 0;
     feed.resync((op) => late.push(op));
-    expect(kinds(late)).toEqual([
-      "clear",
-      "stroke",
-      "stroke",
-      "stroke",
-      "focus-open",
-      "focus-view",
-    ]);
+    expect(kinds(late)).toEqual(["keep", "stroke", "stroke", "stroke", "focus-open", "focus-view"]);
+    expect(late[0]).toEqual({ op: "keep", slide: "a/1", ids: [1, 2, 3] });
     expect(strokeOps(late).map((s) => [s.id, s.from, s.end])).toEqual([
       [1, 0, true],
       [2, 0, true],
@@ -312,7 +306,7 @@ describe("a receiver that joins late (resync)", () => {
     const late: MirrorOp[] = [];
     feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
     feed.resync((op) => late.push(op));
-    expect(kinds(late)).toEqual(["clear", "focus-close"]);
+    expect(late).toEqual([{ op: "keep", slide: "a/1", ids: [] }, { op: "focus-close" }]);
   });
 
   test("never sends more than 200 strokes or 30,000 points, whatever the slide holds", () => {
@@ -331,6 +325,115 @@ describe("a receiver that joins late (resync)", () => {
     feed.resync((op) => again.push(op));
     const points = strokeOps(again).reduce((n, c) => n + c.points.length / 2, 0);
     expect(points).toBeLessThanOrEqual(MAX_SLIDE_POINTS);
+  });
+});
+
+describe("a resync keeps what receivers hold (decision 103)", () => {
+  const ids = (store: MirrorStore, slide = "a/1") => store.strokes(slide).map((s) => s.id);
+
+  test("no receiver loses a mark at any point of it: the strokes replace by id, none is cleared first", () => {
+    const { feed } = setup();
+    const marks = [mark(1, 40), mark(2, 40), mark(3, 40)];
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: marks, reset: true });
+    const holder = new MirrorStore();
+    for (const m of marks)
+      holder.apply({ op: "stroke", slide: "a/1", from: 0, end: true, ...m, points: [...m.points] });
+    const seen: number[][] = [];
+    feed.resync((op) => {
+      holder.apply(op);
+      seen.push(ids(holder));
+    });
+    expect(seen.length).toBeGreaterThan(3);
+    for (const after of seen) expect(after).toEqual([1, 2, 3]);
+  });
+
+  test("a receiver that holds everything is not told anything changed, so it draws nothing again", () => {
+    const { feed } = setup();
+    const marks = [mark(1, 40), mark(2, 300)];
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: marks, reset: true });
+    const holder = new MirrorStore();
+    feed.resync((op) => holder.apply(op));
+    const changed = vi.fn();
+    holder.subscribe(changed);
+    feed.resync((op) => holder.apply(op));
+    expect(changed).not.toHaveBeenCalled();
+    expect(ids(holder)).toEqual([1, 2]);
+  });
+
+  test("a stroke the presenter no longer has is removed from a receiver that missed its drop", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1), mark(2)], reset: true });
+    const stale = new MirrorStore();
+    for (const id of [1, 99, 2])
+      stale.apply({
+        op: "stroke",
+        slide: "a/1",
+        id,
+        tool: "pen",
+        color: "primary",
+        from: 0,
+        points: [1, 1, 2, 2],
+        end: true,
+      });
+    feed.resync((op) => stale.apply(op));
+    expect(ids(stale)).toEqual([1, 2]);
+  });
+
+  test("a receiver full of stale strokes still takes the presenter's, because the stale ones go first", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1), mark(2)], reset: true });
+    const stale = new MirrorStore();
+    for (let id = 100; id < 100 + MAX_SLIDE_STROKES; id++) {
+      stale.apply({
+        op: "stroke",
+        slide: "a/1",
+        id,
+        tool: "pen",
+        color: "primary",
+        from: 0,
+        points: [1, 1],
+        end: true,
+      });
+    }
+    feed.resync((op) => stale.apply(op));
+    expect(ids(stale)).toEqual([1, 2]);
+  });
+
+  test("other slides on the receiver are left alone", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    const holder = new MirrorStore();
+    holder.apply({
+      op: "stroke",
+      slide: "b/1",
+      id: 7,
+      tool: "pen",
+      color: "primary",
+      from: 0,
+      points: [1, 1],
+      end: true,
+    });
+    feed.resync((op) => holder.apply(op));
+    expect(ids(holder, "b/1")).toEqual([7]);
+  });
+
+  test("keep never names more than 200 strokes, the stroke in progress included", () => {
+    const { feed } = setup();
+    const many = Array.from({ length: MAX_SLIDE_STROKES + 50 }, (_, i) => mark(i + 1, 4));
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
+    feed.ingest({ kind: "stroke", slide: "a/1", end: false, ...mark(9000, 30) });
+    vi.advanceTimersByTime(STROKE_FLUSH_MS + 1);
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: many, reset: false });
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    const keep = late.find((o) => o.op === "keep");
+    expect(keep?.op === "keep" && keep.ids.length).toBeLessThanOrEqual(MAX_SLIDE_STROKES);
+    expect(keep?.op === "keep" && keep.ids).toContain(9000);
+    const store = new MirrorStore();
+    for (const op of late) store.apply(op);
+    expect(ids(store)).toContain(9000);
+    expect(store.strokes("a/1").length).toBeLessThanOrEqual(MAX_SLIDE_STROKES);
+    for (const op of late) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
   });
 });
 
@@ -368,7 +471,7 @@ describe("sinks", () => {
     const heard: MirrorOp[] = [];
     const off = feed.addSink((op) => heard.push(op));
     feed.resync();
-    expect(kinds(heard)).toEqual(["clear", "stroke", "focus-close"]);
+    expect(kinds(heard)).toEqual(["keep", "stroke", "focus-close"]);
     off();
     heard.length = 0;
     feed.ingest({ kind: "laser", x: 0.5, y: 0.5 });

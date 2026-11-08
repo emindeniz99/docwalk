@@ -292,7 +292,7 @@ describe("mirrored laser and marks (decision 88)", () => {
     feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1), stroke(2)], reset: true });
     const onMirror = vi.fn<(op: MirrorOp) => void>();
     connectPresenter(() => {}, { channel: hub.factory, onMirror });
-    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke", "stroke"]);
+    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke", "stroke"]);
     onMirror.mockClear();
     vi.advanceTimersByTime(HEARTBEAT_MS * 3);
     expect(onMirror).not.toHaveBeenCalled();
@@ -307,9 +307,9 @@ describe("mirrored laser and marks (decision 88)", () => {
     connectPresenter(() => {}, { channel: hub.factory, onMirror: first });
     first.mockClear();
     connectPresenter(() => {}, { channel: hub.factory, onMirror: second });
-    expect(second.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke"]);
+    expect(second.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke"]);
     // The resync is a broadcast of ops that change nothing for a window that has the marks.
-    expect(first.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke"]);
+    expect(first.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke"]);
   });
 
   test("the diagram focus view is not sent: the window shows scaled, inert copies of the slides", () => {

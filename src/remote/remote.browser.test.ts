@@ -1560,7 +1560,9 @@ describe("mirror messages (decision 88)", () => {
       () => expect(mirrors(follower).filter((m) => m.op === "stroke")).toHaveLength(2),
       SETTLE,
     );
-    expect(mirrors(follower).map((m) => m.op)).toContain("clear");
+    // The resync names what to keep and never empties the slide first (decision 103).
+    expect(mirrors(follower).map((m) => m.op)).toContain("keep");
+    expect(mirrors(follower).map((m) => m.op)).not.toContain("clear");
     // The state is the size it was: no marks ride in it.
     const state = ofType(follower, "state")[0]!;
     expect(Object.keys(state).toSorted()).toEqual(
@@ -1582,14 +1584,14 @@ describe("mirror messages (decision 88)", () => {
     feed.ingest({ kind: "marks", slide: "section-0/1", strokes: [stroke(1)], reset: true });
     const follower = peer(relay, follow, "follower");
     await opened(follower);
-    const clears = () => mirrors(follower).filter((m) => m.op === "clear");
-    await vi.waitFor(() => expect(clears()).toHaveLength(1), SETTLE);
+    const keeps = () => mirrors(follower).filter((m) => m.op === "keep");
+    await vi.waitFor(() => expect(keeps()).toHaveLength(1), SETTLE);
     for (let i = 0; i < 6; i++) {
       await follower.conn.send({ type: "hello", role: "follower", id: `HelloHello${i}x` });
     }
     await quiet();
     await quiet();
-    expect(clears()).toHaveLength(1);
+    expect(keeps()).toHaveLength(1);
   });
 
   test("a long stroke goes out in frames the relay accepts, and arrives whole", async () => {
