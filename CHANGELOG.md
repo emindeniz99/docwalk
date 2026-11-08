@@ -70,6 +70,10 @@ The first release.
   and print exports. A tick, not a colour, marks a done item, and a screen
   reader hears "Task done" or "Task not done". An `<input>` or `<form>` in
   the document is still removed.
+- Choose which sections to present from the sidebar, the command palette
+  or More actions. The link keeps the choice as `?sections=<id>,<id>`, and
+  the deck, outline, palette, overview, presenter list and exports hold the
+  chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
   only for the languages a document uses.
 - Monaco as an optional desktop editor beside CodeMirror.
