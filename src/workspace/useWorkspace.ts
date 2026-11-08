@@ -46,6 +46,7 @@ import {
   rememberRoot,
   saveFolderHandle,
 } from "./store";
+import { openTabChannel, withWriteLock, type TabChange, type TabChannel } from "./tabs";
 import { starter, TEMPLATES, type ProjectTemplate } from "./templates";
 import {
   MAX_LISTED_ENTRIES,
@@ -85,6 +86,9 @@ export type WorkspaceDialog =
   | { kind: "discard"; path: string; proceed: () => void }
   /** The file changed on disk while it has unsaved edits (decision 58). */
   | { kind: "conflict"; path: string; disk: FileText };
+
+/** What writing the pending autosave came to: written, held back for a question, or failed. */
+type Flushed = "saved" | "held" | "failed";
 
 /** What the banner says about the open workspace file. */
 export type SaveState = "saved" | "saving" | "unsaved" | "missing" | "error";
@@ -203,6 +207,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   /** The key of an open local file that was deleted or moved on disk. */
   const [missingKey, setMissingKey] = useState<string | null>(null);
   /**
+   * The key of an open browser-workspace file whose autosave is held back:
+   * another tab deleted it, or wrote different text over what this tab edited.
+   * Its edits exist only on screen until the user answers.
+   */
+  const [heldKey, setHeldKey] = useState<string | null>(null);
+  /**
    * The tree row (its path; "" for the panel) that takes focus once the
    * dialog that changed the tree has closed: the element that opened the
    * dialog may be gone, and focus must not fall to the page (WCAG 2.4.3).
@@ -317,13 +327,6 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  // Files added by other tabs or other programs show up when the user comes back.
-  useEffect(() => {
-    const onFocus = () => void refresh();
-    globalThis.addEventListener("focus", onFocus);
-    return () => globalThis.removeEventListener("focus", onFocus);
-  }, [refresh]);
-
   // The open file's folders stay expanded, so the selection is visible.
   const openPath = inView(source) ? source.path : null;
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
@@ -368,27 +371,78 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
 
   // ---- Browser workspace: autosave ------------------------------------------
   const pending = useRef<{ source: WorkspaceSource; text: string } | null>(null);
-  /** Writes the pending autosave now; false when that write failed. */
-  const flush = useCallback(async (): Promise<boolean> => {
-    const job = pending.current;
-    pending.current = null;
-    if (!job || !opfs) return true;
-    try {
-      const lm = await writeText(opfs, job.source.path, job.text);
-      setFailed(false);
-      if (baselineRef.current?.key === keyOf(job.source)) {
-        setBaseline({ key: keyOf(job.source), text: job.text, lastModified: lm });
+  /**
+   * A conflict found while another dialog was open: asked once that dialog
+   * closes, since replacing it would drop what it holds (the action waiting
+   * on Save or Discard, a half-typed name).
+   */
+  const askAfterDialog = useRef(false);
+  /** The channel to the other tabs (src/workspace/tabs.ts); null until the workspace is open. */
+  const tab = useRef<TabChannel | null>(null);
+  const announce = useCallback((kind: TabChange) => tab.current?.announce(kind), []);
+  /** Tells the other tabs the listing changed; only the browser workspace is shared. */
+  const treeChanged = useCallback(() => {
+    if (root === "opfs") announce("tree");
+  }, [root, announce]);
+  /**
+   * Writes the pending autosave now, unless the file is not what this tab last
+   * saw (decision 90). Under the write lock the file is looked at first: a file
+   * another tab deleted is not created again (`recreate`, an explicit Save,
+   * does), and one it changed to other text is asked about, never overwritten.
+   */
+  const flush = useCallback(
+    async (recreate = false): Promise<Flushed> => {
+      const job = pending.current;
+      pending.current = null;
+      if (!job || !opfs) return "saved";
+      const key = keyOf(job.source);
+      const path = job.source.path;
+      try {
+        const outcome = await withWriteLock(async () => {
+          const known = baselineRef.current?.key === key ? baselineRef.current : null;
+          let created = false;
+          if (known) {
+            const change = await diskChange(opfs, path, known, null);
+            if (change.kind === "missing") {
+              if (!recreate) return { held: "missing" as const };
+              created = true;
+            } else if (
+              change.kind === "changed" &&
+              change.disk.text !== known.text &&
+              change.disk.text !== job.text
+            ) {
+              return { held: "conflict" as const, disk: change.disk };
+            }
+          }
+          const lm = await writeText(opfs, path, job.text);
+          // Still under the lock: the next tab, or the next write of this one, compares with this.
+          if (baselineRef.current?.key === key) {
+            setBaseline({ key, text: job.text, lastModified: lm });
+          }
+          return { created };
+        });
+        if ("held" in outcome) {
+          setHeldKey(key);
+          if (outcome.held === "missing") setMissingKey(key);
+          else if (dialogRef.current?.kind !== "conflict") {
+            if (dialogRef.current) askAfterDialog.current = true;
+            else setDialog({ kind: "conflict", path, disk: outcome.disk });
+          }
+          return "held";
+        }
+        setFailed(false);
+        setHeldKey((k) => (k === key ? null : k));
+        setMissingKey((k) => (k === key ? null : k));
+        announce(outcome.created ? "tree" : "file");
+        return "saved";
+      } catch (error) {
+        setFailed(true);
+        setNotice({ message: message(error, m.ws_err_save_browser({ path })), tone: "error" });
+        return "failed";
       }
-      return true;
-    } catch (error) {
-      setFailed(true);
-      setNotice({
-        message: message(error, m.ws_err_save_browser({ path: job.source.path })),
-        tone: "error",
-      });
-      return false;
-    }
-  }, [opfs, setBaseline, setNotice]);
+    },
+    [opfs, announce, setBaseline, setNotice],
+  );
 
   const markdown = doc?.markdown;
   const baseText = base?.text;
@@ -430,7 +484,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     const current = docRef.current;
     const src = workspaceSource(current);
     if (!src || !current) return false;
-    if (src.root === "opfs") return flush();
+    if (src.root === "opfs") {
+      // Save is the user's answer to a held-back edit, so it also writes a file that is gone.
+      pending.current = { source: src, text: current.markdown };
+      return (await flush(true)) === "saved";
+    }
     const handle = handleOf(src);
     if (!handle) {
       setNotice({ message: message(new DOMException("", "NotAllowedError"), ""), tone: "error" });
@@ -476,12 +534,6 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     }
   }, [flush, handleOf, setBaseline, setNotice]);
 
-  /**
-   * A conflict found while another dialog was open: asked once that dialog
-   * closes, since replacing it would drop what it holds (the action waiting
-   * on Save or Discard, a half-typed name).
-   */
-  const askAfterDialog = useRef(false);
   const checking = useRef(false);
   const checkAgain = useRef(false);
   /** Compares the open local file with the disk; a call while one runs is not dropped but runs after it. */
@@ -493,7 +545,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     checking.current = true;
     const checkOnce = async () => {
       const src = workspaceSource(docRef.current);
-      const handle = src?.root === "folder" ? handleOf(src) : null;
+      const handle = src ? handleOf(src) : null;
       const known = baselineRef.current;
       if (!src || !handle) return;
       if (known?.key !== keyOf(src)) return;
@@ -520,12 +572,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       const { disk } = change;
       // Our own save, or a change that matches what is on screen: nothing to ask.
       if (disk.text === known.text || disk.text === current.markdown) {
+        setHeldKey((k) => (k === key ? null : k));
         setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
       } else if (current.markdown !== known.text) {
         const showing = dialogRef.current;
         if (showing && showing.kind !== "conflict") askAfterDialog.current = true;
         else setDialog({ kind: "conflict", path: src.path, disk });
       } else {
+        setHeldKey((k) => (k === key ? null : k));
         setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
         openDocument({ markdown: disk.text, source: src });
       }
@@ -542,6 +596,35 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     askAfterDialog.current = false;
     void checkDisk();
   }, [dialog, checkDisk]);
+
+  // Other tabs of the browser workspace say when they changed it (decision 90).
+  useEffect(() => {
+    if (!enabled || !opfs) return;
+    const channel = openTabChannel((kind) => {
+      if (kind === "tree" && root === "opfs") void refresh();
+      if (workspaceSource(docRef.current)?.root === "opfs") void checkDisk();
+    });
+    tab.current = channel;
+    return () => {
+      channel?.close();
+      if (tab.current === channel) tab.current = null;
+    };
+  }, [enabled, opfs, root, refresh, checkDisk]);
+
+  // Files added by other tabs or other programs, and a notice that never arrived, show on return.
+  useEffect(() => {
+    const onReturn = () => {
+      if (document.visibilityState === "hidden") return;
+      void refresh();
+      void checkDisk();
+    };
+    globalThis.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => {
+      globalThis.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+    };
+  }, [refresh, checkDisk]);
 
   const folderHandle = handleFor("folder");
   const watchedPath =
@@ -603,19 +686,21 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     return () => globalThis.removeEventListener("keydown", onKey);
   }, [enabled, save]);
 
-  // Unsaved edits to a local file: the browser asks before the page goes away.
-  const unsavedFolderEdits = dirty && sourceRoot === "folder";
+  // Unsaved edits to a local file, or edits of a browser-workspace file that
+  // another tab deleted or changed: the browser asks before the page goes away.
+  const held = heldKey !== null && heldKey === sourceKey;
+  const unsavedEdits = dirty && (sourceRoot === "folder" || held);
   useEffect(() => {
-    if (!unsavedFolderEdits) return;
+    if (!unsavedEdits) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
     globalThis.addEventListener("beforeunload", onBeforeUnload);
     return () => globalThis.removeEventListener("beforeunload", onBeforeUnload);
-  }, [unsavedFolderEdits]);
+  }, [unsavedEdits]);
 
   /** Runs `proceed` now, or after the user agrees to drop unsaved local edits. */
   const guard = useCallback(
     (proceed: () => void) => {
-      if (unsavedFolderEdits && sourcePath !== null) {
+      if (unsavedEdits && sourcePath !== null) {
         setDialog({
           kind: "discard",
           path: sourcePath,
@@ -628,7 +713,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         });
       } else proceed();
     },
-    [unsavedFolderEdits, sourcePath],
+    [unsavedEdits, sourcePath],
   );
   // A share link pasted into the address bar goes through the same question.
   useLayoutEffect(() => {
@@ -647,9 +732,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       const handle = next && handleOf(next);
       if (!next || !handle) return false;
       try {
-        await flush();
+        // Edits held back for a question are not dropped for another file.
+        if ((await flush()) === "held") return false;
         const { text, lastModified: lm } = await readText(handle, path);
         setBaseline({ key: keyOf(next), text, lastModified: lm });
+        setHeldKey(null);
         setFailed(false);
         openDocument({ markdown: text, source: next });
         return true;
@@ -686,13 +773,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       } catch (error) {
         return message(error, m.ws_err_create({ path }));
       }
+      treeChanged();
       await refresh();
       expand(ancestorsOf(path));
       setFocusTarget({ path });
       guard(() => void load(root, path));
       return null;
     },
-    [active, refresh, expand, guard, load, root],
+    [active, refresh, treeChanged, expand, guard, load, root],
   );
 
   const newFolder = useCallback(
@@ -706,12 +794,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       } catch (error) {
         return message(error, m.ws_err_create({ path }));
       }
+      treeChanged();
       await refresh();
       expand([...ancestorsOf(path), path]);
       setFocusTarget({ path });
       return null;
     },
-    [active, refresh, expand],
+    [active, refresh, treeChanged, expand],
   );
 
   const newProject = useCallback(
@@ -728,13 +817,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       } catch (error) {
         return message(error, m.ws_err_create({ path: name }));
       }
+      treeChanged();
       await refresh();
       expand([name]);
       setFocusTarget({ path: joinPath(name, template.main) });
       guard(() => void load(root, joinPath(name, template.main)));
       return null;
     },
-    [active, refresh, expand, guard, load, root],
+    [active, refresh, treeChanged, expand, guard, load, root],
   );
 
   const renameEntry = useCallback(
@@ -750,6 +840,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       } catch (error) {
         return message(error, m.ws_err_rename({ path: node.path }));
       }
+      treeChanged();
       // Comments and sketches are keyed by path; they move with the file,
       // before the open document is retargeted and reloads them.
       const { filePaths, moveAnnotations } = await import("./annotations");
@@ -778,7 +869,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       setFocusTarget({ path: next });
       return null;
     },
-    [active, flush, root, sourceFor, inView, setBaseline, retarget, refresh],
+    [active, flush, root, sourceFor, inView, setBaseline, retarget, refresh, treeChanged],
   );
 
   const removeEntry = useCallback(
@@ -796,6 +887,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         setNotice({ message: message(error, m.ws_err_delete({ path: node.path })), tone: "error" });
         return;
       }
+      treeChanged();
       // A new file at the same path later must not inherit them.
       const { dropAnnotations, filePaths } = await import("./annotations");
       await dropAnnotations(filePaths(node).map((p) => sourceFor(root, p)!));
@@ -816,6 +908,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       setBaseline,
       closeDocument,
       refresh,
+      treeChanged,
       setNotice,
     ],
   );
@@ -854,6 +947,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         }
         for (const f of contents.files)
           await writeText(active, joinPath(target, strip(f.path)), f.data);
+        treeChanged();
         await refresh();
         expand([target]);
         const first =
@@ -882,7 +976,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         });
       }
     },
-    [active, listing, refresh, expand, setNotice, guard, load, root],
+    [active, listing, refresh, treeChanged, expand, setNotice, guard, load, root],
   );
 
   const exportZip = useCallback(async () => {
@@ -994,6 +1088,9 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       if (open?.kind !== "conflict" || !src || src.path !== open.path) return;
       const key = keyOf(src);
       if (keep === "disk") {
+        // The edits that were waiting to be saved are the ones given up.
+        pending.current = null;
+        setHeldKey(null);
         setBaseline({ key, text: open.disk.text, lastModified: open.disk.lastModified });
         openDocument({ markdown: open.disk.text, source: src });
       } else {
@@ -1005,9 +1102,15 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
           lastModified: open.disk.lastModified,
           declined: open.disk.text,
         });
+        // The browser workspace has no Save button for this: keeping the edits is the save.
+        const current = docRef.current;
+        if (src.root === "opfs" && current) {
+          pending.current = { source: src, text: current.markdown };
+          void flush();
+        }
       }
     },
-    [setBaseline, openDocument],
+    [setBaseline, openDocument, flush],
   );
 
   /** The panel moved focus to `target`, or found nothing to focus. */
