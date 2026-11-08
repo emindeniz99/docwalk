@@ -290,7 +290,14 @@ describe("a receiver that joins late (resync)", () => {
     sent.length = 0;
     others.length = 0;
     feed.resync((op) => late.push(op));
-    expect(kinds(late)).toEqual(["clear", "stroke", "stroke", "stroke", "focus-open", "focus-view"]);
+    expect(kinds(late)).toEqual([
+      "clear",
+      "stroke",
+      "stroke",
+      "stroke",
+      "focus-open",
+      "focus-view",
+    ]);
     expect(strokeOps(late).map((s) => [s.id, s.from, s.end])).toEqual([
       [1, 0, true],
       [2, 0, true],
