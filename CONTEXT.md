@@ -108,6 +108,13 @@ slug and is stable across viewports (21); a heading with an empty slug
 gets a **fallback address**, `heading-<hex code points>` (62). Code:
 `headingIds`.
 
+**Section selection**: the sections the viewer picks to present, kept in
+the link as `?sections=<id>,<id>`. With none, or with every section
+picked, the deck shows the whole document. The deck and what reads it
+(outline, palette, overview, presenter list, exports) hold the picked
+sections only; document mode and the editor keep the whole file (100).
+Code: `applySelection`, `SectionPicker`.
+
 **Sketch**: a Mermaid diagram converted into an editable Excalidraw drawing
 (canvas mode), opened from the diagram focus view. It lives in the browser,
 keyed by document and diagram source, and never changes the Markdown (54, 64).
@@ -182,6 +189,7 @@ Add a row here before introducing a new one.
 | remote control              | uzaktan kumanda             |                                            |
 | outline                     | ana hat                     |                                            |
 | section                     | bölüm                       |                                            |
+| section selection           | bölüm seçimi                | "Bölümler: tümü" when there is none        |
 | slide overview              | slaytlara genel bakış       |                                            |
 | task mark                   | görev işareti               | named "tamamlandı", "tamamlanmadı"         |
 | text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |

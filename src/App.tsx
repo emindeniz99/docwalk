@@ -3,6 +3,7 @@ import {
   Download,
   KeyRound,
   LayoutGrid,
+  ListChecks,
   LogIn,
   Moon,
   Monitor,
@@ -52,6 +53,7 @@ import { SourceBanner } from "./inputs/SourceBanner";
 import { startPresenterBridge } from "./presenter/bridge";
 import { openPresenterWindow } from "./presenter/window";
 import type { RemoteStatus } from "./remote/client";
+import { applySelection } from "./sectioning/selection";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { useDraftAutosave } from "./share/draft";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
@@ -74,7 +76,7 @@ import { useDocument } from "./shell/useDocument";
 import { useMediaQuery } from "./shell/useMediaQuery";
 import { useWakeLock } from "./shell/wakeLock";
 import type { FollowUpdate } from "./shell/RemoteFollower";
-import { useUrlSync } from "./url/useUrlSync";
+import { readInitialSections, useUrlSync } from "./url/useUrlSync";
 import { m } from "./paraglide/messages.js";
 import { workspaceCommands } from "./workspace/commands";
 import { FilesPanel } from "./workspace/FilesPanel";
@@ -112,6 +114,9 @@ const ExportMenu = lazy(() =>
 );
 const SlideOverview = lazy(() =>
   import("./deck/SlideOverview").then((mod) => ({ default: mod.SlideOverview })),
+);
+const SectionPicker = lazy(() =>
+  import("./shell/SectionPicker").then((mod) => ({ default: mod.SectionPicker })),
 );
 // Canvas mode pulls in Excalidraw (several MB); it loads when a diagram is opened as a sketch.
 const SketchDialog = lazy(() =>
@@ -188,6 +193,7 @@ export function App() {
   const share = useLazyDialog();
   const join = useLazyDialog();
   const overview = useLazyDialog();
+  const sectionPicker = useLazyDialog();
   const [remoteOn, setRemoteOn] = useState(false);
   const sketch = useSketchRequest(!follow);
   const phone = useMediaQuery(PHONE);
@@ -247,7 +253,31 @@ export function App() {
   }, []);
 
   const root = useMemo(() => parseMarkdown(markdown), [markdown]);
+  // Every section of the document: document mode, the editor and the comments keep all of them.
   const plan = useMemo(() => sectionize(root, level), [root, level]);
+  // The sections to present, from the link (decision 100). A follower ignores it, so it counts
+  // every slide and always has the presenter's current address.
+  const [sections, setSections] = useState<string[] | null>(() =>
+    follow ? null : readInitialSections(),
+  );
+  // Another document than the page's first one starts without a choice: ids such as `summary` repeat.
+  const [shownDocument, setShownDocument] = useState({ id: inputs.openedId, loaded: doc !== null });
+  if (shownDocument.id !== inputs.openedId) {
+    setShownDocument({ id: inputs.openedId, loaded: doc !== null });
+    if (shownDocument.loaded) setSections(null);
+  }
+  const selection = useMemo(() => applySelection(plan, sections), [plan, sections]);
+  const pickerSections = useMemo(
+    () =>
+      plan.sections.map((sec) => ({
+        id: sec.id,
+        label:
+          sec.heading === null && sec.title !== ""
+            ? m.sections_continued({ title: sec.title }, { locale })
+            : sec.title || sec.id,
+      })),
+    [plan, locale],
+  );
   const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : m.app_breaks_only();
   const docTitle = !doc ? m.app_loading_document() : documentTitle(root, plan) || m.app_untitled();
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
@@ -330,6 +360,7 @@ export function App() {
     documentId: inputs.openedId,
     level,
     view,
+    sections: follow ? undefined : sections,
     onLevel: setLevel,
     // Present needs a user gesture for fullscreen, so a link can open edit or document only.
     onView: (v) => {
@@ -631,6 +662,7 @@ export function App() {
     { id: "present", label: m.cmd_present(), run: () => void present() },
     { id: "presenter", label: m.cmd_presenter(), run: openPresenter },
     { id: "overview", label: m.cmd_overview(), hint: "O", run: overview.open },
+    { id: "sections", label: m.cmd_sections(), run: sectionPicker.open },
     { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
     { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
     { id: "share", label: m.cmd_share(), run: share.open },
@@ -685,6 +717,7 @@ export function App() {
       ? [{ id: "remote", label: m.cmd_remote(), Icon: Cast, run: openRemote }]
       : []),
     { id: "presenter", label: m.cmd_presenter(), Icon: MonitorPlay, run: openPresenter },
+    { id: "sections", label: m.cmd_sections(), Icon: ListChecks, run: sectionPicker.open },
     ...(comments.moreAction ? [comments.moreAction] : []),
     ...(phone
       ? [
@@ -846,6 +879,24 @@ export function App() {
             />
             <div className="docwalk-level">
               <LevelSelect value={level} onChange={setLevel} resolved={resolved} />
+              <Button
+                className="docwalk-button docwalk-sections-trigger"
+                isDisabled={!doc}
+                onPress={sectionPicker.open}
+              >
+                {selection.status === "some"
+                  ? m.sections_button_some({
+                      chosen: selection.chosen.size,
+                      total: selection.total,
+                    })
+                  : m.sections_button_all()}
+              </Button>
+              {/* Always mounted, so a choice that matches nothing is announced (WCAG 4.1.3). */}
+              <p role="status" className="docwalk-sections-status">
+                {doc && selection.status === "unknown"
+                  ? m.sections_unknown({ count: selection.total })
+                  : null}
+              </p>
             </div>
           </aside>
         )}
@@ -964,7 +1015,13 @@ export function App() {
             )}
           </div>
           {doc ? (
-            <Deck plan={plan} locale={locale} onReport={onReport} onReady={onReady} fill={fill} />
+            <Deck
+              plan={selection.plan}
+              locale={locale}
+              onReport={onReport}
+              onReady={onReady}
+              fill={fill}
+            />
           ) : (
             <p className="docwalk-stage-wait">
               {follow ? m.follow_waiting() : m.app_loading_document()}
@@ -1029,6 +1086,15 @@ export function App() {
             controller={controller}
             current={current?.address ?? null}
             onGoTo={goTo}
+          />
+        )}
+        {sectionPicker.mounted && (
+          <SectionPicker
+            isOpen={sectionPicker.isOpen}
+            onOpenChange={sectionPicker.onOpenChange}
+            sections={pickerSections}
+            chosen={selection.chosen}
+            onApply={setSections}
           />
         )}
         {remoteAvailable && remoteOn && (
