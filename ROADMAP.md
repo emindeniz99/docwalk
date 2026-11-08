@@ -1,6 +1,6 @@
 # Roadmap: docwalk
 
-Dated 2026-11-05. Update this file when an item ships or a deferred item's
+Dated 2026-11-08. Update this file when an item ships or a deferred item's
 trigger fires, and delete the entry in the same commit.
 
 ## v1
@@ -28,6 +28,14 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   aligned presenter slides, an empty-deck hint, failed diagrams in the
   yellow note, the update prompt kept clear of the status bar and the next
   arrow, and a lone `# Title` document titled by its heading.
+- Done 2026-11-06: graduated from the playground monorepo to this public
+  repository, with the static build on GitHub Pages.
+- Done 2026-11-06: presenting controls hide when idle (75); fenced code
+  coloured by language with Shiki (76); a fill-the-screen present frame,
+  with the card as an option (77); presenter previews built one slide at
+  a time so the audience tab no longer stalls in WebKit; a notice instead
+  of a blank page below the browser floor (78); document-mode links scroll
+  to their heading; the update toast and dialogs pad for the safe area.
 
 Still open in v1:
 
@@ -56,18 +64,25 @@ day: Monaco as an optional editor (53), canvas mode (54, 64) and comments
 
 Needs the owner:
 
-- Switch on private vulnerability reporting (Settings, Security) as the
-  first step after the repository goes public; GitHub refuses it while the
-  repository is private. Then drop the paragraph in `SECURITY.md` that says
-  it is switched on at that point.
-
-- First run of the new workflows on GitHub (none has run): lhci finding the
-  runner's Chrome, Stryker against its 120 min timeout, the Pages deploy
-  (needs Pages source = GitHub Actions),
-  Cloudflare (needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
-  secrets of the `docwalk-cloudflare` environment, deployment branches
-  limited to `main`). zizmor's online audits and the pinned actions'
-  tag ages were not checked (no GitHub API access in the session).
+- Repository settings now that it is public: private vulnerability
+  reporting, secret scanning and push protection (Settings, Security; then
+  drop the paragraph in `SECURITY.md` that says they are switched on at
+  that point); Actions' default token set to read-only; a ruleset on
+  `main` that allows merge commits only; topics on the repository page.
+- Cut the first tag, `v0.1.0`, once `main` is green.
+- Cloudflare deploy, for sign-in and remote control: needs
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as secrets of the
+  `docwalk-cloudflare` environment, deployment branches limited to `main`.
+  The workflow has not run yet.
+- First npm publish of `docwalk-mcp`: trusted publishing cannot create a
+  package, so the owner publishes the first version by hand.
+- Escape in real fullscreen with a dialog open (see below): Chromium's
+  Keyboard Lock would fix it but makes users hold Escape to leave
+  fullscreen, and Firefox and Safari lack it. Keep the current behaviour,
+  or accept that trade on Chromium.
+- CI, Lighthouse, zizmor, the Pages deploy and the nightly Stryker run
+  have all run on GitHub. zizmor's online audits and the pinned actions'
+  tag ages were not checked.
 - A real `showDirectoryPicker` folder on a real disk in desktop Chrome:
   handle kept in IndexedDB, permission asked again on return. Every test
   uses an OPFS handle in its place.
@@ -143,4 +158,3 @@ Later rounds:
   decision row before code.
 - More locales after Turkish through Weblate; RTL with CSS logical
   properties.
-- GitHub Pages static deploy, once the repository is public.

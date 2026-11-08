@@ -6,15 +6,23 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-v1 and the v2 workspace and agent work are built (2026-11-06): round 1's
-tracks (CI, deck, Markdown, PWA, Monaco, canvas, comments, workspace, MCP),
-then i18n with a Turkish UI and a design polish round, each merged with a
-real merge commit. Review pass 3 is being fixed. Decision rows run to 78.
+2026-11-08: v1 and the v2 workspace and agent work are built, three
+review passes are fixed, and the project is public at
+github.com/emindeniz99/docwalk with the static build on GitHub Pages
+(manual `deploy-pages.yml` dispatch after each merge to `main`). On
+2026-11-06 code colours (76), the fill frame (77), per-slide presenter
+previews, the old-browser notice (78), document-mode hash links and
+safe-area padding landed. Decision rows run to 78. CI (three-engine e2e,
+Lighthouse, zizmor) is green on GitHub; the nightly Stryker run was fixed
+on 2026-11-08 (`disableTypeChecks` must skip HTML). Small safe changes go
+straight to `main`, larger work on a branch merged with `--no-ff`
+(CONTRIBUTING). Next features are ranked in `docs/feature-gaps.md`; open
+work and owner tasks are in ROADMAP "Follow-ups".
+
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
-1 MB gzip and times the fixture's open and repaginate against decision 43.
-None of the GitHub workflows (three-engine e2e, Lighthouse, Stryker,
-deploys) has run on GitHub yet. Open work is in ROADMAP "Follow-ups".
+1 MB gzip (977 kB used) and times the fixture's open and repaginate
+against decision 43.
 
 Local runs: browser tests take a Chromium binary from
 `DOCWALK_CHROMIUM_PATH` (a headless shell is enough); e2e takes a full
