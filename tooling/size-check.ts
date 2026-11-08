@@ -1,28 +1,24 @@
-import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { firstLoadFilesContaining } from "./first-load.ts";
+import { runSizeLimit, type SizeResult } from "./size-limit-run.ts";
 
 // Decision 43: size-limit fails the build above the hard limit in
 // .size-limit.ts (1 MB); above WARN_BYTES it only warns, so growth is seen
 // early without blocking work.
 const WARN_BYTES = 500_000;
 
-interface Result {
-  name: string;
-  size: number;
-  passed: boolean;
-}
-
-let output: string;
+let results: SizeResult[];
 let failed = false;
 try {
-  output = execFileSync("size-limit", ["--json"], { encoding: "utf8" });
+  const run = runSizeLimit();
+  results = run.results;
+  failed = run.overLimit;
 } catch (error) {
-  failed = true;
-  output = String((error as { stdout?: unknown }).stdout ?? "[]");
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
 }
 
-for (const result of JSON.parse(output) as Result[]) {
+for (const result of results) {
   const kb = (result.size / 1000).toFixed(1);
   console.log(`${result.name}: ${kb} kB gzip${result.passed ? "" : " (over the hard limit)"}`);
   if (result.size > WARN_BYTES) {

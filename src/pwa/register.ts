@@ -29,6 +29,30 @@ function warmWhenControlled(sw: ServiceWorkerContainer): void {
   sw.addEventListener("controllerchange", flush);
 }
 
+/** How long a visible, online tab waits between checks for a new version (decision 99). */
+export const UPDATE_CHECK_MS = 60 * 60 * 1000;
+
+/**
+ * Asks the browser to fetch `sw.js` again while the page stays open. The
+ * browser checks on navigation and about once a day; a deck left open for a
+ * conference week would otherwise never see a release. Only a visible tab
+ * that reports itself online asks, and a failed check says nothing: the next
+ * one tries again. The request goes to this origin's own `sw.js` (rule 8).
+ */
+function checkForUpdatesWhileOpen(registration: ServiceWorkerRegistration): void {
+  let last = Date.now();
+  const check = () => {
+    if (document.visibilityState !== "visible" || !navigator.onLine) return;
+    last = Date.now();
+    registration.update().catch(() => undefined);
+  };
+  setInterval(check, UPDATE_CHECK_MS);
+  // A hidden tab skips its tick; coming back to it should not wait a whole interval more.
+  document.addEventListener("visibilitychange", () => {
+    if (Date.now() - last >= UPDATE_CHECK_MS) check();
+  });
+}
+
 /**
  * Registers the service worker (src/pwa/sw.ts) and reports a waiting update.
  * Production builds only: the dev server has no sw.js.
@@ -66,6 +90,7 @@ export function registerServiceWorker(
   void sw
     .register(`${base}sw.js`, { scope: base })
     .then((registration) => {
+      checkForUpdatesWhileOpen(registration);
       if (registration.waiting && sw.controller) offer(registration.waiting);
       registration.addEventListener("updatefound", () => {
         const worker = registration.installing;

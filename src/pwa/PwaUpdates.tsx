@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { UNSTABLE_ToastQueue as ToastQueue } from "react-aria-components";
+import { consumeLaunchedFile, openLikeADrop } from "./launch";
 import { registerServiceWorker } from "./register";
 import { UpdateToast, type UpdateToastContent } from "./UpdateToast";
 
 /**
- * Registers the service worker and shows the update prompt when a new
- * version is waiting. Mounted by main.tsx in the main view of a production
+ * Registers the service worker, shows the update prompt when a new version
+ * is waiting, and opens a Markdown file the OS launched the app with
+ * (decision 99). Mounted by main.tsx in the main view of a production
  * build only; the presenter window and phone remote stay quiet.
  */
 export function PwaUpdates() {
@@ -17,6 +19,7 @@ export function PwaUpdates() {
       if (shown) queue.close(shown);
       shown = queue.add({ apply });
     });
+    consumeLaunchedFile(openLikeADrop);
   }, [queue]);
   return <UpdateToast queue={queue} />;
 }
