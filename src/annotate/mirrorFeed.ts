@@ -153,21 +153,31 @@ export class MirrorFeed {
   /**
    * Sends the current slide's marks, the stroke in progress and the focus
    * state to `sink` alone, or to every sink without one. Every op is
-   * idempotent for a receiver that has them already.
+   * idempotent for a receiver that has them already: it opens with `keep`
+   * (decision 103), which removes only what the presenter no longer has,
+   * and the strokes that follow replace by id, so no receiver shows the
+   * slide empty in between.
    */
   resync(sink?: MirrorSink): void {
     const emit = (op: MirrorOp) => this.emit(op, sink);
     if (this.current) {
       const { slide, strokes } = this.current;
-      emit({ op: "clear", slide });
-      for (const stroke of this.fit(strokes)) this.sendChunks(emit, slide, stroke, 0, true);
-      for (const [id, live] of this.live) {
-        // Only what every sink has been sent; the next flush sends the rest
-        // from `sent`, which a receiver holding more would refuse.
-        if (live.slide !== slide || live.sent === 0) continue;
-        const points = live.points.slice(0, live.sent);
-        this.sendChunks(emit, slide, { id, ...live, points }, 0, false);
-      }
+      // Only what every sink has been sent; the next flush sends the rest
+      // from `sent`, which a receiver holding more would refuse.
+      const live = [...this.live]
+        .filter(([, stroke]) => stroke.slide === slide && stroke.sent > 0)
+        .map(([id, stroke]) => ({ id, ...stroke, points: stroke.points.slice(0, stroke.sent) }));
+      const livePoints = live.reduce((n, stroke) => n + stroke.points.length / 2, 0);
+      const done = this.fit(
+        strokes,
+        MAX_SLIDE_STROKES - live.length,
+        MAX_SLIDE_POINTS - livePoints,
+      );
+      // First: a receiver at its stroke limit then has room for these, and a
+      // resync cut off part way leaves no stale mark behind.
+      emit({ op: "keep", slide, ids: [...done, ...live].map((stroke) => stroke.id) });
+      for (const stroke of done) this.sendChunks(emit, slide, stroke, 0, true);
+      for (const stroke of live) this.sendChunks(emit, slide, stroke, 0, false);
     }
     if (this.focusOpen) {
       emit({ op: "focus-open", ...this.focusOpen });
@@ -310,14 +320,18 @@ export class MirrorFeed {
     } while (at < total);
   }
 
-  /** The newest strokes that fit a receiver's limits, oldest first. */
-  private fit(strokes: readonly MarkStroke[]): MarkStroke[] {
+  /** The newest strokes that fit a receiver's limits (less what is reserved), oldest first. */
+  private fit(
+    strokes: readonly MarkStroke[],
+    maxStrokes = MAX_SLIDE_STROKES,
+    maxPoints = MAX_SLIDE_POINTS,
+  ): MarkStroke[] {
     const picked: MarkStroke[] = [];
     let points = 0;
-    for (let i = strokes.length - 1; i >= 0 && picked.length < MAX_SLIDE_STROKES; i--) {
+    for (let i = strokes.length - 1; i >= 0 && picked.length < maxStrokes; i--) {
       const stroke = strokes[i]!;
       points += usable(stroke.points) / 2;
-      if (points > MAX_SLIDE_POINTS) break;
+      if (points > maxPoints) break;
       picked.push(stroke);
     }
     return picked.toReversed();
