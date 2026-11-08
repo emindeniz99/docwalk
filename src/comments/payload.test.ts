@@ -51,7 +51,11 @@ describe("share round trip", () => {
     const hash = new URL(result.link.url).hash;
     expect(hash).toMatch(/^#doc=[\w-]+&c=[\w-]+$/);
     expect(await readFragment(hash)).toBe(markdown);
-    expect(await decodeComments(commentsParam(hash)!)).toEqual({ ok: true, comments });
+    expect(await decodeComments(commentsParam(hash)!)).toEqual({
+      ok: true,
+      comments,
+      deleted: [],
+    });
   });
 
   test("a ?src= link carries comments in a #c= fragment, which no server receives", async () => {
@@ -69,7 +73,26 @@ describe("share round trip", () => {
     const url = new URL(result.link.url);
     expect(url.searchParams.get("src")).toBe("https://raw.githubusercontent.com/o/r/main/a.md");
     expect(url.hash).toMatch(/^#c=[\w-]+$/);
-    expect(await decodeComments(commentsParam(url.hash)!)).toEqual({ ok: true, comments });
+    expect(await decodeComments(commentsParam(url.hash)!)).toEqual({
+      ok: true,
+      comments,
+      deleted: [],
+    });
+  });
+
+  test("a link carries the deletions too, so an old link cannot bring a deleted comment back", async () => {
+    const deleted = [{ id: "c9", deleted: 99 }];
+    const hash = `#c=${await encodeComments(comments, deleted)}`;
+    expect(await decodeComments(commentsParam(hash)!)).toEqual({ ok: true, comments, deleted });
+  });
+
+  test("a link written before deletions were carried still reads, with none", async () => {
+    // Compact JSON exactly as an earlier build wrote it: no `deleted` key.
+    const { encodeDoc } = await import("../share/fragment");
+    const old = await encodeDoc(
+      JSON.stringify({ format: "docwalk-comments", version: 1, comments }),
+    );
+    expect(await decodeComments(old)).toEqual({ ok: true, comments, deleted: [] });
   });
 
   test("an old link without comments opens exactly as before", async () => {
