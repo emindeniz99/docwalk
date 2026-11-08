@@ -31,6 +31,8 @@ export const MAX_SLIDE_POINTS = 30_000;
 export const MAX_MARK_SLIDES = 16;
 /** Ids in one `drop`. */
 export const MAX_DROP_IDS = 64;
+/** Ids in one `keep`: every stroke a receiver keeps for a slide (decision 103). */
+export const MAX_KEEP_IDS = MAX_SLIDE_STROKES;
 /** The longest address a message may carry (the same ceiling as a `goto`). */
 export const MAX_SLIDE_ADDRESS_CHARS = 2048;
 /** Diagrams are numbered from 1 on their slide; no slide has more than this. */
@@ -96,6 +98,12 @@ export type MirrorOp =
   | { op: "drop"; slide: string; ids: number[] }
   /** Every stroke of the slide is gone. */
   | { op: "clear"; slide: string }
+  /**
+   * The strokes of the slide that stay; every other one is gone. A resync
+   * opens with it and then sends those strokes from 0 (decision 103), so a
+   * receiver that has them never shows the slide empty.
+   */
+  | { op: "keep"; slide: string; ids: number[] }
   /** The presenter opened the focus view on the `diagram`-th diagram (from 1) of a slide. */
   | { op: "focus-open"; slide: string; diagram: number }
   /** Zoom and pan of the open focus view; the pan is a fraction of the stage, so any screen frames alike. */
