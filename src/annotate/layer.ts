@@ -15,9 +15,6 @@ import { strokeElement } from "./markSvg";
 import { outlinePath } from "./outline";
 import type { AnnotationLayer, AnnotationLayerOptions, AnnotationMode } from "./types";
 
-// App loads this module lazily, with the layer, after the deck is up.
-export { markKeys } from "./markKeys";
-
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** How long a laser point stays on screen; the trail is gone this long after the pointer stops. */

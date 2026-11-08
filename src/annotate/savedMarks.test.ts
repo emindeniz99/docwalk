@@ -191,7 +191,7 @@ describe("the marks of one document", () => {
     other.put("intro/1", "aa", strokes);
     const heard = vi.fn<() => void>();
     marks.subscribe(heard);
-    await marks.clear();
+    expect(await marks.clear()).toBe(true);
     expect(marks.size).toBe(0);
     expect(heard).toHaveBeenCalled();
     expect(await store.load(DOC)).toEqual([]);
@@ -229,6 +229,19 @@ describe("the marks of one document", () => {
     marks.put("intro/1", "aa", strokes);
     await marks.settled();
     expect(put).not.toHaveBeenCalled();
+    expect(problem.mock.calls).toEqual([["failed"]]);
+    // Nor does it say it deleted what it could not reach.
+    expect(await marks.clear()).toBe(false);
+  });
+
+  test("a delete the store refuses is not reported as done", async () => {
+    const refusing: MarksStore = {
+      ...memoryMarksStore(),
+      clear: () => Promise.reject(new Error("UnknownError")),
+    };
+    const problem = vi.fn<(kind: "full" | "failed") => void>();
+    const marks = await loadMarks(refusing, DOC, problem);
+    expect(await marks.clear()).toBe(false);
     expect(problem.mock.calls).toEqual([["failed"]]);
   });
 });

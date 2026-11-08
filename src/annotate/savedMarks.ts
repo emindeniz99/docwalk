@@ -223,13 +223,20 @@ export class DocumentMarks {
     return true;
   }
 
-  /** Deletes every saved mark of the document. */
-  async clear(): Promise<void> {
+  /** Deletes every saved mark of the document; false when the store did not. */
+  async clear(): Promise<boolean> {
     this.slides.clear();
     this.points = 0;
     this.changed();
-    this.write((store) => store.clear(this.doc));
+    let done = this.store !== null;
+    this.write((store) =>
+      store.clear(this.doc).catch((error: unknown) => {
+        done = false;
+        throw error;
+      }),
+    );
     await this.settled();
+    return done;
   }
 
   /** Resolves when every write asked for so far has finished. */

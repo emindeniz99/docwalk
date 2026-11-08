@@ -13,6 +13,7 @@ import {
   Share2,
   Sun,
   TableOfContents,
+  Trash,
   X,
 } from "lucide-react";
 import {
@@ -21,10 +22,13 @@ import {
   resolvePenColor,
   type PenColor,
 } from "./annotate/AnnotationToolbar";
+import { markKeys, slideFingerprint, slideFingerprints } from "./annotate/markKeys";
 import { MirrorFeed } from "./annotate/mirrorFeed";
 import { markColorOf } from "./annotate/mirrorTypes";
+import { marksSaver } from "./annotate/savedMarks";
 import type { AnnotationLayer, AnnotationMode } from "./annotate/types";
 import { useAnnotationShortcuts } from "./annotate/useAnnotationShortcuts";
+import { useSavedMarks } from "./annotate/useSavedMarks";
 import {
   lazy,
   Suspense,
@@ -134,6 +138,10 @@ const SlideOverview = lazy(() =>
 );
 const SectionPicker = lazy(() =>
   import("./shell/SectionPicker").then((mod) => ({ default: mod.SectionPicker })),
+);
+// Asks before deleting a document's saved marks (decision 105).
+const ClearMarksDialog = lazy(() =>
+  import("./annotate/ClearMarksDialog").then((mod) => ({ default: mod.ClearMarksDialog })),
 );
 // Canvas mode pulls in Excalidraw (several MB); it loads when a diagram is opened as a sketch.
 const SketchDialog = lazy(() =>
@@ -436,35 +444,8 @@ export function App() {
     });
   }, [controller, presenterRequested, mirrorFeed]);
 
-  // Pen and laser over the slides; each slide keeps its own marks while the deck is open.
-  // The layer (drauu, perfect-freehand) loads after the deck is up, outside the first-load bundle.
-  // A rebuild (an edit, an agent write, a disk reload, a language switch) brings a new stage:
-  // the layer moves onto it, and only slides whose text changed lose their marks.
+  // Set when the annotation layer is up (below, after the saved marks it draws are known).
   const [layerReady, setLayerReady] = useState(0);
-  useEffect(() => {
-    if (!controller) return;
-    let cancelled = false;
-    let stop: (() => void) | undefined;
-    void import("./annotate/layer").then(({ createAnnotationLayer, markKeys }) => {
-      if (cancelled) return;
-      const layer = layerRef.current ?? createAnnotationLayer(controller.stage());
-      // A new layer: what it draws goes to the mirror (decision 88). It keeps its observers
-      // across rebuilds, so this runs once.
-      if (!layerRef.current) layer.observe((event) => mirrorFeed.ingest(event));
-      layer.moveTo(controller.stage());
-      layerRef.current = layer;
-      const keys = markKeys(controller.stage());
-      stop = controller.onChange((sl) =>
-        layer.setKey(keys.get(sl.address) ?? sl.address, sl.address),
-      );
-      layer.retain(keys.values());
-      setLayerReady((n) => n + 1);
-    });
-    return () => {
-      cancelled = true;
-      stop?.();
-    };
-  }, [controller, mirrorFeed]);
   useEffect(
     () => () => {
       layerRef.current?.destroy();
@@ -673,6 +654,77 @@ export function App() {
   });
   const { markEdit } = comments;
   const { edit } = inputs;
+
+  // Pen and arrow marks saved per document and slide (decision 105), under the comments' identity.
+  const saved = useSavedMarks({
+    documentKey: comments.documentKey,
+    enabled: !follow,
+    setNotice,
+  });
+  const { marks: savedMarks } = saved;
+
+  // Pen and laser over the slides; each slide keeps its own marks while the deck is open, and
+  // its saved marks come back on its first visit. The layer (drauu, perfect-freehand) loads
+  // after the deck and the document's saved marks are up, outside the first-load bundle.
+  // A rebuild (an edit, an agent write, a disk reload, a language switch) brings a new stage:
+  // the layer moves onto it, and only slides whose text changed lose their marks. Another
+  // document brings other saved marks: the layer starts again from those.
+  /** The saved marks the current layer was made for. */
+  const layerMarks = useRef<typeof savedMarks>(null);
+  const fingerprints = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (!controller || !savedMarks) return;
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    void import("./annotate/layer").then(({ createAnnotationLayer }) => {
+      if (cancelled) return;
+      if (layerRef.current && layerMarks.current !== savedMarks) {
+        layerRef.current.destroy();
+        layerRef.current = null;
+      }
+      let layer = layerRef.current;
+      if (!layer) {
+        layer = createAnnotationLayer(controller.stage(), {
+          saved: (key, address) => savedMarks.forKey(key, address),
+        });
+        // What it draws goes to the mirror (decision 88) and into the saved marks (decision
+        // 105). It keeps its observers across rebuilds, so this runs once per document.
+        layer.observe((event) => mirrorFeed.ingest(event));
+        layer.observe(
+          marksSaver(
+            () => savedMarks,
+            (address) => fingerprints.current.get(address),
+          ),
+        );
+        layerMarks.current = savedMarks;
+      }
+      const shown = layer;
+      shown.moveTo(controller.stage());
+      layerRef.current = shown;
+      fingerprints.current = slideFingerprints(controller.stage());
+      const keys = markKeys(controller.stage());
+      stop = controller.onChange((sl) =>
+        shown.setKey(keys.get(sl.address) ?? sl.address, sl.address),
+      );
+      shown.retain(keys.values());
+      setLayerReady((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [controller, mirrorFeed, savedMarks]);
+
+  // "Delete saved marks": the records, then every slide's marks and their undo history.
+  const clearMarks = useLazyDialog();
+  const deleteSavedMarks = useCallback(() => {
+    if (!savedMarks) return;
+    layerRef.current?.retain([]);
+    layerRef.current?.clear();
+    void savedMarks.clear().then((done) => {
+      if (done) setNotice({ message: m.marks_cleared(), tone: "info" });
+    });
+  }, [savedMarks, setNotice]);
   const onEdit = useCallback(
     (next: string) => {
       markEdit(next);
@@ -682,18 +734,28 @@ export function App() {
   );
 
   // The exporters work from the paginated pages the audience sees, as copies they may change.
-  const getExportOptions = useCallback((): ExportOptions | null => {
-    if (!controller) return null;
-    return {
-      title: docTitle,
-      size: SLIDE_SIZE,
-      slides: clonePages(controller).map(({ info, element }) => ({
-        address: info.address,
-        title: info.title,
-        element,
-      })),
-    };
-  }, [controller, docTitle]);
+  // Each slide takes the saved marks drawn on its present text (decision 105), unless left out.
+  const getExportOptions = useCallback(
+    (withMarks: boolean): ExportOptions | null => {
+      if (!controller) return null;
+      return {
+        title: docTitle,
+        size: SLIDE_SIZE,
+        slides: clonePages(controller).map(({ info, element }) => {
+          const marks = withMarks
+            ? (savedMarks?.strokes(info.address, slideFingerprint(element)) ?? [])
+            : [];
+          return {
+            address: info.address,
+            title: info.title,
+            element,
+            ...(marks.length > 0 ? { marks } : {}),
+          };
+        }),
+      };
+    },
+    [controller, docTitle, savedMarks],
+  );
 
   const oauthClientId = health?.features.includes("oauth") ? health.githubClientId : undefined;
   const signIn = useCallback(() => {
@@ -732,6 +794,9 @@ export function App() {
         ]),
     { id: "share", label: m.cmd_share(), run: share.open },
     ...(comments.command ? [comments.command] : []),
+    ...(saved.count > 0
+      ? [{ id: "delete-marks", label: m.marks_clear_command(), run: clearMarks.open }]
+      : []),
     { id: "token", label: m.cmd_token(), run: () => inputs.setTokenOpen(true) },
     ...(oauthClientId ? [{ id: "sign-in", label: m.cmd_sign_in(), run: signIn }] : []),
     ...(remoteAvailable ? [{ id: "remote", label: m.cmd_remote(), run: openRemote }] : []),
@@ -784,6 +849,9 @@ export function App() {
     { id: "presenter", label: m.cmd_presenter(), Icon: MonitorPlay, run: openPresenter },
     { id: "sections", label: m.cmd_sections(), Icon: ListChecks, run: sectionPicker.open },
     ...(comments.moreAction ? [comments.moreAction] : []),
+    ...(saved.count > 0
+      ? [{ id: "delete-marks", label: m.marks_clear_command(), Icon: Trash, run: clearMarks.open }]
+      : []),
     ...(phone
       ? [
           {
@@ -872,7 +940,11 @@ export function App() {
                 </Button>
               }
             >
-              <ExportMenu getOptions={getExportOptions} isDisabled={!controller} />
+              <ExportMenu
+                getOptions={getExportOptions}
+                hasMarks={saved.count > 0}
+                isDisabled={!controller}
+              />
             </Suspense>
             {comments.toggle}
             <MoreMenu actions={moreActions} />
@@ -1173,6 +1245,14 @@ export function App() {
             onOpenChange={join.onOpenChange}
             edit={onEdit}
             setNotice={setNotice}
+          />
+        )}
+        {clearMarks.mounted && (
+          <ClearMarksDialog
+            isOpen={clearMarks.isOpen}
+            onOpenChange={clearMarks.onOpenChange}
+            count={saved.count}
+            onConfirm={deleteSavedMarks}
           />
         )}
         {sketch.request && doc && (
