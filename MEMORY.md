@@ -12,7 +12,7 @@ github.com/emindeniz99/docwalk with the static build on GitHub Pages
 (`deploy-pages.yml` runs after CI passes on `main`, or by hand). On
 2026-11-06 code colours (76), the fill frame (77), per-slide presenter
 previews, the old-browser notice (78), document-mode hash links and
-safe-area padding landed. Decision rows run to 81. CI (three-engine e2e,
+safe-area padding landed. Decision rows run to 86. CI (three-engine e2e,
 Lighthouse, zizmor) is green on GitHub; the nightly Stryker run was fixed
 on 2026-11-08 (`disableTypeChecks` must skip HTML). Small safe changes go
 straight to `main`, larger work on a branch merged with `--no-ff`
@@ -104,3 +104,4 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-05: Parallel build of editor, annotation, presenter and URL modules, integrated, e2e suite added.
 - 2026-11-05: Design: three directions, mix chosen (decision 49), DESIGN.md + tokens + parity test, Stage look applied.
 - 2026-11-05: Semantic pagination, week-1 spike, acceptance fixture, prior-art research and project docs.
+- 2026-11-08: Task list items drew as plain bullets because GitHub's sanitizer schema keeps only a disabled checkbox (no `checked`) and DOMPurify then removes `input`. The state is read from the Markdown tree and drawn after the sanitizers (decision 86); a nonce in a placeholder span keeps a document from forging it. In the HTML export the tick vanished while the box stayed: the rule `border: solid var(--x)` followed by `border-width` did not survive being read back through the CSSOM. Write `border-style`, `border-color` and `border-width` apart.

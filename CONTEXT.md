@@ -112,6 +112,11 @@ audience deck, document mode and exports (79). Code: `speakerNotes`.
 **Static mode**: a deployment without the Worker. Everything except OAuth
 and remote control works (37, 38).
 
+**Task mark**: the empty, read-only box that stands where GitHub draws a
+task item's checkbox. The state comes from the Markdown tree, the mark is
+added after both sanitizers, and it is a drawing with a name, never a form
+control (86). Code: `rehypeMarkTasks`, `rehypeDrawTasks`.
+
 **Text hit**: a slide the command palette lists because its text holds the
 query, not its title. It shows a snippet with the match marked and opens
 the paginated page that holds the words. Diagrams and speaker notes are not
@@ -156,6 +161,7 @@ Add a row here before introducing a new one.
 | outline                     | ana hat                     |                                            |
 | section                     | bölüm                       |                                            |
 | slide overview              | slaytlara genel bakış       |                                            |
+| task mark                   | görev işareti               | named "tamamlandı", "tamamlanmadı"         |
 | text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |
 | diagram, node               | diyagram, düğüm             |                                            |
 | sketch                      | çizim                       |                                            |

@@ -49,6 +49,11 @@ The first release.
 - Share links with the document compressed into the URL fragment.
 - GitHub alerts, footnotes, raw HTML under GitHub's sanitizer schema and
   GitHub-compatible heading anchors.
+- Task list items (`- [x]`, `- [ ]`) show their state as read-only boxes on
+  slides, in document view, in the presenter's previews and in the HTML, PNG
+  and print exports. A tick, not a colour, marks a done item, and a screen
+  reader hears "Task done" or "Task not done". An `<input>` or `<form>` in
+  the document is still removed.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
   only for the languages a document uses.
 - Monaco as an optional desktop editor beside CodeMirror.
