@@ -198,21 +198,28 @@ test("while presenting, the sketch owns its keys and Escape leaves only the sket
   await expect(page.getByRole("radio", { name: "Pen" })).not.toBeChecked();
 });
 
-test("the sketch dialog passes axe, less two known Excalidraw controls", async ({ page }) => {
-  // The dialog (header, export menu, close) and Excalidraw's toolbar must pass
-  // WCAG 2.2 AA. Two controls inside Excalidraw 0.18.1 fail and are not ours
-  // to change; they are excluded by name, so anything new still fails here:
-  // - `.main-menu-trigger`: the hamburger button has no accessible name (button-name);
-  // - `.reset-zoom-button`: its name does not contain its visible "60%" (label-content-name-mismatch).
+test("the sketch dialog and Excalidraw's controls pass axe", async ({ page }) => {
+  // The dialog (header, export menu, close) and all of Excalidraw's UI must pass WCAG 2.2 AA.
+  // Excalidraw 0.18.1 left its menu button unnamed and labelled its zoom button "Reset zoom"
+  // over a visible "60%"; the dialog names both (decision 98), so nothing is excluded.
   await ready(page);
   await openSketch(page, "Current architecture");
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-    .exclude(".excalidraw .main-menu-trigger")
-    .exclude(".excalidraw .reset-zoom-button")
     .analyze();
   const serious = results.violations
     .filter((v) => v.impact === "serious" || v.impact === "critical")
     .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`);
   expect(serious).toEqual([]);
+});
+
+test("the Library sidebar offers no link to another site", async ({ page }) => {
+  // Excalidraw's "Browse libraries" opens libraries.excalidraw.com with the page address in the
+  // query, and nothing brings an item back (decision 98, rule 8).
+  await ready(page);
+  const dialog = await openSketch(page, "Current architecture");
+  await dialog.locator(".default-sidebar-trigger").click();
+  await expect(dialog.locator(".layer-ui__library")).toBeVisible();
+  await expect(dialog.locator(".library-menu-browse-button")).toBeHidden();
+  await expect(dialog.locator('a[href*="excalidraw.com"]:visible')).toHaveCount(0);
 });
