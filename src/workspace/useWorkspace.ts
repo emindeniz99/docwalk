@@ -6,6 +6,7 @@ import type { Notice, ReplaceGuard } from "../shell/useDocument";
 import {
   collectFiles,
   createFile,
+  documentPathsUnder,
   createFolder,
   folderPaths,
   lastModified,
@@ -140,6 +141,15 @@ async function failure(error: unknown, fallback: string, inBrowser: boolean): Pr
     if (use) return m.ws_err_quota_use({ used: megabytes(use.used), quota: megabytes(use.quota) });
   }
   return message(error, fallback);
+}
+
+/** The document files under `node` whose comments and sketches go with it; the listing is the fallback. */
+async function annotatedFiles(handle: FileSystemDirectoryHandle, node: WorkspaceNode) {
+  try {
+    return await documentPathsUnder(handle, node.path);
+  } catch {
+    return (await import("./annotations")).filePaths(node);
+  }
 }
 
 function message(error: unknown, fallback: string): string {
@@ -881,8 +891,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       if (!active) return m.ws_err_unavailable();
       const name = node.kind === "file" ? withMarkdownExtension(rawName) : rawName;
       let next: string;
+      let moved: string[];
       try {
         await flush();
+        // Asked of the directory before it moves: the listing stops at 5000 entries.
+        moved = await annotatedFiles(active, node);
         next = await rename(active, node.path, name);
       } catch (error) {
         return message(error, m.ws_err_rename({ path: node.path }));
@@ -890,10 +903,10 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       treeChanged();
       // Comments and sketches are keyed by path; they move with the file,
       // before the open document is retargeted and reloads them.
-      const { filePaths, moveAnnotations } = await import("./annotations");
+      const { moveAnnotations } = await import("./annotations");
       const at = (p: string) => sourceFor(root, p)!;
       await moveAnnotations(
-        filePaths(node).map((p) => [at(p), at(next + p.slice(node.path.length))] as const),
+        moved.map((p) => [at(p), at(next + p.slice(node.path.length))] as const),
       );
       // The open file, or the folder holding it, moved: same text, new address.
       const current = workspaceSource(docRef.current);
@@ -925,10 +938,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       const current = workspaceSource(docRef.current);
       const openInside = inView(current) && isWithin(current.path, node.path);
       const neighbour = neighbourOf(listing?.nodes ?? [], node.path);
+      let dropped: string[];
       // A pending autosave of a file being deleted must not bring it back.
       if (openInside) pending.current = null;
       else await flush();
       try {
+        // Asked of the directory before it goes: the listing stops at 5000 entries.
+        dropped = await annotatedFiles(active, node);
         await remove(active, node.path);
       } catch (error) {
         setNotice({ message: message(error, m.ws_err_delete({ path: node.path })), tone: "error" });
@@ -936,8 +952,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       }
       treeChanged();
       // A new file at the same path later must not inherit them.
-      const { dropAnnotations, filePaths } = await import("./annotations");
-      await dropAnnotations(filePaths(node).map((p) => sourceFor(root, p)!));
+      const { dropAnnotations } = await import("./annotations");
+      await dropAnnotations(dropped.map((p) => sourceFor(root, p)!));
       if (openInside) {
         setBaseline(null);
         closeDocument();
