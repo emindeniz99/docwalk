@@ -53,6 +53,8 @@ export function buildMath(tex: string, display: boolean): Element | null {
     return null;
   }
   try {
+    // The tree: `renderToString` makes a string to parse, and `render` fills a given element.
+    // oxlint-disable-next-line no-underscore-dangle -- Temml's name for the tree API.
     const tree = temml.__renderToMathMLTree(tex, { ...OPTIONS, displayMode: display, macros: {} });
     const built = tree.toNode();
     const math = built instanceof Element ? rebuild(built) : null;
