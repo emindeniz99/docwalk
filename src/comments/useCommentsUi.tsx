@@ -182,6 +182,8 @@ export function useCommentsUi({
     outlineCounts: counts,
     share,
     markEdit: api.markEdit,
+    /** The document's identity, which saved marks key by (decision 105). */
+    documentKey: api.key,
     onDocumentRendered,
   };
 }

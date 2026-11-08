@@ -15,6 +15,8 @@ export interface CommentsApi {
   comments: DocComment[];
   /** False while the document's comments load. */
   ready: boolean;
+  /** The document's identity (decision 65), null while it loads; saved marks use it too (105). */
+  key: string | null;
   /** False when this browser cannot keep comments (no IndexedDB): they last until the page closes. */
   persistent: boolean;
   /** Call before handing an editor change to the document: an edit keeps the document's identity. */
@@ -281,6 +283,7 @@ export function useComments({
   return {
     comments: state.comments,
     ready: state.key !== null,
+    key: state.key,
     persistent: store?.persistent ?? true,
     markEdit,
     add,

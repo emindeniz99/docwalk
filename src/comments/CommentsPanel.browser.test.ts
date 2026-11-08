@@ -30,6 +30,7 @@ function Harness({ sheet }: { sheet: boolean }) {
   const api: CommentsApi = {
     comments,
     ready: true,
+    key: "sha256:test",
     persistent: true,
     markEdit: () => {},
     add: (anchor: Anchor, text: string) => {
