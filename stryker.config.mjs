@@ -45,6 +45,10 @@ export default {
   // ships. No docwalk tsconfig points outside the project, so there is nothing
   // to rewrite: name a file that does not exist and the step is skipped.
   tsconfigFile: "tsconfig.stryker-skip.json",
+  // Stryker's default also writes `// @ts-nocheck` into HTML script blocks,
+  // which changed index.html's inline script and so its CSP hash (decision
+  // 78) in the sandbox. Only source files need the marker.
+  disableTypeChecks: "{src,tooling,mcp/src}/**/*.{js,ts,jsx,tsx,cts,mts}",
   tempDirName: ".stryker-tmp",
   cleanTempDir: "always",
 };
