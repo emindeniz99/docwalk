@@ -2,12 +2,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, test } from "vitest";
-import {
-  EDITOR_KEY,
-  readEditorChoice,
-  setEditorChoice,
-  useStoredEditorChoice,
-} from "./choice";
+import { EDITOR_KEY, readEditorChoice, setEditorChoice, useStoredEditorChoice } from "./choice";
 
 let root: Root | null = null;
 let host: HTMLElement | null = null;
@@ -55,29 +50,29 @@ describe("stored editor choice (decision 53)", () => {
   });
 });
 
+function Probe() {
+  return createElement("output", null, useStoredEditorChoice());
+}
+
+function mountProbe() {
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  flushSync(() => root!.render(createElement(Probe)));
+  return host.querySelector("output")!;
+}
+
+/** What the browser sends the other tabs when a tab writes `localStorage`. */
+function fromOtherTab(key: string | null, value: string | null) {
+  if (key === null) localStorage.clear();
+  else if (value === null) localStorage.removeItem(key);
+  else localStorage.setItem(key, value);
+  window.dispatchEvent(
+    new StorageEvent("storage", { key, newValue: value, storageArea: localStorage }),
+  );
+}
+
 describe("editor choice across tabs", () => {
-  function Probe() {
-    return createElement("output", null, useStoredEditorChoice());
-  }
-
-  function mountProbe() {
-    host = document.createElement("div");
-    document.body.append(host);
-    root = createRoot(host);
-    flushSync(() => root!.render(createElement(Probe)));
-    return host.querySelector("output")!;
-  }
-
-  /** What the browser sends the other tabs when a tab writes `localStorage`. */
-  const fromOtherTab = (key: string | null, value: string | null) => {
-    if (key === null) localStorage.clear();
-    else if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-    window.dispatchEvent(
-      new StorageEvent("storage", { key, newValue: value, storageArea: localStorage }),
-    );
-  };
-
   test("a pick made in another tab switches this tab too, so two windows never disagree", async () => {
     const shown = mountProbe();
     expect(shown.textContent).toBe("codemirror");
