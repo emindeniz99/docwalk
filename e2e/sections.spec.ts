@@ -229,7 +229,8 @@ test("Select all applies as no selection, so the link goes back to the plain one
   await dialog.getByRole("button", { name: /^Show \d+ sections$/ }).click();
   await expect(dialog).toBeHidden();
   await expect(sectionsButton(page)).toHaveText("Sections: all");
-  expect(await outlineTitles(page).count()).toBeGreaterThan(5);
+  // The button changes at once; the outline waits for the deck to rebuild from the whole plan.
+  await expect.poll(() => outlineTitles(page).count()).toBeGreaterThan(5);
   await expect.poll(() => queryParam(page, "sections")).toBeNull();
 });
 
