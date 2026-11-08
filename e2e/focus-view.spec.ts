@@ -191,8 +191,23 @@ for (const [name, markdown, selector] of [
     await present(page).locator(selector).click();
     await expect(view(page)).toBeVisible();
     if (name === "code") await view(page).locator(".docwalk-code-line").nth(2).click();
-    // Let the focus ring's transition settle, so axe does not read mid-fade colours.
-    await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+    // Jump running transitions to their end so axe reads settled colours.
+    // Never await `finished` here: entering present mode fades the reveal.js
+    // arrows, and WebKit cancels and restarts their pseudo-elements' colour
+    // transitions every frame of that fade. A cancelled transition's
+    // `finished` rejects with AbortError. Finishing one fade can start
+    // another, so repeat until none run, and fail loud if they never stop.
+    const left = await page.evaluate(() => {
+      for (let pass = 0; pass <= 10; pass++) {
+        const running = document
+          .getAnimations()
+          .filter((a): a is CSSTransition => a instanceof CSSTransition);
+        if (running.length === 0 || pass === 10) return running.map((a) => a.transitionProperty);
+        for (const a of running) a.finish();
+      }
+      return [];
+    });
+    expect(left, "transitions still running after ten passes").toEqual([]);
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
       .analyze();
