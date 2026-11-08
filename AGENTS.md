@@ -69,3 +69,36 @@ Naming goes through [`CONTEXT.md`](./CONTEXT.md). The roadmap is in
     - Branches merge with a real merge commit, by pull request or
       `git merge --no-ff`. Never squash or rebase-merge, and do not delete
       the branch unless asked.
+
+## How to work
+
+These hold for every task, for people and agents alike.
+
+1. **Think before coding.** State your assumptions. When a request has
+   more than one reading, or a simpler route exists, say so and ask
+   instead of picking silently.
+2. **Simplest change that works.** No features, options or abstractions
+   nobody asked for. If 200 lines could be 50, rewrite it.
+3. **Surgical edits.** Touch only what the task needs and match the
+   surrounding style. Mention unrelated dead code instead of deleting it;
+   remove only what your own change made unused.
+4. **Define done, then verify it.** Turn the task into a check (a failing
+   test, a measurement) and loop until it passes. Read the code you change
+   and its callers before writing.
+5. **Surface conflicts.** When two patterns or decisions disagree, pick
+   one, say why, and flag the other; never blend them.
+6. **Checkpoint and fail loud.** After each significant step, say what is
+   done, what is verified and what is left. "Done" is wrong if a step was
+   skipped; "tests pass" is wrong if any were skipped. Never skip, weaken or
+   retry a test to get green.
+7. **A timed-out or hung test run is a finding.** Stop and report the test
+   that hung; do not rerun it in a loop. Check for leftover browser or
+   test-server processes before the next run.
+8. **English everywhere in the repo:** code, comments, docs, commit
+   messages, pull requests. Prose that outlives a conversation (README,
+   docs, commit and PR bodies) goes through the
+   [`stop-slop`](./.claude/skills/stop-slop/SKILL.md) skill.
+9. **Agents in a shell:** absolute paths, and a tool's own directory flag
+   (`pnpm --dir`, `git -C`) instead of `cd dir && …`, so permission checks
+   can resolve every path. Read and search with the editor's file tools, not
+   `cat` or `grep`.

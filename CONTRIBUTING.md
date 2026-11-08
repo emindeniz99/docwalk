@@ -72,7 +72,18 @@ with a scope on every commit:
   a trailer that names the agent and model, for example
   `Co-Authored-By: <agent and model> <the vendor's attribution address>`.
   Use the vendor's own attribution address and the model's current name; a
-  commit an agent wrote must not look human-only.
+  commit an agent wrote must not look human-only. If the environment can
+  author commits as the agent's own service account, use that account as
+  the author rather than the maintainer's name.
+- **Signing:** sign commits when the environment provides a key, so GitHub
+  shows them as Verified. An environment with no signing (some connectors)
+  may commit unsigned; that never removes the attribution trailer.
+- **Stage only this commit's files.** With other changes in the tree,
+  commit by path (`git commit --only -m "…" -- path/a path/b`) or
+  `git add` the paths and check `git diff --cached --name-only` first.
+  Avoid `git add -A` unless every change shares the commit's reason.
+- **Never** `--no-verify`, `--amend` on a pushed commit, or force-push
+  `main`.
 
 Examples:
 
@@ -96,6 +107,28 @@ Pull requests merge with a real merge commit. Never squash or rebase-merge:
 the per-commit history records how each part was built and why, and a
 squash on `main` cannot be undone. Do not delete the branch as part of the
 merge unless its author asks.
+
+## GitHub Actions
+
+Workflow changes follow these rules; the `zizmor` CI job enforces most of
+them and must stay at zero findings.
+
+- Trigger on `push` and plain `pull_request`, never `pull_request_target`.
+  A `workflow_run` trigger needs a comment saying why it is safe.
+- Declare `permissions:` with `contents: read` by default; only the job
+  that needs more (a deploy, a release) gets it. Keep the repository's
+  default token read-only.
+- Pin every action to a full commit SHA with its tag in a comment.
+- Set `persist-credentials: false` on every checkout that does not push.
+- Never put event fields an outsider controls (PR titles, branch names,
+  comments) straight into a `run:` script; pass them through `env:`.
+- No dependency cache in a workflow that publishes (the Pages deploy, a
+  release): a poisoned cache would become the published artifact.
+- Before the first npm publish of `docwalk-mcp`: `npm pack`, install the
+  tarball in a clean project outside this repository, and run its `bin`.
+  Node will not strip TypeScript types inside `node_modules`, so anything
+  Node loads must be compiled. `npm publish` packs the working tree, so
+  publish from a clean, pushed `main`.
 
 ## Reporting a vulnerability
 
