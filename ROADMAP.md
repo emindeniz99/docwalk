@@ -100,6 +100,16 @@ here. Playwright's WebKit on Windows leaves OPFS writes empty, so 9 of its 15
 tests fail on that engine on the base branch too; WebKit rests on the fork's
 CI.
 
+Done 2026-11-09 (decisions 98 and 99): canvas mode names Excalidraw's menu
+and zoom buttons, so axe runs on it without exclusions; the Library hides
+its Browse libraries link; a Saved sketches panel deletes stored sketches;
+full storage and a missing `crypto.subtle` are reported as such. The
+installed app opens Markdown files from the file manager (Chromium), checks
+for a new version once an hour while visible and online, and F6 reaches the
+update prompt; `pnpm size` starts size-limit through Node, so it runs on
+Windows. `e2e/canvas.spec.ts` (7) and `e2e/pwa.spec.ts` (12) pass on
+Chromium here.
+
 ## Follow-ups
 
 Needs the owner:
@@ -154,20 +164,21 @@ Later rounds:
   tombstones, so a deleted comment can return from an older link or
   sidecar; swapping two diagrams under one heading orphans their node
   comments; no author names.
-- Canvas: axe excludes two upstream Excalidraw controls by selector; the
-  Library sidebar links to libraries.excalidraw.com on click; stored
-  sketches are never pruned; cylinders convert to rectangles.
+- Canvas: the Library's Publish form remains (Excalidraw has no switch for
+  it); stored sketches are deleted by hand from the Saved sketches panel,
+  never pruned automatically; cylinders convert to rectangles; the Turkish
+  strings have not been read by a native speaker.
 - Monaco: the cursor line is not carried across an editor switch (the
   decision 4 contract has no initial cursor); Monarch colours 4-space list
   continuations as code; the chunk is 831 kB gzip; the palette does not
   offer the editor choice.
-- PWA: F6 to the update toast is unverified; no `file_handlers` and no
-  periodic update check.
+- PWA: the file launch is tested with a stand-in `launchQueue`; no real
+  file-manager launch has been tried.
 - CI and quality: mutation survivors are reported, not fixed, except in
   `src/share/fragment.ts`, whose tests now hold real documents that only its
   schema refuses (65 to 68 killed on 2026-11-09; the 8 left are equivalent
-  mutants, such as padding that `atob` does not need); Lighthouse
-  SEO is 0.82 and unbudgeted. "Editing the source … notes in the gutter"
+  mutants, such as padding that `atob` does not need); Lighthouse SEO has a
+  0.95 floor since 2026-11-09 (decision 104). "Editing the source … notes in the gutter"
   (`e2e/app.spec.ts`) failed once on WebKit under load and never again in
   40 runs; one lead is that `App.tsx` diagnostics fall back to line 1
   (`?? 1`) for a slide from a stale deck. The presenter axe test's 90 s
@@ -216,10 +227,6 @@ Later rounds:
   "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
   reader user on a Mac hears the key without knowing it needs Command.
   Judgement call, not changed here.
-- `pnpm size` exits 1 without output on Windows: `tooling/size-check.ts`
-  runs `size-limit` through `execFileSync` without a shell, which cannot
-  start the `.cmd` shim. `pnpm exec size-limit` works there (409 kB for
-  the app shell on 2026-11-08).
 - Accessibility judgement to confirm: in the fill frame (decision 77) the
   deck's focus ring hides with the idle controls, read as meeting WCAG
   2.4.7 because it shows whenever they do. A stricter reading keeps it
