@@ -11,8 +11,9 @@ import {
   type MarkEvent,
   type MarkStroke,
 } from "./mirrorTypes";
+import { strokeElement } from "./markSvg";
 import { outlinePath } from "./outline";
-import type { AnnotationLayer, AnnotationMode } from "./types";
+import type { AnnotationLayer, AnnotationLayerOptions, AnnotationMode } from "./types";
 
 // App loads this module lazily, with the layer, after the deck is up.
 export { markKeys } from "./markKeys";
@@ -50,16 +51,20 @@ function prefersReducedMotion(): boolean {
 
 /**
  * Pen, arrow and eraser marks (drauu) plus a fading laser trail over `host`.
- * Marks live in memory per slide key; nothing is written anywhere else.
+ * Marks live in memory per slide key; the layer writes nothing anywhere.
  * Observers (`observe`) hear the laser, strokes and the marks that are
- * visible, in slide units, so the mirror can send them on (decision 88).
+ * visible, in slide units, so the mirror can send them on (decision 88) and
+ * App can save them (decision 105); `options.saved` brings saved marks back.
  *
  * Each slide key gets its own drauu instance on its own SVG surface, made on
  * the first visit. Dumping and reloading one instance's markup on every slide
  * switch wiped drauu's undo stack, so marks made before leaving a slide could
  * no longer be undone after coming back to it.
  */
-export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
+export function createAnnotationLayer(
+  host: HTMLElement,
+  options: AnnotationLayerOptions = {},
+): AnnotationLayer {
   const root = document.createElement("div");
   root.className = "docwalk-annotate";
   const laser = surface("laser");
@@ -232,6 +237,29 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
     return strokes;
   }
 
+  /**
+   * Draws a slide's saved strokes (decision 105) into its drawing, on the
+   * first visit. They join drauu's element list, so the eraser reaches them,
+   * but no undo step, so undo never removes what was there on arrival.
+   */
+  function restore(drawing: Drauu, slideKey: string, address: string) {
+    const saved = options.saved?.(slideKey, address) ?? [];
+    if (saved.length === 0) return;
+    // A hidden stage measures 0; the deck's stage is always the slide box.
+    const width = root.offsetWidth || MIRROR_WIDTH;
+    const height = root.offsetHeight || MIRROR_HEIGHT;
+    const tokens = getComputedStyle(stage);
+    for (const stroke of saved) {
+      const paint = tokens.getPropertyValue(`--dw-color-${stroke.color}`).trim() || color;
+      const node = strokeElement(stroke, width, height, paint);
+      if (!node) continue;
+      // How drauu lists a committed stroke for its eraser; no public call does it.
+      // oxlint-disable-next-line no-underscore-dangle
+      drawing._appendNode(node);
+      strokeOf.set(node, { id: nextStrokeId++, ...stroke, points: [...stroke.points] });
+    }
+  }
+
   /** Tells observers what the current slide shows; `reset` marks that the slide just changed. */
   function reportMarks(reset: boolean) {
     const slide = slideOf.get(active);
@@ -382,6 +410,8 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
         drawings.delete(null);
         drawings.set(next, active);
         slideOf.set(active, address);
+        restore(active, next, address);
+        refreshEraser();
       } else {
         // A stroke still being drawn when the slide changes belongs to no slide.
         active.cancel();
@@ -391,6 +421,7 @@ export function createAnnotationLayer(host: HTMLElement): AnnotationLayer {
           drawing = createDrawing();
           slideOf.set(drawing, address);
           drawings.set(next, drawing);
+          restore(drawing, next, address);
         }
         active = drawing;
         applyTool(active);
