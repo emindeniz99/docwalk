@@ -78,27 +78,28 @@ describe("the update prompt's Reload button", () => {
   });
 });
 
-describe("checking for a new version while the page stays open (decision 99)", () => {
-  /** A visible, online tab that registered a worker, with timers and the clock under test control. */
-  async function openTab(state: { visible?: boolean; online?: boolean } = {}) {
-    // Only the interval and the clock: the page's other timers keep running.
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-    const fake = fakeContainer();
-    show(state.visible ?? true);
-    connect(state.online ?? true);
-    registerServiceWorker(() => undefined, vi.fn<() => void>());
-    // Let the mocked register() resolve and its handlers run.
-    await vi.advanceTimersByTimeAsync(0);
-    return fake;
-  }
-  const show = (visible: boolean) =>
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      value: visible ? "visible" : "hidden",
-    });
-  const connect = (online: boolean) =>
-    Object.defineProperty(navigator, "onLine", { configurable: true, value: online });
+const show = (visible: boolean) =>
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: visible ? "visible" : "hidden",
+  });
+const connect = (online: boolean) =>
+  Object.defineProperty(navigator, "onLine", { configurable: true, value: online });
 
+/** A visible, online tab that registered a worker, with timers and the clock under test control. */
+async function openTab(state: { visible?: boolean; online?: boolean } = {}) {
+  // Only the interval and the clock: the page's other timers keep running.
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  const fake = fakeContainer();
+  show(state.visible ?? true);
+  connect(state.online ?? true);
+  registerServiceWorker(() => undefined, vi.fn<() => void>());
+  // Let the mocked register() resolve and its handlers run.
+  await vi.advanceTimersByTimeAsync(0);
+  return fake;
+}
+
+describe("checking for a new version while the page stays open (decision 99)", () => {
   test("a visible online tab asks for sw.js once an hour, not sooner", async () => {
     const { registration } = await openTab();
     await vi.advanceTimersByTimeAsync(UPDATE_CHECK_MS - 1);
