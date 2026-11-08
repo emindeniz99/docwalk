@@ -129,6 +129,16 @@ describe("the list loads only when it can matter", () => {
     expect(loads).toBe(0);
   });
 
+  test("a long run of name characters after a colon is scanned in linear time", async () => {
+    // Rule 5: a document is hostile. A pattern that demands a letter
+    // somewhere in the name backtracks quadratically on this.
+    const box = document.createElement("p");
+    box.textContent = `:${"a1".repeat(100_000)} and 12:${"0".repeat(100_000)}`;
+    const started = performance.now();
+    await renderEmoji(box, { load: async () => names });
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   test("the four names without a letter still count", async () => {
     const box = html(":100: :1234: :+1: :-1:");
     await renderEmoji(box);

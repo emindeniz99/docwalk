@@ -13,7 +13,21 @@ import { loadWithin } from "./lazy";
 
 /** GitHub's names: lowercase letters, digits, `_`, `-`, and `+` for `:+1:`. */
 const SHORTCODE = /:([a-z0-9_+-]+):/g;
-const CANDIDATE = /:[a-z0-9_+-]+:/;
+/** gemoji's only names without a letter. */
+const LETTERLESS = new Set(["100", "1234", "+1", "-1"]);
+
+/**
+ * Whether `text` holds a name worth loading the list for: one with a letter,
+ * or one of the four without. So `14:03:00` loads nothing. Two steps, not
+ * one regex: a single pattern that demands a letter backtracks quadratically
+ * on a long run of name characters (40,000 took most of a second).
+ */
+function hasCandidate(text: string): boolean {
+  for (const [, name = ""] of text.matchAll(SHORTCODE)) {
+    if (/[a-z]/.test(name) || LETTERLESS.has(name)) return true;
+  }
+  return false;
+}
 
 /** Where a shortcode is only text the author wrote about the shortcode. */
 const KEPT = "code, pre, kbd, samp, script, style, textarea, math, .docwalk-diagram";
@@ -41,7 +55,7 @@ function candidates(root: ParentNode): Text[] {
   const found: Text[] = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const text = node as Text;
-    if (CANDIDATE.test(text.data) && !text.parentElement?.closest(KEPT)) found.push(text);
+    if (hasCandidate(text.data) && !text.parentElement?.closest(KEPT)) found.push(text);
   }
   return found;
 }
