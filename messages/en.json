@@ -190,6 +190,7 @@
   "export_empty": "Nothing to export yet: the deck has no slides.",
   "export_failed": "Export failed: {reason}",
   "export_html": "Download HTML",
+  "export_include_marks": "Include marks",
   "export_page_label": "Slide {current} of {total}",
   "export_pdf": "Print or save as PDF",
   "export_png": "Download PNG images",

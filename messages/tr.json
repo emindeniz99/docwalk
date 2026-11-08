@@ -190,6 +190,7 @@
   "export_empty": "Henüz dışa aktarılacak bir şey yok: sunumda slayt yok.",
   "export_failed": "Dışa aktarma başarısız oldu: {reason}",
   "export_html": "HTML olarak indir",
+  "export_include_marks": "İşaretleri dahil et",
   "export_page_label": "Slayt {current}/{total}",
   "export_pdf": "Yazdır veya PDF olarak kaydet",
   "export_png": "PNG görselleri olarak indir",

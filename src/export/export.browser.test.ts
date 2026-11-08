@@ -341,13 +341,42 @@ describe("ExportMenu", () => {
     document.body.replaceChildren();
   });
 
-  function render(getOptions: () => ExportOptions | null) {
+  function render(getOptions: (withMarks: boolean) => ExportOptions | null, hasMarks = false) {
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    act(() => root!.render(h(ExportMenu, { getOptions })));
+    act(() => root!.render(h(ExportMenu, { getOptions, hasMarks })));
     return container;
   }
+
+  test("saved marks go into an export unless the viewer leaves them out, and the menu says which (decision 105)", async () => {
+    const asked = vi.fn<(withMarks: boolean) => ExportOptions | null>(() => null);
+    const trigger = render(asked, true).querySelector<HTMLElement>(".docwalk-export-trigger")!;
+    const include = () => document.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!;
+    await userEvent.click(trigger);
+    expect(include().textContent).toBe("Include marks");
+    expect(include().getAttribute("aria-checked")).toBe("true");
+    await userEvent.click(document.querySelector<HTMLElement>('[role="menuitem"]')!);
+    expect(asked).toHaveBeenLastCalledWith(true);
+
+    // The menu stays open on the toggle, so the export comes next from the same menu.
+    await userEvent.click(trigger);
+    await userEvent.click(include());
+    expect(include().getAttribute("aria-checked")).toBe("false");
+    await userEvent.click(document.querySelector<HTMLElement>('[role="menuitem"]')!);
+    expect(asked).toHaveBeenLastCalledWith(false);
+    // It stays off for the next export, until the viewer turns it back on.
+    await userEvent.click(trigger);
+    expect(include().getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("without saved marks the menu offers no marks option and asks for none", async () => {
+    const asked = vi.fn<(withMarks: boolean) => ExportOptions | null>(() => null);
+    await userEvent.click(render(asked).querySelector<HTMLElement>(".docwalk-export-trigger")!);
+    expect(document.querySelector('[role="menuitemcheckbox"]')).toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>('[role="menuitem"]')!);
+    expect(asked).toHaveBeenLastCalledWith(false);
+  });
 
   test("the trigger is a named 44px button and the menu offers the three exports by name", async () => {
     const el = render(() => null);

@@ -1,6 +1,15 @@
-import { Download, FileCode, Images, Printer } from "lucide-react";
+import { Check, Download, FileCode, Images, PenOff, Printer } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Button, Menu, MenuItem, MenuTrigger, Popover, type Key } from "react-aria-components";
+import {
+  Button,
+  Menu,
+  MenuItem,
+  MenuSection,
+  MenuTrigger,
+  Popover,
+  Separator,
+  type Key,
+} from "react-aria-components";
 import { m } from "../paraglide/messages.js";
 import { downloadBlob } from "./download";
 import "./export.css";
@@ -13,11 +22,16 @@ import type { ExportOptions } from "./types";
 export interface ExportMenuProps {
   /**
    * Called when the viewer picks an export: fresh clones of the paginated
-   * slides (the exporters mutate them). `null` while there is no deck.
+   * slides (the exporters mutate them), with each slide's saved marks when
+   * `withMarks` is true. `null` while there is no deck.
    */
-  getOptions: () => ExportOptions | null;
+  getOptions: (withMarks: boolean) => ExportOptions | null;
+  /** The document has saved marks (decision 105): the menu offers to leave them out. */
+  hasMarks?: boolean;
   isDisabled?: boolean;
 }
+
+const INCLUDE_MARKS = "include-marks";
 
 const ITEMS = [
   { id: "pdf", label: m.export_pdf, Icon: Printer },
@@ -36,8 +50,10 @@ const isJob = (key: Key): key is Job => ITEMS.some((item) => item.id === key);
 export const STATUS_FADE_MS = 5000;
 
 /** Export the deck (decision 9). Progress and results are announced in a live region next to the button. */
-export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) {
+export function ExportMenu({ getOptions, hasMarks = false, isDisabled = false }: ExportMenuProps) {
   const [busy, setBusy] = useState(false);
+  // Saved marks go into exports unless the viewer leaves them out (decision 105); a reload asks again.
+  const [withMarks, setWithMarks] = useState(true);
   // `fades`: the message reports a finished job and clears itself. Progress
   // stays until the job ends; a failure stays until the next export.
   const [status, setStatus] = useState({ text: "", fades: false });
@@ -53,7 +69,7 @@ export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) 
     setBusy(true);
     try {
       // Inside the try: collecting the slides can throw too, and the viewer must hear about it.
-      const options = getOptions();
+      const options = getOptions(hasMarks && withMarks);
       if (!options || options.slides.length === 0) {
         say(m.export_empty(), true);
       } else if (job === "pdf") {
@@ -99,12 +115,42 @@ export function ExportMenu({ getOptions, isDisabled = false }: ExportMenuProps) 
               if (isJob(key)) void run(key);
             }}
           >
-            {ITEMS.map(({ id, label, Icon }) => (
-              <MenuItem key={id} id={id} textValue={label()} className="docwalk-menu-item">
-                <Icon size={16} aria-hidden="true" />
-                {label()}
-              </MenuItem>
-            ))}
+            <MenuSection>
+              {ITEMS.map(({ id, label, Icon }) => (
+                <MenuItem key={id} id={id} textValue={label()} className="docwalk-menu-item">
+                  <Icon size={16} aria-hidden="true" />
+                  {label()}
+                </MenuItem>
+              ))}
+            </MenuSection>
+            {hasMarks && <Separator className="docwalk-menu-separator" />}
+            {hasMarks && (
+              // A checkbox item, so its state is announced (as in the More menu).
+              <MenuSection
+                selectionMode="multiple"
+                selectedKeys={withMarks ? [INCLUDE_MARKS] : []}
+                onSelectionChange={(keys) =>
+                  setWithMarks(keys === "all" || keys.has(INCLUDE_MARKS))
+                }
+              >
+                <MenuItem
+                  id={INCLUDE_MARKS}
+                  textValue={m.export_include_marks()}
+                  className="docwalk-menu-item"
+                >
+                  {({ isSelected }) => (
+                    <>
+                      {isSelected ? (
+                        <Check size={16} aria-hidden="true" />
+                      ) : (
+                        <PenOff size={16} aria-hidden="true" />
+                      )}
+                      {m.export_include_marks()}
+                    </>
+                  )}
+                </MenuItem>
+              </MenuSection>
+            )}
           </Menu>
         </Popover>
       </MenuTrigger>
