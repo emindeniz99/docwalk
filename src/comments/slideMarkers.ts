@@ -14,8 +14,8 @@
 import type { SlideInfo } from "../deck/controller";
 import { m } from "../paraglide/messages.js";
 import { anchorTarget } from "../render/fragments";
-import { anchorKey, type AnchorIndex } from "./anchors";
-import { markerIcon, openCounts } from "./markers";
+import { anchorKey, openCounts, type AnchorIndex } from "./anchors";
+import { markerIcon } from "./markers";
 import type { DocComment } from "./types";
 
 export const SLIDE_MARKERS_CLASS = "docwalk-slide-markers";

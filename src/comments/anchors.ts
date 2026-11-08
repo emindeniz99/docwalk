@@ -211,6 +211,24 @@ export function resolveAnchor(anchor: Anchor, index: AnchorIndex, nodes: Diagram
   };
 }
 
+/**
+ * Open comments per anchor key, by where each comment points now (decision 96).
+ * A comment that cannot be placed without a guess is orphaned and marks nothing.
+ */
+export function openCounts(
+  comments: readonly DocComment[],
+  index: AnchorIndex,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const c of comments) {
+    const here = c.resolved ? null : currentAnchor(c.anchor, index);
+    if (!here) continue;
+    const k = anchorKey(here);
+    out.set(k, (out.get(k) ?? 0) + 1);
+  }
+  return out;
+}
+
 /** How many open (unresolved) comments each section holds, for the outline and the slide marker. */
 export function countBySection(
   comments: readonly DocComment[],

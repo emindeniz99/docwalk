@@ -7,11 +7,11 @@ import {
   currentAnchor,
   diagramKey,
   diagramSig,
+  openCounts,
   resolveAnchor,
   type DiagramNodes,
 } from "./anchors";
 import { contentKey, sourceKey } from "./identity";
-import { openCounts } from "./markers";
 import { sidecarFileName } from "./sidecar";
 import type { DocComment } from "./types";
 
