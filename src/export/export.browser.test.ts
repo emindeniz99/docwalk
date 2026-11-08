@@ -333,6 +333,9 @@ describe("exportPng", () => {
   });
 });
 
+/** The Export menu's "Include marks" item, once the menu is open. */
+const include = () => document.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!;
+
 describe("ExportMenu", () => {
   let root: Root | null = null;
   afterEach(() => {
@@ -352,7 +355,6 @@ describe("ExportMenu", () => {
   test("saved marks go into an export unless the viewer leaves them out, and the menu says which (decision 105)", async () => {
     const asked = vi.fn<(withMarks: boolean) => ExportOptions | null>(() => null);
     const trigger = render(asked, true).querySelector<HTMLElement>(".docwalk-export-trigger")!;
-    const include = () => document.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!;
     await userEvent.click(trigger);
     expect(include().textContent).toBe("Include marks");
     expect(include().getAttribute("aria-checked")).toBe("true");
