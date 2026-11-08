@@ -11,6 +11,7 @@ import { SHORT_DOC, ready, replaceSource } from "./helpers";
 const MONACO_ASSET = /\/assets\/(MonacoEditor|editor\.worker|codicon)-/;
 const address = (page: Page) => page.locator(".docwalk-preview-head > span");
 const monacoLines = (page: Page) => page.locator(".monaco-editor .view-lines");
+const top = async (line: Locator) => (await line.boundingBox())?.y ?? Number.NaN;
 
 async function pickEditor(page: Page, name: "CodeMirror" | "Monaco") {
   await page.getByRole("button", { name: "More actions" }).click();
@@ -153,7 +154,6 @@ test("the cursor line goes with the viewer to the other editor and back", async 
   await page.locator(".cm-line", { hasText: "Second point" }).click();
   await pickEditor(page, "Monaco");
   await expect(monacoLines(page)).toContainText("Second point");
-  const top = async (line: Locator) => (await line.boundingBox())?.y ?? Number.NaN;
   const marked = page.locator(".monaco-editor .view-overlays .current-line");
   await expect
     .poll(async () => {
@@ -182,16 +182,20 @@ test("a pick made in one tab switches the other open tab", async ({ context, pag
 test("the command palette offers the other editor and switches to it", async ({ page }) => {
   await ready(page);
   const palette = page.getByRole("dialog", { name: "Command palette" });
+  // React Aria wraps the "No match" text in a menuitem of its own; it is not a command.
+  const results = palette
+    .getByRole("menuitem")
+    .filter({ hasNot: page.locator(".docwalk-palette-empty") });
   await page.keyboard.press("ControlOrMeta+k");
   await palette.getByRole("searchbox").fill("Editor: use");
-  await expect(palette.getByRole("menuitem")).toHaveCount(1);
+  await expect(results).toHaveCount(1);
   await palette.getByRole("menuitem", { name: "Editor: use Monaco" }).click();
   await expect(monacoLines(page)).toBeVisible();
 
   // Now it offers the way back, and the More menu shows the same state.
   await page.keyboard.press("ControlOrMeta+k");
   await palette.getByRole("searchbox").fill("Editor: use");
-  await expect(palette.getByRole("menuitem")).toHaveCount(1);
+  await expect(results).toHaveCount(1);
   await palette.getByRole("menuitem", { name: "Editor: use CodeMirror" }).click();
   await expect(page.locator(".cm-content")).toBeVisible();
   await page.getByRole("button", { name: "More actions" }).click();
@@ -206,8 +210,9 @@ test("Monaco's own panels speak English to an English viewer", async ({ page }) 
   await pickEditor(page, "Monaco");
   await page.locator(".monaco-editor .view-line").first().click();
   await page.keyboard.press("ControlOrMeta+f");
-  await expect(page.locator(".monaco-editor .find-widget").getByRole("textbox", { name: "Find" }))
-    .toBeVisible();
+  await expect(
+    page.locator(".monaco-editor .find-widget").getByRole("textbox", { name: "Find" }),
+  ).toBeVisible();
 });
 
 test.describe("a browser that prefers Turkish", () => {
