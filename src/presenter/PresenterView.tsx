@@ -9,6 +9,7 @@ import { buildSlides } from "../deck/slides";
 import { ariaLocale, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { highlightCode } from "../render/highlight";
+import { speakerNotes } from "../sectioning/notes";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
 import {
   connectPresenter,
@@ -19,6 +20,7 @@ import {
 import "./presenter.css";
 
 const NO_ADDRESSES: string[] = [];
+const NO_NOTES: string[] = [];
 
 interface PresenterViewProps {
   /** Transport override for tests; defaults to BroadcastChannel. */
@@ -64,6 +66,16 @@ export function PresenterView({ channel }: PresenterViewProps) {
   const levelKey = state ? JSON.stringify(state.level) : null;
   // Previews carry slide chrome and overflow notes, so a language switch rebuilds them too.
   const key = markdown === undefined ? null : `${locale}\n${levelKey}\n${markdown}`;
+
+  // Speaker notes (decision 79) come from the Markdown this window already
+  // receives, so the bridge carries nothing extra and no other surface sees them.
+  const notes = useMemo(
+    () =>
+      markdown === undefined || levelKey === null
+        ? new Map<string, string[]>()
+        : speakerNotes(sectionize(parseMarkdown(markdown), JSON.parse(levelKey) as LevelOption)),
+    [markdown, levelKey],
+  );
 
   const addresses = state?.addresses ?? NO_ADDRESSES;
   const index = state ? addresses.indexOf(state.current) : -1;
@@ -207,13 +219,16 @@ export function PresenterView({ channel }: PresenterViewProps) {
 
       {state ? (
         <main className="docwalk-presenter-main">
-          <SlidePreview
-            className="docwalk-presenter-current"
-            label={m.presenter_now()}
-            title={titleOf(state.current, pages)}
-            page={pages?.get(state.current)}
-            empty={ready ? m.presenter_no_preview() : ""}
-          />
+          <div className="docwalk-presenter-stage">
+            <SlidePreview
+              className="docwalk-presenter-current"
+              label={m.presenter_now()}
+              title={titleOf(state.current, pages)}
+              page={pages?.get(state.current)}
+              empty={ready ? m.presenter_no_preview() : ""}
+            />
+            <SpeakerNotes notes={notes.get(sectionOf(state.current)) ?? NO_NOTES} />
+          </div>
           <aside className="docwalk-presenter-side">
             <SlidePreview
               className="docwalk-presenter-next"
@@ -258,6 +273,37 @@ export function PresenterView({ channel }: PresenterViewProps) {
         </main>
       )}
     </div>
+  );
+}
+
+/**
+ * The current slide's speaker notes. They are text: React writes each one as
+ * a text node, so a note can never become markup (rule 5). The panel is
+ * always there, so the layout does not move from slide to slide.
+ */
+function SpeakerNotes({ notes }: { notes: readonly string[] }) {
+  return (
+    <section
+      className="docwalk-presenter-notes"
+      aria-labelledby="docwalk-presenter-notes-label"
+      // Long notes scroll inside the panel, so the panel must take the keyboard.
+      tabIndex={0}
+    >
+      <span id="docwalk-presenter-notes-label" className="docwalk-presenter-label">
+        {m.presenter_notes()}
+      </span>
+      {notes.length > 0 ? (
+        notes.map((note, i) => (
+          // The list is replaced as a whole, so the position is the identity.
+          // oxlint-disable-next-line react/no-array-index-key
+          <p key={i} className="docwalk-presenter-note">
+            {note}
+          </p>
+        ))
+      ) : (
+        <p className="docwalk-presenter-notes-empty">{m.presenter_notes_empty()}</p>
+      )}
+    </section>
   );
 }
 

@@ -101,6 +101,49 @@
   padding: var(--dw-space-xl);
 }
 
+/* The current slide above its speaker notes (decision 79). */
+.docwalk-presenter-stage {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--dw-space-lg);
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * A fixed height, so the slide above keeps its size from slide to slide;
+ * longer notes scroll inside, and the panel takes keyboard focus for that.
+ */
+.docwalk-presenter-notes {
+  display: grid;
+  align-content: start;
+  gap: var(--dw-space-sm);
+  height: 26dvh;
+  min-height: 7rem;
+  padding: var(--dw-space-md) var(--dw-space-lg);
+  overflow: auto;
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
+  background: var(--dw-color-stage-raised);
+}
+
+.docwalk-presenter-note,
+.docwalk-presenter-notes-empty {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--dw-type-body-size);
+  line-height: var(--dw-type-body-line-height);
+}
+
+/* Line breaks in a note are the author's; the text is never markup. */
+.docwalk-presenter-note {
+  white-space: pre-wrap;
+}
+
+.docwalk-presenter-notes-empty {
+  color: var(--dw-color-stage-muted);
+}
+
 .docwalk-presenter-side {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -234,6 +277,11 @@
   .docwalk-presenter-current .docwalk-presenter-frame {
     flex: none;
     aspect-ratio: 16 / 9;
+  }
+
+  .docwalk-presenter-notes {
+    height: auto;
+    max-height: 40dvh;
   }
 
   .docwalk-presenter-list {

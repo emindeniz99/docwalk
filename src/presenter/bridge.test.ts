@@ -99,6 +99,27 @@ describe("audience bridge", () => {
     expect(watcher.received.at(-1)).toEqual({ type: "state", ...STATE, current: "two/1" });
   });
 
+  test("passes no notes field: the presenter reads notes from the Markdown it already gets, whatever a peer adds", () => {
+    const hub = createHub();
+    const sender = hub.peer();
+    const onState = vi.fn<(s: PresenterState) => void>();
+    connectPresenter(onState, { channel: hub.factory });
+    sender.channel.postMessage({
+      type: "state",
+      ...STATE,
+      notes: ["<img src=x onerror=alert(1)>"],
+    });
+    expect(onState).toHaveBeenCalledTimes(1);
+    expect(onState.mock.calls[0]?.[0]).toEqual(STATE);
+    expect(Object.keys(onState.mock.calls[0]?.[0] ?? {}).toSorted()).toEqual([
+      "addresses",
+      "current",
+      "level",
+      "markdown",
+      "startedAt",
+    ]);
+  });
+
   test("answers hello with the state, so a presenter opened later does not wait for the next slide change", () => {
     const hub = createHub();
     audience(hub, { value: STATE });

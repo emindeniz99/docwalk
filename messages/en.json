@@ -313,6 +313,8 @@
   "presenter_end": "End of the deck",
   "presenter_next": "Next slide",
   "presenter_no_preview": "No preview for this slide.",
+  "presenter_notes": "Speaker notes",
+  "presenter_notes_empty": "No notes for this slide.",
   "presenter_now": "Now",
   "presenter_previews_failed": "Previews could not be rendered. Navigation still works.",
   "presenter_previous": "Previous slide",

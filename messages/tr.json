@@ -313,6 +313,8 @@
   "presenter_end": "Sunumun sonu",
   "presenter_next": "Sonraki slayt",
   "presenter_no_preview": "Bu slayt için önizleme yok.",
+  "presenter_notes": "Konuşmacı notları",
+  "presenter_notes_empty": "Bu slayt için not yok.",
   "presenter_now": "Şimdi",
   "presenter_previews_failed": "Önizlemeler hazırlanamadı. Slaytlar arasında gezinmek yine de mümkün.",
   "presenter_previous": "Önceki slayt",
