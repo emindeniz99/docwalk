@@ -916,6 +916,17 @@ kbd {
   border-top: 1px solid var(--border);
 }
 
+/* The button that opens the section picker (decision 100), and the note when a choice matches nothing. */
+.docwalk-sections-status {
+  margin: 0;
+  color: var(--note-fg);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-sections-status:empty {
+  display: none;
+}
+
 /* ---- Source pane ---------------------------------------------------------- */
 
 .docwalk-source {

@@ -1,0 +1,145 @@
+/* ---- Section picker (decision 100) --------------------------------------- */
+
+.docwalk-sections-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  /* Below a phone's notch and clear of its rounded corners (decision 75). */
+  padding: calc(8vh + env(safe-area-inset-top)) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--dw-color-slide-shadow);
+}
+
+.docwalk-sections {
+  box-sizing: border-box;
+  display: flex;
+  width: min(560px, calc(100% - 2 * var(--dw-space-lg)));
+  max-height: 84vh;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-xl);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 var(--dw-space-xl) var(--dw-space-3xl) var(--dw-color-slide-shadow);
+}
+
+.docwalk-sections-dialog {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--dw-space-md);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--dw-space-lg) var(--dw-space-xl) var(--dw-space-xl);
+  outline: none;
+  font-family: var(--dw-type-ui-family);
+  font-size: var(--dw-type-ui-size);
+  line-height: var(--dw-type-ui-line-height);
+}
+
+.docwalk-sections-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dw-space-md);
+}
+
+.docwalk-sections-title {
+  margin: 0;
+  font-family: var(--dw-type-heading-family);
+  font-size: var(--dw-type-heading-size);
+  font-weight: var(--dw-type-heading-weight);
+  line-height: var(--dw-type-heading-line-height);
+  letter-spacing: var(--dw-type-heading-letter-spacing);
+}
+
+.docwalk-sections-hint,
+.docwalk-sections-count,
+.docwalk-sections-warning {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
+.docwalk-sections-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.docwalk-sections-warning {
+  color: var(--note-fg);
+}
+
+.docwalk-sections-warning:empty {
+  display: none;
+}
+
+.docwalk-sections-tools,
+.docwalk-sections-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-sections-actions {
+  justify-content: flex-end;
+}
+
+.docwalk-sections-group {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+  min-height: 0;
+}
+
+/* A long document scrolls inside the dialog, so the buttons stay in reach. */
+.docwalk-sections-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--dw-radius-md);
+}
+
+.docwalk-sections-item {
+  display: flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+  min-height: var(--dw-space-target);
+  padding: 0 var(--dw-space-md);
+  cursor: pointer;
+}
+
+.docwalk-sections-item[data-hovered] {
+  background: var(--bg);
+}
+
+.docwalk-sections-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.docwalk-sections-box {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-sm);
+  background: var(--surface);
+  color: var(--dw-color-on-primary);
+}
+
+.docwalk-sections-item[data-selected] .docwalk-sections-box {
+  border-color: var(--dw-color-primary);
+  background: var(--dw-color-primary);
+}
+
+.docwalk-sections-item[data-focus-visible] .docwalk-sections-box {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
