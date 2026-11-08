@@ -27,7 +27,7 @@ export function openCounts(comments: readonly DocComment[]): Map<string, number>
 }
 
 /** Lucide's message-square, drawn here because these buttons live outside React. */
-function icon(): SVGSVGElement {
+export function markerIcon(): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("width", "14");
@@ -77,7 +77,7 @@ export function markHeadings(
     button.type = "button";
     button.className = MARKER_CLASS;
     button.setAttribute("aria-label", m.comments_marker({ count: n, title: target.title }));
-    button.append(icon(), document.createTextNode(String(n)));
+    button.append(markerIcon(), document.createTextNode(String(n)));
     button.addEventListener("click", () => onOpen(target.slug));
     el.append(button);
   }

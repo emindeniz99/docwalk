@@ -15,6 +15,7 @@ import { CommentChip, CommentsToggle } from "./CommentControls";
 import { markDiagramNodes, markHeadings } from "./markers";
 import { encodeComments } from "./payload";
 import { sidecarFileName } from "./sidecar";
+import { attachSlideMarkers } from "./slideMarkers";
 import type { Anchor } from "./types";
 import { useComments } from "./useComments";
 
@@ -112,6 +113,23 @@ export function useCommentsUi({
   useEffect(() => {
     if (controller) markDiagramNodes(controller.stage(), index, api.comments);
   }, [controller, index, api.comments]);
+
+  // Markers beside the headings of the current slide, in a layer of their own on the stage
+  // (decision 94). Absent when comments are off: a follower screen, presenting.
+  useEffect(() => {
+    if (!controller || !enabled) return;
+    const markers = attachSlideMarkers(
+      controller.stage(),
+      () => controller.current(),
+      (slug) => show(true, { kind: "heading", slug }),
+    );
+    markers.update(index, api.comments);
+    const stop = controller.onChange(() => markers.layout());
+    return () => {
+      stop();
+      markers.destroy();
+    };
+  }, [controller, enabled, index, api.comments, show]);
 
   // Document mode renders on its own; it reports each finished render here.
   const [article, setArticle] = useState<{ el: HTMLElement } | null>(null);
