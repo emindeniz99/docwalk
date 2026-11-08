@@ -424,6 +424,10 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
               {renderNode}
             </Tree>
             {w.listing.truncated && <p className="docwalk-files-note">{m.ws_truncated()}</p>}
+            {/* Said while the browser has not promised to keep these files (decision 91). */}
+            {w.root === "opfs" && w.persistent === false && (
+              <p className="docwalk-files-note">{m.ws_not_persistent()}</p>
+            )}
           </>
         )}
       </DisclosurePanel>

@@ -48,6 +48,7 @@ import {
   saveFolderHandle,
 } from "./store";
 import { pollWhileVisible } from "./poll";
+import { isPersistent, requestPersistence, storageUse } from "./storage";
 import { openTabChannel, withWriteLock, type TabChange, type TabChannel } from "./tabs";
 import { starter, TEMPLATES, type ProjectTemplate } from "./templates";
 import {
@@ -128,6 +129,17 @@ function neighbourOf(nodes: WorkspaceNode[], path: string, parent = ""): string 
   if (i >= 0) return (nodes[i + 1] ?? nodes[i - 1])?.path ?? parent;
   const holder = nodes.find((n) => n.children && isWithin(path, n.path));
   return holder ? neighbourOf(holder.children!, path, holder.path) : null;
+}
+
+const megabytes = (bytes: number) => `${Math.round((bytes / 1024 / 1024) * 10) / 10} MB`;
+
+/** Like `message`; a full browser storage also says how full it is. */
+async function failure(error: unknown, fallback: string, inBrowser: boolean): Promise<string> {
+  if (inBrowser && error instanceof DOMException && error.name === "QuotaExceededError") {
+    const use = await storageUse();
+    if (use) return m.ws_err_quota_use({ used: megabytes(use.used), quota: megabytes(use.quota) });
+  }
+  return message(error, fallback);
 }
 
 function message(error: unknown, fallback: string): string {
@@ -216,6 +228,9 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
    * Its edits exist only on screen until the user answers.
    */
   const [heldKey, setHeldKey] = useState<string | null>(null);
+  /** Whether the browser keeps the browser workspace; `null` while unknown. */
+  const [persistent, setPersistent] = useState<boolean | null>(null);
+  const askedPersistence = useRef(false);
   /**
    * The tree row (its path; "" for the panel) that takes focus once the
    * dialog that changed the tree has closed: the element that opened the
@@ -284,6 +299,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       opfsRoot()
         .then((h) => live && setOpfs(h))
         .catch(() => live && setOpfsRefused(true));
+      void isPersistent().then((kept) => live && setPersistent(kept));
     }
     if (supported.folder) {
       void loadFolderHandle().then(async (handle) => {
@@ -394,6 +410,18 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     if (root === "opfs") announce("tree");
   }, [root, announce]);
   /**
+   * The user saved something into the browser workspace: the first time in a
+   * page's life, ask the browser to keep it. Nothing is asked before there is
+   * something to keep, and a refusal changes nothing but a note in the panel.
+   */
+  const noteSaved = useCallback(() => {
+    if (askedPersistence.current) return;
+    askedPersistence.current = true;
+    void requestPersistence().then((kept) => {
+      if (kept !== null) setPersistent(kept);
+    });
+  }, []);
+  /**
    * Writes the pending autosave now, unless the file is not what this tab last
    * saw (decision 90). Under the write lock the file is looked at first: a file
    * another tab deleted is not created again (`recreate`, an explicit Save,
@@ -443,14 +471,18 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         setHeldKey((k) => (k === key ? null : k));
         setMissingKey((k) => (k === key ? null : k));
         announce(outcome.created ? "tree" : "file");
+        noteSaved();
         return "saved";
       } catch (error) {
         setFailed(true);
-        setNotice({ message: message(error, m.ws_err_save_browser({ path })), tone: "error" });
+        setNotice({
+          message: await failure(error, m.ws_err_save_browser({ path }), true),
+          tone: "error",
+        });
         return "failed";
       }
     },
-    [opfs, announce, setBaseline, setNotice],
+    [opfs, announce, noteSaved, setBaseline, setNotice],
   );
 
   const markdown = doc?.markdown;
@@ -784,16 +816,17 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       try {
         await createFile(active, path, starter(name.replace(/\.[^.]+$/, "")));
       } catch (error) {
-        return message(error, m.ws_err_create({ path }));
+        return failure(error, m.ws_err_create({ path }), root === "opfs");
       }
       treeChanged();
+      if (root === "opfs") noteSaved();
       await refresh();
       expand(ancestorsOf(path));
       setFocusTarget({ path });
       guard(() => void load(root, path));
       return null;
     },
-    [active, refresh, treeChanged, expand, guard, load, root],
+    [active, refresh, treeChanged, noteSaved, expand, guard, load, root],
   );
 
   const newFolder = useCallback(
@@ -828,16 +861,17 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
           await writeText(active, joinPath(name, file.path), file.text);
         }
       } catch (error) {
-        return message(error, m.ws_err_create({ path: name }));
+        return failure(error, m.ws_err_create({ path: name }), root === "opfs");
       }
       treeChanged();
+      if (root === "opfs") noteSaved();
       await refresh();
       expand([name]);
       setFocusTarget({ path: joinPath(name, template.main) });
       guard(() => void load(root, joinPath(name, template.main)));
       return null;
     },
-    [active, refresh, treeChanged, expand, guard, load, root],
+    [active, refresh, treeChanged, noteSaved, expand, guard, load, root],
   );
 
   const renameEntry = useCallback(
@@ -961,6 +995,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         for (const f of contents.files)
           await writeText(active, joinPath(target, strip(f.path)), f.data);
         treeChanged();
+        if (root === "opfs") noteSaved();
         await refresh();
         expand([target]);
         const first =
@@ -984,12 +1019,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         );
       } catch (error) {
         setNotice({
-          message: message(error, m.ws_err_import()),
+          message: await failure(error, m.ws_err_import(), root === "opfs"),
           tone: "error",
         });
       }
     },
-    [active, listing, refresh, treeChanged, expand, setNotice, guard, load, root],
+    [active, listing, refresh, treeChanged, noteSaved, expand, setNotice, guard, load, root],
   );
 
   const exportZip = useCallback(async () => {
@@ -1148,6 +1183,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     supported: { opfs: supported.opfs && !opfsRefused, folder: supported.folder },
     available: enabled && ((supported.opfs && !opfsRefused) || supported.folder),
     root,
+    /** Whether the browser promises to keep the browser workspace; `null` while unknown or unsupported. */
+    persistent,
     folderName,
     folderPermission: folder?.permission ?? null,
     listing,
