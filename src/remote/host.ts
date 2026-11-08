@@ -49,6 +49,12 @@ export const DECK_WAIT_MS = 10_000;
  * least 2 s, longer the more its frames cost (`resyncGapMs`, decision 103).
  */
 export const RESYNC_DELAY_MS = 150;
+/**
+ * A hello gets the state at once; the hellos that follow within this long
+ * share one more state at its end, read from the deck as it is then
+ * (decision 103). A change of slide still sends its state at once.
+ */
+export const HELLO_STATE_GAP_MS = 250;
 
 export interface RemoteHostOptions {
   controller: DeckController | null;
@@ -284,6 +290,20 @@ export function useRemoteHost({
       }, wait);
     };
 
+    let helloStateTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastHelloState = Number.NEGATIVE_INFINITY;
+    const answerHello = () => {
+      if (helloStateTimer !== undefined) return;
+      const send = () => {
+        helloStateTimer = undefined;
+        lastHelloState = Date.now();
+        if (active) void sendState();
+      };
+      const wait = lastHelloState + HELLO_STATE_GAP_MS - Date.now();
+      if (wait > 0) helloStateTimer = setTimeout(send, wait);
+      else send();
+    };
+
     const agentContext: AgentHostContext = {
       markdown: () => markdownRef.current,
       slides: () =>
@@ -345,7 +365,7 @@ export function useRemoteHost({
               agents: seen.agent.size,
             });
           }
-          void sendState();
+          answerHello();
           if (message.role === "follower") scheduleResync();
           break;
         }
@@ -416,6 +436,7 @@ export function useRemoteHost({
       active = false;
       clearTimeout(laserTimer);
       clearTimeout(resyncTimer);
+      clearTimeout(helloStateTimer);
       stopMirror?.();
       conn.close();
       connection.current = null;
