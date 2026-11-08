@@ -105,22 +105,10 @@ export function DocumentView({
     // pending scroll target needs no second pass for them. Formulas do, so
     // they are part of what the scroll target waits for.
     void highlightCode(el, { stop: () => !live });
-    drawn.current = false;
-    void Promise.all([
-      renderDiagrams(el),
-      renderMath(el, { stop: () => !live }),
-      renderEmoji(el, { stop: () => !live }),
-    ]).then(() => {
-      if (!live) return;
-      drawn.current = true;
-      const kept = pending.current;
-      pending.current = null;
-      if (kept && el.getBoundingClientRect().top === kept.top) bringIntoView(el, kept.target);
-      rendered.current?.(el);
-    });
     // Wide tables, code blocks and equations scroll on their own; a keyboard user can
     // only scroll one that takes focus (WCAG 2.1.1). Only those that scroll
-    // get a tab stop, rechecked when the page width changes.
+    // get a tab stop, rechecked when the page width changes and once
+    // formulas are drawn (an equation replaces its source block).
     const markScrollable = () => {
       for (const box of el.querySelectorAll<HTMLElement>("table, pre, .docwalk-math-display")) {
         if (box.scrollWidth > box.clientWidth || box.scrollHeight > box.clientHeight) {
@@ -130,6 +118,20 @@ export function DocumentView({
         }
       }
     };
+    drawn.current = false;
+    void Promise.all([
+      renderDiagrams(el),
+      renderMath(el, { stop: () => !live }),
+      renderEmoji(el, { stop: () => !live }),
+    ]).then(() => {
+      if (!live) return;
+      drawn.current = true;
+      markScrollable();
+      const kept = pending.current;
+      pending.current = null;
+      if (kept && el.getBoundingClientRect().top === kept.top) bringIntoView(el, kept.target);
+      rendered.current?.(el);
+    });
     markScrollable();
     const observer = new ResizeObserver(markScrollable);
     observer.observe(el);
