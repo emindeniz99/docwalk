@@ -79,7 +79,11 @@ The first release.
   chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
   only for the languages a document uses.
-- Monaco as an optional desktop editor beside CodeMirror.
+- Monaco as an optional desktop editor beside CodeMirror. A switch of
+  editor keeps the cursor line, the command palette offers the other
+  editor, a pick in one tab applies in the others, a list item's indented
+  paragraphs are coloured as text, and Monaco's own panels are Turkish for
+  Turkish viewers.
 - Canvas mode: a Mermaid diagram as an editable Excalidraw sketch, kept in
   the browser and exported as `.excalidraw`, PNG or SVG. The sketch menu and
   zoom buttons have names, the Library no longer links to excalidraw.com, a
