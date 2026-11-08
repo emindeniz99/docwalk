@@ -20,7 +20,7 @@
     "test:browser": "vitest run --project browser",
     "test:all": "vitest run",
     "check": "pnpm typecheck && pnpm lint && pnpm lint:design && pnpm fmt:check && pnpm test:all && pnpm test:worker && pnpm build",
-    "lint:design": "design.md lint DESIGN.md",
+    "lint:design": "designmd lint DESIGN.md",
     "test:e2e": "playwright test",
     "lighthouse": "lhci autorun",
     "mutation": "stryker run",

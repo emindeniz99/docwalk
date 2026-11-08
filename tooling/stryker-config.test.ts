@@ -15,7 +15,8 @@ const patterns: string[] = config.mutate ?? [];
 const include = patterns.filter((pattern) => !pattern.startsWith("!"));
 const exclude = patterns.filter((pattern) => pattern.startsWith("!")).map((p) => p.slice(1));
 const mutated = include
-  .flatMap((pattern) => globSync(pattern, { cwd: root }))
+  // globSync returns backslashes on Windows; the assertions below name "/" paths.
+  .flatMap((pattern) => globSync(pattern, { cwd: root }).map((file) => file.replaceAll("\\", "/")))
   .filter((file) => !exclude.some((pattern) => matchesGlob(file, pattern)));
 
 const exists = (file: string) => existsSync(join(root, file));
