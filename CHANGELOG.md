@@ -78,7 +78,10 @@ The first release.
   only for the languages a document uses.
 - Monaco as an optional desktop editor beside CodeMirror.
 - Canvas mode: a Mermaid diagram as an editable Excalidraw sketch, kept in
-  the browser and exported as `.excalidraw`, PNG or SVG.
+  the browser and exported as `.excalidraw`, PNG or SVG. The sketch menu and
+  zoom buttons have names, the Library no longer links to excalidraw.com, a
+  Saved sketches panel deletes stored sketches, and full storage or a missing
+  `crypto.subtle` is reported as such.
 - Comments on headings and diagram nodes, carried in share links and
   exported as `<name>.comments.json` sidecars.
 - A browser workspace (files, folders, templates, zip import and export)
@@ -91,6 +94,8 @@ The first release.
   presenter's document, moves the deck and, when allowed, edits it.
 - English and Turkish UI.
 - An installable app that presents offline after one visit and asks before
-  updating.
+  updating. Installed in Chromium on the desktop, it opens Markdown files
+  from the file manager; it checks for a new version once an hour while open
+  and visible, and F6 reaches the update prompt.
 - Static self-hosting on any host, and full mode on Cloudflare with your
   own GitHub App.

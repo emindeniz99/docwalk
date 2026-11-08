@@ -12,7 +12,15 @@ import {
   serializeAsJSON,
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
-import { Download, FileImage, FileJson, FolderOpen, Image as ImageIcon, X } from "lucide-react";
+import {
+  Archive,
+  Download,
+  FileImage,
+  FileJson,
+  FolderOpen,
+  Image as ImageIcon,
+  X,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Button,
@@ -28,16 +36,18 @@ import {
 } from "react-aria-components";
 import { prepareDiagramSource } from "../deck/mermaid";
 import { downloadBlob } from "../export/download";
-import { slugify } from "../export/filename";
 import { getAppLocale, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { IconButton } from "../shell/IconButton";
 import { useMediaQuery } from "../shell/useMediaQuery";
 import "./canvas.css";
+import { keepExcalidrawControlsNamed } from "./controls";
 import { convertDiagram } from "./convert";
 import { inlineFiles } from "./files";
 import type { DocumentSource } from "../inputs/types";
 import { diagramHash, documentKey, sketchKey } from "./identity";
+import { sketchFileName } from "./names";
+import { SavedSketches } from "./SavedSketches";
 import { loadSketch, saveSketch } from "./store";
 
 type ExcalidrawProps = ComponentProps<typeof Excalidraw>;
@@ -67,9 +77,31 @@ type Load =
   /** Excalidraw is mounted on an empty scene; the diagram converts into it. */
   | { status: "converting"; data: InitialData }
   | { status: "ready"; data: InitialData }
+  /** `message` is the whole sentence shown, so a failed open and a failed conversion read differently. */
   | { status: "error"; message: string };
 
-type Saved = "saved" | "unsaved" | "blocked";
+/**
+ * `blocked` and `unkept` last for the whole session (no storage, no
+ * `crypto.subtle`); `full` ends with the next write that succeeds, for
+ * instance after the viewer deleted a sketch.
+ */
+type Saved = "saved" | "unsaved" | "blocked" | "full" | "unkept";
+
+const SAVED_TEXT: Record<Saved, () => string> = {
+  saved: m.sketch_saved,
+  unsaved: m.sketch_saving,
+  blocked: m.sketch_blocked,
+  full: m.sketch_full,
+  unkept: m.sketch_unkept,
+};
+
+/** Storage is not gone, it has no room: the browser's quota error, by name or by legacy code. */
+function isQuotaError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "QuotaExceededError" || error.code === 22 || error.code === 1014)
+  );
+}
 
 const EXPORTS = [
   { id: "excalidraw", label: m.sketch_export_excalidraw, Icon: FileJson },
@@ -126,6 +158,10 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [saved, setSaved] = useState<Saved>("saved");
   const [exportStatus, setExportStatus] = useState("");
+  const [storeOpen, setStoreOpen] = useState(false);
+  /** The key of the stored sketch on the canvas: the one the Saved sketches panel never offers to delete. */
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const storeButton = useRef<HTMLButtonElement>(null);
   const api = useRef<Api | null>(null);
   const key = useRef<string | null>(null);
   const pending = useRef<{ timer: ReturnType<typeof setTimeout>; scene: Scene } | null>(null);
@@ -135,10 +171,12 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
   /** True while a fresh conversion waits for Excalidraw to mount. */
   const fresh = useRef(false);
   const live = useRef(true);
+  /** What the last successful write held, so a change that leaves the scene as it is writes nothing. */
+  const lastWritten = useRef<string | null>(null);
   const dark = useResolvedDark();
   const locale = useLocale();
   const kind = diagramKind(source);
-  const name = `${slugify(documentTitle) || "docwalk"}-diagram-${index ?? kind}`;
+  const name = sketchFileName(documentTitle, index, kind);
 
   useEffect(() => {
     live.current = true;
@@ -150,24 +188,42 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const k = sketchKey(docKey, await diagramHash(source));
+      let k: string | null = null;
+      try {
+        k = sketchKey(docKey, await diagramHash(source));
+      } catch {
+        // No crypto.subtle (plain http outside localhost): the sketch opens, it just is not kept.
+      }
       key.current = k;
       let stored = null;
-      try {
-        stored = await loadSketch(k);
-      } catch {
-        // Private windows and blocked site data: the sketch works, it just is not kept.
-        if (!cancelled) setSaved("blocked");
+      if (k === null) {
+        if (!cancelled) setSaved("unkept");
+      } else {
+        try {
+          stored = await loadSketch(k);
+        } catch {
+          // Private windows and blocked site data: the sketch works, it just is not kept.
+          if (!cancelled) setSaved("blocked");
+        }
       }
       if (cancelled) return;
       if (stored) {
-        // restore() validates every element, as for any file Excalidraw opens.
-        const data = restore(stored as Parameters<typeof restore>[0], null, null);
+        let data;
+        try {
+          // restore() validates every element, as for any file Excalidraw opens.
+          data = restore(stored as Parameters<typeof restore>[0], null, null);
+        } catch {
+          // The record stays as it is: nothing is saved over a sketch that was never shown.
+          setLoad({ status: "error", message: m.sketch_open_failed() });
+          return;
+        }
         canSave.current = true;
+        setOpenKey(k);
         setLoad({ status: "ready", data });
       } else {
         // Converted once Excalidraw is up (onApi): see convertInto.
         fresh.current = true;
+        setOpenKey(k);
         setLoad({ status: "converting", data: { elements: [] } });
       }
     })();
@@ -204,7 +260,10 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
         setLoad((l) => (l.status === "converting" ? { status: "ready", data: l.data } : l));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (live.current) setLoad({ status: "error", message: message.split("\n")[0] ?? message });
+        if (live.current) {
+          const reason = message.split("\n")[0] ?? message;
+          setLoad({ status: "error", message: m.sketch_convert_failed({ reason }) });
+        }
       }
     },
     [source],
@@ -214,21 +273,32 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
     const k = key.current;
     if (!k || !canSave.current) return;
     const [elements, appState, files] = scene;
-    const json = JSON.parse(serializeAsJSON(elements, appState, files, "local")) as {
+    const text = serializeAsJSON(elements, appState, files, "local");
+    // Choosing a tool or moving the pointer changes Excalidraw's state, not the sketch, and every
+    // write rewrites the record with all its images.
+    if (text === lastWritten.current) {
+      setSaved((s) => (s === "unsaved" ? "saved" : s));
+      return;
+    }
+    const json = JSON.parse(text) as {
       elements: unknown[];
       appState: Record<string, unknown>;
       files: Record<string, unknown>;
     };
     saveSketch({ key: k, ...json, savedAt: Date.now() }).then(
-      () => setSaved((s) => (s === "blocked" ? s : "saved")),
-      () => setSaved("blocked"),
+      () => {
+        lastWritten.current = text;
+        setSaved((s) => (s === "blocked" || s === "unkept" ? s : "saved"));
+      },
+      (error: unknown) => setSaved(isQuotaError(error) ? "full" : "blocked"),
     );
   }, []);
 
   // Stable, so the memoised canvas does not re-render when the header's save state changes.
   const onChange = useCallback<OnChange>(
     (...scene) => {
-      if (!canSave.current) return;
+      // No key, no sketch to keep: the header already says so.
+      if (!canSave.current || !key.current) return;
       if (pending.current) clearTimeout(pending.current.timer);
       setSaved((s) => (s === "blocked" ? s : "unsaved"));
       const timer = setTimeout(() => {
@@ -341,6 +411,13 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  // Names for two Excalidraw controls it leaves unnamed or mislabelled (controls.ts).
+  const menuLabel = m.sketch_menu_label();
+  useEffect(() => {
+    const body = root.current;
+    return body ? keepExcalidrawControlsNamed(body, menuLabel) : undefined;
+  }, [menuLabel]);
+
   const runExport = async (job: Key) => {
     const excalidraw = api.current;
     if (!excalidraw) return;
@@ -378,15 +455,7 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
     }
   };
 
-  const subtitle = [
-    index ? m.sketch_diagram({ number: index }) : null,
-    kind,
-    saved === "blocked"
-      ? m.sketch_blocked()
-      : saved === "unsaved"
-        ? m.sketch_saving()
-        : m.sketch_saved(),
-  ]
+  const subtitle = [index ? m.sketch_diagram({ number: index }) : null, kind, SAVED_TEXT[saved]()]
     .filter(Boolean)
     .join(" · ");
 
@@ -409,7 +478,7 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
           </Heading>
           <span
             className="docwalk-sketch-subtitle"
-            data-tone={saved === "blocked" ? "note" : undefined}
+            data-tone={saved === "saved" || saved === "unsaved" ? undefined : "note"}
           >
             {subtitle}
           </span>
@@ -417,6 +486,15 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
         <span className="docwalk-sketch-status" role="status">
           {exportStatus}
         </span>
+        <Button
+          ref={storeButton}
+          className="docwalk-button"
+          aria-expanded={storeOpen}
+          onPress={() => setStoreOpen((open) => !open)}
+        >
+          <Archive size={16} aria-hidden="true" />
+          {m.sketch_store_button()}
+        </Button>
         <MenuTrigger>
           <Button className="docwalk-button" isDisabled={load.status !== "ready"}>
             <Download size={16} aria-hidden="true" />
@@ -442,10 +520,17 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
         </IconButton>
       </div>
       <div className="docwalk-sketch-canvas">
+        {storeOpen && (
+          <SavedSketches
+            openKey={openKey}
+            onClose={() => {
+              setStoreOpen(false);
+              storeButton.current?.focus();
+            }}
+          />
+        )}
         {load.status === "error" && (
-          <p className="docwalk-diagnostic docwalk-sketch-wait">
-            {m.sketch_convert_failed({ reason: load.message })}
-          </p>
+          <p className="docwalk-diagnostic docwalk-sketch-wait">{load.message}</p>
         )}
         {/* One element for both states, so Excalidraw stays mounted when the conversion lands. */}
         {(load.status === "converting" || load.status === "ready") && (
