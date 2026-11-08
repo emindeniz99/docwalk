@@ -245,6 +245,33 @@ describe("selectPrecache", () => {
     expect(runtime.has("typescript.js")).toBe(true);
   });
 
+  // Decision 101: a formula or a shortcode needs Temml or gemoji, and most
+  // documents have neither, so neither is part of the install. Their
+  // stylesheet goes with the chunk.
+  test("leaves the math engine, its stylesheet and the emoji list to the runtime cache", () => {
+    const { precache, runtime } = selectPrecache([
+      chunk("index.js", { isEntry: true, dynamicImports: ["mathBuild.js", "emojiMap.js"] }),
+      chunk("mathBuild.js", {
+        moduleIds: [
+          "/app/src/render/mathBuild.ts",
+          "/app/node_modules/.pnpm/temml@0.14.0/node_modules/temml/dist/temml.mjs",
+        ],
+        css: ["mathBuild.css"],
+      }),
+      chunk("emojiMap.js", {
+        moduleIds: [
+          "/app/src/render/emojiMap.ts",
+          "/app/node_modules/.pnpm/gemoji@8.1.0/node_modules/gemoji/index.js",
+        ],
+      }),
+    ]);
+    expect(precache.has("index.js")).toBe(true);
+    for (const name of ["mathBuild.js", "mathBuild.css", "emojiMap.js"]) {
+      expect(precache.has(name), name).toBe(false);
+      expect(runtime.has(name), name).toBe(true);
+    }
+  });
+
   test("fails loudly when the graph names a chunk the build did not emit", () => {
     expect(() =>
       selectPrecache([chunk("index.js", { isEntry: true, imports: ["gone.js"] })]),
