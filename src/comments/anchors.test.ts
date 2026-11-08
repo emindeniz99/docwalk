@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import {
+  anchorKey,
   buildAnchorIndex,
   countBySection,
   currentAnchor,
@@ -10,6 +11,7 @@ import {
   type DiagramNodes,
 } from "./anchors";
 import { contentKey, sourceKey } from "./identity";
+import { openCounts } from "./markers";
 import { sidecarFileName } from "./sidecar";
 import type { DocComment } from "./types";
 
@@ -237,6 +239,17 @@ describe("node comments and diagrams that move", () => {
       rendered(["a", "c"], ["a", "b"]),
     );
     expect(Object.fromEntries(counts)).toEqual({ architecture: 1 });
+  });
+
+  test("the node marks follow the diagram, and a comment orphaned between equal diagrams marks no node", () => {
+    // The panel lists the second comment as orphaned; a glow on the node at its old
+    // number would point at a diagram with a different source.
+    const swapped = indexFor(under(SECOND, FIRST));
+    expect([...openCounts([at({ anchor: node(0, "b", FIRST) })], swapped).keys()]).toEqual([
+      anchorKey(node(1, "b")),
+    ]);
+    const guess = indexFor(under(FIRST, SECOND, FIRST));
+    expect(openCounts([at({ anchor: node(1, "b", FIRST) })], guess).size).toBe(0);
   });
 
   test("a signature ignores whitespace and tells different diagrams apart", () => {

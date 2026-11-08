@@ -6,7 +6,7 @@
  * counts and heading titles set as text; no comment text reaches the DOM here.
  */
 import { m } from "../paraglide/messages.js";
-import { anchorKey, currentKey, type AnchorIndex } from "./anchors";
+import { anchorKey, currentAnchor, type AnchorIndex } from "./anchors";
 import { matchDiagramHosts, sourceNodeId } from "./diagramNodes";
 import type { DocComment } from "./types";
 
@@ -15,15 +15,19 @@ export const NODE_ATTR = "data-docwalk-comments";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-/** Open comments per anchor key, by where each comment points now (decision 96). */
+/**
+ * Open comments per anchor key, by where each comment points now (decision 96).
+ * A comment that cannot be placed without a guess is orphaned and marks nothing.
+ */
 export function openCounts(
   comments: readonly DocComment[],
   index: AnchorIndex,
 ): Map<string, number> {
   const out = new Map<string, number>();
   for (const c of comments) {
-    if (c.resolved) continue;
-    const k = currentKey(c.anchor, index);
+    const here = c.resolved ? null : currentAnchor(c.anchor, index);
+    if (!here) continue;
+    const k = anchorKey(here);
     out.set(k, (out.get(k) ?? 0) + 1);
   }
   return out;
