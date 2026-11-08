@@ -122,6 +122,8 @@ export const RUNTIME_CACHED_PACKAGES: readonly RegExp[] = [
   /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?monaco-editor\//,
   /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?@excalidraw\//,
   /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?@shikijs\/langs\//,
+  // Math and emoji shortcodes (decision 101): only a document that has one needs them.
+  /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(?:temml|gemoji)\//,
 ];
 
 const ownSource = (id: string) => !id.startsWith("\0") && !id.includes("/node_modules/");
