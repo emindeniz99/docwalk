@@ -58,10 +58,13 @@ protects:
   signed `mirror` messages under the view key, never to remotes or agents.
   A mirror message holds numbers, a tool, a colour key and a slide address
   only; a receiver draws the marks itself, caps what it keeps, and a
-  follower can neither send nor sign one. The join links
-  appear once the presenter's socket is open, and a presenter whose room
-  someone else reached first moves to a new room. Agent writes apply only
-  while the presenter has switched on "Allow agent edits".
+  follower cannot sign one. The presenter resends a slide's marks to a
+  follower that says hello at most every 2 s, and less often the more the
+  last resend cost, and answers hellos with at most one state per 250 ms.
+  The join links appear once the presenter's socket is open, and a
+  presenter whose room someone else reached first moves to a new room.
+  Agent writes apply only while the presenter has switched on "Allow agent
+  edits".
 
 Known limits, by design:
 
@@ -69,11 +72,15 @@ Known limits, by design:
   deck. Share it like a password.
 - Followers share one view key, but they take state only when the
   presenter's per-room signing key signed it; the public half is in the
-  follow link. A follower can still show other followers an older state, or
-  an older mark, laser point or focus view, that the presenter signed, until
-  the presenter's next one. A relay can drop the message that hides a laser
-  or closes a focus view. A tab that reloads can
-  receive a frame it saw before the reload.
+  follow link. A follower, or the relay, can still repeat a frame the
+  presenter signed to a follower that has not seen a later one from the
+  same presenter tab: one that joins late or reconnects, and, once the
+  presenter reloads its tab, any follower that never saw the earlier tab.
+  A repeated state lasts until the presenter's next one and a laser point
+  for 3 s; a mark stays until the presenter clears that slide, returns to
+  it or resends its marks, and a focus view until Escape or the next
+  resend. A relay can drop the message that hides a laser or closes a focus
+  view. A tab that reloads can receive a frame it saw before the reload.
 - The relay sees room ids, frame sizes and timing.
 - Whoever hosts docwalk serves its code. A hostile host, a compromised
   browser or a malicious extension is out of scope.

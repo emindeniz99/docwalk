@@ -22,6 +22,8 @@ export const PRIVACY_NOTE = m.share_privacy;
 
 export const COMMENTS_PRIVACY_NOTE = m.share_comments_privacy;
 
+export const COMMENTS_NAMES_NOTE = m.share_comments_names;
+
 export const COMMENTS_DROPPED = m.share_comments_dropped;
 
 type CopyStatus = "" | "copied" | "manual";
@@ -178,6 +180,12 @@ function ShareBody({
             <p className="docwalk-share-muted docwalk-share-privacy">
               <Info aria-hidden size={16} />
               <span>{COMMENTS_PRIVACY_NOTE()}</span>
+            </p>
+          )}
+          {includeComments && !state.link.commentsDropped && comments?.named && (
+            <p className="docwalk-share-muted docwalk-share-privacy">
+              <Info aria-hidden size={16} />
+              <span>{COMMENTS_NAMES_NOTE()}</span>
             </p>
           )}
         </>

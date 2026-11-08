@@ -9,7 +9,7 @@ import {
   encodeComments,
   hashWithoutComments,
 } from "./payload";
-import type { DocComment } from "./types";
+import { MAX_TOMBSTONES, type DocComment } from "./types";
 
 /**
  * Comments travel inside the share link (decision 55). Links people already
@@ -51,7 +51,11 @@ describe("share round trip", () => {
     const hash = new URL(result.link.url).hash;
     expect(hash).toMatch(/^#doc=[\w-]+&c=[\w-]+$/);
     expect(await readFragment(hash)).toBe(markdown);
-    expect(await decodeComments(commentsParam(hash)!)).toEqual({ ok: true, comments });
+    expect(await decodeComments(commentsParam(hash)!)).toEqual({
+      ok: true,
+      comments,
+      deleted: [],
+    });
   });
 
   test("a ?src= link carries comments in a #c= fragment, which no server receives", async () => {
@@ -69,7 +73,26 @@ describe("share round trip", () => {
     const url = new URL(result.link.url);
     expect(url.searchParams.get("src")).toBe("https://raw.githubusercontent.com/o/r/main/a.md");
     expect(url.hash).toMatch(/^#c=[\w-]+$/);
-    expect(await decodeComments(commentsParam(url.hash)!)).toEqual({ ok: true, comments });
+    expect(await decodeComments(commentsParam(url.hash)!)).toEqual({
+      ok: true,
+      comments,
+      deleted: [],
+    });
+  });
+
+  test("a link carries the deletions too, so an old link cannot bring a deleted comment back", async () => {
+    const deleted = [{ id: "c9", deleted: 99 }];
+    const hash = `#c=${await encodeComments(comments, deleted)}`;
+    expect(await decodeComments(commentsParam(hash)!)).toEqual({ ok: true, comments, deleted });
+  });
+
+  test("a link written before deletions were carried still reads, with none", async () => {
+    // Compact JSON exactly as an earlier build wrote it: no `deleted` key.
+    const { encodeDoc } = await import("../share/fragment");
+    const old = await encodeDoc(
+      JSON.stringify({ format: "docwalk-comments", version: 1, comments }),
+    );
+    expect(await decodeComments(old)).toEqual({ ok: true, comments, deleted: [] });
   });
 
   test("an old link without comments opens exactly as before", async () => {
@@ -106,6 +129,98 @@ describe("share round trip", () => {
     expect(result.link.commentsDropped).toBe(true);
     expect(commentsParam(new URL(result.link.url).hash)).toBeNull();
     expect(await readFragment(new URL(result.link.url).hash)).toBe(markdown);
+  });
+});
+
+/** Text deflate cannot shrink, so the test decides how long a payload is. */
+function incompressible(length: number, seed: number): string {
+  let s = seed;
+  return Array.from({ length }, () => {
+    s = (s * 48271) % 2147483647;
+    return String.fromCharCode(0x4e00 + (s % 0x5000));
+  }).join("");
+}
+
+/** A 64-character comment id that deflate cannot shrink either. */
+function incompressibleId(seed: number): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+  let s = seed;
+  return Array.from({ length: 64 }, () => {
+    s = (s * 48271) % 2147483647;
+    return alphabet[s % 64];
+  }).join("");
+}
+
+describe("a link with deletions that would pass the cap (decision 95)", () => {
+  // The share dialog offers the value with deletions first and the one without
+  // second. Tombstones are worth less than the comments they sit beside: losing
+  // them only lets an older copy of a deleted comment back in, losing the comments
+  // shares nothing at all.
+  test("carries the comments without the deletions rather than dropping both", async () => {
+    const big = Array.from({ length: 4 }, (_, i) => ({
+      ...comments[0]!,
+      id: `big${i}`,
+      text: incompressible(3900, i + 1),
+    }));
+    const deleted = Array.from({ length: MAX_TOMBSTONES }, (_, i) => ({
+      id: incompressibleId(i + 7),
+      deleted: 1_700_000_000_000 + i,
+    }));
+    const full = await encodeComments(big, deleted);
+    const lean = await encodeComments(big);
+    expect(full.length).toBeGreaterThan(FRAGMENT_MAX_CHARS);
+    expect(lean.length).toBeLessThan(FRAGMENT_MAX_CHARS - 1000);
+    const result = await buildShareLink({
+      source: { kind: "paste" },
+      markdown,
+      base,
+      comments: [full, lean],
+    });
+    if (!result.ok) throw new Error(result.message);
+    expect(result.link.commentsDropped).toBe(false);
+    expect(await decodeComments(commentsParam(new URL(result.link.url).hash)!)).toEqual({
+      ok: true,
+      comments: big,
+      deleted: [],
+    });
+  });
+
+  test("keeps the deletions whenever they fit", async () => {
+    const deleted = [{ id: "c9", deleted: 99 }];
+    const result = await buildShareLink({
+      source: {
+        kind: "url",
+        url: "https://raw.githubusercontent.com/o/r/main/a.md",
+        trusted: true,
+      },
+      markdown,
+      base,
+      comments: [await encodeComments(comments, deleted), await encodeComments(comments)],
+    });
+    if (!result.ok) throw new Error(result.message);
+    expect(await decodeComments(commentsParam(new URL(result.link.url).hash)!)).toEqual({
+      ok: true,
+      comments,
+      deleted,
+    });
+  });
+
+  test("drops and flags the comments when neither value fits", async () => {
+    const big = Array.from({ length: 12 }, (_, i) => ({
+      ...comments[0]!,
+      id: `big${i}`,
+      text: incompressible(3900, i + 1),
+    }));
+    const deleted = [{ id: "c9", deleted: 99 }];
+    const result = await buildShareLink({
+      source: { kind: "paste" },
+      markdown,
+      base,
+      comments: [await encodeComments(big, deleted), await encodeComments(big)],
+    });
+    if (!result.ok) throw new Error(result.message);
+    expect(result.link.commentsDropped).toBe(true);
+    expect(commentsParam(new URL(result.link.url).hash)).toBeNull();
   });
 });
 

@@ -64,7 +64,10 @@ The first release.
   marks sit at the same place of the slide on any screen size. A follower
   who joins late or reconnects gets the slide's marks again. The presenter
   window shows the laser and marks over its current slide, with or without
-  the Worker. Marks stay in memory and are not saved.
+  the Worker. Marks stay in memory and are not saved. A resync no longer
+  clears a follower's marks first, a follower who joins during a stroke no
+  longer cuts it, and resyncs slow down when they cost more, so a burst of
+  followers cannot flood the presenter's connection.
 - Task list items (`- [x]`, `- [ ]`) show their state as read-only boxes on
   slides, in document view, in the presenter's previews and in the HTML, PNG
   and print exports. A tick, not a colour, marks a done item, and a screen
@@ -76,11 +79,22 @@ The first release.
   chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
   only for the languages a document uses.
-- Monaco as an optional desktop editor beside CodeMirror.
+- Monaco as an optional desktop editor beside CodeMirror. A switch of
+  editor keeps the cursor line, the command palette offers the other
+  editor, a pick in one tab applies in the others, a list item's indented
+  paragraphs are coloured as text, and Monaco's own panels are Turkish for
+  Turkish viewers.
 - Canvas mode: a Mermaid diagram as an editable Excalidraw sketch, kept in
-  the browser and exported as `.excalidraw`, PNG or SVG.
+  the browser and exported as `.excalidraw`, PNG or SVG. The sketch menu and
+  zoom buttons have names, the Library no longer links to excalidraw.com, a
+  Saved sketches panel deletes stored sketches, and full storage or a missing
+  `crypto.subtle` is reported as such.
 - Comments on headings and diagram nodes, carried in share links and
-  exported as `<name>.comments.json` sidecars.
+  exported as `<name>.comments.json` sidecars. Count markers sit beside
+  commented headings on the slide itself; a deleted comment stays deleted
+  when an older link, sidecar or tab is imported; node comments follow
+  their diagram when diagrams are reordered; a new comment can carry a
+  display name, kept in this browser.
 - A browser workspace (files, folders, templates, zip import and export)
   and, in Chromium, local folders that reload on change and save on request.
   The workspace follows edits from another tab and asks before it writes over
@@ -91,6 +105,8 @@ The first release.
   presenter's document, moves the deck and, when allowed, edits it.
 - English and Turkish UI.
 - An installable app that presents offline after one visit and asks before
-  updating.
+  updating. Installed in Chromium on the desktop, it opens Markdown files
+  from the file manager; it checks for a new version once an hour while open
+  and visible, and F6 reaches the update prompt.
 - Static self-hosting on any host, and full mode on Cloudflare with your
   own GitHub App.

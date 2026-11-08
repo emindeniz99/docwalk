@@ -84,6 +84,21 @@ describe("marks on the receiving slide", () => {
     expect(marks(host)).toHaveLength(0);
   });
 
+  test("a stroke replaced by one with the same id and length is drawn again (decision 103)", async () => {
+    // Ids restart after a presenter reload, and a resync no longer clears
+    // the slide first, so the replacement is the only change the view sees.
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    view = attachMirror(host, store, () => "a/1");
+    store.apply(stroke({ id: 1, points: [1024, 1024, 2048, 2048, 3072, 3072] }));
+    await drawn();
+    const before = marks(host)[0]!.getAttribute("d");
+    store.apply(stroke({ id: 1, points: [3072, 1024, 2048, 2048, 1024, 3072] }));
+    await drawn();
+    expect(marks(host)).toHaveLength(1);
+    expect(marks(host)[0]!.getAttribute("d")).not.toBe(before);
+  });
+
   test("a pen stroke is a filled path and an arrow a line with a head", () => {
     const { host } = slideBox(640, 360);
     const store = new MirrorStore();

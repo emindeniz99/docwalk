@@ -25,6 +25,13 @@
   outline: none;
 }
 
+/* F6 lands on the region itself (decision 99); show where. */
+.docwalk-toast-region[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--dw-radius-lg);
+}
+
 .docwalk-toast {
   display: flex;
   align-items: center;

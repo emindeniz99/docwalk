@@ -8,6 +8,7 @@ import { flushSync } from "react-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import { chooseLocale, LOCALE_KEY } from "../i18n/locale";
 import { MonacoEditor } from "./monaco/MonacoEditor";
 import { SourceEditor } from "./SourceEditor";
 import type { SourceEditorProps } from "./types";
@@ -307,6 +308,49 @@ describe.each([codemirror, monacoCandidate])("SourceEditor contract: $name", (ca
     expect(editor.revealedLine()).toBe("Line 3");
   });
 
+  test("initialLine starts the cursor on that line and scrolls it into view, so an editor switch keeps the place", async () => {
+    // The shell remounts the editor when the viewer picks the other one; a
+    // cursor that restarts on line 1 loses the viewer's place in a long document.
+    const reported: number[] = [];
+    const { editor } = mount({
+      value: lines(300),
+      initialLine: 200,
+      onCursorLine: (l) => reported.push(l),
+    });
+    await painted();
+    expect(editor.head()).toBe(editor.lineStart(200));
+    expect(editor.lineVisible(200)).toBe(true);
+    // The shell passed the line in; echoing it back would be noise, not a move.
+    expect(reported).toEqual([]);
+    editor.select(editor.lineStart(3));
+    expect(reported).toEqual([3]);
+  });
+
+  test("initialLine past the end of the document lands on the last line", () => {
+    const { editor } = mount({ value: lines(3), initialLine: 99 });
+    expect(editor.head()).toBe(editor.lineStart(3));
+  });
+
+  test("initialLine only decides where the editor starts: a later value does not move the cursor", () => {
+    const { editor, render } = mount({ value: lines(5), initialLine: 2 });
+    editor.select(editor.lineStart(4));
+    render({ initialLine: 2 });
+    render({ initialLine: 5 });
+    expect(editor.head()).toBe(editor.lineStart(4));
+  });
+
+  test("notes are put back when a different document replaces the text", async () => {
+    // A new document starts from a fresh state; the notes the shell already
+    // sent for it must not disappear until the next report arrives.
+    const sent = notes();
+    const { editor, render } = mount({ value: lines(6), documentId: 1, diagnostics: sent });
+    await painted();
+    expect(editor.notedLines()).toEqual(["Line 2"]);
+    render({ value: "Alpha\nBeta\nGamma\n", documentId: 2, diagnostics: sent });
+    await painted();
+    expect(editor.notedLines()).toEqual(["Beta"]);
+  });
+
   test("diagnostics mark their lines, put a marker in the gutter and are announced", async () => {
     const { editor, render, frame: box } = mount({ value: lines(6) });
     render({
@@ -373,5 +417,27 @@ describe.each([codemirror, monacoCandidate])("SourceEditor contract: $name", (ca
     expect(editor.editorHeight()).toBeCloseTo(box.clientHeight, 0);
     const { height, client } = editor.scrollSize();
     expect(height).toBeGreaterThan(client);
+  });
+});
+
+describe("CodeMirror's own words (decision 56)", () => {
+  afterEach(() => {
+    chooseLocale("en");
+    localStorage.removeItem(LOCALE_KEY);
+  });
+
+  test("the search panel's words follow a language switch made while the editor is open", async () => {
+    // The view keeps the phrases it was built with: rebuilding it on mount
+    // dropped the scroll to `initialLine`, so only a switch hands it new ones.
+    frame = document.createElement("div");
+    document.body.append(frame);
+    root = createRoot(frame);
+    flushSync(() => root!.render(createElement(SourceEditor, { ...baseProps, value: lines(3) })));
+    const view = EditorView.findFromDOM(frame.querySelector<HTMLElement>(".cm-content")!)!;
+    expect(view.state.phrase("Find")).toBe("Find");
+    chooseLocale("tr");
+    await expect.poll(() => view.state.phrase("Find")).toBe("Bul");
+    chooseLocale("en");
+    await expect.poll(() => view.state.phrase("Find")).toBe("Find");
   });
 });

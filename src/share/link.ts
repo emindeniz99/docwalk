@@ -23,9 +23,11 @@ export interface ShareLinkInput {
   /**
    * Encoded comments (src/comments/payload.ts), sent as `&c=` after the
    * document or as `#c=` on a source link. Left out, with
-   * `commentsDropped`, when the link would pass the length cap.
+   * `commentsDropped`, when the link would pass the length cap. Several
+   * values may be given, fullest first: the first that fits is used, so
+   * the deletions a link carries (decision 95) never cost it its comments.
    */
-  comments?: string | null;
+  comments?: string | readonly string[] | null;
 }
 
 // Message functions: a link's text is read in the UI language when the link is built.
@@ -95,11 +97,12 @@ export async function buildShareLink({
   // Comments ride in the fragment, which never reaches a server, and only
   // while the whole link stays under the cap.
   const withComments = (url: string, separator: string) => {
-    if (!comments) return { url, commentsDropped: false };
-    const longer = `${url}${separator}${COMMENTS_PARAM}=${comments}`;
-    return longer.length > FRAGMENT_MAX_CHARS
-      ? { url, commentsDropped: true }
-      : { url: longer, commentsDropped: false };
+    const options = (typeof comments === "string" ? [comments] : (comments ?? [])).filter(Boolean);
+    for (const value of options) {
+      const longer = `${url}${separator}${COMMENTS_PARAM}=${value}`;
+      if (longer.length <= FRAGMENT_MAX_CHARS) return { url: longer, commentsDropped: false };
+    }
+    return { url, commentsDropped: options.length > 0 };
   };
   if (source.kind === "url" || source.kind === "repo") {
     const { url, warning } = sourceLink(root, source);

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { tokens } from "../src/design/tokens.ts";
+import { loadFromFile } from "../src/inputs/load.ts";
 import { CONTENT_SECURITY_POLICY } from "../worker/csp.ts";
 import viteConfig from "../vite.config.ts";
 import {
@@ -104,6 +105,30 @@ describe("web app manifest (decision 11)", () => {
       ...manifest.icons.map((i) => i.src),
     ])
       expect(path.startsWith("/")).toBe(false);
+  });
+
+  // Decision 99: a Markdown file opened with the installed app. Chromium
+  // lists the app next to "Open with" for these extensions and starts it with
+  // the file in launchQueue; other browsers ignore the member.
+  describe("file_handlers", () => {
+    const handler = manifest.file_handlers[0];
+
+    test("offers the app for Markdown files and opens them at the app root", () => {
+      expect(manifest.file_handlers).toHaveLength(1);
+      expect(handler?.accept).toEqual({ "text/markdown": [".md", ".markdown"] });
+      // Resolved against the manifest like start_url, so it stays inside the scope.
+      expect(handler?.action).toBe(manifest.start_url);
+      expect(handler?.action.startsWith("/")).toBe(false);
+    });
+
+    // A handler for an extension the loader refuses would offer the app for
+    // files it can only answer with an error.
+    test("lists only extensions the file loader accepts", async () => {
+      for (const extension of Object.values(handler?.accept ?? {}).flat()) {
+        const result = await loadFromFile(new File(["# A"], `notes${extension}`));
+        expect({ extension, ok: result.ok }).toEqual({ extension, ok: true });
+      }
+    });
   });
 
   test("its colours are design tokens (decision 52)", () => {

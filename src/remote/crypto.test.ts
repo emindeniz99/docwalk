@@ -1,4 +1,15 @@
 import { describe, expect, test } from "vitest";
+import { MirrorFeed } from "../annotate/mirrorFeed";
+import {
+  MAX_STROKE_POINTS,
+  mirrorFrameBytes,
+  RESYNC_BYTES_PER_SECOND,
+  RESYNC_MIN_GAP_MS,
+  resyncGapMs,
+  type MarkStroke,
+  type MirrorOp,
+} from "../annotate/mirrorTypes";
+import { API_LIMITS } from "../api/types";
 import {
   createPresenterCredentials,
   createRoomCredentials,
@@ -58,6 +69,8 @@ const MESSAGES: RemoteMessage[] = [
   },
   { type: "mirror", op: "drop", slide: "retries/2", ids: [7, 8] },
   { type: "mirror", op: "clear", slide: "retries/2" },
+  { type: "mirror", op: "keep", slide: "retries/2", ids: [7, 8] },
+  { type: "mirror", op: "keep", slide: "retries/2", ids: [] },
   { type: "mirror", op: "focus-open", slide: "retries/2", diagram: 2 },
   { type: "mirror", op: "focus-view", scale: 2.5, x: -0.25, y: 0.1 },
   { type: "mirror", op: "focus-close" },
@@ -69,6 +82,15 @@ const SEAL = { sender: "SenderSender", counter: 1 };
 /** `message` inside a valid seal, as JSON text: a key holder's plaintext. */
 const sealed = (message: unknown) =>
   JSON.stringify({ s: SEAL.sender, n: SEAL.counter, m: message });
+
+/** `count` pen strokes of `points` points at the widest numbers, ids from `from`. */
+const widestStrokes = (count: number, points: number, from = 1): MarkStroke[] =>
+  Array.from({ length: count }, (_, i) => ({
+    id: from + i,
+    tool: "pen",
+    color: "primary",
+    points: Array.from({ length: 2 * points }, () => 4096),
+  }));
 
 /** Encrypts arbitrary text under `key`, as a hostile key holder could. */
 async function encryptRaw(key: RoomKey, plaintext: string): Promise<EncryptedFrame> {
@@ -508,10 +530,84 @@ describe("mirror messages (decision 88)", () => {
       { type: "mirror", op: "focus-view", scale: 20, x: 0, y: 0 },
       { type: "mirror", op: "focus-view", scale: 0, x: 0, y: 0 },
       { type: "mirror", op: "focus-view", scale: 1, x: 9, y: 0 },
+      // keep (decision 103): a slide and at most 200 whole, bounded ids, nothing else.
+      { type: "mirror", op: "keep", slide: "a/1", ids: Array.from({ length: 201 }, (_, i) => i) },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [1.5] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [-1] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [2 ** 31] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [Number.NaN] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: ["1"] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: "1,2" },
+      { type: "mirror", op: "keep", slide: "a/1" },
+      { type: "mirror", op: "keep", ids: [1] },
+      { type: "mirror", op: "keep", slide: "", ids: [1] },
+      { type: "mirror", op: "keep", slide: "x".repeat(2049), ids: [1] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [1], html: "<img onerror=x>" },
     ];
     for (const message of hostile) {
       expect(await decrypt(key, await encryptRaw(key, sealed(message)))).toBeNull();
     }
+  });
+
+  test("the largest keep a presenter can send fits a relay frame and arrives intact (decision 103)", async () => {
+    // A mirror message cannot be split into parts, so the widest keep must
+    // fit one 16 KB frame signed: 200 of the largest ids and the longest
+    // address, in characters that take three bytes each.
+    const { view, signer, verifier } = await signedRoom();
+    const widest: RemoteMessage = {
+      type: "mirror",
+      op: "keep",
+      slide: "語".repeat(2048),
+      ids: Array.from({ length: 200 }, (_, i) => 2 ** 31 - 1 - i),
+    };
+    const frame = await encrypt(view, widest, SEAL, signer);
+    expect(JSON.stringify(frame).length).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(widest);
+  });
+
+  test("a resync waits long enough to cost at most 64 KB/s of sealed frames, whatever the slide holds (decision 103)", async () => {
+    // A follower's hello costs the presenter one resync per gap, signed and
+    // sealed frame by frame. The host estimates that cost from each op's JSON
+    // (mirrorFrameBytes); these are the real frames, with counters as large
+    // as a week-long room reaches.
+    const { view, signer } = await signedRoom();
+    const shapes = {
+      // The receiver's limit: 30,000 points, the widest numbers.
+      full: widestStrokes(20, MAX_STROKE_POINTS),
+      // 200 strokes of one segment each: the frames are mostly seal and signature.
+      small: widestStrokes(200, 2),
+      mixed: [...widestStrokes(180, 2), ...widestStrokes(4, MAX_STROKE_POINTS, 1000)],
+    };
+    const gaps: Record<string, number> = {};
+    for (const [name, marks] of Object.entries(shapes)) {
+      const feed = new MirrorFeed();
+      feed.ingest({ kind: "marks", slide: "retries/2", strokes: marks, reset: true });
+      const ops: MirrorOp[] = [];
+      feed.resync((op) => ops.push(op));
+      let bytes = 0;
+      let estimated = 0;
+      for (const [i, op] of ops.entries()) {
+        const seal = { sender: SEAL.sender, counter: 10_000_000 + i };
+        const frame = await encrypt(view, { type: "mirror", ...op }, seal, signer);
+        bytes += JSON.stringify(frame).length;
+        estimated += mirrorFrameBytes(op);
+      }
+      gaps[name] = resyncGapMs(estimated);
+      expect(estimated, `${name}: the estimate never undercounts`).toBeGreaterThanOrEqual(bytes);
+      expect(estimated, `${name}: and stays close`).toBeLessThan(bytes * 1.02);
+      expect((bytes * 1000) / gaps[name]!, `${name}: bytes a second`).toBeLessThanOrEqual(
+        RESYNC_BYTES_PER_SECOND,
+      );
+      console.info(
+        `mirror resync (${name}): ${ops.length} frames, ${bytes} bytes sealed, next resync after ${gaps[name]} ms`,
+      );
+    }
+    // The review's worst case repeats about every 8 s; a light slide keeps the 2 s floor.
+    expect(gaps["full"]).toBeGreaterThan(7000);
+    expect(gaps["full"]).toBeLessThan(9000);
+    expect(gaps["small"]).toBe(RESYNC_MIN_GAP_MS);
   });
 
   test("the largest stroke chunk fits a relay frame with room to spare", async () => {

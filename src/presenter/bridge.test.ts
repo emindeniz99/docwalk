@@ -2,7 +2,7 @@
 /* oxlint-disable unicorn/require-post-message-target-origin */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MirrorFeed } from "../annotate/mirrorFeed";
-import type { MarkStroke, MirrorOp } from "../annotate/mirrorTypes";
+import { RESYNC_MIN_GAP_MS, type MarkStroke, type MirrorOp } from "../annotate/mirrorTypes";
 import {
   connectPresenter,
   DISCONNECT_AFTER_MS,
@@ -292,7 +292,7 @@ describe("mirrored laser and marks (decision 88)", () => {
     feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1), stroke(2)], reset: true });
     const onMirror = vi.fn<(op: MirrorOp) => void>();
     connectPresenter(() => {}, { channel: hub.factory, onMirror });
-    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke", "stroke"]);
+    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke", "stroke"]);
     onMirror.mockClear();
     vi.advanceTimersByTime(HEARTBEAT_MS * 3);
     expect(onMirror).not.toHaveBeenCalled();
@@ -307,9 +307,50 @@ describe("mirrored laser and marks (decision 88)", () => {
     connectPresenter(() => {}, { channel: hub.factory, onMirror: first });
     first.mockClear();
     connectPresenter(() => {}, { channel: hub.factory, onMirror: second });
-    expect(second.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke"]);
+    // Inside the first window's 2 s gap: the resync waits for its end (decision 103).
+    expect(second).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+    expect(second.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke"]);
     // The resync is a broadcast of ops that change nothing for a window that has the marks.
-    expect(first.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke"]);
+    expect(first.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke"]);
+  });
+
+  test("a flood of hellos that ask for a resync gets one at once and one at the end of the gap (decision 103)", () => {
+    // Any same-origin tab can post on the channel; each resync posts every
+    // stroke of the slide again.
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1), stroke(2)], reset: true });
+    const hostile = hub.peer();
+    // Each resync posts stroke 1 once; nothing else here does.
+    const resyncs = () =>
+      hostile.received.filter((m) => {
+        const op = m as { op?: string; id?: number };
+        return op.op === "stroke" && op.id === 1;
+      }).length;
+    for (let i = 0; i < 50; i++) {
+      hostile.channel.postMessage({ type: "hello", resync: true });
+      vi.advanceTimersByTime(10);
+    }
+    expect(resyncs()).toBe(1);
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+    expect(resyncs()).toBe(2);
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS * 5);
+    expect(resyncs()).toBe(2);
+  });
+
+  test("stopping the bridge cancels a resync that was waiting for its gap", () => {
+    const hub = createHub();
+    const { feed, stop } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1)], reset: true });
+    const hostile = hub.peer();
+    hostile.channel.postMessage({ type: "hello", resync: true });
+    hostile.channel.postMessage({ type: "hello", resync: true });
+    stop();
+    hostile.received.length = 0;
+    // The hub throws on a post to a closed channel, so a timer left behind fails here.
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS * 2);
+    expect(hostile.received).toEqual([]);
   });
 
   test("the diagram focus view is not sent: the window shows scaled, inert copies of the slides", () => {

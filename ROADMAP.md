@@ -100,6 +100,29 @@ here. Playwright's WebKit on Windows leaves OPFS writes empty, so 9 of its 15
 tests fail on that engine on the base branch too; WebKit rests on the fork's
 CI.
 
+Done 2026-11-09 (decisions 94 to 97): comment count markers sit beside
+commented headings on the scaled slide, at least 24 px at any scale;
+deleted comments leave tombstones, so an older link, sidecar or tab does
+not bring them back; node comments follow their diagram when diagrams
+trade places; a new comment can carry a display name kept in this
+browser. `e2e/comments.spec.ts` passes 11 of 11 on Chromium.
+
+Done 2026-11-09 (decision 102): a switch of editor keeps the cursor line;
+the palette offers the other editor; a pick in one tab applies in the
+others; Monaco's own Markdown grammar colours a list item's indented
+paragraphs as text; Monaco's panels are Turkish for Turkish viewers.
+`e2e/editor-choice.spec.ts` passes 10 of 10 on Chromium.
+
+Done 2026-11-09 (decisions 98 and 99): canvas mode names Excalidraw's menu
+and zoom buttons, so axe runs on it without exclusions; the Library hides
+its Browse libraries link; a Saved sketches panel deletes stored sketches;
+full storage and a missing `crypto.subtle` are reported as such. The
+installed app opens Markdown files from the file manager (Chromium), checks
+for a new version once an hour while visible and online, and F6 reaches the
+update prompt; `pnpm size` starts size-limit through Node, so it runs on
+Windows. `e2e/canvas.spec.ts` (7) and `e2e/pwa.spec.ts` (12) pass on
+Chromium here.
+
 ## Follow-ups
 
 Needs the owner:
@@ -147,27 +170,30 @@ Later rounds:
   place; an agent or phone remote that joins before the
   presenter's socket is open is not counted (hello is not resent);
   `docwalk-mcp` is not on npm yet.
-- Markdown: decision 42 wants the sanitizer corpus on three engines, the
-  browser test project runs Chromium only; a footnote list pushed to a
+- Markdown: a footnote list pushed to a
   continuation page stays there; anchors cover top-level headings only.
-- Comments: no markers inside scaled slides (the slide chip stands in); no
-  tombstones, so a deleted comment can return from an older link or
-  sidecar; swapping two diagrams under one heading orphans their node
-  comments; no author names.
-- Canvas: axe excludes two upstream Excalidraw controls by selector; the
-  Library sidebar links to libraries.excalidraw.com on click; stored
-  sketches are never pruned; cylinders convert to rectangles.
-- Monaco: the cursor line is not carried across an editor switch (the
-  decision 4 contract has no initial cursor); Monarch colours 4-space list
-  continuations as code; the chunk is 831 kB gzip; the palette does not
-  offer the editor choice.
-- PWA: F6 to the update toast is unverified; no `file_handlers` and no
-  periodic update check.
+- Comments (decisions 94 to 97): a tombstone list stops at 500, so a very
+  old file can bring back a deletion older than the 500 newest; a node
+  comment's `sig` describes the diagram when the comment was written, so
+  after an edit a later swap is judged by position; the display name is
+  not an identity (anyone can type any name) and needs the owner's
+  approval (row 97); a long share link drops its tombstones before its
+  comments.
+- Canvas: the Library's Publish form remains (Excalidraw has no switch for
+  it); stored sketches are deleted by hand from the Saved sketches panel,
+  never pruned automatically; cylinders convert to rectangles; the Turkish
+  strings have not been read by a native speaker.
+- Monaco: its own text keeps the language it loaded with until a reload;
+  the chunk is 833 kB gzip and stays whole, because the hover that shows
+  notes pulls in most of what could be split (decision 102); list content
+  offsets past 16 columns count as 16, and a tab ends a list item.
+- PWA: the file launch is tested with a stand-in `launchQueue`; no real
+  file-manager launch has been tried.
 - CI and quality: mutation survivors are reported, not fixed, except in
   `src/share/fragment.ts`, whose tests now hold real documents that only its
   schema refuses (65 to 68 killed on 2026-11-09; the 8 left are equivalent
-  mutants, such as padding that `atob` does not need); Lighthouse
-  SEO is 0.82 and unbudgeted. "Editing the source … notes in the gutter"
+  mutants, such as padding that `atob` does not need); Lighthouse SEO has a
+  0.95 floor since 2026-11-09 (decision 104). "Editing the source … notes in the gutter"
   (`e2e/app.spec.ts`) failed once on WebKit under load and never again in
   40 runs; one lead is that `App.tsx` diagnostics fall back to line 1
   (`?? 1`) for a slide from a stale deck. The presenter axe test's 90 s
@@ -205,8 +231,11 @@ Later rounds:
   Escape or the next resync; a follower's own close of the mirrored view
   holds until the presenter opens another diagram; a phone remote that
   moves the slide while a diagram view is open leaves that view open on
-  both screens; a follower that joins within 2 s of the last resync waits
-  for the next one.
+  both screens; a follower that joins inside the resync gap waits for the
+  next resync: 2 s, longer after a costly one (about 7.6 s for a slide at
+  the receiver's limits). Decision 103 (2026-11-09) fixed the review's
+  findings: a resync opens with `keep` instead of clearing, a stroke in
+  progress resyncs only as far as it was sent, and hellos are coalesced.
 - Choosing sections (decision 100): the share link and the follow link
   leave out `?sections=` (the owner decides whether the share link should
   carry it); a follower counts every slide; the presenter window still
@@ -216,10 +245,6 @@ Later rounds:
   "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
   reader user on a Mac hears the key without knowing it needs Command.
   Judgement call, not changed here.
-- `pnpm size` exits 1 without output on Windows: `tooling/size-check.ts`
-  runs `size-limit` through `execFileSync` without a shell, which cannot
-  start the `.cmd` shim. `pnpm exec size-limit` works there (409 kB for
-  the app shell on 2026-11-08).
 - Accessibility judgement to confirm: in the fill frame (decision 77) the
   deck's focus ring hides with the idle controls, read as meeting WCAG
   2.4.7 because it shows whenever they do. A stricter reading keeps it
