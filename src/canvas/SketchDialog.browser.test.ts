@@ -1,14 +1,14 @@
 import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { inlineFiles } from "./files";
 import { diagramHash, documentKey, sketchKey } from "./identity";
 import { SketchDialog } from "./SketchDialog";
-import { deleteSketch, loadSketch } from "./store";
+import { deleteSketch, loadSketch, saveSketch } from "./store";
 
 /**
  * Review pass 3: Excalidraw hands every image's `dataURL` to `new Image().src`
@@ -56,6 +56,28 @@ let sources: string[] = [];
 const srcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src")!;
 let root: Root | null = null;
 let key = "";
+/** Sketches of other documents that a test stores beside the open one. */
+const OTHERS = [sketchKey("file:old.md", "h1"), sketchKey("file:new.md", "h2")];
+
+/**
+ * The Saved sketches panel lists every sketch on the origin, and "Delete all
+ * others" deletes them, while other test files store sketches on this origin
+ * side by side (src/workspace's rename test leaves one behind). This file
+ * keeps its sketches in a database of its own, so a panel test sees only what
+ * it stored and cannot delete another file's sketch in the middle of its test.
+ */
+const openDatabase = IDBFactory.prototype.open;
+beforeAll(() => {
+  IDBFactory.prototype.open = function (name: string, version?: number) {
+    const own = name === "docwalk-canvas" ? "docwalk-canvas-sketch-dialog-test" : name;
+    return version === undefined
+      ? openDatabase.call(this, own)
+      : openDatabase.call(this, own, version);
+  };
+});
+afterAll(() => {
+  IDBFactory.prototype.open = openDatabase;
+});
 
 /** Writes a record the way an earlier version saved it: straight into IndexedDB, unfiltered. */
 function rawPut(record: object): Promise<void> {
@@ -91,8 +113,7 @@ function rawGet(): Promise<{ files: Record<string, unknown> } | undefined> {
   });
 }
 
-async function mountSketch(stored: object) {
-  await rawPut({ key, appState: {}, savedAt: 1, ...stored });
+function mount() {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -107,10 +128,19 @@ async function mountSketch(stored: object) {
       }),
     ),
   );
+}
+
+async function canvasMounted() {
   await vi.waitFor(() => {
     if (!document.querySelector(".excalidraw canvas.interactive")) throw new Error("no canvas");
   });
   return document.querySelector<HTMLCanvasElement>(".excalidraw canvas.interactive")!;
+}
+
+async function mountSketch(stored: object) {
+  await rawPut({ key, appState: {}, savedAt: 1, ...stored });
+  mount();
+  return canvasMounted();
 }
 
 /**
@@ -143,6 +173,7 @@ afterEach(async () => {
   Object.defineProperty(HTMLImageElement.prototype, "src", srcDescriptor);
   vi.restoreAllMocks();
   await deleteSketch(key);
+  for (const other of OTHERS) await deleteSketch(other);
 });
 
 describe("remote images in sketches", () => {
@@ -248,5 +279,186 @@ describe("remote images in sketches", () => {
     expect(open).toBeDefined();
     await userEvent.click(open!);
     expect(await remoteImageRequests()).toEqual([]);
+  });
+});
+
+const subtitle = () => document.querySelector(".docwalk-sketch-subtitle")?.textContent ?? "";
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const byText = (selector: string, text: string) =>
+  [...document.querySelectorAll<HTMLElement>(selector)].find((e) => e.textContent?.trim() === text);
+
+/** Drops a .excalidraw file on the canvas: the scene changes, so Excalidraw reports a change. */
+function dropScene(canvas: HTMLCanvasElement) {
+  const dataTransfer = new DataTransfer();
+  dataTransfer.items.add(
+    new File([sceneJson("excalidraw")], "received.excalidraw", { type: "application/json" }),
+  );
+  const box = canvas.getBoundingClientRect();
+  canvas.dispatchEvent(
+    new DragEvent("drop", {
+      bubbles: true,
+      cancelable: true,
+      clientX: box.x + box.width / 2,
+      clientY: box.y + box.height / 2,
+      dataTransfer,
+    }),
+  );
+}
+
+describe("when a sketch cannot be loaded or kept (decision 98)", () => {
+  test("a page without crypto.subtle opens the sketch, unsaved, and does not wait forever", async () => {
+    // Plain http outside localhost has no crypto.subtle; hashing the diagram threw and the dialog
+    // stayed on "Converting…" with no canvas.
+    Object.defineProperty(crypto, "subtle", { value: undefined, configurable: true });
+    try {
+      mount();
+      await canvasMounted();
+      await vi.waitFor(() => expect(document.querySelector(".docwalk-sketch-wait")).toBeNull(), {
+        timeout: 20_000,
+      });
+      expect(subtitle()).toContain("secure connection");
+    } finally {
+      // Removes the own property, which uncovers the browser's.
+      delete (crypto as { subtle?: unknown }).subtle;
+    }
+  });
+
+  test("a stored sketch that cannot be read says so and is left as it was", async () => {
+    // restore() throws on an element that is null; the dialog stayed on "Converting…".
+    await rawPut({ key, appState: {}, savedAt: 1, elements: [null], files: {} });
+    mount();
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector(".docwalk-sketch-wait.docwalk-diagnostic")?.textContent,
+      ).toContain("could not be opened"),
+    );
+    expect((await loadSketch(key))?.elements).toEqual([null]);
+  });
+
+  test("a full storage says it is full, not that the browser blocks storage", async () => {
+    const canvas = await mountSketch({ elements: [], files: {} });
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(() => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    });
+    dropScene(canvas);
+    await vi.waitFor(() => expect(subtitle()).toContain("storage is full"), { timeout: 5000 });
+    expect(subtitle()).not.toContain("blocks storage");
+  });
+
+  test("a change that leaves the saved scene as it is writes nothing", async () => {
+    // Choosing a tool changes Excalidraw's state, not the scene, and every write rewrites the
+    // record with all its images.
+    const canvas = await mountSketch({ elements: [], files: {} });
+    const put = vi.spyOn(IDBObjectStore.prototype, "put");
+    dropScene(canvas);
+    await vi.waitFor(
+      () =>
+        expect(
+          put.mock.calls.some(([record]) =>
+            (record as { elements: { type: string }[] }).elements.some((e) => e.type === "image"),
+          ),
+        ).toBe(true),
+      { timeout: 5000 },
+    );
+    await sleep(800);
+    const writes = put.mock.calls.length;
+
+    canvas.closest<HTMLElement>(".excalidraw")!.focus();
+    await userEvent.keyboard("r");
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector<HTMLInputElement>('input[data-testid="toolbar-rectangle"]')?.checked,
+      ).toBe(true),
+    );
+    await sleep(800);
+    expect(put.mock.calls.length).toBe(writes);
+    expect(subtitle()).toContain("saved in this browser only");
+  });
+});
+
+const zoomButton = () => document.querySelector<HTMLElement>(".reset-zoom-button")!;
+const zoomLabel = () => zoomButton().getAttribute("aria-label") ?? "";
+
+describe("Excalidraw's controls (decision 98)", () => {
+  test("the menu button and the zoom button have names that match what they show", async () => {
+    // Excalidraw 0.18.1 gives the menu button no name and labels the zoom button "Reset zoom"
+    // while it reads "100%"; axe rejects both (button-name, label-content-name-mismatch).
+    await page.viewport(1280, 800);
+    await mountSketch({ elements: [], files: {} });
+    await vi.waitFor(() => expect(zoomButton()).not.toBeNull());
+    expect(document.querySelector(".main-menu-trigger")?.getAttribute("aria-label")).toBe(
+      "Canvas menu",
+    );
+    await vi.waitFor(() => expect(zoomLabel()).toContain(zoomButton().textContent!.trim()));
+    expect(zoomLabel()).toContain("Reset zoom");
+
+    const before = zoomButton().textContent;
+    await userEvent.click(document.querySelector<HTMLElement>(".zoom-in-button")!);
+    await vi.waitFor(() => expect(zoomButton().textContent).not.toBe(before));
+    await vi.waitFor(() => expect(zoomLabel()).toContain(zoomButton().textContent!.trim()));
+  });
+
+  test("the Library's Browse libraries link, which leaves for another site, is not offered", async () => {
+    await page.viewport(1280, 800);
+    await mountSketch({ elements: [], files: {} });
+    await userEvent.click(document.querySelector<HTMLElement>(".default-sidebar-trigger")!);
+    await vi.waitFor(() =>
+      expect(document.querySelector(".library-menu-browse-button")).not.toBeNull(),
+    );
+    expect(getComputedStyle(document.querySelector(".library-menu-browse-button")!).display).toBe(
+      "none",
+    );
+  });
+});
+
+async function openPanel() {
+  await rawPut({ key, appState: {}, savedAt: 3, elements: [], files: {} });
+  await saveSketch({ key: OTHERS[0]!, elements: [], appState: {}, files: {}, savedAt: 1 });
+  await saveSketch({ key: OTHERS[1]!, elements: [], appState: {}, files: {}, savedAt: 2 });
+  mount();
+  await canvasMounted();
+  await userEvent.click(byText(".docwalk-sketch-header button", "Saved sketches")!);
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll(".docwalk-sketch-store li").length).toBe(3),
+  );
+}
+const rows = () => [...document.querySelectorAll<HTMLElement>(".docwalk-sketch-store li")];
+
+describe("the Saved sketches panel (decision 98)", () => {
+  test("it lists every stored sketch by document and deletes the one asked for", async () => {
+    await openPanel();
+    expect(rows().map((row) => row.textContent)).toEqual([
+      expect.stringContaining("paste"),
+      expect.stringContaining("file:new.md"),
+      expect.stringContaining("file:old.md"),
+    ]);
+    // The open sketch would be written again at the next change; it is marked, not offered.
+    expect(rows()[0]!.textContent).toContain("open now");
+    expect(byText(".docwalk-sketch-store li:first-child button", "Delete")).toBeUndefined();
+
+    await userEvent.click(byText(".docwalk-sketch-store li:last-child button", "Delete")!);
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    expect(await loadSketch(OTHERS[0]!)).toBeNull();
+    expect(await loadSketch(OTHERS[1]!)).not.toBeNull();
+  });
+
+  test("Delete all others asks first and never takes the open sketch", async () => {
+    await openPanel();
+    await userEvent.click(byText(".docwalk-sketch-store button", "Delete all others")!);
+    expect(document.querySelector(".docwalk-sketch-store")?.textContent).toContain(
+      "This cannot be undone.",
+    );
+    // Asked, not done.
+    expect(await loadSketch(OTHERS[1]!)).not.toBeNull();
+
+    await userEvent.click(byText(".docwalk-sketch-store button", "Keep them")!);
+    expect(await loadSketch(OTHERS[1]!)).not.toBeNull();
+
+    await userEvent.click(byText(".docwalk-sketch-store button", "Delete all others")!);
+    await userEvent.click(byText(".docwalk-sketch-store button", "Delete them")!);
+    await vi.waitFor(() => expect(rows().length).toBe(1));
+    expect(await loadSketch(OTHERS[0]!)).toBeNull();
+    expect(await loadSketch(OTHERS[1]!)).toBeNull();
+    expect(await loadSketch(key)).not.toBeNull();
   });
 });

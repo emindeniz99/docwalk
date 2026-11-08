@@ -85,6 +85,65 @@ export async function deleteSketch(key: string): Promise<void> {
   await run("readwrite", (store) => store.delete(key));
 }
 
+/** Deletes several sketches in one transaction: all of them go, or none. */
+export async function deleteSketches(keys: readonly string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    for (const key of keys) store.delete(key);
+    tx.addEventListener("complete", () => resolve());
+    tx.addEventListener("error", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction failed")),
+    );
+    tx.addEventListener("abort", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted")),
+    );
+  });
+}
+
+/** What the Saved sketches panel shows of one stored sketch. */
+export interface SketchSummary {
+  key: string;
+  savedAt: number;
+  /** The record's size as JSON, which the images in it dominate. */
+  bytes: number;
+}
+
+/**
+ * Every stored sketch this version can read, newest first. Only the summary
+ * is kept while the records are read, so a store full of images is not held
+ * in memory at once. Throws when the browser blocks IndexedDB.
+ */
+export async function listSketches(): Promise<SketchSummary[]> {
+  const db = await openDb();
+  const encoder = new TextEncoder();
+  const found: SketchSummary[] = [];
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const cursor = tx.objectStore(STORE).openCursor();
+    cursor.addEventListener("success", () => {
+      const at = cursor.result;
+      if (!at) return;
+      const value: unknown = at.value;
+      if (isStoredSketch(value)) {
+        const bytes = encoder.encode(JSON.stringify(value)).length;
+        found.push({ key: value.key, savedAt: Number(value.savedAt) || 0, bytes });
+      }
+      at.continue();
+    });
+    tx.addEventListener("complete", () => resolve());
+    tx.addEventListener("error", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction failed")),
+    );
+    tx.addEventListener("abort", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted")),
+    );
+  });
+  return found.toSorted((a, b) => b.savedAt - a.savedAt || a.key.localeCompare(b.key));
+}
+
 /**
  * Moves every sketch of one document to another document key, or deletes
  * them when `to` is null: a workspace file was renamed, moved or deleted.
