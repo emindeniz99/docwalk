@@ -25,7 +25,11 @@ export const MAX_CHUNK_POINTS = 128;
 /** While a pen stroke is being drawn its new points go out this often (about 12 frames a second). */
 export const STROKE_FLUSH_MS = 80;
 
-/** What a receiver keeps for one slide, and for all slides: anything above is ignored. */
+/**
+ * What a receiver keeps per slide, and how many slides. A stroke or point
+ * over a slide's limit is ignored; a 17th slide is not: the receiver forgets
+ * the least recently touched slide to make room (mirrorStore.ts).
+ */
 export const MAX_SLIDE_STROKES = 200;
 export const MAX_SLIDE_POINTS = 30_000;
 export const MAX_MARK_SLIDES = 16;
