@@ -308,6 +308,38 @@ test("export as zip, then import a zip with unsafe and unsupported entries", asy
   await expect(row(page, "handbook 2")).toBeVisible();
 });
 
+test("a second tab follows the first, and a file deleted there is not brought back by autosave", async ({
+  page,
+  context,
+}) => {
+  // Decision 90: OPFS edits in another tab used to be unseen, and the last write won.
+  await ready(page);
+  await newProject(page, "Shared", "Blank");
+  await expect(docTitle(page)).toHaveText("Shared");
+  const other = await context.newPage();
+  // `ready` waits for a plural "slides"; this one-slide file reads "1 slide".
+  await other.goto("/");
+  await expect(docTitle(other)).toHaveText("Shared");
+  await expect(row(other, "README.md")).toHaveAttribute("aria-selected", "true");
+
+  // An edit in the second tab reaches the first, which had none of its own.
+  await replaceSource(other, "# Shared\n\nFrom the second tab.\n");
+  await expect(page.locator(".cm-content")).toContainText("From the second tab");
+
+  // The first deletes the file. The second keeps its text, says so, and does not write the file again.
+  await rowMenu(page, "README.md", "Delete…");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+  await expect(banner(other)).toContainText("Deleted or moved in another tab");
+  await replaceSource(other, "# Shared\n\nTyped after the delete.\n");
+  await other.waitForTimeout(1500);
+  expect(await readOpfs(page, "Shared/README.md")).toBeNull();
+
+  // Save is the user's answer: it writes the file back.
+  await banner(other).getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => readOpfs(page, "Shared/README.md")).toContain("Typed after the delete");
+  await expect(banner(other)).toContainText("Saved in this browser");
+});
+
 test("a local folder saves only on request and reloads when the file changes on disk (polling)", async ({
   page,
 }) => {

@@ -398,12 +398,12 @@ export function WorkspaceDialogs({ workspace: w }: { workspace: Workspace }) {
                     {m.ws_keep_mine()}
                   </Button>
                   <Button className="docwalk-button" onPress={() => w.resolveConflict("disk")}>
-                    {m.ws_load_disk()}
+                    {w.source?.root === "opfs" ? m.ws_load_other_tab() : m.ws_load_disk()}
                   </Button>
                 </>
               }
             >
-              <p>{m.ws_conflict_body()}</p>
+              <p>{w.source?.root === "opfs" ? m.ws_conflict_body_tab() : m.ws_conflict_body()}</p>
             </Confirm>
           )}
         </Shell>
