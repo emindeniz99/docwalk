@@ -658,6 +658,25 @@ describe("the code, table and image views (decision 106)", () => {
     ]);
   });
 
+  test("a zoom or pan that is not a finite number is not sent and does not replace the last good one", () => {
+    // A view measured on a stage with no size divides by zero; every receiver
+    // would refuse that op, and each resync would repeat it.
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "marks", slide: "c/1", strokes: [], reset: true });
+    feed.focus({ kind: "open", slide: "c/1", block: "image", n: 1 });
+    feed.focus({ kind: "view", scale: 2, x: 0.25, y: 0 });
+    vi.advanceTimersByTime(200);
+    feed.focus({ kind: "view", scale: 1, x: Number.NaN, y: Number.NaN });
+    feed.focus({ kind: "view", scale: Number.POSITIVE_INFINITY, x: 0, y: 0 });
+    vi.advanceTimersByTime(200);
+    feed.resync();
+    const views = sent.filter((o) => o.op === "focus-view");
+    expect(views).toEqual([
+      { op: "focus-view", scale: 2, x: 0.25, y: 0 },
+      { op: "focus-view", scale: 2, x: 0.25, y: 0 },
+    ]);
+  });
+
   test("every focus op it makes passes the schema a receiver checks", () => {
     const { feed, sent } = setup();
     feed.ingest({ kind: "marks", slide: "c/1", strokes: [], reset: true });

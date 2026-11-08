@@ -215,10 +215,13 @@ function canvasStage(
     step: 0.25,
   });
   // The pan travels as a fraction of the stage: what it shifts on screen is x * scale pixels.
+  // A stage with no size (a view already closed) has no fraction to give.
   canvas.addEventListener("panzoomchange", (event) => {
     const { x, y, scale } = (event as CustomEvent<FocusTransform>).detail;
+    if (stage.clientWidth === 0 || stage.clientHeight === 0) return;
     onView?.({ scale, x: (x * scale) / stage.clientWidth, y: (y * scale) / stage.clientHeight });
   });
+  let frame = 0;
   let started = false;
   let wanted: FocusTransform | null = null;
   const place = (view: FocusTransform) => {
@@ -245,18 +248,23 @@ function canvasStage(
     zoomIn: () => panzoom.zoomIn(),
     fit,
     wheel: (event) => panzoom.zoomWithWheel(event),
-    start: () =>
-      requestAnimationFrame(() => {
+    start: () => {
+      frame = requestAnimationFrame(() => {
         fit();
         started = true;
         // A view that arrived before the first fit is placed once Fit has run.
         if (wanted) place(wanted);
-      }),
+      });
+    },
     setTransform(view) {
       wanted = view;
       if (started) place(view);
     },
-    dispose: () => panzoom.destroy(),
+    dispose: () => {
+      // A view closed before its first frame never fits a stage that is gone.
+      cancelAnimationFrame(frame);
+      panzoom.destroy();
+    },
   };
 }
 

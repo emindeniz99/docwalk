@@ -9,6 +9,7 @@ import type { FocusEvent, MirrorOp } from "../annotate/mirrorTypes";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import type { DeckController } from "./controller";
 import { Deck } from "./Deck";
+import { openBlockFocus } from "./focus";
 import { observeFocus } from "./focusEvents";
 import { followFocus } from "./focusMirror";
 
@@ -177,6 +178,18 @@ describe("what the presenter's view tells the mirror (decision 106)", () => {
       { kind: "lines", lines: [3] },
       { kind: "lines", lines: [] },
     ]);
+  });
+
+  test("an image view closed before its first frame reports nothing after its close", async () => {
+    // Fit waits for a frame. Run on a view that is gone, it measured an empty
+    // stage and sent a pan of NaN, after the close and into the next view.
+    const { container, controller, address } = await mountDeck();
+    const events = listen();
+    controller.goTo(address("Images"));
+    const close = openBlockFocus(present(container).querySelectorAll<HTMLImageElement>("img")[1]!);
+    close();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    expect(events.map((e) => e.kind)).toEqual(["open", "close"]);
   });
 
   test("a table view reports how far it is scrolled, as a share of how far it can scroll", async () => {

@@ -133,7 +133,8 @@ export class MirrorFeed {
         this.emit(focusOpenOp(this.focusOpen));
         break;
       case "view": {
-        if (!this.focusOpen) break;
+        // A view measured on a stage with no size is NaN; no receiver would take it.
+        if (!this.focusOpen || ![event.scale, event.x, event.y].every(Number.isFinite)) break;
         this.focusView = {
           scale: round(event.scale, 3),
           x: round(event.x, 3),
