@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import type { MirrorFeed } from "../annotate/mirrorFeed";
 import { MirrorMessageSchema } from "../annotate/mirrorSchema";
-import type { MirrorOp } from "../annotate/mirrorTypes";
+import { RESYNC_MIN_GAP_MS, type MirrorOp } from "../annotate/mirrorTypes";
 import { PRESENTER_CHANNEL, type PresenterMessage } from "./types";
 
 /**
@@ -87,7 +87,8 @@ export interface PresenterBridgeOptions {
   /**
    * The laser and marks the audience window shows (decision 88). The window
    * sends them to presenter windows as `mirror` messages, and sends the
-   * current slide's marks again to one that says hello for the first time.
+   * current slide's marks again to one that says hello for the first time,
+   * at most once per 2 s (decision 103).
    * The diagram focus view stays out: the presenter window shows scaled,
    * inert copies of the slides.
    */
@@ -113,13 +114,28 @@ export function startPresenterBridge(options: PresenterBridgeOptions): () => voi
     // oxlint-disable-next-line unicorn/require-post-message-target-origin
     channel.postMessage(message);
   };
+  // At most one resync per gap, whoever asks (decision 103); one asked for
+  // inside the gap runs at its end, so a second window still gets the marks.
+  let lastResync = Number.NEGATIVE_INFINITY;
+  let resyncTimer: ReturnType<typeof setTimeout> | undefined;
+  const resync = (mirror: MirrorFeed) => {
+    resyncTimer = undefined;
+    lastResync = Date.now();
+    mirror.resync(postOp);
+  };
+  const askResync = (mirror: MirrorFeed) => {
+    if (resyncTimer !== undefined) return;
+    const wait = lastResync + RESYNC_MIN_GAP_MS - Date.now();
+    if (wait > 0) resyncTimer = setTimeout(() => resync(mirror), wait);
+    else resync(mirror);
+  };
   channel.listen((data) => {
     const parsed = v.safeParse(PresenterRequest, data);
     if (!parsed.success) return;
     const request = parsed.output;
     if (request.type === "hello") {
       post();
-      if (request.resync) options.mirror?.resync(postOp);
+      if (request.resync && options.mirror) askResync(options.mirror);
     } else if (request.type === "goto") options.goTo(request.address);
     else options.step(request.direction);
   });
@@ -127,6 +143,7 @@ export function startPresenterBridge(options: PresenterBridgeOptions): () => voi
   const stopMirror = options.mirror?.addSink(postOp);
   post();
   return () => {
+    clearTimeout(resyncTimer);
     unsubscribe();
     stopMirror?.();
     channel.close();

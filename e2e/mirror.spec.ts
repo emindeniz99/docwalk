@@ -44,6 +44,21 @@ async function inside(el: Locator, frame: Locator) {
   return { x: (a.x + a.width / 2 - f.x) / f.width, y: (a.y + a.height / 2 - f.y) / f.height };
 }
 
+/**
+ * Waits until the follower's copy of a mark sits where the presenter's does,
+ * within 0.03 of the slide on both axes. A pen stroke reaches followers in
+ * 80 ms chunks while it is drawn, so the copy exists from its first chunk
+ * on; measuring as soon as it existed read a partial stroke.
+ */
+async function expectSameSpot(mine: { x: number; y: number }, theirs: Locator, frame: Locator) {
+  await expect
+    .poll(async () => {
+      const at = await inside(theirs, frame);
+      return Math.max(Math.abs(mine.x - at.x), Math.abs(mine.y - at.y));
+    })
+    .toBeLessThan(0.03);
+}
+
 /** One pen stroke across the presenter's overlay, from (x0, y0) to (x1, y1) as fractions of it. */
 async function stroke(page: Page, from: [number, number], to: [number, number]) {
   const r = await page.locator(".docwalk-annotate").boundingBox();
@@ -100,9 +115,7 @@ test("a follower sees the presenter's strokes, undo, clear, slide changes, laser
     presenter.locator(`${MARKS} >> nth=0`),
     presenter.locator(".docwalk-annotate"),
   );
-  const theirs = await inside(marks.first(), follower.locator(".docwalk-mirror"));
-  expect(Math.abs(mine.x - theirs.x)).toBeLessThan(0.03);
-  expect(Math.abs(mine.y - theirs.y)).toBeLessThan(0.03);
+  await expectSameSpot(mine, marks.first(), follower.locator(".docwalk-mirror"));
   await shot(follower, "follower-stroke");
 
   // Undo and clear reach the follower; redoing sends the stroke again.
@@ -198,8 +211,7 @@ test("a follower that lost its connection gets the missed marks and the closed f
     presenter.locator(`${MARKS} >> nth=1`),
     presenter.locator(".docwalk-annotate"),
   );
-  const theirs = await inside(marks.nth(1), follower.locator(".docwalk-mirror"));
-  expect(Math.abs(mine.x - theirs.x)).toBeLessThan(0.03);
+  await expectSameSpot(mine, marks.nth(1), follower.locator(".docwalk-mirror"));
 });
 
 test("without a Worker the presenter window still mirrors the laser and the marks", async ({

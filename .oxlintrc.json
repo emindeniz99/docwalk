@@ -11,12 +11,7 @@
     "import/no-unassigned-import": [
       "warn",
       {
-        "allow": [
-          "**/*.css",
-          "@fontsource-variable/*",
-          "monaco-editor/features/*/register",
-          "monaco-editor/languages/definitions/*/register"
-        ]
+        "allow": ["**/*.css", "@fontsource-variable/*", "monaco-editor/features/*/register"]
       }
     ]
   },

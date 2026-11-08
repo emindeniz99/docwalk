@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import type { MirrorFeed } from "../annotate/mirrorFeed";
-import type { MirrorOp } from "../annotate/mirrorTypes";
+import { mirrorFrameBytes, resyncGapMs, type MirrorOp } from "../annotate/mirrorTypes";
 import type { DeckController } from "../deck/controller";
 import type { LevelOption } from "../sectioning/sectionize";
 import { answerAgent, isAgentRequest, type AgentHostContext } from "./agent";
@@ -44,12 +44,17 @@ const MAX_TRACKED = 1000;
 export const DECK_WAIT_MS = 10_000;
 /**
  * A follower's hello (and the room reopening) makes the presenter resend the
- * mirrored marks of the current slide, once the state has gone out and at most
- * this often (decision 88): a hostile follower that says hello often cannot
- * make the presenter sign more than one resync per gap.
+ * mirrored marks of the current slide, this long after the state has gone
+ * out (decision 88), and never before the gap the last resync earned: at
+ * least 2 s, longer the more its frames cost (`resyncGapMs`, decision 103).
  */
 export const RESYNC_DELAY_MS = 150;
-export const RESYNC_MIN_GAP_MS = 2000;
+/**
+ * A hello gets the state at once; the hellos that follow within this long
+ * share one more state at its end, read from the deck as it is then
+ * (decision 103). A change of slide still sends its state at once.
+ */
+export const HELLO_STATE_GAP_MS = 250;
 
 export interface RemoteHostOptions {
   controller: DeckController | null;
@@ -267,15 +272,36 @@ export function useRemoteHost({
     // The mirror's ops reach the room as signed `mirror` messages, under the view key only.
     const sendOp = (op: MirrorOp) => void conn.send({ type: "mirror", ...op });
     let resyncTimer: ReturnType<typeof setTimeout> | undefined;
-    let lastResync = Number.NEGATIVE_INFINITY;
+    /** When the next resync may start: the last one's start plus the gap its frames earned. */
+    let nextResyncAt = Number.NEGATIVE_INFINITY;
     const scheduleResync = () => {
       if (!mirror || resyncTimer !== undefined) return;
-      const wait = Math.max(RESYNC_DELAY_MS, lastResync + RESYNC_MIN_GAP_MS - Date.now());
+      const wait = Math.max(RESYNC_DELAY_MS, nextResyncAt - Date.now());
       resyncTimer = setTimeout(() => {
         resyncTimer = undefined;
-        lastResync = Date.now();
-        if (active) mirror.resync(sendOp);
+        if (!active) return;
+        const startedAt = Date.now();
+        let cost = 0;
+        mirror.resync((op) => {
+          cost += mirrorFrameBytes(op);
+          sendOp(op);
+        });
+        nextResyncAt = startedAt + resyncGapMs(cost);
       }, wait);
+    };
+
+    let helloStateTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastHelloState = Number.NEGATIVE_INFINITY;
+    const answerHello = () => {
+      if (helloStateTimer !== undefined) return;
+      const send = () => {
+        helloStateTimer = undefined;
+        lastHelloState = Date.now();
+        if (active) void sendState();
+      };
+      const wait = lastHelloState + HELLO_STATE_GAP_MS - Date.now();
+      if (wait > 0) helloStateTimer = setTimeout(send, wait);
+      else send();
     };
 
     const agentContext: AgentHostContext = {
@@ -339,7 +365,7 @@ export function useRemoteHost({
               agents: seen.agent.size,
             });
           }
-          void sendState();
+          answerHello();
           if (message.role === "follower") scheduleResync();
           break;
         }
@@ -410,6 +436,7 @@ export function useRemoteHost({
       active = false;
       clearTimeout(laserTimer);
       clearTimeout(resyncTimer);
+      clearTimeout(helloStateTimer);
       stopMirror?.();
       conn.close();
       connection.current = null;

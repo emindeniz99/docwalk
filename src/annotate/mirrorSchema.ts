@@ -9,6 +9,7 @@ import {
   MAX_CHUNK_POINTS,
   MAX_DIAGRAMS,
   MAX_DROP_IDS,
+  MAX_KEEP_IDS,
   MAX_SLIDE_ADDRESS_CHARS,
   MAX_STROKE_POINTS,
   type MirrorOp,
@@ -67,6 +68,12 @@ export const MirrorMessageSchema = v.variant("op", [
     ids: v.pipe(v.array(StrokeId), v.minLength(1), v.maxLength(MAX_DROP_IDS)),
   }),
   v.strictObject({ type: v.literal("mirror"), op: v.literal("clear"), slide: Slide }),
+  v.strictObject({
+    type: v.literal("mirror"),
+    op: v.literal("keep"),
+    slide: Slide,
+    ids: v.pipe(v.array(StrokeId), v.maxLength(MAX_KEEP_IDS)),
+  }),
   v.strictObject({
     type: v.literal("mirror"),
     op: v.literal("focus-open"),
