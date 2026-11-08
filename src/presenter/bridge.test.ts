@@ -1,6 +1,8 @@
 // The channels here are BroadcastChannel stand-ins, which take no target origin.
 /* oxlint-disable unicorn/require-post-message-target-origin */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { MirrorFeed } from "../annotate/mirrorFeed";
+import type { MarkStroke, MirrorOp } from "../annotate/mirrorTypes";
 import {
   connectPresenter,
   DISCONNECT_AFTER_MS,
@@ -239,5 +241,121 @@ describe("presenter connection", () => {
     vi.advanceTimersByTime(HEARTBEAT_MS * 3);
     expect(watcher.received).toEqual([]);
     expect(hub.size()).toBe(1);
+  });
+});
+
+describe("mirrored laser and marks (decision 88)", () => {
+  const stroke = (id: number): MarkStroke => ({
+    id,
+    tool: "pen",
+    color: "primary",
+    points: [100, 200, 300, 400],
+  });
+
+  function mirroredAudience(hub: ReturnType<typeof createHub>) {
+    const feed = new MirrorFeed();
+    const stop = startPresenterBridge({
+      getState: () => STATE,
+      goTo: () => true,
+      step: () => {},
+      subscribe: () => () => {},
+      mirror: feed,
+      channel: hub.factory,
+    });
+    return { feed, stop };
+  }
+
+  test("the audience window's laser and marks reach a presenter window", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    onMirror.mockClear();
+    feed.ingest({ kind: "laser", x: 0.25, y: 0.5 });
+    expect(onMirror).toHaveBeenCalledWith({ op: "laser", x: 0.25, y: 0.5 });
+    feed.ingest({ kind: "stroke", slide: "one/1", end: true, ...stroke(1) });
+    expect(onMirror).toHaveBeenLastCalledWith({
+      op: "stroke",
+      slide: "one/1",
+      id: 1,
+      tool: "pen",
+      color: "primary",
+      from: 0,
+      points: [100, 200, 300, 400],
+      end: true,
+    });
+  });
+
+  test("a presenter window gets the slide's marks once, on its first hello, and not on the heartbeat", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1), stroke(2)], reset: true });
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke", "stroke"]);
+    onMirror.mockClear();
+    vi.advanceTimersByTime(HEARTBEAT_MS * 3);
+    expect(onMirror).not.toHaveBeenCalled();
+  });
+
+  test("a second presenter window is brought up to date without repeating it for the first", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1)], reset: true });
+    const first = vi.fn<(op: MirrorOp) => void>();
+    const second = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror: first });
+    first.mockClear();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror: second });
+    expect(second.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke"]);
+    // The resync is a broadcast of ops that change nothing for a window that has the marks.
+    expect(first.mock.calls.map(([op]) => op.op)).toEqual(["clear", "stroke"]);
+  });
+
+  test("the diagram focus view is not sent: the window shows scaled, inert copies of the slides", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    onMirror.mockClear();
+    feed.focus({ kind: "open", slide: "one/1", diagram: 1 });
+    feed.focus({ kind: "view", scale: 2, x: 0, y: 0 });
+    feed.focus({ kind: "close" });
+    expect(onMirror).not.toHaveBeenCalled();
+  });
+
+  test("a malformed mirror message is dropped: any same-origin tab can post on the channel", () => {
+    const hub = createHub();
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    const onState = vi.fn<(s: PresenterState) => void>();
+    connectPresenter(onState, { channel: hub.factory, onMirror });
+    const hostile = hub.peer();
+    const valid = {
+      type: "mirror",
+      op: "stroke",
+      slide: "one/1",
+      id: 1,
+      tool: "pen",
+      color: "primary",
+      from: 0,
+      points: [1, 2],
+      end: false,
+    };
+    for (const junk of [
+      { type: "mirror", op: "laser", x: 2, y: 0 },
+      { type: "mirror", op: "laser", x: 0.5, y: 0.5, html: "<img onerror=x>" },
+      { type: "mirror", op: "nothing" },
+      { ...valid, points: [1, 2, 3] },
+      { ...valid, points: [5000, 1] },
+      { ...valid, color: "red" },
+      { ...valid, slide: "" },
+      { type: "mirror" },
+    ]) {
+      hostile.channel.postMessage(junk);
+    }
+    expect(onMirror).not.toHaveBeenCalled();
+    expect(onState).not.toHaveBeenCalled();
+    hostile.channel.postMessage(valid);
+    expect(onMirror).toHaveBeenCalledOnce();
   });
 });

@@ -1,8 +1,10 @@
 import Panzoom, { type PanzoomObject } from "@panzoom/panzoom";
 import { requestSketch } from "../canvas/request";
 import { m } from "../paraglide/messages.js";
+import { emitFocus } from "./focusEvents";
 import { FOCUS_VIEW_CLASS } from "./focusView";
 import { focusKind, isLoadedImage, unmarkFocusTargets, type FocusKind } from "./focusTargets";
+import { slideAddress } from "./pages";
 
 /**
  * Focus view: a full-window view of one diagram, code block, table or image.
@@ -29,7 +31,15 @@ interface Stage {
   start(): void;
   /** Extra toolbar buttons, between Fullscreen and Close. */
   extras?(add: AddButton): void;
+  /** Sets zoom and pan to a view a presenter sent (decision 88); pan is a fraction of the stage. */
+  setTransform?(view: FocusTransform): void;
   dispose(): void;
+}
+/** Zoom and pan of a canvas view: the scale relative to Fit, and the pan as fractions of the stage. */
+export interface FocusTransform {
+  scale: number;
+  x: number;
+  y: number;
 }
 type AddButton = (label: string, title: string, action: () => void) => HTMLButtonElement;
 
@@ -44,12 +54,24 @@ export function closeContentFocus(): void {
   if (current && current.kind !== "diagram") current.close();
 }
 
+/**
+ * Where a diagram sits: its slide's address and its number among the diagrams
+ * of that page, from 1. A follower finds the same diagram from these two.
+ */
+export function locateDiagram(diagram: HTMLElement): { slide: string; diagram: number } | null {
+  const page = diagram.closest<HTMLElement>("section[data-docwalk-id]");
+  if (!page) return null;
+  const at = [...page.querySelectorAll(".docwalk-diagram")].indexOf(diagram);
+  return at < 0 ? null : { slide: slideAddress(page), diagram: at + 1 };
+}
+
 function mountView(
   origin: HTMLElement,
   kind: ViewKind,
   label: string,
   makeStage: (stage: HTMLElement, close: () => void) => Stage,
-): () => void {
+  onClosed?: () => void,
+): { close: () => void; view: Stage } {
   // React keeps this element across deck rebuilds; the `.reveal` inside it is replaced.
   const deckHost = origin.closest(".docwalk-deck-host");
 
@@ -130,9 +152,12 @@ function mountView(
   overlay.addEventListener("keydown", onKey);
 
   let closed = false;
+  let announced = false;
   function close() {
     if (closed) return;
     closed = true;
+    if (announced) emitFocus({ kind: "close" });
+    onClosed?.();
     stage.removeEventListener("wheel", onWheel);
     overlay.removeEventListener("keydown", onKey);
     view.dispose();
@@ -156,7 +181,13 @@ function mountView(
   current = { kind, close };
   view.start();
   closeButton.focus();
-  return close;
+  // The diagram view is mirrored to followers (decision 88); the other kinds are not.
+  const where = kind === "diagram" ? locateDiagram(origin) : null;
+  if (where) {
+    announced = true;
+    emitFocus({ kind: "open", ...where });
+  }
+  return { close, view };
 }
 
 /** Fit, zoom and pan of a picture on a canvas: Panzoom, as for the diagram since decision 28. */
@@ -165,6 +196,7 @@ function canvasStage(
   copy: SVGSVGElement | HTMLImageElement,
   naturalWidth: number,
   naturalHeight: number,
+  onView?: (view: FocusTransform) => void,
 ): Stage {
   const canvas = document.createElement("div");
   canvas.className = "docwalk-focus-canvas";
@@ -176,6 +208,21 @@ function canvasStage(
     minScale: 0.1,
     step: 0.25,
   });
+  // The pan travels as a fraction of the stage: what it shifts on screen is x * scale pixels.
+  canvas.addEventListener("panzoomchange", (event) => {
+    const { x, y, scale } = (event as CustomEvent<FocusTransform>).detail;
+    onView?.({ scale, x: (x * scale) / stage.clientWidth, y: (y * scale) / stage.clientHeight });
+  });
+  let started = false;
+  let wanted: FocusTransform | null = null;
+  const place = (view: FocusTransform) => {
+    panzoom.zoom(view.scale, { animate: false, force: true });
+    panzoom.pan(
+      (view.x * stage.clientWidth) / view.scale,
+      (view.y * stage.clientHeight) / view.scale,
+      { animate: false, force: true },
+    );
+  };
 
   // Fit by sizing the picture itself (it stays sharp) and let CSS centre it in the
   // stage; Panzoom then starts from scale 1 at the centre.
@@ -192,7 +239,17 @@ function canvasStage(
     zoomIn: () => panzoom.zoomIn(),
     fit,
     wheel: (event) => panzoom.zoomWithWheel(event),
-    start: () => requestAnimationFrame(fit),
+    start: () =>
+      requestAnimationFrame(() => {
+        fit();
+        started = true;
+        // A view that arrived before the first fit is placed once Fit has run.
+        if (wanted) place(wanted);
+      }),
+    setTransform(view) {
+      wanted = view;
+      if (started) place(view);
+    },
     dispose: () => panzoom.destroy(),
   };
 }
@@ -207,7 +264,9 @@ function diagramStage(stage: HTMLElement, diagram: HTMLElement, close: () => voi
   const naturalWidth = Number(diagram.dataset["naturalWidth"]) || svg.viewBox.baseVal.width || 800;
   const naturalHeight =
     Number(diagram.dataset["naturalHeight"]) || svg.viewBox.baseVal.height || 600;
-  const base = canvasStage(stage, copy, naturalWidth, naturalHeight);
+  const base = canvasStage(stage, copy, naturalWidth, naturalHeight, (view) =>
+    emitFocus({ kind: "view", ...view }),
+  );
   // Canvas mode (decision 54): the app opens the sketch dialog, lazily, in place of this view.
   const source = diagram.dataset["source"];
   if (source === undefined) return base;
@@ -419,7 +478,41 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
   if (!diagram.querySelector("svg")) return () => undefined;
   return mountView(diagram, "diagram", m.focus_label(), (stage, close) =>
     diagramStage(stage, diagram, close),
+  ).close;
+}
+
+/** The diagram view a presenter opened, as a follower holds it (decision 88). */
+export interface MirroredFocus {
+  /** Zoom and pan as the presenter has them; `null` leaves the view at Fit. */
+  setView(view: FocusTransform | null): void;
+  close(): void;
+}
+
+/**
+ * Opens the focus view on `diagram` for a follower, because the presenter
+ * opened it. It is the view a click opens, with the same keys and toolbar,
+ * and the follower may close it with Escape (`onClosed` hears that); the
+ * presenter's next zoom or pan moves it again. Null when the diagram has no
+ * drawing to show.
+ */
+export function openMirroredDiagram(
+  diagram: HTMLElement,
+  onClosed: () => void,
+): MirroredFocus | null {
+  if (!diagram.querySelector("svg")) return null;
+  const { close, view } = mountView(
+    diagram,
+    "diagram",
+    m.focus_label(),
+    (stage, shut) => diagramStage(stage, diagram, shut),
+    onClosed,
   );
+  return {
+    setView(next) {
+      if (next) view.setTransform?.(next);
+    },
+    close,
+  };
 }
 
 /**
@@ -430,11 +523,11 @@ export function openDiagramFocus(diagram: HTMLElement): () => void {
 export function openBlockFocus(block: HTMLElement): () => void {
   const kind = focusKind(block);
   if (kind === "image" && block instanceof HTMLImageElement && isLoadedImage(block)) {
-    return mountView(block, kind, m.focus_label_image(), (stage) => imageStage(stage, block));
+    return mountView(block, kind, m.focus_label_image(), (stage) => imageStage(stage, block)).close;
   }
   if (kind === "code" || kind === "table") {
     const label = kind === "code" ? m.focus_label_code() : m.focus_label_table();
-    return mountView(block, kind, label, (stage) => textStage(stage, block, kind));
+    return mountView(block, kind, label, (stage) => textStage(stage, block, kind)).close;
   }
   return () => undefined;
 }

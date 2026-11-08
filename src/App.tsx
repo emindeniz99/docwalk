@@ -20,6 +20,8 @@ import {
   resolvePenColor,
   type PenColor,
 } from "./annotate/AnnotationToolbar";
+import { MirrorFeed } from "./annotate/mirrorFeed";
+import { markColorOf } from "./annotate/mirrorTypes";
 import type { AnnotationLayer, AnnotationMode } from "./annotate/types";
 import { useAnnotationShortcuts } from "./annotate/useAnnotationShortcuts";
 import {
@@ -38,6 +40,7 @@ import { useSketchRequest } from "./canvas/request";
 import { useCommentsUi } from "./comments/useCommentsUi";
 import { clonePages, type DeckController, type SlideInfo } from "./deck/controller";
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
+import { observeFocus } from "./deck/focusEvents";
 import { useOverviewShortcut } from "./deck/useOverviewShortcut";
 import { useEditorChoice } from "./editor/choice";
 import { chooseLocale, localeName, locales, useLocale, type Locale } from "./i18n/locale";
@@ -224,6 +227,10 @@ export function App() {
   }, []);
   const deckRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<AnnotationLayer | null>(null);
+  // What this tab mirrors: the laser, pen marks and diagram focus view. Followers (through
+  // RemotePresenter) and the presenter window (through the bridge) subscribe (decision 88).
+  const [mirrorFeed] = useState(() => new MirrorFeed());
+  useEffect(() => observeFocus((event) => mirrorFeed.focus(event)), [mirrorFeed]);
   const startedAt = useRef(0);
   // The presenter bridge reads the latest document through refs, so it is not restarted on every keystroke.
   const markdownRef = useRef(markdown);
@@ -345,8 +352,9 @@ export function App() {
       goTo: (address) => controller.goTo(address),
       step: (d) => (d === 1 ? controller.next() : controller.prev()),
       subscribe: (onChange) => controller.onChange(() => onChange()),
+      mirror: mirrorFeed,
     });
-  }, [controller, presenterRequested]);
+  }, [controller, presenterRequested, mirrorFeed]);
 
   // Pen and laser over the slides; each slide keeps its own marks while the deck is open.
   // The layer (drauu, perfect-freehand) loads after the deck is up, outside the first-load bundle.
@@ -360,10 +368,15 @@ export function App() {
     void import("./annotate/layer").then(({ createAnnotationLayer, markKeys }) => {
       if (cancelled) return;
       const layer = layerRef.current ?? createAnnotationLayer(controller.stage());
+      // A new layer: what it draws goes to the mirror (decision 88). It keeps its observers
+      // across rebuilds, so this runs once.
+      if (!layerRef.current) layer.observe((event) => mirrorFeed.ingest(event));
       layer.moveTo(controller.stage());
       layerRef.current = layer;
       const keys = markKeys(controller.stage());
-      stop = controller.onChange((sl) => layer.setKey(keys.get(sl.address) ?? sl.address));
+      stop = controller.onChange((sl) =>
+        layer.setKey(keys.get(sl.address) ?? sl.address, sl.address),
+      );
       layer.retain(keys.values());
       setLayerReady((n) => n + 1);
     });
@@ -371,7 +384,7 @@ export function App() {
       cancelled = true;
       stop?.();
     };
-  }, [controller]);
+  }, [controller, mirrorFeed]);
   useEffect(
     () => () => {
       layerRef.current?.destroy();
@@ -385,7 +398,9 @@ export function App() {
   // The pen colour is a CSS variable whose value changes with the theme, so
   // `theme` re-resolves it even though the body does not read it.
   useEffect(() => {
-    if (layerReady) layerRef.current?.setColor(resolvePenColor(penColor));
+    if (layerReady) {
+      layerRef.current?.setColor(resolvePenColor(penColor), markColorOf(penColor) ?? undefined);
+    }
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [penColor, theme, layerReady]);
   useAnnotationShortcuts(
@@ -1021,6 +1036,7 @@ export function App() {
             controller={controller}
             doc={doc}
             level={level}
+            mirror={mirrorFeed}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
             edit={onEdit}
