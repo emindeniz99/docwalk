@@ -41,6 +41,15 @@ export function sketchKey(document: string, hash: string): string {
 }
 
 /**
+ * The document a sketch key belongs to. A document's key can hold a line
+ * break (a file name may), the hash never does, so the last one divides them.
+ */
+export function sketchKeyDocument(key: string): string {
+  const divider = key.lastIndexOf("\n");
+  return divider < 0 ? key : key.slice(0, divider);
+}
+
+/**
  * The lowest and highest key any sketch of `document` can have, for a key
  * range over all of them. Hashes are hex, so `\uffff` sorts after each; the
  * newline keeps `a.md` from matching `a.md.bak` or `a.md/x`.
