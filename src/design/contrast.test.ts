@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { parse } from "yaml";
 import { tokens } from "./tokens";
 
-const root = new URL("../../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../../", import.meta.url));
 const frontMatter = parse(
   readFileSync(join(root, "DESIGN.md"), "utf8").split(/^---$/m)[1] ?? "",
 ) as { components: Record<string, Record<string, string>> };

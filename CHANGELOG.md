@@ -70,6 +70,10 @@ The first release.
   and print exports. A tick, not a colour, marks a done item, and a screen
   reader hears "Task done" or "Task not done". An `<input>` or `<form>` in
   the document is still removed.
+- Choose which sections to present from the sidebar, the command palette
+  or More actions. The link keeps the choice as `?sections=<id>,<id>`, and
+  the deck, outline, palette, overview, presenter list and exports hold the
+  chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
   only for the languages a document uses.
 - Monaco as an optional desktop editor beside CodeMirror.
@@ -79,6 +83,10 @@ The first release.
   exported as `<name>.comments.json` sidecars.
 - A browser workspace (files, folders, templates, zip import and export)
   and, in Chromium, local folders that reload on change and save on request.
+  The workspace follows edits from another tab and asks before it writes over
+  a file another tab changed or deleted. Save refuses to write over a local
+  file it cannot read, and the zip export refuses to leave out files past the
+  listing cap.
 - `docwalk-mcp`, a local MCP server through which a coding agent reads the
   presenter's document, moves the deck and, when allowed, edits it.
 - English and Turkish UI.

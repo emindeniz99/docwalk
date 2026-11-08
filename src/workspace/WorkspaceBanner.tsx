@@ -37,14 +37,19 @@ export function WorkspaceBanner({ workspace: w }: { workspace: Workspace }) {
         </span>
         <strong>{source.path}</strong>
       </span>
-      {/* Only a local folder's state is announced: autosave would speak after every pause in typing. */}
-      <span className="docwalk-ws-state" data-state={state} {...(folder ? { role: "status" } : {})}>
+      {/* A local folder's state is announced, and so is a file another tab deleted: autosave would speak after every pause in typing. */}
+      <span
+        className="docwalk-ws-state"
+        data-state={state}
+        {...(folder || state === "missing" ? { role: "status" } : {})}
+      >
         {LABEL[source.root][state]()}
       </span>
-      {folder && (
+      {/* The browser workspace saves itself; Save is there only to write back a file another tab deleted. */}
+      {(folder || state === "missing") && (
         <Button
           className="docwalk-button docwalk-ws-save"
-          isDisabled={state === "saved"}
+          isDisabled={folder && state === "saved"}
           onPress={() => void w.save()}
         >
           {m.ws_save()}

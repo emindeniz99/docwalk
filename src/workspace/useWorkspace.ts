@@ -6,6 +6,7 @@ import type { Notice, ReplaceGuard } from "../shell/useDocument";
 import {
   collectFiles,
   createFile,
+  documentPathsUnder,
   createFolder,
   folderPaths,
   lastModified,
@@ -13,6 +14,7 @@ import {
   readText,
   remove,
   rename,
+  sameListing,
   writeText,
   WorkspaceError,
   type FileText,
@@ -46,13 +48,24 @@ import {
   rememberRoot,
   saveFolderHandle,
 } from "./store";
+import { pollWhileVisible } from "./poll";
+import { isPersistent, requestPersistence, storageUse } from "./storage";
+import { openTabChannel, withWriteLock, type TabChange, type TabChannel } from "./tabs";
 import { starter, TEMPLATES, type ProjectTemplate } from "./templates";
-import type { WorkspaceListing, WorkspaceNode, WorkspaceRoot, WorkspaceSource } from "./types";
+import {
+  MAX_LISTED_ENTRIES,
+  type WorkspaceListing,
+  type WorkspaceNode,
+  type WorkspaceRoot,
+  type WorkspaceSource,
+} from "./types";
 
 /** The browser workspace saves this long after the last keystroke. */
 export const AUTOSAVE_MS = 500;
 /** A local folder without `FileSystemObserver` is checked this often for changes on disk. */
 export const POLL_MS = 1000;
+/** Without `FileSystemObserver`, the tree of a local folder is listed this often while the page is visible. */
+export const LIST_POLL_MS = 3000;
 
 export interface WorkspaceInputs {
   doc: LoadedDocument | null;
@@ -79,6 +92,9 @@ export type WorkspaceDialog =
   | { kind: "discard"; path: string; proceed: () => void }
   /** The file changed on disk while it has unsaved edits (decision 58). */
   | { kind: "conflict"; path: string; disk: FileText };
+
+/** What writing the pending autosave came to: written, held back for a question, or failed. */
+type Flushed = "saved" | "held" | "failed";
 
 /** What the banner says about the open workspace file. */
 export type SaveState = "saved" | "saving" | "unsaved" | "missing" | "error";
@@ -114,6 +130,26 @@ function neighbourOf(nodes: WorkspaceNode[], path: string, parent = ""): string 
   if (i >= 0) return (nodes[i + 1] ?? nodes[i - 1])?.path ?? parent;
   const holder = nodes.find((n) => n.children && isWithin(path, n.path));
   return holder ? neighbourOf(holder.children!, path, holder.path) : null;
+}
+
+const megabytes = (bytes: number) => `${Math.round((bytes / 1024 / 1024) * 10) / 10} MB`;
+
+/** Like `message`; a full browser storage also says how full it is. */
+async function failure(error: unknown, fallback: string, inBrowser: boolean): Promise<string> {
+  if (inBrowser && error instanceof DOMException && error.name === "QuotaExceededError") {
+    const use = await storageUse();
+    if (use) return m.ws_err_quota_use({ used: megabytes(use.used), quota: megabytes(use.quota) });
+  }
+  return message(error, fallback);
+}
+
+/** The document files under `node` whose comments and sketches go with it; the listing is the fallback. */
+async function annotatedFiles(handle: FileSystemDirectoryHandle, node: WorkspaceNode) {
+  try {
+    return await documentPathsUnder(handle, node.path);
+  } catch {
+    return (await import("./annotations")).filePaths(node);
+  }
 }
 
 function message(error: unknown, fallback: string): string {
@@ -188,12 +224,23 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     handle: FileSystemDirectoryHandle;
     listing: WorkspaceListing;
   } | null>(null);
+  /** The directory whose last listing failed; its tree stays as it was. */
+  const [listFailed, setListFailed] = useState<FileSystemDirectoryHandle | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
   const [baseline, setBaselineState] = useState<Baseline | null>(null);
   const [failed, setFailed] = useState(false);
   /** The key of an open local file that was deleted or moved on disk. */
   const [missingKey, setMissingKey] = useState<string | null>(null);
+  /**
+   * The key of an open browser-workspace file whose autosave is held back:
+   * another tab deleted it, or wrote different text over what this tab edited.
+   * Its edits exist only on screen until the user answers.
+   */
+  const [heldKey, setHeldKey] = useState<string | null>(null);
+  /** Whether the browser keeps the browser workspace; `null` while unknown. */
+  const [persistent, setPersistent] = useState<boolean | null>(null);
+  const askedPersistence = useRef(false);
   /**
    * The tree row (its path; "" for the panel) that takes focus once the
    * dialog that changed the tree has closed: the element that opened the
@@ -262,6 +309,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       opfsRoot()
         .then((h) => live && setOpfs(h))
         .catch(() => live && setOpfsRefused(true));
+      void isPersistent().then((kept) => live && setPersistent(kept));
     }
     if (supported.folder) {
       void loadFolderHandle().then(async (handle) => {
@@ -285,22 +333,35 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
 
   // ---- The tree ------------------------------------------------------------
   const listGeneration = useRef(0);
-  const refresh = useCallback(async () => {
-    if (!active) return;
+  const refresh = useCallback((): Promise<void> => {
+    if (!active) return Promise.resolve();
     const gen = ++listGeneration.current;
-    const next = await listTree(active).catch(() => ({ nodes: [], truncated: false }));
-    if (gen === listGeneration.current) setListed({ handle: active, listing: next });
+    return listTree(active).then(
+      (fresh) => {
+        if (gen !== listGeneration.current) return;
+        setListFailed(null);
+        // An unchanged tree keeps its objects, so a poll redraws nothing and moves no focus.
+        setListed((prev) =>
+          prev?.handle === active && sameListing(prev.listing, fresh)
+            ? prev
+            : { handle: active, listing: fresh },
+        );
+      },
+      (error: unknown) => {
+        if (gen !== listGeneration.current) return;
+        // An empty tree would read as "no Markdown files" and invite writes into
+        // a folder that cannot be read. The tree on screen stays as it was, and
+        // a refused read sends the folder back to "Reconnect".
+        if (error instanceof DOMException && error.name === "NotAllowedError") {
+          setFolder((f) => (f?.handle === active ? { ...f, permission: "prompt" } : f));
+        }
+        setListFailed(active);
+      },
+    );
   }, [active]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  // Files added by other tabs or other programs show up when the user comes back.
-  useEffect(() => {
-    const onFocus = () => void refresh();
-    globalThis.addEventListener("focus", onFocus);
-    return () => globalThis.removeEventListener("focus", onFocus);
-  }, [refresh]);
-
   // The open file's folders stay expanded, so the selection is visible.
   const openPath = inView(source) ? source.path : null;
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
@@ -345,27 +406,94 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
 
   // ---- Browser workspace: autosave ------------------------------------------
   const pending = useRef<{ source: WorkspaceSource; text: string } | null>(null);
-  /** Writes the pending autosave now; false when that write failed. */
-  const flush = useCallback(async (): Promise<boolean> => {
-    const job = pending.current;
-    pending.current = null;
-    if (!job || !opfs) return true;
-    try {
-      const lm = await writeText(opfs, job.source.path, job.text);
-      setFailed(false);
-      if (baselineRef.current?.key === keyOf(job.source)) {
-        setBaseline({ key: keyOf(job.source), text: job.text, lastModified: lm });
+  /**
+   * A conflict found while another dialog was open: asked once that dialog
+   * closes, since replacing it would drop what it holds (the action waiting
+   * on Save or Discard, a half-typed name).
+   */
+  const askAfterDialog = useRef(false);
+  /** The channel to the other tabs (src/workspace/tabs.ts); null until the workspace is open. */
+  const tab = useRef<TabChannel | null>(null);
+  const announce = useCallback((kind: TabChange) => tab.current?.announce(kind), []);
+  /** Tells the other tabs the listing changed; only the browser workspace is shared. */
+  const treeChanged = useCallback(() => {
+    if (root === "opfs") announce("tree");
+  }, [root, announce]);
+  /**
+   * The user saved something into the browser workspace: the first time in a
+   * page's life, ask the browser to keep it. Nothing is asked before there is
+   * something to keep, and a refusal changes nothing but a note in the panel.
+   */
+  const noteSaved = useCallback(() => {
+    if (askedPersistence.current) return;
+    askedPersistence.current = true;
+    void requestPersistence().then((kept) => {
+      if (kept !== null) setPersistent(kept);
+    });
+  }, []);
+  /**
+   * Writes the pending autosave now, unless the file is not what this tab last
+   * saw (decision 90). Under the write lock the file is looked at first: a file
+   * another tab deleted is not created again (`recreate`, an explicit Save,
+   * does), and one it changed to other text is asked about, never overwritten.
+   */
+  const flush = useCallback(
+    async (recreate = false): Promise<Flushed> => {
+      const job = pending.current;
+      pending.current = null;
+      if (!job || !opfs) return "saved";
+      const key = keyOf(job.source);
+      const path = job.source.path;
+      try {
+        const outcome = await withWriteLock(async () => {
+          const known = baselineRef.current?.key === key ? baselineRef.current : null;
+          let created = false;
+          if (known) {
+            const change = await diskChange(opfs, path, known, null);
+            if (change.kind === "missing") {
+              if (!recreate) return { kind: "missing" as const };
+              created = true;
+            } else if (
+              change.kind === "changed" &&
+              change.disk.text !== known.text &&
+              change.disk.text !== job.text
+            ) {
+              return { kind: "conflict" as const, disk: change.disk };
+            }
+          }
+          const lm = await writeText(opfs, path, job.text);
+          // Still under the lock: the next tab, or the next write of this one, compares with this.
+          if (baselineRef.current?.key === key) {
+            setBaseline({ key, text: job.text, lastModified: lm });
+          }
+          return { kind: "written" as const, created };
+        });
+        if (outcome.kind !== "written") {
+          setHeldKey(key);
+          if (outcome.kind === "missing") setMissingKey(key);
+          else if (dialogRef.current?.kind !== "conflict") {
+            if (dialogRef.current) askAfterDialog.current = true;
+            else setDialog({ kind: "conflict", path, disk: outcome.disk });
+          }
+          return "held";
+        }
+        setFailed(false);
+        setHeldKey((k) => (k === key ? null : k));
+        setMissingKey((k) => (k === key ? null : k));
+        announce(outcome.created ? "tree" : "file");
+        noteSaved();
+        return "saved";
+      } catch (error) {
+        setFailed(true);
+        setNotice({
+          message: await failure(error, m.ws_err_save_browser({ path }), true),
+          tone: "error",
+        });
+        return "failed";
       }
-      return true;
-    } catch (error) {
-      setFailed(true);
-      setNotice({
-        message: message(error, m.ws_err_save_browser({ path: job.source.path })),
-        tone: "error",
-      });
-      return false;
-    }
-  }, [opfs, setBaseline, setNotice]);
+    },
+    [opfs, announce, noteSaved, setBaseline, setNotice],
+  );
 
   const markdown = doc?.markdown;
   const baseText = base?.text;
@@ -407,7 +535,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     const current = docRef.current;
     const src = workspaceSource(current);
     if (!src || !current) return false;
-    if (src.root === "opfs") return flush();
+    if (src.root === "opfs") {
+      // Save is the user's answer to a held-back edit, so it also writes a file that is gone.
+      pending.current = { source: src, text: current.markdown };
+      return (await flush(true)) === "saved";
+    }
     const handle = handleOf(src);
     if (!handle) {
       setNotice({ message: message(new DOMException("", "NotAllowedError"), ""), tone: "error" });
@@ -418,9 +550,18 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     // The version a conflict dialog still asks about is not an answer yet.
     const known = baselineRef.current;
     if (known?.key === keyOf(src)) {
-      const change = await diskChange(handle, src.path, known, null).catch(() => null);
+      // A file that changed and cannot be read (not UTF-8, over the size cap)
+      // cannot be compared, so it is not written over either.
+      let change: Awaited<ReturnType<typeof diskChange>>;
+      try {
+        change = await diskChange(handle, src.path, known, null);
+      } catch {
+        setFailed(true);
+        setNotice({ message: m.ws_err_save_unreadable({ path: src.path }), tone: "error" });
+        return false;
+      }
       if (
-        change?.kind === "changed" &&
+        change.kind === "changed" &&
         change.disk.text !== known.text &&
         change.disk.text !== current.markdown
       ) {
@@ -444,12 +585,6 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     }
   }, [flush, handleOf, setBaseline, setNotice]);
 
-  /**
-   * A conflict found while another dialog was open: asked once that dialog
-   * closes, since replacing it would drop what it holds (the action waiting
-   * on Save or Discard, a half-typed name).
-   */
-  const askAfterDialog = useRef(false);
   const checking = useRef(false);
   const checkAgain = useRef(false);
   /** Compares the open local file with the disk; a call while one runs is not dropped but runs after it. */
@@ -461,7 +596,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     checking.current = true;
     const checkOnce = async () => {
       const src = workspaceSource(docRef.current);
-      const handle = src?.root === "folder" ? handleOf(src) : null;
+      const handle = src ? handleOf(src) : null;
       const known = baselineRef.current;
       if (!src || !handle) return;
       if (known?.key !== keyOf(src)) return;
@@ -488,12 +623,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       const { disk } = change;
       // Our own save, or a change that matches what is on screen: nothing to ask.
       if (disk.text === known.text || disk.text === current.markdown) {
+        setHeldKey((k) => (k === key ? null : k));
         setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
       } else if (current.markdown !== known.text) {
         const showing = dialogRef.current;
         if (showing && showing.kind !== "conflict") askAfterDialog.current = true;
         else setDialog({ kind: "conflict", path: src.path, disk });
       } else {
+        setHeldKey((k) => (k === key ? null : k));
         setBaseline({ key, text: disk.text, lastModified: disk.lastModified });
         openDocument({ markdown: disk.text, source: src });
       }
@@ -510,6 +647,35 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     askAfterDialog.current = false;
     void checkDisk();
   }, [dialog, checkDisk]);
+
+  // Other tabs of the browser workspace say when they changed it (decision 90).
+  useEffect(() => {
+    if (!enabled || !opfs) return;
+    const channel = openTabChannel((kind) => {
+      if (kind === "tree" && root === "opfs") void refresh();
+      if (workspaceSource(docRef.current)?.root === "opfs") void checkDisk();
+    });
+    tab.current = channel;
+    return () => {
+      channel?.close();
+      if (tab.current === channel) tab.current = null;
+    };
+  }, [enabled, opfs, root, refresh, checkDisk]);
+
+  // Files added by other tabs or other programs, and a notice that never arrived, show on return.
+  useEffect(() => {
+    const onReturn = () => {
+      if (document.visibilityState === "hidden") return;
+      void refresh();
+      void checkDisk();
+    };
+    globalThis.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => {
+      globalThis.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+    };
+  }, [refresh, checkDisk]);
 
   const folderHandle = handleFor("folder");
   const watchedPath =
@@ -546,8 +712,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       clearTimeout(timer);
       timer = setTimeout(() => void refresh(), 300);
     }).then((disconnect) => {
-      if (live) stop = disconnect;
-      else disconnect?.();
+      if (!live) {
+        disconnect?.();
+        return;
+      }
+      // Without an observer, list again every few seconds while the page is visible.
+      stop = disconnect ?? pollWhileVisible(refresh, LIST_POLL_MS);
     });
     return () => {
       live = false;
@@ -571,19 +741,21 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     return () => globalThis.removeEventListener("keydown", onKey);
   }, [enabled, save]);
 
-  // Unsaved edits to a local file: the browser asks before the page goes away.
-  const unsavedFolderEdits = dirty && sourceRoot === "folder";
+  // Unsaved edits to a local file, or edits of a browser-workspace file that
+  // another tab deleted or changed: the browser asks before the page goes away.
+  const held = heldKey !== null && heldKey === sourceKey;
+  const unsavedEdits = dirty && (sourceRoot === "folder" || held);
   useEffect(() => {
-    if (!unsavedFolderEdits) return;
+    if (!unsavedEdits) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
     globalThis.addEventListener("beforeunload", onBeforeUnload);
     return () => globalThis.removeEventListener("beforeunload", onBeforeUnload);
-  }, [unsavedFolderEdits]);
+  }, [unsavedEdits]);
 
   /** Runs `proceed` now, or after the user agrees to drop unsaved local edits. */
   const guard = useCallback(
     (proceed: () => void) => {
-      if (unsavedFolderEdits && sourcePath !== null) {
+      if (unsavedEdits && sourcePath !== null) {
         setDialog({
           kind: "discard",
           path: sourcePath,
@@ -596,7 +768,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         });
       } else proceed();
     },
-    [unsavedFolderEdits, sourcePath],
+    [unsavedEdits, sourcePath],
   );
   // A share link pasted into the address bar goes through the same question.
   useLayoutEffect(() => {
@@ -615,9 +787,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       const handle = next && handleOf(next);
       if (!next || !handle) return false;
       try {
-        await flush();
+        // Edits held back for a question are not dropped for another file.
+        if ((await flush()) === "held") return false;
         const { text, lastModified: lm } = await readText(handle, path);
         setBaseline({ key: keyOf(next), text, lastModified: lm });
+        setHeldKey(null);
         setFailed(false);
         openDocument({ markdown: text, source: next });
         return true;
@@ -652,15 +826,17 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       try {
         await createFile(active, path, starter(name.replace(/\.[^.]+$/, "")));
       } catch (error) {
-        return message(error, m.ws_err_create({ path }));
+        return failure(error, m.ws_err_create({ path }), root === "opfs");
       }
+      treeChanged();
+      if (root === "opfs") noteSaved();
       await refresh();
       expand(ancestorsOf(path));
       setFocusTarget({ path });
       guard(() => void load(root, path));
       return null;
     },
-    [active, refresh, expand, guard, load, root],
+    [active, refresh, treeChanged, noteSaved, expand, guard, load, root],
   );
 
   const newFolder = useCallback(
@@ -674,12 +850,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       } catch (error) {
         return message(error, m.ws_err_create({ path }));
       }
+      treeChanged();
       await refresh();
       expand([...ancestorsOf(path), path]);
       setFocusTarget({ path });
       return null;
     },
-    [active, refresh, expand],
+    [active, refresh, treeChanged, expand],
   );
 
   const newProject = useCallback(
@@ -694,15 +871,17 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
           await writeText(active, joinPath(name, file.path), file.text);
         }
       } catch (error) {
-        return message(error, m.ws_err_create({ path: name }));
+        return failure(error, m.ws_err_create({ path: name }), root === "opfs");
       }
+      treeChanged();
+      if (root === "opfs") noteSaved();
       await refresh();
       expand([name]);
       setFocusTarget({ path: joinPath(name, template.main) });
       guard(() => void load(root, joinPath(name, template.main)));
       return null;
     },
-    [active, refresh, expand, guard, load, root],
+    [active, refresh, treeChanged, noteSaved, expand, guard, load, root],
   );
 
   const renameEntry = useCallback(
@@ -712,18 +891,22 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       if (!active) return m.ws_err_unavailable();
       const name = node.kind === "file" ? withMarkdownExtension(rawName) : rawName;
       let next: string;
+      let movedFiles: string[];
       try {
         await flush();
+        // Asked of the directory before it moves: the listing stops at 5000 entries.
+        movedFiles = await annotatedFiles(active, node);
         next = await rename(active, node.path, name);
       } catch (error) {
         return message(error, m.ws_err_rename({ path: node.path }));
       }
+      treeChanged();
       // Comments and sketches are keyed by path; they move with the file,
       // before the open document is retargeted and reloads them.
-      const { filePaths, moveAnnotations } = await import("./annotations");
+      const { moveAnnotations } = await import("./annotations");
       const at = (p: string) => sourceFor(root, p)!;
       await moveAnnotations(
-        filePaths(node).map((p) => [at(p), at(next + p.slice(node.path.length))] as const),
+        movedFiles.map((p) => [at(p), at(next + p.slice(node.path.length))] as const),
       );
       // The open file, or the folder holding it, moved: same text, new address.
       const current = workspaceSource(docRef.current);
@@ -746,7 +929,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       setFocusTarget({ path: next });
       return null;
     },
-    [active, flush, root, sourceFor, inView, setBaseline, retarget, refresh],
+    [active, flush, root, sourceFor, inView, setBaseline, retarget, refresh, treeChanged],
   );
 
   const removeEntry = useCallback(
@@ -755,18 +938,22 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       const current = workspaceSource(docRef.current);
       const openInside = inView(current) && isWithin(current.path, node.path);
       const neighbour = neighbourOf(listing?.nodes ?? [], node.path);
+      let dropped: string[];
       // A pending autosave of a file being deleted must not bring it back.
       if (openInside) pending.current = null;
       else await flush();
       try {
+        // Asked of the directory before it goes: the listing stops at 5000 entries.
+        dropped = await annotatedFiles(active, node);
         await remove(active, node.path);
       } catch (error) {
         setNotice({ message: message(error, m.ws_err_delete({ path: node.path })), tone: "error" });
         return;
       }
+      treeChanged();
       // A new file at the same path later must not inherit them.
-      const { dropAnnotations, filePaths } = await import("./annotations");
-      await dropAnnotations(filePaths(node).map((p) => sourceFor(root, p)!));
+      const { dropAnnotations } = await import("./annotations");
+      await dropAnnotations(dropped.map((p) => sourceFor(root, p)!));
       if (openInside) {
         setBaseline(null);
         closeDocument();
@@ -784,6 +971,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       setBaseline,
       closeDocument,
       refresh,
+      treeChanged,
       setNotice,
     ],
   );
@@ -822,6 +1010,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         }
         for (const f of contents.files)
           await writeText(active, joinPath(target, strip(f.path)), f.data);
+        treeChanged();
+        if (root === "opfs") noteSaved();
         await refresh();
         expand([target]);
         const first =
@@ -845,23 +1035,25 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
         );
       } catch (error) {
         setNotice({
-          message: message(error, m.ws_err_import()),
+          message: await failure(error, m.ws_err_import(), root === "opfs"),
           tone: "error",
         });
       }
     },
-    [active, listing, refresh, expand, setNotice, guard, load, root],
+    [active, listing, refresh, treeChanged, noteSaved, expand, setNotice, guard, load, root],
   );
 
   const exportZip = useCallback(async () => {
     if (!active) return;
     try {
       await flush();
-      const [{ buildArchive }, files, tree] = await Promise.all([
-        import("./zip"),
-        collectFiles(active),
-        listTree(active),
-      ]);
+      const tree = await listTree(active);
+      // An archive that looks complete and lacks files is the worse backup.
+      if (tree.truncated) {
+        setNotice({ message: m.ws_export_truncated({ count: MAX_LISTED_ENTRIES }), tone: "error" });
+        return;
+      }
+      const [{ buildArchive }, files] = await Promise.all([import("./zip"), collectFiles(active)]);
       const folders = folderPaths(tree.nodes);
       if (files.length === 0 && folders.length === 0) {
         setNotice({ message: m.ws_export_empty(), tone: "info" });
@@ -960,6 +1152,9 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       if (open?.kind !== "conflict" || !src || src.path !== open.path) return;
       const key = keyOf(src);
       if (keep === "disk") {
+        // The edits that were waiting to be saved are the ones given up.
+        pending.current = null;
+        setHeldKey(null);
         setBaseline({ key, text: open.disk.text, lastModified: open.disk.lastModified });
         openDocument({ markdown: open.disk.text, source: src });
       } else {
@@ -971,9 +1166,15 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
           lastModified: open.disk.lastModified,
           declined: open.disk.text,
         });
+        // The browser workspace has no Save button for this: keeping the edits is the save.
+        const current = docRef.current;
+        if (src.root === "opfs" && current) {
+          pending.current = { source: src, text: current.markdown };
+          void flush();
+        }
       }
     },
-    [setBaseline, openDocument],
+    [setBaseline, openDocument, flush],
   );
 
   /** The panel moved focus to `target`, or found nothing to focus. */
@@ -998,9 +1199,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     supported: { opfs: supported.opfs && !opfsRefused, folder: supported.folder },
     available: enabled && ((supported.opfs && !opfsRefused) || supported.folder),
     root,
+    /** Whether the browser promises to keep the browser workspace; `null` while unknown or unsupported. */
+    persistent,
     folderName,
     folderPermission: folder?.permission ?? null,
     listing,
+    /** The last attempt to list the tree on screen failed; with no tree yet, the panel says so. */
+    listFailed: listFailed !== null && listFailed === active,
     expanded,
     setExpanded,
     openPath,

@@ -1,6 +1,6 @@
 # Roadmap: docwalk
 
-Dated 2026-11-08. Update this file when an item ships or a deferred item's
+Dated 2026-11-09. Update this file when an item ships or a deferred item's
 trigger fires, and delete the entry in the same commit.
 
 ## v1
@@ -57,6 +57,11 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   `mirrorView.browser.test.ts`, `src/remote/remote.browser.test.ts` and
   `e2e/mirror.spec.ts` cover it on Chromium; Firefox and WebKit run in the
   fork's CI.
+- Done 2026-11-09: choosing the sections to present (decision 100): a
+  dialog from the sidebar, the palette or More actions, kept in the link as
+  `?sections=`; the deck, outline, palette, overview, presenter list and
+  exports hold the chosen sections, and document mode and the editor keep
+  the whole file. `e2e/sections.spec.ts` covers it (19 tests on Chromium).
 
 Still open in v1:
 
@@ -84,6 +89,17 @@ browser workspace, unsaved until Save in a local folder). Also done that
 day: Monaco as an optional editor (53), canvas mode (54, 64) and comments
 (55, 65).
 
+Done 2026-11-09 (decisions 89 to 93): the browser workspace follows edits
+from another tab and asks before it writes over a file another tab changed or
+deleted; without `FileSystemObserver` a local folder's tree is listed every
+3 s; the browser is asked to keep the workspace after the first save; comments
+and sketches follow a rename or delete past the 5000-entry cap; Save refuses
+to write over a local file it cannot read, and the zip export refuses to leave
+out files past the cap. `e2e/workspace.spec.ts` passes on Chromium and Firefox
+here. Playwright's WebKit on Windows leaves OPFS writes empty, so 9 of its 15
+tests fail on that engine on the base branch too; WebKit rests on the fork's
+CI.
+
 ## Follow-ups
 
 Needs the owner:
@@ -105,8 +121,10 @@ Needs the owner:
   fullscreen, and Firefox and Safari lack it. Keep the current behaviour,
   or accept that trade on Chromium.
 - CI, Lighthouse, zizmor, the Pages deploy and the nightly Stryker run
-  have all run on GitHub. zizmor's online audits and the pinned actions'
-  tag ages were not checked.
+  have all run on GitHub. zizmor runs with `--offline` and no token, so its
+  online audits stay off. All seven pinned actions' tags matched their SHAs
+  on 2026-11-09. `pnpm/action-setup` v6.1.1 dates from 2026-11-03: decide
+  whether the 7-day age rule covers actions.
 - A real `showDirectoryPicker` folder on a real disk in desktop Chrome:
   handle kept in IndexedDB, permission asked again on return. Every test
   uses an OPFS handle in its place.
@@ -116,11 +134,12 @@ Needs the owner:
 Later rounds:
 
 - Workspace: no fallback for Safari before 26 (no `createWritable`) or
-  private windows (panel hidden); OPFS edits in another tab are not watched
-  (last write wins); without `FileSystemObserver` new or removed files show
-  on window focus only; `navigator.storage.persist()` is not requested;
-  comments and sketches follow a rename or delete made in docwalk, not
-  one made on disk or past the listing's 5000-entry cap.
+  private windows; the panel stays hidden there (decision 89). A rename or
+  move made on disk, outside docwalk, does not carry comments and sketches:
+  a file's identity is its folder and path (65), and a guess from size, time
+  or text would hand one file's annotations to another (decision 92). A
+  rename in another tab reads as a deletion in this one (decision 90).
+  Without `FileSystemObserver` a change can show up to about 3 s late.
 - Agents: the e2e relay copies `worker/room.ts` instead of running the
   Worker under Miniflare; a real-socket session ran on Node 24 only
   (`engines` says >=22); an agent or phone remote that joins before the
@@ -142,8 +161,10 @@ Later rounds:
   offer the editor choice.
 - PWA: F6 to the update toast is unverified; no `file_handlers` and no
   periodic update check.
-- CI and quality: mutation survivors are reported, not fixed (no unit test
-  feeds `src/share/fragment.ts` a fragment its schema rejects); Lighthouse
+- CI and quality: mutation survivors are reported, not fixed, except in
+  `src/share/fragment.ts`, whose tests now hold real documents that only its
+  schema refuses (65 to 68 killed on 2026-11-09; the 8 left are equivalent
+  mutants, such as padding that `atob` does not need); Lighthouse
   SEO is 0.82 and unbudgeted. "Editing the source … notes in the gutter"
   (`e2e/app.spec.ts`) failed once on WebKit under load and never again in
   40 runs; one lead is that `App.tsx` diagnostics fall back to line 1
@@ -184,6 +205,10 @@ Later rounds:
   moves the slide while a diagram view is open leaves that view open on
   both screens; a follower that joins within 2 s of the last resync waits
   for the next one.
+- Choosing sections (decision 100): the share link and the follow link
+  leave out `?sections=` (the owner decides whether the share link should
+  carry it); a follower counts every slide; the presenter window still
+  builds previews for skipped sections.
 - Shortcut hints: on Apple platforms `ModShortcut` draws the command glyph
   as an `aria-hidden` icon, so the palette button's accessible name ends in
   "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
@@ -234,11 +259,10 @@ code.
 1. The code, table and image focus views, with their line marks, mirrored
    to followers inside the signed, encrypted room messages. The laser,
    strokes and the diagram view already are (decisions 87, 88).
-2. Picking which sections to present, kept in the URL.
-3. Saved annotations, included in PDF and PNG exports.
-4. Math and emoji shortcodes, which GitHub renders natively.
-5. A step-through tour of a Mermaid diagram's nodes and paths.
-6. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+2. Saved annotations, included in PDF and PNG exports.
+3. Math and emoji shortcodes, which GitHub renders natively.
+4. A step-through tour of a Mermaid diagram's nodes and paths.
+5. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 

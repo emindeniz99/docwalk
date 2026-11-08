@@ -1,11 +1,12 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { parse } from "yaml";
 import { tokensToCss } from "./css";
 import { tokens } from "./tokens";
 
-const root = new URL("../../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../../", import.meta.url));
 const designMd = readFileSync(join(root, "DESIGN.md"), "utf8");
 const frontMatter = parse(designMd.split(/^---$/m)[1] ?? "") as Record<string, unknown>;
 
@@ -49,7 +50,7 @@ describe("raw colours live only in the token module", () => {
 
   test("no file under src/ except tokens.ts contains a hex, rgb(), hsl() or oklch() colour", () => {
     const offenders = files
-      .filter((f) => !f.endsWith("design/tokens.ts"))
+      .filter((f) => !f.replaceAll("\\", "/").endsWith("design/tokens.ts"))
       .flatMap((f) =>
         (readFileSync(f, "utf8").match(HEX) ?? []).map((hex) => `${relative(root, f)}: ${hex}`),
       );
