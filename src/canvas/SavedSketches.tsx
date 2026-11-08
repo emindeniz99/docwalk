@@ -29,16 +29,12 @@ export function SavedSketches({ openKey, onClose }: SavedSketchesProps) {
   const [items, setItems] = useState<SketchSummary[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  /** Bumped after a delete, which lists the sketches again. */
-  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     listSketches().then(
       (found) => {
-        if (cancelled) return;
-        setItems(found);
-        setFailed(false);
+        if (!cancelled) setItems(found);
       },
       () => {
         if (!cancelled) setFailed(true);
@@ -47,16 +43,17 @@ export function SavedSketches({ openKey, onClose }: SavedSketchesProps) {
     return () => {
       cancelled = true;
     };
-  }, [version]);
+  }, []);
 
+  /** Runs a delete, then lists the sketches again. */
   const remove = useCallback(async (job: () => Promise<void>) => {
     try {
       await job();
+      setItems(await listSketches());
+      setFailed(false);
     } catch {
       setFailed(true);
-      return;
     }
-    setVersion((v) => v + 1);
   }, []);
 
   const others = (items ?? []).filter((item) => item.key !== openKey);
