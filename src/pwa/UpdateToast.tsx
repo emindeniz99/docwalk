@@ -1,4 +1,5 @@
 import { RefreshCw, X } from "lucide-react";
+import { useCallback, useSyncExternalStore } from "react";
 import {
   Button,
   Text,
@@ -22,12 +23,24 @@ export interface UpdateToastContent {
  * never takes focus or blocks the deck, so it cannot interrupt a talk; the
  * region is a labelled landmark that announces the toast. It stays until the
  * user reloads or dismisses it, because the update is not urgent.
+ *
+ * F6 reaches the region only if React Aria registered it as a landmark, and
+ * ToastRegion renders nothing while the queue is empty: the hook runs when
+ * there is no element yet, finds none and never looks again unless the
+ * landmark's label changes. The label here changes when the first toast
+ * appears, which registers the landmark with the element in place.
  */
 export function UpdateToast({ queue }: { queue: ToastQueue<UpdateToastContent> }) {
   // Outside App, so it follows a language switch on its own.
   useLocale();
+  const subscribe = useCallback((onChange: () => void) => queue.subscribe(onChange), [queue]);
+  const shown = useSyncExternalStore(subscribe, () => queue.visibleToasts.length > 0);
   return (
-    <ToastRegion queue={queue} className="docwalk-toast-region" aria-label={m.pwa_notifications()}>
+    <ToastRegion
+      queue={queue}
+      className="docwalk-toast-region"
+      aria-label={shown ? m.pwa_notifications() : undefined}
+    >
       {({ toast }) => (
         <Toast toast={toast} className="docwalk-toast">
           <RefreshCw className="docwalk-toast-icon" size={18} aria-hidden="true" />

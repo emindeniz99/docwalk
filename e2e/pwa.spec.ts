@@ -386,10 +386,14 @@ test("F6 moves focus to the update prompt and shows where it landed", async ({ p
         return style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0;
       }),
     ).toBe(true);
-    // Tab from the landmark reaches the Reload button.
+    // Tab leaves the landmark for the prompt, then Reload, then Dismiss.
+    const toast = page.locator(".docwalk-toast");
     await page.keyboard.press("Tab");
-    const reload = page.locator(".docwalk-toast").getByRole("button", { name: "Reload" });
-    await expect(reload).toBeFocused();
+    await expect(toast).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(toast.getByRole("button", { name: "Reload" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(toast.getByRole("button", { name: "Dismiss" })).toBeFocused();
   } finally {
     await site.close();
   }
@@ -399,23 +403,29 @@ test("a Markdown file the OS opens with the installed app replaces the sample de
   page,
 }) => {
   // Chromium hands a launch's files to the consumer, queued from before
-  // anything was mounted; other engines have no launchQueue at all, so this
-  // stand-in is what their code path would see in Chromium.
+  // anything was mounted. Chromium also has its own `window.launchQueue`,
+  // which a plain assignment cannot replace, so the stand-in is defined over
+  // it; other engines have none, and this is what their code path would see
+  // in Chromium.
   await page.addInitScript(() => {
-    (window as unknown as { launchQueue: unknown }).launchQueue = {
-      setConsumer(consumer: (params: unknown) => void) {
-        consumer({
-          files: [
-            {
-              getFile: async () =>
-                new File(["# Launched deck\n\nOpened from the file manager.\n"], "notes.md"),
-            },
-          ],
-        });
+    Object.defineProperty(window, "launchQueue", {
+      configurable: true,
+      value: {
+        setConsumer(consumer: (params: unknown) => void) {
+          consumer({
+            files: [
+              {
+                getFile: async () =>
+                  new File(["# Launched deck\n\nOpened from the file manager.\n"], "notes.md"),
+              },
+            ],
+          });
+        },
       },
-    };
+    });
   });
-  await ready(page);
+  // Not `ready()`: its status bar check wants "N slides", and this deck is one slide.
+  await page.goto("/");
   await expect(page.locator(".docwalk-outline-item").first()).toContainText("Launched deck");
   await expect(page.locator(".docwalk-source-banner")).toContainText("notes.md");
 });

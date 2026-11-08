@@ -26,16 +26,17 @@ export function consumeLaunchedFile(
   });
 }
 
+const nextFrames = (done: () => void) => requestAnimationFrame(() => requestAnimationFrame(done));
+const findApp = () => document.querySelector(".docwalk-app");
+
 /** Resolves once the main view is on the page and its start-up effects have run. */
 function appMounted(): Promise<Element> {
-  const frames = (done: () => void) => requestAnimationFrame(() => requestAnimationFrame(done));
   return new Promise((resolve) => {
-    const found = () => document.querySelector(".docwalk-app");
-    const settle = (app: Element) => frames(() => resolve(app));
-    const now = found();
+    const settle = (app: Element) => nextFrames(() => resolve(app));
+    const now = findApp();
     if (now) return settle(now);
     const observer = new MutationObserver(() => {
-      const app = found();
+      const app = findApp();
       if (!app) return;
       observer.disconnect();
       settle(app);
