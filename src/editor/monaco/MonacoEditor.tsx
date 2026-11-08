@@ -95,6 +95,7 @@ export function MonacoEditor({
   value,
   onChange,
   onCursorLine,
+  initialLine,
   revealLine,
   diagnostics,
   label,
@@ -115,7 +116,7 @@ export function MonacoEditor({
   useLayoutEffect(() => {
     callbacks.current = { onChange, onCursorLine };
   });
-  const initial = useRef({ value, label });
+  const initial = useRef({ value, label, line: initialLine });
 
   useEffect(() => {
     const host = hostRef.current;
@@ -164,6 +165,16 @@ export function MonacoEditor({
     editorRef.current = editor;
     notesRef.current = editor.createDecorationsCollection();
     revealRef.current = editor.createDecorationsCollection();
+    // The shell can pass the line to start on (an editor switch keeps the
+    // viewer's place); like a reveal, it lands in the middle of the pane. This
+    // runs before the cursor listener exists: the shell passed the line in, so
+    // reporting it back would not be a move.
+    const start = clampLine(initial.current.line ?? 1, model?.getLineCount() ?? 1) ?? 1;
+    if (start > 1) {
+      editor.setPosition({ lineNumber: start, column: 1 });
+      editor.revealLineInCenter(start, monaco.ScrollType.Immediate);
+      lastLineRef.current = start;
+    }
 
     const content = editor.onDidChangeModelContent(() => {
       if (!model) return;

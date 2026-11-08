@@ -8,6 +8,7 @@ import { flushSync } from "react-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import { chooseLocale, LOCALE_KEY } from "../i18n/locale";
 import { MonacoEditor } from "./monaco/MonacoEditor";
 import { SourceEditor } from "./SourceEditor";
 import type { SourceEditorProps } from "./types";
@@ -416,5 +417,27 @@ describe.each([codemirror, monacoCandidate])("SourceEditor contract: $name", (ca
     expect(editor.editorHeight()).toBeCloseTo(box.clientHeight, 0);
     const { height, client } = editor.scrollSize();
     expect(height).toBeGreaterThan(client);
+  });
+});
+
+describe("CodeMirror's own words (decision 56)", () => {
+  afterEach(() => {
+    chooseLocale("en");
+    localStorage.removeItem(LOCALE_KEY);
+  });
+
+  test("the search panel's words follow a language switch made while the editor is open", async () => {
+    // The view keeps the phrases it was built with: rebuilding it on mount
+    // dropped the scroll to `initialLine`, so only a switch hands it new ones.
+    frame = document.createElement("div");
+    document.body.append(frame);
+    root = createRoot(frame);
+    flushSync(() => root!.render(createElement(SourceEditor, { ...baseProps, value: lines(3) })));
+    const view = EditorView.findFromDOM(frame.querySelector<HTMLElement>(".cm-content")!)!;
+    expect(view.state.phrase("Find")).toBe("Find");
+    chooseLocale("tr");
+    await expect.poll(() => view.state.phrase("Find")).toBe("Bul");
+    chooseLocale("en");
+    await expect.poll(() => view.state.phrase("Find")).toBe("Find");
   });
 });
