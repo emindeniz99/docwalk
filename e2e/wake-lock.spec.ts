@@ -11,7 +11,11 @@ import { ready } from "./helpers";
  *   Hiding a page cannot be done from a test, so those steps flip
  *   `document.visibilityState` and fire the event, and drop the lock with
  *   the sentinel's own `release()`, which is what a browser does to a hidden
- *   page.
+ *   page. The context is granted `screen-wake-lock`: Playwright's default
+ *   headless Chromium (the headless shell, what CI installs) refuses every
+ *   request with NotAllowedError until the permission is granted, while a
+ *   full Chromium grants it unasked, so without the grant these tests passed
+ *   on a desktop and failed on CI.
  * - "stand-in": a missing API, or one that refuses, built in the page, to
  *   check that the app says nothing at all about it. These run everywhere.
  */
@@ -119,6 +123,20 @@ function collectNoise(context: BrowserContext) {
     // Both appear in every run of this build under Playwright, with or without a lock:
     // the config blocks the service worker, and the static server has no /api/health.
     if (/Service Worker registration blocked|status of 404/.test(text)) return;
+    // Two more are the engines' own and say nothing about the lock:
+    // - WebKit warns that a `modulepreload` link (Vite's preload of a chunk the
+    //   page already loads, or of a lazy chunk not imported yet) went unused
+    //   "within a few seconds from the window's load event". It fires on the
+    //   plain app page with no lock code involved, once a test runs long enough.
+    // - Firefox warns "Layout was forced before the page was fully loaded" when
+    //   Playwright's own injected script (location "debugger eval code", never
+    //   the app's bundle) measures the presenter pop-up while it still loads.
+    if (/was preloaded using link preload but not used within a few seconds/.test(text)) return;
+    if (
+      /Layout was forced before the page was fully loaded/.test(text) &&
+      message.location().url === "debugger eval code"
+    )
+      return;
     noise.push(text);
   });
   context.on("weberror", (error) => noise.push(`pageerror: ${error.error().message}`));
@@ -127,6 +145,7 @@ function collectNoise(context: BrowserContext) {
 
 test.describe("the browser's own lock", () => {
   test.skip(({ browserName }) => browserName !== "chromium", "Only Chromium's build ships the API");
+  test.use({ permissions: ["screen-wake-lock"] });
 
   test("is taken when presenting starts and let go when it ends", async ({ page, context }) => {
     await context.addInitScript(recordRealApi);
