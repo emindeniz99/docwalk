@@ -13,6 +13,7 @@ import {
   readText,
   remove,
   rename,
+  sameListing,
   writeText,
   WorkspaceError,
   type FileText,
@@ -46,6 +47,7 @@ import {
   rememberRoot,
   saveFolderHandle,
 } from "./store";
+import { pollWhileVisible } from "./poll";
 import { openTabChannel, withWriteLock, type TabChange, type TabChannel } from "./tabs";
 import { starter, TEMPLATES, type ProjectTemplate } from "./templates";
 import {
@@ -60,6 +62,8 @@ import {
 export const AUTOSAVE_MS = 500;
 /** A local folder without `FileSystemObserver` is checked this often for changes on disk. */
 export const POLL_MS = 1000;
+/** Without `FileSystemObserver`, the tree of a local folder is listed this often while the page is visible. */
+export const LIST_POLL_MS = 3000;
 
 export interface WorkspaceInputs {
   doc: LoadedDocument | null;
@@ -322,7 +326,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     }
     if (gen !== listGeneration.current) return;
     setListFailed(null);
-    setListed({ handle: active, listing: next });
+    // An unchanged tree keeps its objects, so a poll redraws nothing and moves no focus.
+    setListed((prev) =>
+      prev?.handle === active && sameListing(prev.listing, next)
+        ? prev
+        : { handle: active, listing: next },
+    );
   }, [active]);
   useEffect(() => {
     void refresh();
@@ -661,8 +670,12 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       clearTimeout(timer);
       timer = setTimeout(() => void refresh(), 300);
     }).then((disconnect) => {
-      if (live) stop = disconnect;
-      else disconnect?.();
+      if (!live) {
+        disconnect?.();
+        return;
+      }
+      // Without an observer, list again every few seconds while the page is visible.
+      stop = disconnect ?? pollWhileVisible(refresh, LIST_POLL_MS);
     });
     return () => {
       live = false;

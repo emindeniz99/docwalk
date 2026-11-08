@@ -130,6 +130,17 @@ export async function listTree(root: FileSystemDirectoryHandle): Promise<Workspa
   return { nodes, truncated };
 }
 
+/** Whether two listings show the same tree, so a poll that finds nothing new changes nothing on screen. */
+export function sameListing(a: WorkspaceListing, b: WorkspaceListing): boolean {
+  const same = (x: WorkspaceNode[], y: WorkspaceNode[]): boolean =>
+    x.length === y.length &&
+    x.every((n, i) => {
+      const o = y[i]!;
+      return n.path === o.path && n.kind === o.kind && same(n.children ?? [], o.children ?? []);
+    });
+  return a.truncated === b.truncated && same(a.nodes, b.nodes);
+}
+
 export interface FileText {
   text: string;
   lastModified: number;
