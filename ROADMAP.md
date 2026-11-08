@@ -1,6 +1,6 @@
 # Roadmap: docwalk
 
-Dated 2026-11-08. Update this file when an item ships or a deferred item's
+Dated 2026-11-09. Update this file when an item ships or a deferred item's
 trigger fires, and delete the entry in the same commit.
 
 ## v1
@@ -84,6 +84,17 @@ browser workspace, unsaved until Save in a local folder). Also done that
 day: Monaco as an optional editor (53), canvas mode (54, 64) and comments
 (55, 65).
 
+Done 2026-11-09 (decisions 89 to 93): the browser workspace follows edits
+from another tab and asks before it writes over a file another tab changed or
+deleted; without `FileSystemObserver` a local folder's tree is listed every
+3 s; the browser is asked to keep the workspace after the first save; comments
+and sketches follow a rename or delete past the 5000-entry cap; Save refuses
+to write over a local file it cannot read, and the zip export refuses to leave
+out files past the cap. `e2e/workspace.spec.ts` passes on Chromium and Firefox
+here. Playwright's WebKit on Windows leaves OPFS writes empty, so 9 of its 15
+tests fail on that engine on the base branch too; WebKit rests on the fork's
+CI.
+
 ## Follow-ups
 
 Needs the owner:
@@ -105,8 +116,10 @@ Needs the owner:
   fullscreen, and Firefox and Safari lack it. Keep the current behaviour,
   or accept that trade on Chromium.
 - CI, Lighthouse, zizmor, the Pages deploy and the nightly Stryker run
-  have all run on GitHub. zizmor's online audits and the pinned actions'
-  tag ages were not checked.
+  have all run on GitHub. zizmor runs with `--offline` and no token, so its
+  online audits stay off. All seven pinned actions' tags matched their SHAs
+  on 2026-11-09. `pnpm/action-setup` v6.1.1 dates from 2026-11-03: decide
+  whether the 7-day age rule covers actions.
 - A real `showDirectoryPicker` folder on a real disk in desktop Chrome:
   handle kept in IndexedDB, permission asked again on return. Every test
   uses an OPFS handle in its place.
@@ -116,11 +129,12 @@ Needs the owner:
 Later rounds:
 
 - Workspace: no fallback for Safari before 26 (no `createWritable`) or
-  private windows (panel hidden); OPFS edits in another tab are not watched
-  (last write wins); without `FileSystemObserver` new or removed files show
-  on window focus only; `navigator.storage.persist()` is not requested;
-  comments and sketches follow a rename or delete made in docwalk, not
-  one made on disk or past the listing's 5000-entry cap.
+  private windows; the panel stays hidden there (decision 89). A rename or
+  move made on disk, outside docwalk, does not carry comments and sketches:
+  a file's identity is its folder and path (65), and a guess from size, time
+  or text would hand one file's annotations to another (decision 92). A
+  rename in another tab reads as a deletion in this one (decision 90).
+  Without `FileSystemObserver` a change can show up to about 3 s late.
 - Agents: the e2e relay copies `worker/room.ts` instead of running the
   Worker under Miniflare; a real-socket session ran on Node 24 only
   (`engines` says >=22); an agent or phone remote that joins before the
