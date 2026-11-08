@@ -5,6 +5,7 @@
  * directly, so the shell could change without touching those modules.
  */
 import { anchorTarget } from "../render/fragments";
+import { slideText } from "./slideText";
 
 export interface SlideInfo {
   /** 0-based position in the deck. */
@@ -20,6 +21,11 @@ export interface SlideInfo {
   flagged: boolean;
   /** The diagnostic text shown on the slide, when flagged. */
   note: string | null;
+  /**
+   * The words on this page, for search (decision 81). Read from the page the
+   * first time it is asked for, then kept until the deck is rebuilt.
+   */
+  readonly text: string;
 }
 
 export interface DeckController {
@@ -82,6 +88,7 @@ export function createDeckController(
   const infos: SlideInfo[] = pages.map((page, index) => {
     const sectionId = page.dataset["docwalkId"] ?? `slide-${index + 1}`;
     const pageNo = Number(page.dataset["page"] ?? 1);
+    let text: string | undefined;
     return {
       index,
       address: `${sectionId}/${pageNo}`,
@@ -93,6 +100,9 @@ export function createDeckController(
         const el = page.querySelector<HTMLElement>(".docwalk-overflow");
         return el && !el.hidden ? (el.textContent ?? null) : null;
       })(),
+      get text() {
+        return (text ??= slideText(page));
+      },
     };
   });
   const byAddress = new Map(infos.map((s) => [s.address, s]));

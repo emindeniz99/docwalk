@@ -18,6 +18,7 @@ function fakeController(addresses: string[]) {
       title: sectionId,
       flagged: false,
       note: null,
+      text: "",
     };
   });
   const listeners = new Set<(slide: SlideInfo) => void>();

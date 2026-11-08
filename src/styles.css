@@ -1144,6 +1144,35 @@ kbd {
   color: var(--muted);
 }
 
+/* A hit in a slide's text: title and number on one line, the snippet under them. */
+.docwalk-palette-text-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: var(--dw-space-xs);
+}
+
+.docwalk-palette-snippet {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+  overflow-wrap: anywhere;
+}
+
+/* Bold and underlined, so the match does not rest on colour alone. */
+.docwalk-palette-snippet mark {
+  background: transparent;
+  color: var(--fg);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.docwalk-palette-more {
+  margin: 0;
+  padding: var(--dw-space-sm) var(--dw-space-lg) var(--dw-space-lg);
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+}
+
 /* The annotation toolbar sits on the dark stage: remap the semantic colours it uses. */
 .docwalk-stage-tools {
   /* The stage is dark in both themes, so the pressed fill and focus ring use the dark values. */

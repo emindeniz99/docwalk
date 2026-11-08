@@ -154,6 +154,7 @@ function fakeController(count = 10, pages?: Array<[string, number]>): FakeContro
     title: `Title ${i}`,
     flagged: false,
     note: null,
+    text: "",
   }));
   count = slides.length;
   const emit = () => listeners.forEach((l) => l(slides[index]!));
