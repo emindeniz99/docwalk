@@ -64,6 +64,7 @@
   "cm_replaced_matches": "replaced $ matches",
   "cm_replaced_on_line": "replaced match on line $",
   "cm_selection_deleted": "Selection deleted",
+  "cmd_editor": "Editor: use {editor}",
   "cmd_language": "Language: {language}",
   "cmd_overview": "Slide overview",
   "cmd_palette": "Jump to slide or command",

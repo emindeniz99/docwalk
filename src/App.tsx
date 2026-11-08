@@ -43,7 +43,12 @@ import { clonePages, type DeckController, type SlideInfo } from "./deck/controll
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
 import { observeFocus } from "./deck/focusEvents";
 import { useOverviewShortcut } from "./deck/useOverviewShortcut";
-import { useEditorChoice } from "./editor/choice";
+import {
+  COARSE_POINTER,
+  setEditorChoice,
+  useEditorChoice,
+  useStoredEditorChoice,
+} from "./editor/choice";
 import { chooseLocale, localeName, locales, useLocale, type Locale } from "./i18n/locale";
 import type { EditorDiagnostic, SourceEditorProps } from "./editor/types";
 import type { ExportOptions } from "./export/types";
@@ -242,6 +247,9 @@ export function App() {
   // The update prompt (src/pwa/update.css) sits above the status bar, whose height varies.
   const statusbarRef = useBlockSizeProperty<HTMLElement>("--docwalk-statusbar-size");
   const Editor = useEditorChoice() === "monaco" ? MonacoEditor : SourceEditor;
+  // The palette offers the editor not in use, as the More menu does (decisions 53, 102).
+  const storedEditor = useStoredEditorChoice();
+  const coarse = useMediaQuery(COARSE_POINTER);
   // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
   const [health, setHealth] = useState<HealthResponse | null>(null);
   useEffect(() => {
@@ -663,6 +671,22 @@ export function App() {
     { id: "overview", label: m.cmd_overview(), hint: "O", run: overview.open },
     { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
     { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
+    // Touch screens keep CodeMirror and are not offered Monaco.
+    ...(coarse
+      ? []
+      : [
+          storedEditor === "monaco"
+            ? {
+                id: "editor-codemirror",
+                label: m.cmd_editor({ editor: "CodeMirror" }),
+                run: () => setEditorChoice("codemirror"),
+              }
+            : {
+                id: "editor-monaco",
+                label: m.cmd_editor({ editor: "Monaco" }),
+                run: () => setEditorChoice("monaco"),
+              },
+        ]),
     { id: "share", label: m.cmd_share(), run: share.open },
     ...(comments.command ? [comments.command] : []),
     { id: "token", label: m.cmd_token(), run: () => inputs.setTokenOpen(true) },
