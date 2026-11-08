@@ -248,13 +248,13 @@ describe("format then parse round-trips every valid state", () => {
   );
 });
 
-describe("the section selection in the query (?sections=)", () => {
-  const sections = (search: string) => parse(`?sections=${search}`).sections;
-  const ids = (count: number) => Array.from({ length: count }, (_, i) => `s${i}`);
-  // Distinct ids of 200 ASCII letters each.
-  const wide = (count: number) =>
-    Array.from({ length: count }, (_, i) => String.fromCharCode(97 + i).repeat(200));
+const sections = (search: string) => parse(`?sections=${search}`).sections;
+const ids = (count: number) => Array.from({ length: count }, (_, i) => `s${i}`);
+// Distinct ids of 200 ASCII letters each.
+const wide = (count: number) =>
+  Array.from({ length: count }, (_, i) => String.fromCharCode(97 + i).repeat(200));
 
+describe("the section selection in the query (?sections=)", () => {
   test("a list of section ids is read in the order written, so the link names what to present", () => {
     expect(sections("summary,rollout")).toEqual(["summary", "rollout"]);
     expect(sections("rollout")).toEqual(["rollout"]);
@@ -341,9 +341,6 @@ describe("the section selection in the query (?sections=)", () => {
 });
 
 describe("formatViewerUrl: the section selection", () => {
-  const wide = (count: number) =>
-    Array.from({ length: count }, (_, i) => String.fromCharCode(97 + i).repeat(200));
-
   test("a selection is written as one comma-joined value, so the link stays short", () => {
     expect(format("/", { sections: ["summary", "rollout"] }).search).toBe(
       "?sections=summary%2Crollout",
@@ -360,12 +357,12 @@ describe("formatViewerUrl: the section selection", () => {
   });
 
   test("ids in other scripts are percent-encoded and read back unchanged", () => {
-    const ids = ["café-planı", "日本語", "𝒜", "İstanbul"];
-    const written = format("/", { sections: ids });
+    const scriptIds = ["café-planı", "日本語", "𝒜", "İstanbul"];
+    const written = format("/", { sections: scriptIds });
     expect(written.search).toBe(
       "?sections=caf%C3%A9-plan%C4%B1%2C%E6%97%A5%E6%9C%AC%E8%AA%9E%2C%F0%9D%92%9C%2C%C4%B0stanbul",
     );
-    expect(parseViewerUrl(written).sections).toEqual(ids);
+    expect(parseViewerUrl(written).sections).toEqual(scriptIds);
   });
 
   test("null or an empty list removes the parameter, so every section is the plain link", () => {
@@ -403,8 +400,6 @@ describe("formatViewerUrl: the section selection", () => {
 
 describe("sectionsFitInLink", () => {
   test("is true for what format writes and false for what it drops, so the picker can warn", () => {
-    const wide = (count: number) =>
-      Array.from({ length: count }, (_, i) => String.fromCharCode(97 + i).repeat(200));
     expect(sectionsFitInLink(["summary", "rollout"])).toBe(true);
     expect(sectionsFitInLink(Array.from({ length: 100 }, (_, i) => `s${i}`))).toBe(true);
     expect(sectionsFitInLink(Array.from({ length: 101 }, (_, i) => `s${i}`))).toBe(false);
