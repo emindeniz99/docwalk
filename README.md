@@ -69,6 +69,12 @@ lists every settled design decision.
   a pen or point with a laser.
 - A presenter window with the current and next slide and a timer, synced
   over `BroadcastChannel` on the same machine.
+- Speaker notes: write an HTML comment (`<!-- … -->`) under a heading and
+  the presenter window shows it under that slide. GitHub hides comments, so
+  the document reads the same there. The notes are plain text; tool
+  comments such as `<!-- prettier-ignore -->` or `<!-- markdownlint-disable -->`
+  are skipped. They sit in the document text, so a share link or a remote
+  room carries them too.
 - A phone remote and a follow-along link for other screens (full mode).
   The room key stays in the link's fragment, so the relay passes only
   ciphertext.

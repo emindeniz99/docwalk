@@ -12,7 +12,7 @@ github.com/emindeniz99/docwalk with the static build on GitHub Pages
 (`deploy-pages.yml` runs after CI passes on `main`, or by hand). On
 2026-11-06 code colours (76), the fill frame (77), per-slide presenter
 previews, the old-browser notice (78), document-mode hash links and
-safe-area padding landed. Decision rows run to 78. CI (three-engine e2e,
+safe-area padding landed. Decision rows run to 79. CI (three-engine e2e,
 Lighthouse, zizmor) is green on GitHub; the nightly Stryker run was fixed
 on 2026-11-08 (`disableTypeChecks` must skip HTML). Small safe changes go
 straight to `main`, larger work on a branch merged with `--no-ff`
@@ -81,9 +81,11 @@ reuses a server already listening on both ports outside CI.
 - 2026-11-06: At 1440×900 the presented slide is bound by width, so hiding the presenting controls (decision 75) does not grow it; a size test needs a phone-landscape viewport (844×390). Playwright's `devices["iPhone 15 landscape"]` is 734×343 and has no safe-area insets.
 - 2026-11-08: Stryker's default `disableTypeChecks` also writes `// @ts-nocheck` into HTML script blocks, which changed index.html's inline script and its CSP hash in the sandbox; the config now names source files only.
 - 2026-11-08: Dependabot's npm job refuses an exact `devEngines.runtime` Node pin that differs from its own Node ("tool_version_not_supported"); move the pin to its version once that release is seven days old. GitHub's CI run on `main` cancels the previous one (concurrency group), so a cancelled run after a quick second push is expected.
+- 2026-11-08: CommonMark lets an unclosed `<!--` swallow the rest of the document as one `html` node, and a comment above the first heading opens a slide of its own (`intro`, blank in the presenter list). Speaker notes ignore the first and hand the second's notes to the next slide.
 
 ## Done
 
+- 2026-11-08: Speaker notes (decision 79, branch `feat/roadmap-next-up`): the closed HTML comments of a section, minus tool directives, show under the current slide in the presenter window; read from the AST in `src/sectioning/notes.ts`, printed as text, no new bridge field and no other surface sees them.
 - 2026-11-06: Presenter previews built off the page and slide by slide, current and next first (WebKit opener stall 5-6 s to under 1 s); document mode opens a linked heading; old browsers get a notice (decision 78); toast and centred dialogs pad for the safe area; pen-marks test waits for the final rebuilt deck.
 - 2026-11-06: Present frame (decision 77): the slide fills the screen by default, the bar lies over it while it hides, the ground takes the slide's colour; the card stays as a More menu and palette option.
 - 2026-11-06: Code blocks coloured by language (decision 76): Shiki tokenizer as a lazy chunk, DOM colouring after both sanitizers, GitHub's colours as tokens with a contrast test, grammars cached on first use.

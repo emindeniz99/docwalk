@@ -28,6 +28,11 @@ The first release.
 - A presenter window on the same machine; a phone remote and follow-along
   links through end-to-end encrypted rooms on the Cloudflare Worker.
 - Export to PDF, a single self-contained HTML file and PNG images.
+- Speaker notes: the HTML comments of a section show under the current
+  slide in the presenter window, as plain text, on every page of the
+  section. Comments that address a tool (`prettier-ignore`,
+  `markdownlint-…`, `eslint-…`, `textlint-…`, `cspell:…`, `toc`) are
+  skipped. GitHub hides comments, so the file reads the same there.
 - Inputs: paste, file drop, `?src=` links, `?repo=&path=` links, pasted
   fine-grained tokens and GitHub App sign-in.
 - Share links with the document compressed into the URL fragment.

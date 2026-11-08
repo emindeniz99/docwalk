@@ -126,6 +126,12 @@ Later rounds:
   (`?? 1`) for a slide from a stale deck. The presenter axe test's 90 s
   budget assumes CI is about twice as slow as a local run; it was not
   measured on CI.
+- Speaker notes (decision 79): a comment above the first heading opens a
+  slide of its own, blank and titled by its address in the presenter list
+  (a `markdownlint-disable` line above `# Title` does it); the notes go to
+  the next slide, the blank slide stays. Notes are not exported (no
+  handout, no notes in PDF), show Markdown as plain text, and travel in
+  the document text, so a share link or a remote room carries them.
 - Accessibility judgement to confirm: in the fill frame (decision 77) the
   deck's focus ring hides with the idle controls, read as meeting WCAG
   2.4.7 because it shows whenever they do. A stricter reading keeps it
@@ -160,22 +166,21 @@ Later rounds:
 ## Next up
 
 Features from [`docs/feature-gaps.md`](./docs/feature-gaps.md), in this
-order unless the owner picks differently. The first five give the most for
+order unless the owner picks differently. The first four give the most for
 the least work. Each starts with a decision row, then failing tests, then
 code.
 
-1. Speaker notes from HTML comments, shown in the presenter window.
-2. A focus view for code blocks, images and wide tables, with
+1. A focus view for code blocks, images and wide tables, with
    click-to-highlight code lines (reuses the diagram focus).
-3. Laser, strokes and diagram focus mirrored to followers and the presenter
+2. Laser, strokes and diagram focus mirrored to followers and the presenter
    window, inside the signed, encrypted room messages (decisions 68, 73).
-4. Countdown with a target time, a pacing bar, and Screen Wake Lock.
-5. Full-text search in the command palette.
-6. Picking which sections to present, kept in the URL.
-7. Saved annotations, included in PDF and PNG exports.
-8. Math and emoji shortcodes, which GitHub renders natively.
-9. A step-through tour of a Mermaid diagram's nodes and paths.
-10. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+3. Countdown with a target time, a pacing bar, and Screen Wake Lock.
+4. Full-text search in the command palette.
+5. Picking which sections to present, kept in the URL.
+6. Saved annotations, included in PDF and PNG exports.
+7. Math and emoji shortcodes, which GitHub renders natively.
+8. A step-through tour of a Mermaid diagram's nodes and paths.
+9. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 

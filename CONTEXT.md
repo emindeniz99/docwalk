@@ -93,6 +93,11 @@ to and import from (55). The share link carries the same JSON.
 the grid button; Enter jumps to a slide. It replaces reveal.js's own
 overview. Code: `SlideOverview`.
 
+**Speaker note**: an HTML comment in a section, shown in the presenter
+window under the current slide of that section. Tool directives such as
+`prettier-ignore` are not notes. It is plain text, and it stays out of the
+audience deck, document mode and exports (79). Code: `speakerNotes`.
+
 **Static mode**: a deployment without the Worker. Everything except OAuth
 and remote control works (37, 38).
 
@@ -119,6 +124,7 @@ Add a row here before introducing a new one.
 | presenting controls         | sunum düğmeleri             | not "kontrol", which also means check      |
 | fill the screen, card       | ekranı doldur, kart         | the two present frames                     |
 | presenter (the person)      | sunumu yapan kişi           | not "sunucu", which also means server      |
+| speaker notes               | konuşmacı notları           | the comments panel in the presenter view   |
 | audience window             | ana sunum penceresi         | the presenter's own main tab               |
 | follower, follow along      | izleyici, sunumu izle       | "izleyici" names people, never a window    |
 | phone remote                | telefon kumandası           |                                            |
