@@ -266,10 +266,9 @@ describe("selectPrecache", () => {
       }),
     ]);
     expect(precache.has("index.js")).toBe(true);
-    for (const name of ["mathBuild.js", "mathBuild.css", "emojiMap.js"]) {
-      expect(precache.has(name), name).toBe(false);
-      expect(runtime.has(name), name).toBe(true);
-    }
+    const lazy = ["mathBuild.js", "mathBuild.css", "emojiMap.js"];
+    expect(lazy.filter((name) => precache.has(name))).toEqual([]);
+    expect(lazy.filter((name) => runtime.has(name))).toEqual(lazy);
   });
 
   test("fails loudly when the graph names a chunk the build did not emit", () => {

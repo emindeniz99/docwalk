@@ -37,28 +37,25 @@ describe("the class allowlist", () => {
 
 describe("attribute values", () => {
   test("lengths, colours and keywords pass", () => {
-    for (const value of ["0.5em", "-0.2em", "#ff0000", "left right", "true", "100%", "1px"]) {
-      expect(mathAttributeAllowed("width", value), value).toBe(true);
-    }
+    const values = ["0.5em", "-0.2em", "#ff0000", "left right", "true", "100%", "1px"];
+    expect(values.filter((value) => !mathAttributeAllowed("width", value))).toEqual([]);
   });
 
   test("anything that could be a URL, a function or markup fails", () => {
-    for (const value of [
+    const values = [
       "url(https://tracker.example/x)",
       "javascript:alert(1)",
       "red;background:blue",
       '"><img src=x>',
       "a\\b",
       "x".repeat(65),
-    ]) {
-      expect(mathAttributeAllowed("width", value), value).toBe(false);
-    }
+    ];
+    expect(values.filter((value) => mathAttributeAllowed("width", value))).toEqual([]);
   });
 
   test("an attribute off the list fails with any value", () => {
-    for (const name of ["href", "style", "id", "onclick", "src", "xlink:href", "data-x"]) {
-      expect(mathAttributeAllowed(name, "1"), name).toBe(false);
-      expect(MATH_ATTRIBUTES.has(name)).toBe(false);
-    }
+    const names = ["href", "style", "id", "onclick", "src", "xlink:href", "data-x"];
+    expect(names.filter((name) => mathAttributeAllowed(name, "1"))).toEqual([]);
+    expect(names.filter((name) => MATH_ATTRIBUTES.has(name))).toEqual([]);
   });
 });

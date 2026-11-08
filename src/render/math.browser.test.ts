@@ -49,34 +49,46 @@ async function render(markdown: string): Promise<HTMLElement> {
 
 const MATH_NAMES = [...MATH_ELEMENTS];
 
-/** Everything a formula may not leave behind, in any element under `box`. */
-function expectSafe(box: Element): void {
+const UNSAFE_ELEMENT =
+  /^(?:a|img|script|style|iframe|object|embed|svg|foreignobject|semantics|annotation|annotation-xml|maction|mglyph)$/;
+const UNSAFE_ATTRIBUTE = /^(?:href|src|style|id|xlink:href|on.*)$/i;
+
+/** What a formula left behind under `box` that it may not, one line each. */
+function unsafeIn(box: Element): string[] {
+  const found: string[] = [];
   for (const el of box.querySelectorAll("*")) {
-    const inMath = el.namespaceURI === MATHML_NS;
-    if (inMath) {
-      expect(MATH_NAMES, `<${el.localName}> is not on the list`).toContain(el.localName);
-      for (const { name, value } of el.attributes) {
-        if (name === "class") {
-          for (const c of value.split(/\s+/))
-            expect(MATH_CLASSES.has(c) || c === MATH_CLASS).toBe(true);
-        } else {
-          expect(MATH_ATTRIBUTES.has(name), `${name} on <${el.localName}>`).toBe(true);
-          expect(value).toMatch(/^[\w.%+#, -]{0,64}$/);
-        }
+    const tag = `<${el.localName}>`;
+    if (UNSAFE_ELEMENT.test(el.localName)) found.push(`${tag} element`);
+    if (el.namespaceURI === MATHML_NS && !MATH_NAMES.includes(el.localName)) {
+      found.push(`${tag} is not on the list`);
+    }
+    for (const { name, value } of el.attributes) {
+      if (UNSAFE_ATTRIBUTE.test(name)) found.push(`${name} on ${tag}`);
+      if (el.namespaceURI !== MATHML_NS) continue;
+      if (name === "class") {
+        const extra = value.split(/\s+/).filter((c) => !MATH_CLASSES.has(c) && c !== MATH_CLASS);
+        if (extra.length > 0) found.push(`class ${extra.join(" ")} on ${tag}`);
+      } else if (!MATH_ATTRIBUTES.has(name) || !/^[\w.%+#, -]{0,64}$/.test(value)) {
+        found.push(`${name}="${value}" on ${tag}`);
       }
     }
-    expect(el.localName).not.toMatch(
-      /^(?:a|img|script|style|iframe|object|embed|svg|foreignobject|semantics|annotation|annotation-xml|maction|mglyph)$/,
-    );
-    for (const { name } of el.attributes) {
-      expect(name).not.toMatch(/^(?:href|src|style|id|xlink:href|on.*)$/i);
-    }
   }
-  expect(window.dwXssRan).toBeUndefined();
+  if (window.dwXssRan !== undefined) found.push("a script ran");
+  return found;
+}
+
+/** Nothing a formula may not leave behind, in any element under `box`. */
+function expectSafe(box: Element): void {
+  expect(unsafeIn(box)).toEqual([]);
 }
 
 /** The formula's source, kept as text where a formula could not be drawn. */
 const failed = (box: Element) => [...box.querySelectorAll(`code.${MATH_ERROR_CLASS}`)];
+
+/** A builder that throws, as a Temml bug would. */
+const boom: MathBuilder = () => {
+  throw new Error("boom");
+};
 
 describe("the four forms become MathML", () => {
   test("$…$ is an inline <math> in the sentence", async () => {
@@ -226,9 +238,6 @@ describe("a formula that cannot be drawn shows its source (never a crash)", () =
   test("a builder that throws is a failed formula", async () => {
     const box = document.createElement("div");
     box.append(purifyHtml(nodesToHtml(parseMarkdown("A $x$ here").children)));
-    const boom: MathBuilder = () => {
-      throw new Error("boom");
-    };
     await renderMath(box, { load: async () => boom });
     expect(failed(box)).toHaveLength(1);
   });
@@ -309,12 +318,11 @@ describe("hostile formulas (rule 5)", () => {
 
   test("a huge space or rule is capped, not laid out", async () => {
     const box = await render("$\\hspace{99999em}\\rule{1000em}{1000em}$");
-    for (const el of box.querySelectorAll("[width], [height]")) {
-      for (const name of ["width", "height"]) {
-        const value = el.getAttribute(name);
-        if (value) expect(Number.parseFloat(value)).toBeLessThanOrEqual(20);
-      }
-    }
+    expect(box.querySelector("math mspace")).not.toBeNull();
+    const sizes = [...box.querySelectorAll("[width], [height]")].flatMap((el) =>
+      [el.getAttribute("width"), el.getAttribute("height")].filter((v) => v !== null),
+    );
+    expect(sizes.filter((value) => Number.parseFloat(value) > 20)).toEqual([]);
     expectSafe(box);
   });
 
@@ -361,42 +369,45 @@ describe("hostile formulas (rule 5)", () => {
   });
 });
 
-describe("the allowlist holds against a hostile tree, whatever built it", () => {
-  /** A tree as a trusting or buggy builder might make it. */
-  function hostile(): Element {
-    const make = (name: string, ns = MATHML_NS) => document.createElementNS(ns, name);
-    const math = make("math");
-    math.setAttribute("onclick", "window.dwXssRan=1");
-    math.setAttribute("style", "background:url(https://tracker.example/x)");
-    math.setAttribute("href", "https://tracker.example/x");
-    math.setAttribute("id", "user-content-x");
-    math.setAttribute("xlink:href", "javascript:window.dwXssRan=1");
-    math.setAttribute("class", "docwalk-diagram present tml-vec");
-    math.setAttribute("mathcolor", "red;background:url(https://tracker.example/x)");
-    math.setAttribute("width", "1em");
-    const mi = make("mi");
-    mi.textContent = "x";
-    mi.setAttribute("mathvariant", "bold");
-    const maction = make("maction");
-    maction.setAttribute("actiontype", "statusline");
-    const semantics = make("semantics");
-    const annotation = make("annotation-xml");
-    annotation.setAttribute("encoding", "text/html");
-    const html = make("img", "http://www.w3.org/1999/xhtml");
-    html.setAttribute("src", "https://tracker.example/pixel.png");
-    annotation.append(html);
-    const link = make("a", "http://www.w3.org/1999/xhtml");
-    link.setAttribute("href", "https://tracker.example");
-    link.textContent = "link";
-    const script = make("script", "http://www.w3.org/1999/xhtml");
-    script.textContent = "window.dwXssRan=1";
-    const svg = make("svg", "http://www.w3.org/2000/svg");
-    svg.append(make("script", "http://www.w3.org/2000/svg"));
-    semantics.append(annotation);
-    math.append(mi, maction, semantics, link, script, svg, document.createComment("c"));
-    return math;
-  }
+/** Built in a document with no browsing context, so the test's own `<img>` never loads. */
+const inert = document.implementation.createHTMLDocument("");
+const make = (name: string, ns = MATHML_NS) => inert.createElementNS(ns, name);
 
+/** A tree as a trusting or buggy builder might make it. */
+function hostile(): Element {
+  const math = make("math");
+  math.setAttribute("onclick", "window.dwXssRan=1");
+  math.setAttribute("style", "background:url(https://tracker.example/x)");
+  math.setAttribute("href", "https://tracker.example/x");
+  math.setAttribute("id", "user-content-x");
+  math.setAttribute("xlink:href", "javascript:window.dwXssRan=1");
+  math.setAttribute("class", "docwalk-diagram present tml-vec");
+  math.setAttribute("mathcolor", "red;background:url(https://tracker.example/x)");
+  math.setAttribute("width", "1em");
+  const mi = make("mi");
+  mi.textContent = "x";
+  mi.setAttribute("mathvariant", "bold");
+  const maction = make("maction");
+  maction.setAttribute("actiontype", "statusline");
+  const semantics = make("semantics");
+  const annotation = make("annotation-xml");
+  annotation.setAttribute("encoding", "text/html");
+  const html = make("img", "http://www.w3.org/1999/xhtml");
+  html.setAttribute("src", "https://tracker.example/pixel.png");
+  annotation.append(html);
+  const link = make("a", "http://www.w3.org/1999/xhtml");
+  link.setAttribute("href", "https://tracker.example");
+  link.textContent = "link";
+  const script = make("script", "http://www.w3.org/1999/xhtml");
+  script.textContent = "window.dwXssRan=1";
+  const svg = make("svg", "http://www.w3.org/2000/svg");
+  svg.append(make("script", "http://www.w3.org/2000/svg"));
+  semantics.append(annotation);
+  math.append(mi, maction, semantics, link, script, svg, inert.createComment("c"));
+  return math;
+}
+
+describe("the allowlist holds against a hostile tree, whatever built it", () => {
   test("only listed names, attributes, values and classes survive", () => {
     const clean = rebuild(hostile())!;
     document.body.append(clean);
@@ -450,7 +461,7 @@ describe("Temml's output passes the lists for the commands people write", () => 
 
   test.each(samples)("%s", (tex) => {
     const math = buildMath(tex, true);
-    expect(math, tex).not.toBeNull();
+    expect(math).not.toBeNull();
     const box = document.createElement("div");
     box.append(math!);
     document.body.append(box);

@@ -22,6 +22,13 @@ function typesOf(root: Root): string[] {
   return types;
 }
 
+/** The text of `markdown` once parsed, after checking that it holds no math. */
+function plain(markdown: string): string {
+  const root = parseMarkdown(markdown);
+  expect(mathOf(root)).toEqual([]);
+  return toString(root);
+}
+
 describe("GitHub's four math forms", () => {
   test("$…$ is inline math", () => {
     expect(mathOf(parseMarkdown("Energy is $E = mc^2$ here."))).toEqual([
@@ -66,12 +73,6 @@ describe("GitHub's four math forms", () => {
 });
 
 describe("dollar signs that are only money (GitHub does not make them math)", () => {
-  const plain = (markdown: string) => {
-    const root = parseMarkdown(markdown);
-    expect(mathOf(root)).toEqual([]);
-    return toString(root);
-  };
-
   test("$5 and $10 stays text", () => {
     // The opening $ is followed by a digit, but the closing one follows a space.
     expect(plain("It costs $5 and $10 in total.")).toBe("It costs $5 and $10 in total.");
