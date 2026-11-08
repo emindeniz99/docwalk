@@ -6,7 +6,12 @@ import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { MirrorFeed } from "../annotate/mirrorFeed";
-import type { MarkStroke } from "../annotate/mirrorTypes";
+import {
+  MAX_STROKE_POINTS,
+  mirrorFrameBytes,
+  resyncGapMs,
+  type MarkStroke,
+} from "../annotate/mirrorTypes";
 import { API_LIMITS } from "../api/types";
 import type { DeckController, SlideInfo } from "../deck/controller";
 import {
@@ -1593,6 +1598,34 @@ describe("mirror messages (decision 88)", () => {
     await quiet();
     expect(keeps()).toHaveLength(1);
   });
+
+  test("a heavy resync is not repeated until its frames are paid for at 64 KB/s (decision 103)", async () => {
+    // Twelve full strokes are about 270 KB of signed frames: however often a
+    // follower says hello, the next resync waits about 4 s, not the 2 s floor,
+    // and it still comes.
+    const { relay, feed, follow } = await hostWithFeed();
+    const heavy = Array.from({ length: 12 }, (_, i) => stroke(i + 1, MAX_STROKE_POINTS));
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: heavy, reset: true });
+    let cost = 0;
+    feed.resync((op) => (cost += mirrorFrameBytes(op)));
+    const gap = resyncGapMs(cost);
+    expect(gap).toBeGreaterThan(3500);
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    const keeps = () => mirrors(follower).filter((m) => m.op === "keep").length;
+    const arrivals: number[] = [];
+    const deadline = performance.now() + 3 * gap;
+    while (arrivals.length < 2 && performance.now() < deadline) {
+      await follower.conn.send({ type: "hello", role: "follower", id: "HeavyHeavy01" });
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        while (keeps() > arrivals.length) arrivals.push(performance.now());
+      }
+    }
+    expect(arrivals).toHaveLength(2);
+    expect(arrivals[1]! - arrivals[0]!).toBeGreaterThan(gap - 500);
+    expect(arrivals[1]! - arrivals[0]!).toBeLessThan(gap + 2000);
+  }, 20_000);
 
   test("a long stroke goes out in frames the relay accepts, and arrives whole", async () => {
     const { relay, feed, follow } = await hostWithFeed();

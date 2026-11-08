@@ -1,4 +1,14 @@
 import { describe, expect, test } from "vitest";
+import { MirrorFeed } from "../annotate/mirrorFeed";
+import {
+  MAX_STROKE_POINTS,
+  mirrorFrameBytes,
+  RESYNC_BYTES_PER_SECOND,
+  RESYNC_MIN_GAP_MS,
+  resyncGapMs,
+  type MarkStroke,
+  type MirrorOp,
+} from "../annotate/mirrorTypes";
 import { API_LIMITS } from "../api/types";
 import {
   createPresenterCredentials,
@@ -546,6 +556,54 @@ describe("mirror messages (decision 88)", () => {
     const opened = await decrypt(view, frame, verifier);
     expect(opened?.signed).toBe(true);
     expect(opened?.message).toEqual(widest);
+  });
+
+  test("a resync waits long enough to cost at most 64 KB/s of sealed frames, whatever the slide holds (decision 103)", async () => {
+    // A follower's hello costs the presenter one resync per gap, signed and
+    // sealed frame by frame. The host estimates that cost from each op's JSON
+    // (mirrorFrameBytes); these are the real frames, with counters as large
+    // as a week-long room reaches.
+    const { view, signer } = await signedRoom();
+    const strokes = (count: number, points: number, from = 1): MarkStroke[] =>
+      Array.from({ length: count }, (_, i) => ({
+        id: from + i,
+        tool: "pen",
+        color: "primary",
+        points: Array.from({ length: 2 * points }, () => 4096),
+      }));
+    const shapes = {
+      // The receiver's limit: 30,000 points, the widest numbers.
+      full: strokes(20, MAX_STROKE_POINTS),
+      // 200 strokes of one segment each: the frames are mostly seal and signature.
+      small: strokes(200, 2),
+      mixed: [...strokes(180, 2), ...strokes(4, MAX_STROKE_POINTS, 1000)],
+    };
+    const gaps: Record<string, number> = {};
+    for (const [name, marks] of Object.entries(shapes)) {
+      const feed = new MirrorFeed();
+      feed.ingest({ kind: "marks", slide: "retries/2", strokes: marks, reset: true });
+      const ops: MirrorOp[] = [];
+      feed.resync((op) => ops.push(op));
+      let sealed = 0;
+      let estimated = 0;
+      for (const [i, op] of ops.entries()) {
+        const seal = { sender: SEAL.sender, counter: 10_000_000 + i };
+        const frame = await encrypt(view, { type: "mirror", ...op }, seal, signer);
+        sealed += JSON.stringify(frame).length;
+        estimated += mirrorFrameBytes(op);
+      }
+      gaps[name] = resyncGapMs(estimated);
+      expect(estimated, `${name}: the estimate never undercounts`).toBeGreaterThanOrEqual(sealed);
+      expect(estimated, `${name}: and stays close`).toBeLessThan(sealed * 1.02);
+      expect((sealed * 1000) / gaps[name]!, name).toBeLessThanOrEqual(RESYNC_BYTES_PER_SECOND);
+      console.info(
+        `mirror resync (${name}): ${ops.length} frames, ${sealed} bytes sealed, next resync after ${gaps[name]} ms`,
+      );
+    }
+    // The review's worst case repeats about every 8 s; a light slide keeps the 2 s floor.
+    expect(gaps["full"]).toBeGreaterThan(7000);
+    expect(gaps["full"]).toBeLessThan(9000);
+    expect(gaps["small"]).toBe(RESYNC_MIN_GAP_MS);
   });
 
   test("the largest stroke chunk fits a relay frame with room to spare", async () => {
