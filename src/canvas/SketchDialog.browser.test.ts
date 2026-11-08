@@ -376,25 +376,26 @@ describe("when a sketch cannot be loaded or kept (decision 98)", () => {
   });
 });
 
+const zoomButton = () => document.querySelector<HTMLElement>(".reset-zoom-button")!;
+const zoomLabel = () => zoomButton().getAttribute("aria-label") ?? "";
+
 describe("Excalidraw's controls (decision 98)", () => {
   test("the menu button and the zoom button have names that match what they show", async () => {
     // Excalidraw 0.18.1 gives the menu button no name and labels the zoom button "Reset zoom"
     // while it reads "100%"; axe rejects both (button-name, label-content-name-mismatch).
     await page.viewport(1280, 800);
     await mountSketch({ elements: [], files: {} });
-    const reset = () => document.querySelector<HTMLElement>(".reset-zoom-button")!;
-    await vi.waitFor(() => expect(reset()).not.toBeNull());
+    await vi.waitFor(() => expect(zoomButton()).not.toBeNull());
     expect(document.querySelector(".main-menu-trigger")?.getAttribute("aria-label")).toBe(
       "Canvas menu",
     );
-    const label = () => reset().getAttribute("aria-label") ?? "";
-    await vi.waitFor(() => expect(label()).toContain(reset().textContent!.trim()));
-    expect(label()).toContain("Reset zoom");
+    await vi.waitFor(() => expect(zoomLabel()).toContain(zoomButton().textContent!.trim()));
+    expect(zoomLabel()).toContain("Reset zoom");
 
-    const before = reset().textContent;
+    const before = zoomButton().textContent;
     await userEvent.click(document.querySelector<HTMLElement>(".zoom-in-button")!);
-    await vi.waitFor(() => expect(reset().textContent).not.toBe(before));
-    await vi.waitFor(() => expect(label()).toContain(reset().textContent!.trim()));
+    await vi.waitFor(() => expect(zoomButton().textContent).not.toBe(before));
+    await vi.waitFor(() => expect(zoomLabel()).toContain(zoomButton().textContent!.trim()));
   });
 
   test("the Library's Browse libraries link, which leaves for another site, is not offered", async () => {
@@ -410,20 +411,20 @@ describe("Excalidraw's controls (decision 98)", () => {
   });
 });
 
-describe("the Saved sketches panel (decision 98)", () => {
-  async function openPanel() {
-    await rawPut({ key, appState: {}, savedAt: 3, elements: [], files: {} });
-    await saveSketch({ key: OTHERS[0]!, elements: [], appState: {}, files: {}, savedAt: 1 });
-    await saveSketch({ key: OTHERS[1]!, elements: [], appState: {}, files: {}, savedAt: 2 });
-    mount();
-    await canvasMounted();
-    await userEvent.click(byText(".docwalk-sketch-header button", "Saved sketches")!);
-    await vi.waitFor(() =>
-      expect(document.querySelectorAll(".docwalk-sketch-store li").length).toBe(3),
-    );
-  }
-  const rows = () => [...document.querySelectorAll<HTMLElement>(".docwalk-sketch-store li")];
+async function openPanel() {
+  await rawPut({ key, appState: {}, savedAt: 3, elements: [], files: {} });
+  await saveSketch({ key: OTHERS[0]!, elements: [], appState: {}, files: {}, savedAt: 1 });
+  await saveSketch({ key: OTHERS[1]!, elements: [], appState: {}, files: {}, savedAt: 2 });
+  mount();
+  await canvasMounted();
+  await userEvent.click(byText(".docwalk-sketch-header button", "Saved sketches")!);
+  await vi.waitFor(() =>
+    expect(document.querySelectorAll(".docwalk-sketch-store li").length).toBe(3),
+  );
+}
+const rows = () => [...document.querySelectorAll<HTMLElement>(".docwalk-sketch-store li")];
 
+describe("the Saved sketches panel (decision 98)", () => {
   test("it lists every stored sketch by document and deletes the one asked for", async () => {
     await openPanel();
     expect(rows().map((row) => row.textContent)).toEqual([
