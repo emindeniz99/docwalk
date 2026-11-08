@@ -47,7 +47,13 @@ import {
   saveFolderHandle,
 } from "./store";
 import { starter, TEMPLATES, type ProjectTemplate } from "./templates";
-import type { WorkspaceListing, WorkspaceNode, WorkspaceRoot, WorkspaceSource } from "./types";
+import {
+  MAX_LISTED_ENTRIES,
+  type WorkspaceListing,
+  type WorkspaceNode,
+  type WorkspaceRoot,
+  type WorkspaceSource,
+} from "./types";
 
 /** The browser workspace saves this long after the last keystroke. */
 export const AUTOSAVE_MS = 500;
@@ -188,6 +194,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     handle: FileSystemDirectoryHandle;
     listing: WorkspaceListing;
   } | null>(null);
+  /** The directory whose last listing failed; its tree stays as it was. */
+  const [listFailed, setListFailed] = useState<FileSystemDirectoryHandle | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
   const [baseline, setBaselineState] = useState<Baseline | null>(null);
@@ -288,8 +296,23 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
   const refresh = useCallback(async () => {
     if (!active) return;
     const gen = ++listGeneration.current;
-    const next = await listTree(active).catch(() => ({ nodes: [], truncated: false }));
-    if (gen === listGeneration.current) setListed({ handle: active, listing: next });
+    let next: WorkspaceListing;
+    try {
+      next = await listTree(active);
+    } catch (error) {
+      if (gen !== listGeneration.current) return;
+      // An empty tree would read as "no Markdown files" and invite writes into
+      // a folder that cannot be read. The tree on screen stays as it was, and
+      // a refused read sends the folder back to "Reconnect".
+      if (error instanceof DOMException && error.name === "NotAllowedError") {
+        setFolder((f) => (f?.handle === active ? { ...f, permission: "prompt" } : f));
+      }
+      setListFailed(active);
+      return;
+    }
+    if (gen !== listGeneration.current) return;
+    setListFailed(null);
+    setListed({ handle: active, listing: next });
   }, [active]);
   useEffect(() => {
     void refresh();
@@ -418,9 +441,18 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     // The version a conflict dialog still asks about is not an answer yet.
     const known = baselineRef.current;
     if (known?.key === keyOf(src)) {
-      const change = await diskChange(handle, src.path, known, null).catch(() => null);
+      // A file that changed and cannot be read (not UTF-8, over the size cap)
+      // cannot be compared, so it is not written over either.
+      let change: Awaited<ReturnType<typeof diskChange>>;
+      try {
+        change = await diskChange(handle, src.path, known, null);
+      } catch {
+        setFailed(true);
+        setNotice({ message: m.ws_err_save_unreadable({ path: src.path }), tone: "error" });
+        return false;
+      }
       if (
-        change?.kind === "changed" &&
+        change.kind === "changed" &&
         change.disk.text !== known.text &&
         change.disk.text !== current.markdown
       ) {
@@ -857,11 +889,13 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     if (!active) return;
     try {
       await flush();
-      const [{ buildArchive }, files, tree] = await Promise.all([
-        import("./zip"),
-        collectFiles(active),
-        listTree(active),
-      ]);
+      const tree = await listTree(active);
+      // An archive that looks complete and lacks files is the worse backup.
+      if (tree.truncated) {
+        setNotice({ message: m.ws_export_truncated({ count: MAX_LISTED_ENTRIES }), tone: "error" });
+        return;
+      }
+      const [{ buildArchive }, files] = await Promise.all([import("./zip"), collectFiles(active)]);
       const folders = folderPaths(tree.nodes);
       if (files.length === 0 && folders.length === 0) {
         setNotice({ message: m.ws_export_empty(), tone: "info" });
@@ -1001,6 +1035,8 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
     folderName,
     folderPermission: folder?.permission ?? null,
     listing,
+    /** The last attempt to list the tree on screen failed; with no tree yet, the panel says so. */
+    listFailed: listFailed !== null && listFailed === active,
     expanded,
     setExpanded,
     openPath,

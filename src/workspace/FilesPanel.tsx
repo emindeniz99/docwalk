@@ -373,7 +373,11 @@ export function FilesPanel({ workspace: w }: { workspace: Workspace }) {
           </div>
         ) : w.listing === null ? (
           <p className="docwalk-files-note">
-            {w.supported.opfs ? m.ws_loading() : m.ws_unsupported()}
+            {w.listFailed
+              ? m.ws_err_list()
+              : w.supported.opfs
+                ? m.ws_loading()
+                : m.ws_unsupported()}
           </p>
         ) : nodes.length === 0 ? (
           <div className="docwalk-files-note">
