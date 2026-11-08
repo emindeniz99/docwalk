@@ -2,7 +2,7 @@ import { fc, test as fcTest } from "@fast-check/vitest";
 import GithubSlugger from "github-slugger";
 import { describe, expect, test } from "vitest";
 import { fallbackHeadingId, type HeadingDepth } from "../sectioning/sectionize";
-import { formatViewerUrl, parseViewerUrl, withoutDocumentLink } from "./state";
+import { formatViewerUrl, parseViewerUrl, sectionsFitInLink, withoutDocumentLink } from "./state";
 import type { ViewerUrlState } from "./types";
 
 const BASE = "https://docwalk.example/";
@@ -199,6 +199,8 @@ describe("format then parse round-trips every valid state", () => {
   // Includes 4-byte characters (𝒜 encodes to 12) and ids up to the 200 cap.
   const slugChar = fc.constantFrom(...Array.from("abcxyz019-_éıß日本‿ⓐ𝒜"));
   const sectionId = fc.string({ unit: slugChar, minLength: 1, maxLength: 200 });
+  // Short enough that five of them stay under the encoded-length limit even at 12 characters each.
+  const shortId = fc.string({ unit: slugChar, minLength: 1, maxLength: 20 });
   const page = fc.integer({ min: 1, max: 99_999 });
   const depth = fc.constantFrom<HeadingDepth>(1, 2, 3, 4, 5, 6);
   const state = fc.record({
@@ -213,6 +215,7 @@ describe("format then parse round-trips every valid state", () => {
       ),
     ),
     view: fc.option(fc.constantFrom("edit", "document", "present", "presenter" as const)),
+    sections: fc.option(fc.uniqueArray(shortId, { minLength: 1, maxLength: 5 })),
   }) as fc.Arbitrary<ViewerUrlState>;
   const unrelated = fc.constantFrom(
     "",
@@ -243,6 +246,171 @@ describe("format then parse round-trips every valid state", () => {
       expect(parseViewerUrl(formatViewerUrl(new URL(BASE), s))).toEqual(s);
     },
   );
+});
+
+describe("the section selection in the query (?sections=)", () => {
+  const sections = (search: string) => parse(`?sections=${search}`).sections;
+  const ids = (count: number) => Array.from({ length: count }, (_, i) => `s${i}`);
+  // Distinct ids of 200 ASCII letters each.
+  const wide = (count: number) =>
+    Array.from({ length: count }, (_, i) => String.fromCharCode(97 + i).repeat(200));
+
+  test("a list of section ids is read in the order written, so the link names what to present", () => {
+    expect(sections("summary,rollout")).toEqual(["summary", "rollout"]);
+    expect(sections("rollout")).toEqual(["rollout"]);
+  });
+
+  test("encoded commas split the same way, because the app writes them as %2C", () => {
+    expect(sections("summary%2Crollout")).toEqual(["summary", "rollout"]);
+  });
+
+  test("no parameter, or an empty one, means every section (null), so plain links are unchanged", () => {
+    expect(parse("/").sections).toBeNull();
+    expect(sections("")).toBeNull();
+    expect(parse("?level=2&view=edit#intro/2").sections).toBeNull();
+  });
+
+  test("a repeated id counts once, at its first place, so a hand-edited list means one thing", () => {
+    expect(sections("b,a,b,a")).toEqual(["b", "a"]);
+  });
+
+  test("ids in any script decode, because GitHub anchors keep letters of every script", () => {
+    // Turkish dotless i, CJK, and a 4-byte letter (mathematical script A).
+    expect(sections("caf%C3%A9-plan%C4%B1,%E6%97%A5%E6%9C%AC%E8%AA%9E,%F0%9D%92%9C")).toEqual([
+      "café-planı",
+      "日本語",
+      "𝒜",
+    ]);
+    expect(sections(encodeURIComponent("İstanbul-ışık"))).toEqual(["İstanbul-ışık"]);
+  });
+
+  test("one malformed item makes the whole parameter null, so a typo shows every section instead of a guess", () => {
+    const accepted = [
+      "a,,b",
+      "a,",
+      ",a",
+      ",",
+      "a b",
+      "a+b",
+      "a/b",
+      "a%2Fb",
+      "a.b",
+      "a=b",
+      "<script>alert(1)</script>",
+      "javascript:alert(1)",
+      "%E0%A4%A", // malformed percent-encoding
+      "%00",
+      "%ED%A0%80", // a lone surrogate, which is not valid UTF-8
+      "a".repeat(201),
+      `ok,${"a".repeat(201)}`,
+    ].filter((raw) => sections(raw) !== null);
+    expect(accepted).toEqual([]);
+  });
+
+  test("the longest valid id passes and one more code point fails, matching the slide address", () => {
+    expect(sections("日".repeat(200).replaceAll("日", "%E6%97%A5"))).toEqual(["日".repeat(200)]);
+    expect(sections("日".repeat(201).replaceAll("日", "%E6%97%A5"))).toBeNull();
+  });
+
+  test("at most 100 ids, so a link cannot ask for an unbounded list", () => {
+    expect(sections(ids(100).join(","))).toEqual(ids(100));
+    expect(sections(ids(101).join(","))).toBeNull();
+  });
+
+  test("the encoded value is capped at 4000 characters, and a hostile one is rejected without decoding", () => {
+    // 19 ids of 200 letters and 18 commas: 3818 characters.
+    expect(sections(wide(19).join(","))).toEqual(wide(19));
+    // 21 ids: 4220 characters.
+    expect(sections(wide(21).join(","))).toBeNull();
+    expect(sections("%41".repeat(2000))).toBeNull();
+    expect(sections("a".repeat(1_000_000))).toBeNull();
+  });
+
+  test("sections sits beside ?src=, level and a slide address without disturbing them", () => {
+    const state = parse(
+      "?src=https://raw.githubusercontent.com/o/r/main/a.md&sections=a,b&level=2#a/3",
+    );
+    expect(state).toMatchObject({ sections: ["a", "b"], level: 2, address: "a/3" });
+  });
+
+  test("a #doc= share fragment keeps its meaning beside a selection", () => {
+    const state = parse("?sections=a,b#doc=eJzLSM3JyQcABiwCFQ");
+    expect(state.sections).toEqual(["a", "b"]);
+    expect(state.address).toBeNull();
+  });
+});
+
+describe("formatViewerUrl: the section selection", () => {
+  const wide = (count: number) =>
+    Array.from({ length: count }, (_, i) => String.fromCharCode(97 + i).repeat(200));
+
+  test("a selection is written as one comma-joined value, so the link stays short", () => {
+    expect(format("/", { sections: ["summary", "rollout"] }).search).toBe(
+      "?sections=summary%2Crollout",
+    );
+  });
+
+  test("other parameters keep their exact spelling, so ?src= links still load", () => {
+    const url = format("/?src=https://raw.githubusercontent.com/o/r/main/a%20b.md&level=2", {
+      sections: ["a", "b"],
+    });
+    expect(url.search).toBe(
+      "?src=https://raw.githubusercontent.com/o/r/main/a%20b.md&level=2&sections=a%2Cb",
+    );
+  });
+
+  test("ids in other scripts are percent-encoded and read back unchanged", () => {
+    const ids = ["café-planı", "日本語", "𝒜", "İstanbul"];
+    const written = format("/", { sections: ids });
+    expect(written.search).toBe(
+      "?sections=caf%C3%A9-plan%C4%B1%2C%E6%97%A5%E6%9C%AC%E8%AA%9E%2C%F0%9D%92%9C%2C%C4%B0stanbul",
+    );
+    expect(parseViewerUrl(written).sections).toEqual(ids);
+  });
+
+  test("null or an empty list removes the parameter, so every section is the plain link", () => {
+    expect(format("/?sections=a,b&level=2", { sections: null }).search).toBe("?level=2");
+    expect(format("/?sections=a,b", { sections: [] }).href).toBe(BASE);
+  });
+
+  test("a field that is left out is left alone", () => {
+    expect(format("/?sections=a,b", { view: "present" }).search).toBe("?sections=a,b&view=present");
+  });
+
+  test("an invalid id removes the parameter instead of writing what parse would reject", () => {
+    expect(format("/?sections=a", { sections: ["ok", "not a slug"] }).search).toBe("");
+    expect(format("/", { sections: ["a/b"] }).search).toBe("");
+    expect(format("/", { sections: ["a".repeat(201)] }).search).toBe("");
+  });
+
+  test("a selection over the limits is not written and an old one is removed, so a link never lies", () => {
+    const many = Array.from({ length: 101 }, (_, i) => `s${i}`);
+    expect(format("/", { sections: many }).search).toBe("");
+    expect(format("/?sections=a", { sections: many }).search).toBe("");
+    expect(format("/", { sections: wide(21) }).search).toBe("");
+  });
+
+  test("repeats are written once, so the link says what parse will read", () => {
+    expect(format("/", { sections: ["a", "b", "a"] }).search).toBe("?sections=a%2Cb");
+  });
+
+  test("the hash, including a #doc= fragment, is untouched", () => {
+    const shared = "/?view=present#doc=eJzLSM3JyQcABiwCFQ";
+    expect(format(shared, { sections: ["a"] }).hash).toBe("#doc=eJzLSM3JyQcABiwCFQ");
+    expect(format("/#intro/2", { sections: ["a"] }).hash).toBe("#intro/2");
+  });
+});
+
+describe("sectionsFitInLink", () => {
+  test("is true for what format writes and false for what it drops, so the picker can warn", () => {
+    const wide = (count: number) =>
+      Array.from({ length: count }, (_, i) => String.fromCharCode(97 + i).repeat(200));
+    expect(sectionsFitInLink(["summary", "rollout"])).toBe(true);
+    expect(sectionsFitInLink(Array.from({ length: 100 }, (_, i) => `s${i}`))).toBe(true);
+    expect(sectionsFitInLink(Array.from({ length: 101 }, (_, i) => `s${i}`))).toBe(false);
+    expect(sectionsFitInLink(["a".repeat(201)])).toBe(false);
+    expect(sectionsFitInLink(wide(21))).toBe(false);
+  });
 });
 
 describe("withoutDocumentLink", () => {
