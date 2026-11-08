@@ -64,7 +64,10 @@ The first release.
   marks sit at the same place of the slide on any screen size. A follower
   who joins late or reconnects gets the slide's marks again. The presenter
   window shows the laser and marks over its current slide, with or without
-  the Worker. Marks stay in memory and are not saved.
+  the Worker. Marks stay in memory and are not saved. A resync no longer
+  clears a follower's marks first, a follower who joins during a stroke no
+  longer cuts it, and resyncs slow down when they cost more, so a burst of
+  followers cannot flood the presenter's connection.
 - Task list items (`- [x]`, `- [ ]`) show their state as read-only boxes on
   slides, in document view, in the presenter's previews and in the HTML, PNG
   and print exports. A tick, not a colour, marks a done item, and a screen

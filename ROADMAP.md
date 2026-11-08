@@ -216,8 +216,11 @@ Later rounds:
   Escape or the next resync; a follower's own close of the mirrored view
   holds until the presenter opens another diagram; a phone remote that
   moves the slide while a diagram view is open leaves that view open on
-  both screens; a follower that joins within 2 s of the last resync waits
-  for the next one.
+  both screens; a follower that joins inside the resync gap waits for the
+  next resync: 2 s, longer after a costly one (about 7.6 s for a slide at
+  the receiver's limits). Decision 103 (2026-11-09) fixed the review's
+  findings: a resync opens with `keep` instead of clearing, a stroke in
+  progress resyncs only as far as it was sent, and hellos are coalesced.
 - Choosing sections (decision 100): the share link and the follow link
   leave out `?sections=` (the owner decides whether the share link should
   carry it); a follower counts every slide; the presenter window still
