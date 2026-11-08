@@ -65,7 +65,7 @@ async function mountTab() {
   return result;
 }
 
-const PASTED ={ markdown: "# My own draft\n\nOnly copy.\n", source: { kind: "paste" } };
+const PASTED = { markdown: "# My own draft\n\nOnly copy.\n", source: { kind: "paste" } };
 
 beforeEach(() => {
   localStorage.clear();
@@ -711,28 +711,29 @@ const opfsText = async (path: string) => {
   try {
     const parts = path.split("/");
     const name = parts.pop()!;
-    let at = await opfsRoot();
-    for (const part of parts) at = await at.getDirectoryHandle(part);
-    return await (await (await at.getFileHandle(name)).getFile()).text();
+    let folder = await opfsRoot();
+    for (const part of parts) folder = await folder.getDirectoryHandle(part);
+    return await (await (await folder.getFileHandle(name)).getFile()).text();
   } catch {
     return null;
   }
 };
 
-describe("the browser workspace in two tabs (decision 90)", () => {
-  async function bothOpen() {
-    const path = `${dir}/plan.md`;
-    await writeText(await opfsRoot(), path, "# Plan\n");
-    const a = await mount();
-    const b = await mountTab();
-    for (const tab of [a, b]) {
-      act(() => tab.current!.workspace.openFile(path));
-      await vi.waitFor(() => expect(tab.current!.workspace.source?.path).toBe(path));
-      await vi.waitFor(() => expect(tab.current!.workspace.saveState).toBe("saved"));
-    }
-    return { a, b, path };
+/** Two tabs of the browser workspace with `plan.md` open in both. */
+async function bothOpen() {
+  const path = `${dir}/plan.md`;
+  await writeText(await opfsRoot(), path, "# Plan\n");
+  const a = await mount();
+  const b = await mountTab();
+  for (const tab of [a, b]) {
+    act(() => tab.current!.workspace.openFile(path));
+    await vi.waitFor(() => expect(tab.current!.workspace.source?.path).toBe(path));
+    await vi.waitFor(() => expect(tab.current!.workspace.saveState).toBe("saved"));
   }
+  return { a, b, path };
+}
 
+describe("the browser workspace in two tabs (decision 90)", () => {
   test("an edit in one tab reaches the other, which had no edits of its own", async () => {
     // OPFS edits in another tab were not watched: this tab kept showing the old text.
     const { a, b } = await bothOpen();
@@ -799,21 +800,40 @@ describe("the browser workspace in two tabs (decision 90)", () => {
   });
 });
 
-describe("a local folder's tree without FileSystemObserver (decision 91)", () => {
-  /** Runs `body` with no FileSystemObserver, as in a Chromium that predates it. */
-  async function withoutObserver(body: () => Promise<void>) {
-    const g = globalThis as { FileSystemObserver?: unknown };
-    const real = g.FileSystemObserver;
-    delete g.FileSystemObserver;
-    try {
-      await body();
-    } finally {
-      if (real !== undefined) g.FileSystemObserver = real;
-    }
+/** Runs `body` with no FileSystemObserver, as in a Chromium that predates it. */
+async function withoutObserver(body: () => Promise<void>) {
+  const g = globalThis as { FileSystemObserver?: unknown };
+  const real = g.FileSystemObserver;
+  delete g.FileSystemObserver;
+  try {
+    await body();
+  } finally {
+    if (real !== undefined) g.FileSystemObserver = real;
   }
-  const listed = (wired: { current: Wired | null }) =>
-    wired.current!.workspace.listing?.nodes.map((n) => n.path);
+}
+const listed = (wired: { current: Wired | null }) =>
+  wired.current!.workspace.listing?.nodes.map((n) => n.path);
 
+/** Makes listing the folder named `fa` fail with `name`, until the returned restore runs. */
+function breakListing(name: string) {
+  const proto = FileSystemDirectoryHandle.prototype as unknown as {
+    entries: () => AsyncIterable<unknown>;
+  };
+  const real = proto.entries;
+  proto.entries = function (this: FileSystemDirectoryHandle) {
+    if (this.name !== "fa") return real.call(this);
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new DOMException("", name)),
+      }),
+    };
+  };
+  return () => {
+    proto.entries = real;
+  };
+}
+
+describe("a local folder's tree without FileSystemObserver (decision 91)", () => {
   test("a file made on disk shows up within seconds while the window keeps focus", async () => {
     await withoutObserver(async () => {
       await writeText(await disk("fa"), "a.md", "# A\n");
@@ -824,25 +844,6 @@ describe("a local folder's tree without FileSystemObserver (decision 91)", () =>
       await vi.waitFor(() => expect(listed(wired)).toContain("later.md"), { timeout: 9000 });
     });
   });
-
-  /** Makes listing the folder named `fa` fail with `name`, until the returned restore runs. */
-  function breakListing(name: string) {
-    const proto = FileSystemDirectoryHandle.prototype as unknown as {
-      entries: () => AsyncIterable<unknown>;
-    };
-    const real = proto.entries;
-    proto.entries = function (this: FileSystemDirectoryHandle) {
-      if (this.name !== "fa") return real.call(this);
-      return {
-        [Symbol.asyncIterator]: () => ({
-          next: () => Promise.reject(new DOMException("", name)),
-        }),
-      };
-    };
-    return () => {
-      proto.entries = real;
-    };
-  }
 
   test("a listing that fails keeps the tree on screen instead of showing an empty folder", async () => {
     // It showed "No Markdown files" and invited writes into a folder that was not there.
@@ -991,9 +992,14 @@ describe("a workspace past the listing's 5000-entry cap (decisions 92, 93)", () 
     };
     const reached = new Set(flatten([node]));
     const bigDir = await (await opfsRoot()).getDirectoryHandle(big);
-    const names = await Array.fromAsync(bigDir.keys());
-    const unreached = names.map((name) => `${big}/${name}`).find((p) => !reached.has(p))!;
-    expect(unreached).toBeDefined();
+    let unreached = "";
+    for await (const name of bigDir.keys()) {
+      if (!reached.has(`${big}/${name}`)) {
+        unreached = `${big}/${name}`;
+        break;
+      }
+    }
+    expect(unreached).not.toBe("");
     await (await openCommentStore()).save(sourceKey(at(unreached))!, [comment]);
 
     await act(() => wired.current!.workspace.removeEntry(node));

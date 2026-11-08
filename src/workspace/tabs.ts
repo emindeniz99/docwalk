@@ -37,6 +37,8 @@ export function openTabChannel(onChange: (kind: TabChange) => void): TabChannel 
     return {
       announce: (kind) => {
         try {
+          // A BroadcastChannel has no target origin; oxlint mistakes it for window.postMessage.
+          // oxlint-disable-next-line unicorn/require-post-message-target-origin
           channel.postMessage(kind);
         } catch {
           // A closed channel: the other tabs still check when they regain focus.

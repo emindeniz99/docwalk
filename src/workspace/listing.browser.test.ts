@@ -38,20 +38,20 @@ describe("the document files under an entry (decision 92)", () => {
   });
 });
 
-describe("comparing two listings (decision 91)", () => {
-  const listing = (): WorkspaceListing => ({
-    truncated: false,
-    nodes: [
-      {
-        path: "a",
-        name: "a",
-        kind: "directory",
-        children: [{ path: "a/x.md", name: "x.md", kind: "file" }],
-      },
-      { path: "b.md", name: "b.md", kind: "file" },
-    ],
-  });
+const listing = (): WorkspaceListing => ({
+  truncated: false,
+  nodes: [
+    {
+      path: "a",
+      name: "a",
+      kind: "directory",
+      children: [{ path: "a/x.md", name: "x.md", kind: "file" }],
+    },
+    { path: "b.md", name: "b.md", kind: "file" },
+  ],
+});
 
+describe("comparing two listings (decision 91)", () => {
   test("equal listings are the same, so the tree is not drawn again", () => {
     expect(sameListing(listing(), listing())).toBe(true);
   });

@@ -333,30 +333,30 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
 
   // ---- The tree ------------------------------------------------------------
   const listGeneration = useRef(0);
-  const refresh = useCallback(async () => {
-    if (!active) return;
+  const refresh = useCallback((): Promise<void> => {
+    if (!active) return Promise.resolve();
     const gen = ++listGeneration.current;
-    let next: WorkspaceListing;
-    try {
-      next = await listTree(active);
-    } catch (error) {
-      if (gen !== listGeneration.current) return;
-      // An empty tree would read as "no Markdown files" and invite writes into
-      // a folder that cannot be read. The tree on screen stays as it was, and
-      // a refused read sends the folder back to "Reconnect".
-      if (error instanceof DOMException && error.name === "NotAllowedError") {
-        setFolder((f) => (f?.handle === active ? { ...f, permission: "prompt" } : f));
-      }
-      setListFailed(active);
-      return;
-    }
-    if (gen !== listGeneration.current) return;
-    setListFailed(null);
-    // An unchanged tree keeps its objects, so a poll redraws nothing and moves no focus.
-    setListed((prev) =>
-      prev?.handle === active && sameListing(prev.listing, next)
-        ? prev
-        : { handle: active, listing: next },
+    return listTree(active).then(
+      (fresh) => {
+        if (gen !== listGeneration.current) return;
+        setListFailed(null);
+        // An unchanged tree keeps its objects, so a poll redraws nothing and moves no focus.
+        setListed((prev) =>
+          prev?.handle === active && sameListing(prev.listing, fresh)
+            ? prev
+            : { handle: active, listing: fresh },
+        );
+      },
+      (error: unknown) => {
+        if (gen !== listGeneration.current) return;
+        // An empty tree would read as "no Markdown files" and invite writes into
+        // a folder that cannot be read. The tree on screen stays as it was, and
+        // a refused read sends the folder back to "Reconnect".
+        if (error instanceof DOMException && error.name === "NotAllowedError") {
+          setFolder((f) => (f?.handle === active ? { ...f, permission: "prompt" } : f));
+        }
+        setListFailed(active);
+      },
     );
   }, [active]);
   useEffect(() => {
@@ -451,14 +451,14 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
           if (known) {
             const change = await diskChange(opfs, path, known, null);
             if (change.kind === "missing") {
-              if (!recreate) return { held: "missing" as const };
+              if (!recreate) return { kind: "missing" as const };
               created = true;
             } else if (
               change.kind === "changed" &&
               change.disk.text !== known.text &&
               change.disk.text !== job.text
             ) {
-              return { held: "conflict" as const, disk: change.disk };
+              return { kind: "conflict" as const, disk: change.disk };
             }
           }
           const lm = await writeText(opfs, path, job.text);
@@ -466,11 +466,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
           if (baselineRef.current?.key === key) {
             setBaseline({ key, text: job.text, lastModified: lm });
           }
-          return { created };
+          return { kind: "written" as const, created };
         });
-        if ("held" in outcome) {
+        if (outcome.kind !== "written") {
           setHeldKey(key);
-          if (outcome.held === "missing") setMissingKey(key);
+          if (outcome.kind === "missing") setMissingKey(key);
           else if (dialogRef.current?.kind !== "conflict") {
             if (dialogRef.current) askAfterDialog.current = true;
             else setDialog({ kind: "conflict", path, disk: outcome.disk });
@@ -891,11 +891,11 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       if (!active) return m.ws_err_unavailable();
       const name = node.kind === "file" ? withMarkdownExtension(rawName) : rawName;
       let next: string;
-      let moved: string[];
+      let movedFiles: string[];
       try {
         await flush();
         // Asked of the directory before it moves: the listing stops at 5000 entries.
-        moved = await annotatedFiles(active, node);
+        movedFiles = await annotatedFiles(active, node);
         next = await rename(active, node.path, name);
       } catch (error) {
         return message(error, m.ws_err_rename({ path: node.path }));
@@ -906,7 +906,7 @@ export function useWorkspace({ inputs, enabled }: { inputs: WorkspaceInputs; ena
       const { moveAnnotations } = await import("./annotations");
       const at = (p: string) => sourceFor(root, p)!;
       await moveAnnotations(
-        moved.map((p) => [at(p), at(next + p.slice(node.path.length))] as const),
+        movedFiles.map((p) => [at(p), at(next + p.slice(node.path.length))] as const),
       );
       // The open file, or the folder holding it, moved: same text, new address.
       const current = workspaceSource(docRef.current);

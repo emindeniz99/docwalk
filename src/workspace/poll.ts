@@ -1,3 +1,5 @@
+const visible = () => document.visibilityState === "visible";
+
 /**
  * Calls `run` over and over while the page is visible (decision 91): the tree
  * of a local folder in a browser without `FileSystemObserver`. It does not run
@@ -15,7 +17,6 @@ export function pollWhileVisible(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   let running = false;
-  const visible = () => document.visibilityState === "visible";
   const schedule = (delay: number) => {
     clearTimeout(timer);
     if (!stopped) timer = setTimeout(() => void tick(), delay);
