@@ -228,3 +228,198 @@ test("on a 390 px phone the panel is a sheet that passes axe and closes with Esc
   await page.keyboard.press("Escape");
   await expect(sheet).toHaveCount(0);
 });
+
+test("a commented heading on the scaled slide gets a marker at its text that opens the panel", async ({
+  page,
+}) => {
+  // Decision 94: reveal.js scales the slide to its pane; the marker beside the heading
+  // must stay big enough to hit, at the end of the heading's text.
+  await openWithDoc(page);
+  await addComment(page, "Goals", "Marker on the slide");
+  await panel(page).getByRole("button", { name: "Close comments" }).click();
+  await page.locator(".docwalk-outline-item", { hasText: "Goals" }).click();
+
+  const stage = page.locator(".docwalk-deck-pane .reveal .slides");
+  const marker = page.locator(".docwalk-deck-pane").getByRole("button", {
+    name: "1 comment on “Goals”",
+  });
+  const heading = stage.locator("section.present [id='user-content-goals']");
+  const scale = () =>
+    stage.evaluate((el) => el.getBoundingClientRect().width / (el as HTMLElement).offsetWidth);
+  /** The marker's distance from the end of the heading's text, and from its middle line. */
+  const offset = async () => {
+    const box = (await marker.boundingBox())!;
+    const line = await heading.evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const r = [...range.getClientRects()].at(-1)!;
+      return { right: r.right, middle: r.top + r.height / 2 };
+    });
+    return { x: box.x - line.right, y: Math.abs(box.y + box.height / 2 - line.middle) };
+  };
+
+  await expect(marker).toBeVisible();
+  const before = await scale();
+  expect(before).toBeLessThan(1);
+  const box = (await marker.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(23.99);
+  expect(box.height).toBeGreaterThanOrEqual(23.99);
+  const at = await offset();
+  expect(at.x).toBeGreaterThan(0);
+  expect(at.x).toBeLessThanOrEqual(8 * before + 1);
+  expect(at.y).toBeLessThan(1);
+  // The marker sits beside the pages, so no page (and no export or overview copy of one) holds it.
+  await expect(stage.locator("section .docwalk-slide-marker")).toHaveCount(0);
+  // The slide chip stays: it is the keyboard path to the panel.
+  await expect(page.getByRole("button", { name: /1 comment on this section/ })).toBeVisible();
+
+  // Opening the panel narrows the deck pane, so reveal.js scales the slide again.
+  await marker.click();
+  await expect(panel(page).getByRole("button", { name: /About$/ })).toContainText("Goals");
+  await expect.poll(scale).not.toBe(before);
+  await expect
+    .poll(async () => {
+      const now = await offset();
+      return now.x > 0 && now.x <= 8 * (await scale()) + 1 && now.y < 1;
+    })
+    .toBe(true);
+  const after = (await marker.boundingBox())!;
+  expect(after.height).toBeGreaterThanOrEqual(23.99);
+});
+
+test("a display name goes on new comments, stays in this browser and travels in the link", async ({
+  page,
+  browser,
+}) => {
+  // Decision 97. "Reviewer A" is a role label, not a person (AGENTS.md rule 10).
+  await openWithDoc(page);
+  const name = panel(page).getByRole("textbox", { name: "Your name" });
+  await expect(name).toHaveValue("");
+  await name.fill("Reviewer A");
+  await addComment(page, "Goals", "Signed note");
+  const signed = panel(page).locator(".docwalk-comments-item", { hasText: "Signed note" });
+  await expect(signed.locator(".docwalk-comments-author")).toHaveText("Reviewer A");
+
+  // Kept in this browser's localStorage, so a reload fills the field again.
+  await ready(page, "/");
+  await page.getByRole("button", { name: /^Comments/ }).click();
+  await expect(name).toHaveValue("Reviewer A");
+
+  // Clearing the field stops naming new comments; the earlier one keeps its name.
+  await name.fill("");
+  await addComment(page, "Risks", "Unsigned note");
+  const unsigned = panel(page).locator(".docwalk-comments-item", { hasText: "Unsigned note" });
+  await expect(unsigned.locator(".docwalk-comments-author")).toHaveCount(0);
+  await expect(signed.locator(".docwalk-comments-author")).toHaveText("Reviewer A");
+
+  // The share dialog says the name travels in the clear; the recipient sees it.
+  await page.getByRole("button", { name: "Share" }).click();
+  const dialog = page.getByRole("dialog", { name: "Share this document" });
+  await expect(dialog).toContainText(
+    "Comments written under a name carry that name in the link, in the clear.",
+  );
+  const link = await dialog.getByRole("textbox", { name: "Link" }).inputValue();
+  const recipient = await browser.newContext();
+  const other = await recipient.newPage();
+  await ready(other, link);
+  await other.getByRole("button", { name: "Show comments" }).click();
+  const received = panel(other).locator(".docwalk-comments-item", { hasText: "Signed note" });
+  await expect(received.locator(".docwalk-comments-author")).toHaveText("Reviewer A");
+  // The sender's name is not the recipient's: their own field starts empty.
+  await expect(panel(other).getByRole("textbox", { name: "Your name" })).toHaveValue("");
+  await recipient.close();
+});
+
+test("a deleted comment stays deleted when an older sidecar is imported", async ({ page }) => {
+  // Decision 95: the deletion leaves a tombstone that beats the older copy in the file.
+  await openWithDoc(page);
+  await addComment(page, "Goals", "Soon deleted");
+  await addComment(page, "Risks", "Kept");
+  const exportFile = async () => {
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      panel(page)
+        .getByRole("button", { name: /^Export comments as/ })
+        .click(),
+    ]);
+    return readFile((await download.path())!, "utf8");
+  };
+  const older = await exportFile();
+  const importFile = async (body: string) => {
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      panel(page).getByRole("button", { name: "Import comments file" }).click(),
+    ]);
+    await chooser.setFiles({
+      name: "ledger-plan.comments.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(body),
+    });
+  };
+
+  const item = panel(page).locator(".docwalk-comments-item", { hasText: "Soon deleted" });
+  await item.getByRole("button", { name: "Delete comment" }).click();
+  await panel(page).getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(panel(page).getByText("Soon deleted")).toHaveCount(0);
+
+  await importFile(older);
+  await expect(panel(page).getByRole("status")).toHaveText(
+    "Nothing new: every comment in the file is already here.",
+  );
+  await expect(panel(page).getByText("Soon deleted")).toHaveCount(0);
+  await expect(panel(page).getByText("Kept")).toBeVisible();
+
+  // The next export carries the deletion as an id and a time, never the deleted text.
+  const deletedId = (
+    JSON.parse(older) as { comments: { id: string; text: string }[] }
+  ).comments.find((c) => c.text === "Soon deleted")!.id;
+  const newer = await exportFile();
+  expect(newer).not.toContain("Soon deleted");
+  expect(JSON.parse(newer)).toMatchObject({ deleted: [{ id: deletedId }] });
+
+  // The tombstone is stored: after a reload the older file still cannot bring the comment back.
+  await ready(page, "/");
+  await page.getByRole("button", { name: /^Comments/ }).click();
+  await expect(panel(page).getByText("Kept")).toBeVisible();
+  await importFile(older);
+  await expect(panel(page).getByRole("status")).toHaveText(
+    "Nothing new: every comment in the file is already here.",
+  );
+  await expect(panel(page).getByText("Soon deleted")).toHaveCount(0);
+});
+
+// Two diagrams for one heading that both have a node `a`.
+const CLIENT = ["```mermaid", "flowchart LR", "  a[Client] --> b[Gateway]", "```"].join("\n");
+const QUEUE = ["```mermaid", "flowchart LR", "  a[Queue] --> c[Worker]", "```"].join("\n");
+const underArchitecture = (...diagrams: string[]) =>
+  ["# Swap check", "", "## Architecture", "", diagrams.join("\n\n"), ""].join("\n");
+
+test("swapping two diagrams under one heading keeps each node comment on its own diagram", async ({
+  page,
+}) => {
+  // Decision 96: a position-only match would move the comment on the queue's `a`
+  // to the client's `a` without a word.
+  await ready(page);
+  await replaceSource(page, underArchitecture(CLIENT, QUEUE));
+  await expect(page.locator(".docwalk-deck-pane svg g.node")).toHaveCount(4);
+  await page.getByRole("button", { name: /^Comments/ }).click();
+  await addComment(page, /Queue \(a\)/, "Is the queue durable?");
+  await addComment(page, /Gateway \(b\)/, "Who runs the gateway?");
+  const glowing = page.locator(".docwalk-deck-pane g[data-docwalk-comments]");
+  await expect(glowing).toHaveCount(2);
+
+  await replaceSource(page, underArchitecture(QUEUE, CLIENT));
+  // Wait for the rebuilt deck: the first diagram on the stage is now the queue.
+  await expect(page.locator(".docwalk-deck-pane svg g.node").first()).toContainText("Queue");
+  await expect(panel(page).getByRole("heading", { name: /^Orphaned/ })).toHaveCount(0);
+  await expect(
+    panel(page).getByRole("button", { name: "Diagram node Queue (a): show on the slide" }),
+  ).toBeVisible();
+  await expect(
+    panel(page).getByRole("button", { name: "Diagram node Gateway (b): show on the slide" }),
+  ).toBeVisible();
+  await expect(glowing).toHaveCount(2);
+  await expect(glowing.filter({ hasText: "Queue" })).toHaveCount(1);
+  await expect(glowing.filter({ hasText: "Gateway" })).toHaveCount(1);
+  await expect(glowing.filter({ hasText: "Client" })).toHaveCount(0);
+});

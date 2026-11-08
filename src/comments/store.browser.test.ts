@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { memoryStore, openCommentStore } from "./store";
-import type { DocComment } from "./types";
+import { MAX_COMMENTS, MAX_TOMBSTONES, type DocComment } from "./types";
 
 /**
  * Comments live only in the browser (decision 55), so IndexedDB is their one
@@ -103,6 +103,120 @@ describe("IndexedDB comment store", () => {
     expect(await store.getAlias("draft")).toBeNull();
     await store.setAlias("draft", "url:https://example.com/a.md");
     expect(await store.getAlias("draft")).toBe("url:https://example.com/a.md");
+  });
+});
+
+describe("merging into the stored record (decisions 65 and 95)", () => {
+  const second = { ...comment, id: "c2", text: "From the other tab" };
+
+  test("a second tab's stale list neither overwrites the first tab's comments nor revives its deletions", async () => {
+    const name = dbName();
+    const tabOne = await openCommentStore(name);
+    const tabTwo = await openCommentStore(name);
+    await tabOne.merge("k", { comments: [comment, second], deleted: [] });
+    // Tab two loaded both comments. Tab one deletes c1 and adds c3; tab two never hears of it.
+    const stale = await tabTwo.read("k");
+    const third = { ...comment, id: "c3", text: "Tab one adds" };
+    await tabOne.merge("k", { comments: [third], deleted: [{ id: "c1", deleted: 5 }] });
+    // Tab two edits c2 from its stale list and saves it whole.
+    const edited = { ...second, text: "Edited in tab two", updated: 9 };
+    const stored = await tabTwo.merge("k", {
+      comments: stale.comments.map((c) => (c.id === "c2" ? edited : c)),
+      deleted: stale.deleted,
+    });
+    expect(stored.comments.map((c) => [c.id, c.text]).toSorted()).toEqual([
+      ["c2", "Edited in tab two"],
+      ["c3", "Tab one adds"],
+    ]);
+    expect(stored.deleted).toEqual([{ id: "c1", deleted: 5 }]);
+    expect(await tabOne.read("k")).toEqual(stored);
+  });
+
+  test("tombstones are stored beside the comments and survive reopening", async () => {
+    const name = dbName();
+    const first = await openCommentStore(name);
+    await first.merge("k", { comments: [], deleted: [{ id: "gone", deleted: 7 }] });
+    const again = await openCommentStore(name);
+    expect(await again.read("k")).toEqual({ comments: [], deleted: [{ id: "gone", deleted: 7 }] });
+    // A record with only tombstones has no comments to load.
+    expect(await again.load("k")).toEqual([]);
+  });
+
+  test("a record written before tombstones existed reads with none", async () => {
+    const name = dbName();
+    const store = await openCommentStore(name);
+    await store.save("k", [comment]);
+    expect(await store.read("k")).toEqual({ comments: [comment], deleted: [] });
+  });
+
+  test("save replaces the comments and keeps the tombstones; remove deletes the whole record", async () => {
+    const store = await openCommentStore(dbName());
+    await store.merge("k", { comments: [comment], deleted: [{ id: "gone", deleted: 7 }] });
+    await store.save("k", [second]);
+    expect(await store.read("k")).toEqual({
+      comments: [second],
+      deleted: [{ id: "gone", deleted: 7 }],
+    });
+    await store.remove("k");
+    expect(await store.read("k")).toEqual({ comments: [], deleted: [] });
+  });
+
+  test("a bad tombstone in a record is dropped alone, like a bad comment", async () => {
+    const name = dbName();
+    const store = await openCommentStore(name);
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const req = indexedDB.open(name);
+      req.addEventListener("success", () => resolve(req.result));
+    });
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction("documents", "readwrite");
+      tx.objectStore("documents").put({
+        key: "k",
+        comments: [comment],
+        deleted: [
+          { id: "ok", deleted: 3 },
+          { id: "<x>", deleted: 3 },
+          { id: "late", deleted: -1 },
+        ],
+      });
+      tx.addEventListener("complete", () => resolve());
+    });
+    db.close();
+    expect(await store.read("k")).toEqual({
+      comments: [comment],
+      deleted: [{ id: "ok", deleted: 3 }],
+    });
+  });
+
+  test("a merge that would pass the comment cap is refused and writes nothing", async () => {
+    const store = await openCommentStore(dbName());
+    const many = Array.from({ length: MAX_COMMENTS }, (_, i) => ({ ...comment, id: `m${i}` }));
+    await store.merge("k", { comments: many, deleted: [] });
+    await expect(store.merge("k", { comments: [second], deleted: [] })).rejects.toThrow(
+      "per-document cap",
+    );
+    expect((await store.read("k")).comments).toHaveLength(MAX_COMMENTS);
+  });
+
+  test("a record keeps at most MAX_TOMBSTONES tombstones, the newest", async () => {
+    const store = await openCommentStore(dbName());
+    const deleted = Array.from({ length: MAX_TOMBSTONES + 10 }, (_, i) => ({
+      id: `t${i}`,
+      deleted: i + 1,
+    }));
+    const stored = await store.merge("k", { comments: [], deleted });
+    expect(stored.deleted).toHaveLength(MAX_TOMBSTONES);
+    expect(stored.deleted.at(-1)?.deleted).toBe(11);
+  });
+
+  test("the memory store merges the same way", async () => {
+    const store = memoryStore();
+    await store.merge("k", { comments: [comment], deleted: [] });
+    const stored = await store.merge("k", {
+      comments: [second],
+      deleted: [{ id: "c1", deleted: 5 }],
+    });
+    expect(stored).toEqual({ comments: [second], deleted: [{ id: "c1", deleted: 5 }] });
   });
 });
 

@@ -5,10 +5,11 @@ import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { documentKey, sketchKey } from "../canvas/identity";
-import { loadSketch, saveSketch } from "../canvas/store";
+import { loadSketch, moveSketches, saveSketch } from "../canvas/store";
 import { sourceKey } from "../comments/identity";
 import { openCommentStore } from "../comments/store";
 import type { DocComment } from "../comments/types";
+import type { DocumentSource } from "../inputs/types";
 import { releaseDraft, useDraftAutosave } from "../share/draft";
 import { DRAFT_STORAGE_KEY } from "../share/types";
 import { useDocument } from "../shell/useDocument";
@@ -42,6 +43,12 @@ let root: Root | null = null;
 const extraRoots: Root[] = [];
 /** A folder of the real OPFS workspace that only this test uses. */
 let dir = "";
+/**
+ * Files whose comments and sketches a test left in IndexedDB. Test files
+ * share one origin: a sketch left here showed up in the canvas tests' list
+ * of saved sketches.
+ */
+const annotated: DocumentSource[] = [];
 
 async function mount() {
   const result: { current: Wired | null } = { current: null };
@@ -88,6 +95,10 @@ afterEach(async () => {
     for (const event of ["success", "error", "blocked"]) request.addEventListener(event, resolve);
   });
   await (await opfsRoot()).removeEntry(dir, { recursive: true }).catch(() => undefined);
+  for (const source of annotated.splice(0)) {
+    await (await openCommentStore()).remove(sourceKey(source)!);
+    await moveSketches(documentKey(source), null);
+  }
 });
 
 /**
@@ -185,6 +196,7 @@ const at = (path: string) => ({ kind: "workspace", root: "opfs", path }) as cons
 const commentsAt = async (path: string) => (await openCommentStore()).load(sourceKey(at(path))!);
 const sketchAt = (path: string) => loadSketch(sketchKey(documentKey(at(path)), "ab12"));
 async function seed(path: string) {
+  annotated.push(at(path));
   await writeText(await opfsRoot(), path, "# Plan\n");
   await (await openCommentStore()).save(sourceKey(at(path))!, [comment]);
   await saveSketch({
@@ -250,6 +262,7 @@ describe("comments and sketches follow the file (review finding 13)", () => {
       await act(() => wired.current!.workspace.renameEntry(folder, `${dir}-moved`)),
     ).toBeNull();
     const moved = `${dir}-moved/roadmap.md`;
+    annotated.push(at(moved));
     expect(await commentsAt(moved)).toEqual([comment]);
     expect(await sketchAt(moved)).not.toBeNull();
     await (await opfsRoot()).removeEntry(`${dir}-moved`, { recursive: true });
@@ -382,6 +395,7 @@ describe("comments and sketches of local folders (review pass 2, finding 4)", ()
     const wired = await mount();
     await openInFolder(wired, "fa", "README.md");
     const a = wired.current!.workspace.source!;
+    annotated.push(a);
     await (await openCommentStore()).save(sourceKey(a)!, [comment]);
 
     await openInFolder(wired, "fb", "README.md");

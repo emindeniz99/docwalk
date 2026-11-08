@@ -141,6 +141,40 @@
   flex-direction: column;
 }
 
+.docwalk-comments-author-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-comments-author-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: var(--dw-space-xs) var(--dw-space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--dw-radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--dw-type-body-family);
+  font-size: var(--dw-type-ui-size);
+}
+
+.docwalk-comments-author-input[data-focus-visible],
+.docwalk-comments-author-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.docwalk-comments-author-input::placeholder {
+  color: var(--muted);
+}
+
+.docwalk-comments-author {
+  color: var(--fg);
+  font-weight: 600;
+}
+
 .docwalk-comments-textarea {
   box-sizing: border-box;
   width: 100%;
