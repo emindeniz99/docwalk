@@ -35,9 +35,11 @@ export function nestingOf(tex: string): number {
 }
 
 /**
- * Temml's options. `trust` stays off, so `\href`, `\url`, `\includegraphics`,
- * `\style`, `\class`, `\id` and `\data` do not parse. `macros` is a new
- * object for each formula, because `\gdef` writes into it.
+ * Temml's options. `trust` stays off, so `\includegraphics`, `\style`,
+ * `\class`, `\id` and `\data` do not parse (Temml 0.14 has no `\href` or
+ * `\url`). It is also what keeps `toNode()` from making an `<img>`, which
+ * would start loading in this page before `rebuild` could drop it.
+ * `macros` is a new object for each formula, because `\gdef` writes into it.
  */
 const OPTIONS = {
   throwOnError: true,
