@@ -44,6 +44,11 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   views, the overview, the palette and two dialogs on three engines. No
   screenshot assertion: PNG baselines are per engine and operating system,
   and nothing here can make Ubuntu ones (85).
+- Done 2026-11-08: focus view for code blocks, tables and loaded images
+  (decision 87): the diagram's view reused, click or Enter opens it, code
+  lines can be marked and cleared, and an open view closes on a rebuild or a
+  slide change. `e2e/focus-view.spec.ts` and
+  `src/deck/focusTargets.browser.test.ts` cover it on Chromium.
 
 Still open in v1:
 
@@ -154,6 +159,13 @@ Later rounds:
   Turkish UI `gec` does not find `geç`, because the collation that the title
   filter always used treats ç, ğ, ö, ş and ü as letters of their own. Ten
   text hits show at most.
+- Focus view (decision 87): checked on Chromium only; Firefox and WebKit run
+  in the fork's CI. The diagram view still stays open over a rebuild and a
+  slide change while the other three close (its own test says so); line
+  marks are not kept between openings; code has no line numbers; a table
+  fitted at the 0.75 floor still scrolls sideways; a double-click that
+  selects a word in code or a table opens the view on its first click; the
+  view is not mirrored to followers and is not in any export.
 - Shortcut hints: on Apple platforms `ModShortcut` draws the command glyph
   as an `aria-hidden` icon, so the palette button's accessible name ends in
   "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
@@ -201,15 +213,14 @@ order unless the owner picks differently. The first two give the most for
 the least work. Each starts with a decision row, then failing tests, then
 code.
 
-1. A focus view for code blocks, images and wide tables, with
-   click-to-highlight code lines (reuses the diagram focus).
-2. Laser, strokes and diagram focus mirrored to followers and the presenter
-   window, inside the signed, encrypted room messages (decisions 68, 73).
-3. Picking which sections to present, kept in the URL.
-4. Saved annotations, included in PDF and PNG exports.
-5. Math and emoji shortcodes, which GitHub renders natively.
-6. A step-through tour of a Mermaid diagram's nodes and paths.
-7. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+1. Laser, strokes and the open focus view (diagram, code, table, image,
+   with line marks) mirrored to followers and the presenter window, inside
+   the signed, encrypted room messages (decisions 68, 73, 87).
+2. Picking which sections to present, kept in the URL.
+3. Saved annotations, included in PDF and PNG exports.
+4. Math and emoji shortcodes, which GitHub renders natively.
+5. A step-through tour of a Mermaid diagram's nodes and paths.
+6. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 

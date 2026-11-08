@@ -49,6 +49,13 @@ The first release.
 - Share links with the document compressed into the URL fragment.
 - GitHub alerts, footnotes, raw HTML under GitHub's sanitizer schema and
   GitHub-compatible heading anchors.
+- A focus view for code blocks, tables and images, reusing the diagram's:
+  a click or Enter opens it, Escape closes it, and focus returns to the
+  block. Code and tables scroll and zoom their type, so a table wider than
+  the slide can be read whole; in code you can click lines to mark them and
+  clear the marks. Images open only once loaded, so the click-to-load gate
+  for remote images is unchanged. While a view is open, O, the pen letters
+  and the arrow keys do nothing outside it.
 - Task list items (`- [x]`, `- [ ]`) show their state as read-only boxes on
   slides, in document view, in the presenter's previews and in the HTML, PNG
   and print exports. A tick, not a colour, marks a done item, and a screen

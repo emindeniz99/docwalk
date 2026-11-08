@@ -68,6 +68,12 @@ lists every settled design decision.
   and present from the home-screen icon for a full-screen deck.
 - Diagram focus: click a Mermaid diagram to fit, zoom, pan, draw on it with
   a pen or point with a laser.
+- Focus view for code blocks, tables and loaded images: click one, or focus
+  it and press Enter, to see it full screen. Code and tables scroll and
+  zoom their type; in code, click a line to mark it, as many as you like,
+  and press Clear to remove them. Marks last until you close the view and
+  never touch the Markdown. A remote image that is still waiting for you to
+  load it does not open.
 - A presenter window with the current and next slide and a timer, synced
   over `BroadcastChannel` on the same machine. Enter a target time in
   minutes for a countdown with pause and reset, and a pacing bar that shows

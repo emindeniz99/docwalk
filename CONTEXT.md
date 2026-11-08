@@ -49,8 +49,19 @@ pan, reset, fullscreen, pen and laser (3, 28, 29).
 **Document mode**: the doc rendered as GitHub would show it, scrolling, no
 slides (3, 10).
 
+**Focus view**: the full-window view that a click or Enter opens on a
+diagram, a code block, a table or a loaded image. Diagrams and images zoom
+and pan on a canvas; code and tables scroll and zoom by type size. One
+dialog, toolbar, Tab trap and focus return serve all four (87). Code:
+`src/deck/focus.ts`, `focusTargets.ts`.
+
 **Full mode**: a deployment with the Worker, so `/api` exists: OAuth and
 remote control (37, 38). Opposite: **static mode**.
+
+**Line mark**: the fill and bar on a code line that the viewer clicked in a
+code focus view. It belongs to the open view: it is never written to the
+Markdown or the address, and it is gone when the view closes (87). Code:
+`aria-pressed` on `.docwalk-code-line`.
 
 **Local folder**: a folder on disk the user opened through the File System
 Access API. Its files are saved only on Save or Ctrl/Cmd+S, and reload when
@@ -164,6 +175,8 @@ Add a row here before introducing a new one.
 | task mark                   | görev işareti               | named "tamamlandı", "tamamlanmadı"         |
 | text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |
 | diagram, node               | diyagram, düğüm             |                                            |
+| focus view                  | odak görünümü               | "tam ekran" in the dialog's names          |
+| line mark                   | satır işareti               | the "Temizle" button removes them          |
 | sketch                      | çizim                       |                                            |
 | comment, resolved, orphaned | yorum, çözüldü, sahipsiz    |                                            |
 | workspace, local folder     | çalışma alanı, yerel klasör |                                            |
