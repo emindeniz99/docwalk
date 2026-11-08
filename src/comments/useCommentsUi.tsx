@@ -15,6 +15,7 @@ import { CommentChip, CommentsToggle } from "./CommentControls";
 import { markDiagramNodes, markHeadings } from "./markers";
 import { encodeComments } from "./payload";
 import { sidecarFileName } from "./sidecar";
+import { attachSlideMarkers } from "./slideMarkers";
 import type { Anchor } from "./types";
 import { useComments } from "./useComments";
 
@@ -46,7 +47,10 @@ export interface CommentsUiInput {
 /** Comment payload for the share dialog. */
 export interface ShareComments {
   count: number;
-  encode: () => Promise<string>;
+  /** True when a comment carries its writer's display name (decision 97): the link shows it in the clear. */
+  named: boolean;
+  /** The link values, fullest first: with the deletions, then without when the first does not fit (decision 95). */
+  encode: () => Promise<string[]>;
 }
 
 /**
@@ -113,6 +117,23 @@ export function useCommentsUi({
     if (controller) markDiagramNodes(controller.stage(), index, api.comments);
   }, [controller, index, api.comments]);
 
+  // Markers beside the headings of the current slide, in a layer of their own on the stage
+  // (decision 94). Absent when comments are off: a follower screen, presenting.
+  useEffect(() => {
+    if (!controller || !enabled) return;
+    const markers = attachSlideMarkers(
+      controller.stage(),
+      () => controller.current(),
+      (slug) => show(true, { kind: "heading", slug }),
+    );
+    markers.update(index, api.comments);
+    const stop = controller.onChange(() => markers.layout());
+    return () => {
+      stop();
+      markers.destroy();
+    };
+  }, [controller, enabled, index, api.comments, show]);
+
   // Document mode renders on its own; it reports each finished render here.
   const [article, setArticle] = useState<{ el: HTMLElement } | null>(null);
   const onDocumentRendered = useCallback((el: HTMLElement) => setArticle({ el }), []);
@@ -169,8 +190,15 @@ export function useCommentsUi({
     ) : null;
 
   const share: ShareComments = useMemo(
-    () => ({ count: api.comments.length, encode: () => encodeComments(api.comments) }),
-    [api.comments],
+    () => ({
+      count: api.comments.length,
+      named: api.comments.some((c) => c.author !== undefined),
+      encode: async () => {
+        const full = await encodeComments(api.comments, api.deleted);
+        return api.deleted.length === 0 ? [full] : [full, await encodeComments(api.comments)];
+      },
+    }),
+    [api.comments, api.deleted],
   );
 
   return {

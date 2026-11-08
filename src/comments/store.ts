@@ -8,8 +8,14 @@
  * What it reads back is validated like any other input (decision 46).
  */
 import * as v from "valibot";
-import { CommentSchema, dedupe } from "./schema";
-import { MAX_COMMENTS, type DocComment } from "./types";
+import { CommentSchema, dedupe, dedupeTombstones, mergeSets, TombstoneSchema } from "./schema";
+import {
+  MAX_COMMENTS,
+  MAX_TOMBSTONES,
+  type CommentSet,
+  type DocComment,
+  type Tombstone,
+} from "./types";
 
 export const DB_NAME = "docwalk-comments";
 const DB_VERSION = 1;
@@ -19,8 +25,25 @@ const ALIASES = "aliases";
 export interface CommentStore {
   /** False when comments live only in this page's memory. */
   readonly persistent: boolean;
+  /** A document's comments. A record with no comments reads as an empty list. */
   load(key: string): Promise<DocComment[]>;
+  /** A document's comments and tombstones (decision 95). Rejects when the store cannot be read. */
+  read(key: string): Promise<CommentSet>;
+  /**
+   * Replaces a document's comments and keeps its tombstones. For callers that
+   * mean exactly that (fixtures); the app writes through `merge`.
+   */
   save(key: string, comments: readonly DocComment[]): Promise<void>;
+  /**
+   * Merges `incoming` into the stored record inside one transaction and
+   * returns what is stored now (decisions 65 and 95). A second tab that saves
+   * a stale list neither overwrites the first tab's comments nor brings back
+   * its deletions. Rejects, and writes nothing, when the merged comments
+   * would pass the per-document cap.
+   */
+  merge(key: string, incoming: CommentSet): Promise<CommentSet>;
+  /** Deletes a document's record, tombstones included: the document itself is gone. */
+  remove(key: string): Promise<void>;
   getAlias(name: string): Promise<string | null>;
   setAlias(name: string, key: string): Promise<void>;
 }
@@ -52,30 +75,56 @@ function openDb(name: string): Promise<IDBDatabase> {
 }
 
 /**
- * The valid comments of a record another build or a damaged profile wrote.
- * A bad comment is dropped alone: refusing the whole record would read as
- * "no comments", and the next save would write that over the good ones.
+ * The valid comments and tombstones of a record another build or a damaged
+ * profile wrote. A bad entry is dropped alone: refusing the whole record
+ * would read as "no comments", and the next save would write that over the
+ * good ones.
  */
-function validList(value: unknown): DocComment[] {
-  const comments =
-    typeof value === "object" && value !== null ? (value as { comments?: unknown }).comments : [];
-  if (!Array.isArray(comments)) return [];
-  const valid: DocComment[] = [];
-  for (const item of comments.slice(0, MAX_COMMENTS)) {
-    const result = v.safeParse(CommentSchema, item);
-    if (result.success) valid.push(result.output);
+function validSet(value: unknown): CommentSet {
+  const record =
+    typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const comments: DocComment[] = [];
+  if (Array.isArray(record["comments"])) {
+    for (const item of record["comments"].slice(0, MAX_COMMENTS)) {
+      const result = v.safeParse(CommentSchema, item);
+      if (result.success) comments.push(result.output);
+    }
   }
-  return dedupe(valid);
+  // A record from before decision 95 has no `deleted`.
+  const deleted: Tombstone[] = [];
+  if (Array.isArray(record["deleted"])) {
+    for (const item of record["deleted"].slice(0, MAX_TOMBSTONES)) {
+      const result = v.safeParse(TombstoneSchema, item);
+      if (result.success) deleted.push(result.output);
+    }
+  }
+  return { comments: dedupe(comments), deleted: dedupeTombstones(deleted) };
 }
 
+const OVER_CAP = "The merged comments would pass the per-document cap.";
+
 export function memoryStore(): CommentStore {
-  const docs = new Map<string, DocComment[]>();
+  const docs = new Map<string, CommentSet>();
   const aliases = new Map<string, string>();
+  const read = async (key: string): Promise<CommentSet> => {
+    const set = docs.get(key);
+    return { comments: [...(set?.comments ?? [])], deleted: [...(set?.deleted ?? [])] };
+  };
   return {
     persistent: false,
-    load: async (key) => [...(docs.get(key) ?? [])],
+    load: async (key) => (await read(key)).comments,
+    read,
     save: async (key, comments) => {
-      docs.set(key, [...comments]);
+      docs.set(key, { comments: [...comments], deleted: (await read(key)).deleted });
+    },
+    merge: async (key, incoming) => {
+      const merged = mergeSets(await read(key), incoming);
+      if (!merged) throw new Error(OVER_CAP);
+      docs.set(key, { comments: merged.comments, deleted: merged.deleted });
+      return read(key);
+    },
+    remove: async (key) => {
+      docs.delete(key);
     },
     getAlias: async (name) => aliases.get(name) ?? null,
     setAlias: async (name, key) => {
@@ -84,17 +133,58 @@ export function memoryStore(): CommentStore {
   };
 }
 
+/**
+ * Reads a record and writes `change` of it in one readwrite transaction, so
+ * two tabs cannot interleave between the read and the write. A record with
+ * no comments and no tombstones is removed, so nothing is left behind.
+ */
+function transact(
+  db: IDBDatabase,
+  key: string,
+  change: (stored: CommentSet) => CommentSet,
+): Promise<CommentSet> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DOCS, "readwrite");
+    const os = tx.objectStore(DOCS);
+    let result: CommentSet | undefined;
+    const get = os.get(key);
+    get.addEventListener("success", () => {
+      try {
+        result = change(validSet(get.result));
+      } catch (error) {
+        tx.abort();
+        reject(error);
+        return;
+      }
+      if (result.comments.length === 0 && result.deleted.length === 0) os.delete(key);
+      else os.put({ key, comments: result.comments, deleted: result.deleted });
+    });
+    tx.addEventListener("complete", () => resolve(result ?? { comments: [], deleted: [] }));
+    tx.addEventListener("abort", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted")),
+    );
+  });
+}
+
 function idbStore(db: IDBDatabase): CommentStore {
   const tx = (store: string, mode: IDBTransactionMode) =>
     db.transaction(store, mode).objectStore(store);
+  const read = async (key: string) => validSet(await request(tx(DOCS, "readonly").get(key)));
   return {
     persistent: true,
-    load: async (key) => validList(await request(tx(DOCS, "readonly").get(key))),
+    load: async (key) => (await read(key)).comments,
+    read,
     save: async (key, comments) => {
-      const os = tx(DOCS, "readwrite");
-      // An empty list removes the record, so deleted comments leave nothing behind.
-      if (comments.length === 0) await request(os.delete(key));
-      else await request(os.put({ key, comments: [...comments] }));
+      await transact(db, key, (stored) => ({ comments: [...comments], deleted: stored.deleted }));
+    },
+    merge: (key, incoming) =>
+      transact(db, key, (stored) => {
+        const merged = mergeSets(stored, incoming);
+        if (!merged) throw new Error(OVER_CAP);
+        return { comments: merged.comments, deleted: merged.deleted };
+      }),
+    remove: async (key) => {
+      await request(tx(DOCS, "readwrite").delete(key));
     },
     getAlias: async (name) => {
       const rec: unknown = await request(tx(ALIASES, "readonly").get(name));

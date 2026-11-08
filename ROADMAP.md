@@ -100,6 +100,13 @@ here. Playwright's WebKit on Windows leaves OPFS writes empty, so 9 of its 15
 tests fail on that engine on the base branch too; WebKit rests on the fork's
 CI.
 
+Done 2026-11-09 (decisions 94 to 97): comment count markers sit beside
+commented headings on the scaled slide, at least 24 px at any scale;
+deleted comments leave tombstones, so an older link, sidecar or tab does
+not bring them back; node comments follow their diagram when diagrams
+trade places; a new comment can carry a display name kept in this
+browser. `e2e/comments.spec.ts` passes 11 of 11 on Chromium.
+
 Done 2026-11-09 (decision 102): a switch of editor keeps the cursor line;
 the palette offers the other editor; a pick in one tab applies in the
 others; Monaco's own Markdown grammar colours a list item's indented
@@ -163,13 +170,15 @@ Later rounds:
   place; an agent or phone remote that joins before the
   presenter's socket is open is not counted (hello is not resent);
   `docwalk-mcp` is not on npm yet.
-- Markdown: decision 42 wants the sanitizer corpus on three engines, the
-  browser test project runs Chromium only; a footnote list pushed to a
+- Markdown: a footnote list pushed to a
   continuation page stays there; anchors cover top-level headings only.
-- Comments: no markers inside scaled slides (the slide chip stands in); no
-  tombstones, so a deleted comment can return from an older link or
-  sidecar; swapping two diagrams under one heading orphans their node
-  comments; no author names.
+- Comments (decisions 94 to 97): a tombstone list stops at 500, so a very
+  old file can bring back a deletion older than the 500 newest; a node
+  comment's `sig` describes the diagram when the comment was written, so
+  after an edit a later swap is judged by position; the display name is
+  not an identity (anyone can type any name) and needs the owner's
+  approval (row 97); a long share link drops its tombstones before its
+  comments.
 - Canvas: the Library's Publish form remains (Excalidraw has no switch for
   it); stored sketches are deleted by hand from the Saved sketches panel,
   never pruned automatically; cylinders convert to rectangles; the Turkish

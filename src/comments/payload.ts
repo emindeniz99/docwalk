@@ -8,8 +8,8 @@
  */
 import { m } from "../paraglide/messages.js";
 import { COMMENTS_PARAM, decodeDoc, encodeDoc } from "../share/fragment";
-import { parseCommentsText, type ParseResult } from "./schema";
-import { SIDECAR_FORMAT, SIDECAR_VERSION, type DocComment } from "./types";
+import { commentsFile, parseCommentsText, type ParseResult } from "./schema";
+import type { DocComment, Tombstone } from "./types";
 
 export const DAMAGED_COMMENTS = m.comments_damaged_link;
 
@@ -34,9 +34,16 @@ export function hashWithoutComments(hash: string): string {
   return rest.length > 0 ? `#${rest.join("&")}` : "";
 }
 
-/** The link value for a list of comments (compact JSON; deflate does the rest). */
-export async function encodeComments(comments: readonly DocComment[]): Promise<string> {
-  return encodeDoc(JSON.stringify({ format: SIDECAR_FORMAT, version: SIDECAR_VERSION, comments }));
+/**
+ * The link value for a list of comments and the deletions that go with them
+ * (compact JSON; deflate does the rest). Without deletions the value is
+ * exactly what a build before decision 95 wrote.
+ */
+export async function encodeComments(
+  comments: readonly DocComment[],
+  deleted: readonly Tombstone[] = [],
+): Promise<string> {
+  return encodeDoc(JSON.stringify(commentsFile(comments, deleted)));
 }
 
 /** Comments from a link value; the same caps as the share fragment apply before any parsing. */
