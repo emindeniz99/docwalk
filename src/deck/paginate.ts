@@ -1,4 +1,5 @@
 import { m } from "../paraglide/messages.js";
+import { CLOBBER_PREFIX, fragmentTarget } from "../render/fragments";
 import { OVERFLOW_TOLERANCE_PX, tooSmallDiagrams } from "./measure";
 import { documentText } from "./documentText";
 
@@ -16,6 +17,9 @@ import { documentText } from "./documentText";
  * Code blocks, diagrams, images, quotes and anything else are atomic: one
  * taller than an empty slide gets a page of its own and keeps its overflow
  * diagnostic. Pages after the first are titled "<title> · continued".
+ *
+ * The slide's footnote list is not a block: each page shows the footnotes
+ * its own blocks cite, and is measured with them (decision 107).
  *
  * Works on rendered slides inside an off-screen box with the slide's size,
  * so the result is the same for slides reveal.js is hiding.
@@ -35,6 +39,12 @@ export function paginateSlide(slide: HTMLElement, options: PaginateOptions): HTM
     const body = bodyOf(probe);
     if (fits(body)) return [slide];
 
+    // remark-rehype's list (a <div> since slides.ts), rebuilt for every page tried.
+    // It is appended after all content, so it is the last match: a raw HTML
+    // section the author marked `data-footnotes` sits above it and stays content.
+    const notes =
+      [...body.querySelectorAll<HTMLElement>(":scope > [data-footnotes]")].at(-1) ?? null;
+    notes?.remove();
     const title = sectionTitle(slide);
     const crumbs = breadcrumbOf(slide);
     const pages: HTMLElement[] = [];
@@ -49,12 +59,12 @@ export function paginateSlide(slide: HTMLElement, options: PaginateOptions): HTM
     // Group 0 keeps the slide heading; a sub-group opens with its own
     // heading and carries the slide title in its breadcrumb.
     const crumbsFor = (g: number) => (g === 0 ? crumbs : [...crumbs, title].filter(Boolean));
-    for (const [g, group] of mergeFitting(probe, groups, crumbsFor).entries()) {
+    for (const [g, group] of mergeFitting(probe, groups, crumbsFor, notes).entries()) {
       const groupTitle = g === 0 ? title : (group[0]?.textContent ?? "").trim();
       const groupCrumbs = crumbsFor(g);
       setBreadcrumb(probe, groupCrumbs);
-      for (const blocks of fillPages(probe, group, groupTitle)) {
-        pages.push(makePage(slide, blocks, pages.length, groupCrumbs));
+      for (const blocks of fillPages(probe, group, groupTitle, notes)) {
+        pages.push(makePage(slide, blocks, pages.length, groupCrumbs, notes));
       }
     }
     return pages;
@@ -73,6 +83,7 @@ function mergeFitting(
   probe: HTMLElement,
   groups: Element[][],
   crumbsFor: (g: number) => string[],
+  notes: Element | null,
 ): Element[][] {
   const body = bodyOf(probe);
   const merged: Element[][] = [];
@@ -80,7 +91,7 @@ function mergeFitting(
     const last = merged.at(-1);
     if (last) {
       setBreadcrumb(probe, crumbsFor(merged.length - 1));
-      body.replaceChildren(...last.map(clone), ...group.map(clone));
+      place(body, [...last, ...group], notes);
       if (fits(body)) {
         merged[merged.length - 1] = [...last, ...group];
         continue;
@@ -96,7 +107,12 @@ function mergeFitting(
  * prefix that fits, then splitting the next list or table if part of it fits.
  * Pages after the first open with "<title> · continued".
  */
-function fillPages(probe: HTMLElement, blocks: Element[], title: string): Element[][] {
+function fillPages(
+  probe: HTMLElement,
+  blocks: Element[],
+  title: string,
+  notes: Element | null,
+): Element[][] {
   const body = bodyOf(probe);
   const pages: Element[][] = [];
   let remaining = [...blocks];
@@ -104,7 +120,7 @@ function fillPages(probe: HTMLElement, blocks: Element[], title: string): Elemen
   while (remaining.length > 0) {
     const header = pages.length > 0 && title ? [continuedHeading(title)] : [];
     const tryFit = (candidate: Element[]) => {
-      body.replaceChildren(...header.map(clone), ...candidate.map(clone));
+      place(body, [...header, ...candidate], notes);
       return fits(body);
     };
 
@@ -234,12 +250,80 @@ function makePage(
   blocks: Element[],
   index: number,
   breadcrumb: string[],
+  notes: Element | null,
 ): HTMLElement {
   const page = original.cloneNode(true) as HTMLElement;
   page.dataset["page"] = String(index + 1);
-  bodyOf(page).replaceChildren(...blocks.map(clone));
+  place(bodyOf(page), blocks, notes);
+  if (index > 0) tagFootnoteIds(bodyOf(page), index + 1);
   setBreadcrumb(page, breadcrumb);
   return page;
+}
+
+/** Lays copies of `blocks` out in `body`, followed by the footnotes they cite. */
+function place(body: Element, blocks: Element[], notes: Element | null): void {
+  body.replaceChildren(...blocks.map(clone));
+  appendFootnotes(body, notes);
+}
+
+/**
+ * Appends the footnotes `body` cites (decision 107): the items of the slide's
+ * list that a citation in `body` points at, and those cited inside them, in
+ * the slide's order with the slide's numbers (`value`), so a 3 in the text
+ * reads 3 in the list. An item keeps only the back links to citations in
+ * `body`; one to another page would lead nowhere here.
+ */
+function appendFootnotes(body: Element, notes: Element | null): void {
+  const list = notes?.querySelector(":scope > ol");
+  if (!notes || !list) return;
+  const cited = new Set<Element>();
+  const cite = (root: Element) => {
+    for (const ref of root.querySelectorAll("a[data-footnote-ref]")) {
+      const item = fragmentTarget(list, ref.getAttribute("href") ?? "");
+      if (!item || cited.has(item)) continue;
+      cited.add(item);
+      cite(item);
+    }
+  };
+  cite(body);
+  if (cited.size === 0) return;
+  const items = list.cloneNode(false) as Element;
+  for (const [i, item] of [...list.children].entries()) {
+    if (!cited.has(item)) continue;
+    const shown = clone(item);
+    shown.setAttribute("value", String(i + 1));
+    items.append(shown);
+  }
+  const copy = notes.cloneNode(false) as Element;
+  // The hidden "Footnotes" label the citations name with aria-describedby.
+  copy.append(...[...notes.children].filter((c) => c !== list).map(clone), items);
+  body.append(copy);
+  for (const back of copy.querySelectorAll("a[data-footnote-backref]")) {
+    if (!fragmentTarget(body, back.getAttribute("href") ?? "")) back.remove();
+  }
+}
+
+/**
+ * Page 2 and later can show a footnote that page 1 shows too, and each page
+ * with footnotes has its own hidden label. Their ids, the citations' ids and
+ * the links between them get
+ * the page after the `user-content-` prefix (`#2.ledger-fn-a`), so ids stay
+ * unique in the deck (decision 107). A section id never holds a dot, so no
+ * other slide's id can match.
+ */
+function tagFootnoteIds(body: Element, page: number): void {
+  const tag = (id: string) =>
+    id.startsWith(CLOBBER_PREFIX)
+      ? `${CLOBBER_PREFIX}${page}.${id.slice(CLOBBER_PREFIX.length)}`
+      : id;
+  const named = "a[data-footnote-ref], [data-footnotes] > h2, [data-footnotes] > ol > li";
+  for (const el of body.querySelectorAll(named)) if (el.id) el.id = tag(el.id);
+  for (const link of body.querySelectorAll("a[data-footnote-ref], a[data-footnote-backref]")) {
+    const href = link.getAttribute("href") ?? "";
+    if (href.startsWith("#")) link.setAttribute("href", `#${page}.${href.slice(1)}`);
+    const label = link.getAttribute("aria-describedby");
+    if (label) link.setAttribute("aria-describedby", label.split(" ").map(tag).join(" "));
+  }
 }
 
 /** Breadcrumb text is set with textContent only: heading text never becomes markup. */

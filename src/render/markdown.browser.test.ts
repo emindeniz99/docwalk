@@ -152,6 +152,35 @@ describe("footnotes in the deck", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  test("on a continuation page a footnote shows with its citation, and its links stay on the page (decision 107)", async () => {
+    // The list used to sit on the last page whatever page cited it.
+    const filler = Array.from({ length: 30 }, (_, i) => `Filler paragraph ${i + 1}.`).join("\n\n");
+    const deck = await mountDeck(
+      `## Ledger\n\nOpening.[^first]\n\n${filler}\n\nClosing.[^last]\n\n[^first]: The first note.\n[^last]: The last note.\n`,
+    );
+    const pages = deck.slides();
+    expect(pages.length).toBeGreaterThan(1);
+    deck.goTo(pages[0]!.address);
+    await expect.poll(() => present().dataset["page"]).toBe("1");
+    expect(present().querySelector(".footnotes")?.textContent).toContain("The first note.");
+    expect(present().querySelector(".footnotes")?.textContent).not.toContain("The last note.");
+    const last = pages.at(-1)!.address;
+    deck.goTo(last);
+    await expect.poll(() => present().dataset["page"]).toBe(String(pages.length));
+    expect(present().querySelector(".footnotes")?.textContent).toContain("The last note.");
+    expect(present().querySelector(".footnotes")?.textContent).not.toContain("The first note.");
+    const ref = present().querySelector<HTMLAnchorElement>("a[data-footnote-ref]")!;
+    await userEvent.click(ref);
+    expect(document.activeElement?.closest(".footnotes")).toBe(
+      present().querySelector(".footnotes"),
+    );
+    expect(deck.current()?.address).toBe(last);
+    await userEvent.click(present().querySelector<HTMLAnchorElement>(".data-footnote-backref")!);
+    expect(document.activeElement).toBe(ref);
+    const ids = [...document.querySelectorAll(".reveal [id]")].map((el) => el.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   test("a long slide without a heading never gets 'Footnotes' as its continued title", async () => {
     // Pagination titled continuation pages with the first heading anywhere in
     // the slide, which for a heading-less slide was the hidden footnote label.
@@ -221,6 +250,30 @@ describe("heading anchors in the deck", () => {
     // Timeouts merged into the first page, with the slide heading.
     expect(deck.goTo("timeouts")).toBe(true);
     await expect.poll(() => deck.current()?.address).toBe(pages[0]!.address);
+  });
+
+  test("a link to a heading inside a quote opens the page that holds it (decision 107)", async () => {
+    // Only headings at the top of the tree had anchors; this link stayed on slide 1.
+    const deck = await mountDeck(
+      [
+        "## Intro",
+        "",
+        "See [the quoted rule](#quoted-rule).",
+        "",
+        "## Rules",
+        "",
+        ...Array.from({ length: 30 }, (_, i) => `Rule note ${i}.\n`),
+        "> ### Quoted rule",
+        ">",
+        "> Keep it short.",
+        "",
+      ].join("\n"),
+    );
+    expect(deck.slides().filter((s) => s.sectionId === "rules").length).toBeGreaterThan(1);
+    await userEvent.click(present().querySelector<HTMLAnchorElement>('a[href="#quoted-rule"]')!);
+    await expect.poll(() => deck.current()?.sectionId).toBe("rules");
+    expect(deck.current()?.page).toBeGreaterThan(1);
+    expect(present().querySelector("blockquote #user-content-quoted-rule")).not.toBeNull();
   });
 
   test("an unknown anchor is still refused, so the URL sync falls back as before", async () => {
@@ -333,5 +386,14 @@ describe("document mode links", () => {
     );
     await userEvent.click(doc.querySelector<HTMLAnchorElement>('a[href="#retry-budget"]')!);
     expect(document.activeElement?.id).toBe("user-content-retry-budget");
+  });
+
+  test("a link to a heading inside a list item focuses that heading (decision 107)", async () => {
+    const doc = await mountDocument(
+      `[Jump](#listed-step)\n\n${"Filler.\n\n".repeat(60)}- #### Listed step\n\n  Text.`,
+    );
+    await userEvent.click(doc.querySelector<HTMLAnchorElement>('a[href="#listed-step"]')!);
+    expect(document.activeElement?.id).toBe("user-content-listed-step");
+    expect(document.activeElement?.closest("li")).not.toBeNull();
   });
 });

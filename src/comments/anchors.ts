@@ -9,7 +9,7 @@ import GithubSlugger from "github-slugger";
 import type { Code, Heading, Root, RootContent } from "mdast";
 import { visit } from "unist-util-visit";
 import { m } from "../paraglide/messages.js";
-import { headingText, type SectionPlan } from "../sectioning/sectionize";
+import { anchoredHeadings, headingText, type SectionPlan } from "../sectioning/sectionize";
 import type { Anchor, DocComment } from "./types";
 
 export interface HeadingTarget {
@@ -110,9 +110,11 @@ function sectionOfNodes(root: Root, plan: SectionPlan): Map<RootContent, string 
 /** Every heading and Mermaid diagram a comment can point at, in document order. */
 export function buildAnchorIndex(root: Root, plan: SectionPlan): AnchorIndex {
   const sectionOf = sectionOfNodes(root, plan);
-  // Same slugging as sectionize: every top-level heading, in order, so
-  // duplicate titles get GitHub's `-1`, `-2` suffixes in the same places.
+  // Same slugging as sectionize: every heading GitHub anchors, nested ones
+  // too (decision 107), in order, so duplicate titles get GitHub's `-1`,
+  // `-2` suffixes in the same places. Comments attach to top-level ones.
   const slugger = new GithubSlugger();
+  const slugs = new Map(anchoredHeadings(root).map((h) => [h, slugger.slug(headingText(h))]));
   const headings: HeadingTarget[] = [];
   const diagrams: DiagramTarget[] = [];
   const perHeading = new Map<string, number>();
@@ -120,7 +122,7 @@ export function buildAnchorIndex(root: Root, plan: SectionPlan): AnchorIndex {
   for (const node of root.children) {
     if (node.type === "heading") {
       const title = headingText(node);
-      const slug = slugger.slug(title);
+      const slug = slugs.get(node) ?? "";
       currentHeading = slug;
       headings.push({ slug, title, depth: node.depth, sectionId: sectionOf.get(node) ?? null });
       continue;

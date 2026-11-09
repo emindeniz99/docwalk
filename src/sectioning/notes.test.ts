@@ -30,28 +30,57 @@ describe("which section owns a note", () => {
     expect(by).toEqual({ one: ["first", "second"] });
   });
 
-  test("a comment above the cover reaches the cover, not the empty slide it opens", () => {
-    // Today a comment above the first heading becomes a slide of its own (`intro`).
+  test("a comment above the cover opens no slide, and its note reaches the cover", () => {
+    // It used to open a blank slide (`intro`) that the presenter list titled by its address.
     const { ids, by } = notesOf(
       "<!-- Open with the story. -->\n\n# Doc\n\nIntro.\n\n## One\n\nText.\n",
     );
-    expect(ids).toEqual(["intro", "doc", "one"]);
+    expect(ids).toEqual(["doc", "one"]);
     expect(by).toEqual({ doc: ["Open with the story."] });
   });
 
+  test("a markdownlint line above the title opens no slide and leaves no note (decision 107)", () => {
+    // The shape that made the blank slide common: linters want the directive above `# Title`.
+    const { ids, by } = notesOf(
+      "<!-- markdownlint-disable MD041 -->\n\n# Title\n\nIntro.\n\n## One\n\nText.\n",
+    );
+    expect(ids).toEqual(["title", "one"]);
+    expect(by).toEqual({});
+  });
+
   test("a comment above the first slide of a document without a cover reaches that slide", () => {
-    const { by } = notesOf("<!-- Warm up. -->\n\n## One\n\nText.\n\n## Two\n\nMore.\n");
+    const { ids, by } = notesOf("<!-- Warm up. -->\n\n## One\n\nText.\n\n## Two\n\nMore.\n");
+    expect(ids).toEqual(["one", "two"]);
     expect(by).toEqual({ one: ["Warm up."] });
   });
 
-  test("a comment-only slide with nothing after it keeps its notes", () => {
-    const { by } = notesOf("<!-- Only note. -->\n");
-    expect(by).toEqual({ intro: ["Only note."] });
+  test("comment-only parts split by thematic breaks at the start open no slide either", () => {
+    const { ids, by } = notesOf("<!-- a -->\n\n---\n\n<!-- b -->\n\n***\n\n## One\n\nText.\n");
+    expect(ids).toEqual(["one"]);
+    expect(by).toEqual({ one: ["a", "b"] });
   });
 
-  test("a leading slide that also has text keeps its own notes", () => {
-    const { by } = notesOf("Opening words.\n\n<!-- Mine. -->\n\n## One\n\nText.\n");
+  test("a document of comments alone has no slide, as an empty one has none", () => {
+    expect(notesOf("<!-- Only note. -->\n")).toEqual({ ids: [], by: {} });
+  });
+
+  test("a leading slide that also has text keeps its slide and its own notes", () => {
+    const { ids, by } = notesOf("Opening words.\n\n<!-- Mine. -->\n\n## One\n\nText.\n");
+    expect(ids).toEqual(["intro", "one"]);
     expect(by).toEqual({ intro: ["Mine."] });
+  });
+
+  test("a comment-only part after the first slide still opens one and hands its note on (79)", () => {
+    const { ids, by } = notesOf(
+      "Opening words.\n\n---\n\n<!-- Later. -->\n\n---\n\n## One\n\nText.\n",
+    );
+    expect(ids).toEqual(["intro", "slide-2", "one"]);
+    expect(by).toEqual({ one: ["Later."] });
+  });
+
+  test("an unclosed comment at the top is not a comment, so its slide stays", () => {
+    // CommonMark lets it swallow the document; row 79 does not count it as a comment.
+    expect(notesOf("<!-- open\n\n# Title\n\nText.\n")).toEqual({ ids: ["intro"], by: {} });
   });
 
   test("each part after a thematic break is its own section with its own notes", () => {
@@ -155,8 +184,11 @@ describe("tool directives are not notes", () => {
     expect(by).toEqual({ one: ["Real note."] });
   });
 
-  test("a leading slide holding only directives hands nothing on and loses nothing", () => {
-    expect(notesOf("<!-- eslint-disable -->\n\n## One\n\nText.\n").by).toEqual({});
+  test("a leading part holding only directives opens no slide and hands nothing on", () => {
+    expect(notesOf("<!-- eslint-disable -->\n\n## One\n\nText.\n")).toEqual({
+      ids: ["one"],
+      by: {},
+    });
   });
 });
 
