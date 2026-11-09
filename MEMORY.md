@@ -21,7 +21,7 @@ and the nightly Stryker run was fixed. Small safe changes go straight to
 
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
-1 MB gzip (993 kB used on 2026-11-09, decision 43) and times open and
+a 3 MB warning and a 5 MB failure (decision 124; 993 kB used on 2026-11-09) and times open and
 repaginate. The 1.5 s open budget still does not hold; the measurements are
 in ROADMAP "Still open in v1". The first load is close to the limit, so check
 `pnpm size` and `e2e/perf.spec.ts` after adding a dependency.

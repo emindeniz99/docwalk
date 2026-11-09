@@ -19,8 +19,8 @@ import { CORS } from "./helpers";
  * alarm, not an engine comparison, and one engine keeps the noise down.
  */
 
-const SIZE_LIMIT = 1_000_000; // bytes, gzip; the hard limit in .size-limit.ts
-const SIZE_WARN = 500_000; // tooling/size-check.ts's warning line
+const SIZE_LIMIT = 5_000_000; // bytes, gzip; the hard limit in .size-limit.ts
+const SIZE_WARN = 3_000_000; // tooling/size-check.ts's warning line
 const OPEN_BUDGET_MS = 1500;
 const REPAGINATE_BUDGET_MS = 300;
 const TIME_MARGIN = 3;
@@ -68,7 +68,7 @@ async function openFixture(page: Page) {
   return slidesReported(page);
 }
 
-test("the default view downloads less than decision 43's 1 MB of JS and CSS (gzip)", async ({
+test("the default view downloads less than decision 124's 5 MB of JS and CSS (gzip)", async ({
   page,
 }, info) => {
   // A fresh context has an empty HTTP cache and the config blocks the

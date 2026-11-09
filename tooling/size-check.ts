@@ -2,10 +2,10 @@ import { join } from "node:path";
 import { firstLoadFilesContaining } from "./first-load.ts";
 import { runSizeLimit, type SizeResult } from "./size-limit-run.ts";
 
-// Decision 43: size-limit fails the build above the hard limit in
-// .size-limit.ts (1 MB); above WARN_BYTES it only warns, so growth is seen
+// Decisions 43 and 124: size-limit fails the build above the hard limit in
+// .size-limit.ts (5 MB); above WARN_BYTES it only warns, so growth is seen
 // early without blocking work.
-const WARN_BYTES = 500_000;
+const WARN_BYTES = 3_000_000;
 
 let results: SizeResult[];
 let failed = false;

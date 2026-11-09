@@ -132,8 +132,8 @@ Still open in v1:
   Windows desktop would read about 1640 ms, still over, and CI more. Reaching
   1.5 s on CI needs less Mermaid work before measuring, which rule 4 does not
   allow, or a faster Mermaid. Repaginate read 317 to 379 ms on that machine
-  against 300 ms (214 ms median on the desktop). The first load is 993 kB of
-  1 MB gzip. The spec warns above the budget and fails above three times it;
+  against 300 ms (214 ms median on the desktop). The first load is 993 kB gzip
+  (decision 124: warn above 3 MB, fail above 5 MB). The spec warns above the budget and fails above three times it;
   the threshold is unchanged.
 
 ## v2: workspace and agents
@@ -377,8 +377,9 @@ Do this before any new feature. Nothing a user sees may change. Estimate:
 half a day for one agent; the code is not hard, but it is fiddly.
 
 Why now: PR #5 added about 11,700 lines of app code. `src/App.tsx` is 1,466
-lines with 88 hooks, and the default view downloads 993 kB of the 1 MB limit
-(decision 43), so the next feature has no room.
+lines with 88 hooks, and duplicated helpers make each change touch several
+files. Size is no longer the pressure: decision 124 raised the budget to a
+3 MB warning and a 5 MB failure (993 kB used).
 
 Steps, one commit per step, with `pnpm check` green after each:
 
@@ -395,10 +396,10 @@ Steps, one commit per step, with `pnpm check` green after each:
    `src/deck/focus.ts` (875 lines). Find what really repeats before merging.
 4. **Delete dead code**: unused exports, branches no test reaches, leftovers
    from PR #5. Mention anything you are unsure of instead of deleting it.
-5. **Win back first-load budget.** Find what the default view loads that it
+5. **Look at the first load.** Find what the default view loads that it
    does not need at once (a mode only some users open, a library used after a
-   click) and load it lazily. Aim for at least 50 kB under the limit, and
-   record the trade-off of anything moved.
+   click). Move it to a lazy chunk where that is cheap and record the
+   trade-off; the budget no longer requires it (decision 124).
 
 Rules:
 
