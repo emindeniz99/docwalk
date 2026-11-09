@@ -376,3 +376,24 @@ describe("which listing a follower opens when its pages are cut elsewhere (decis
     expect(lines()[0]!.textContent).toContain("listing A line 1");
   });
 });
+
+describe("a view the follower already has open (decision 106)", () => {
+  test("the presenter's view replaces it, and closing that leaves no view and focus on the block", async () => {
+    const { container, controller, address } = await mountDeck();
+    const { send } = follow(controller);
+    controller.goTo(address("Code"));
+    const [first, second] = present(container).querySelectorAll<HTMLElement>("pre");
+    await userEvent.click(first!);
+    expect(document.querySelectorAll(".docwalk-focus")).toHaveLength(1);
+
+    send({ op: "focus-open", slide: address("Code"), code: 2 });
+    // One view at a time: the follower's own is closed, not buried under the presenter's.
+    expect(document.querySelectorAll(".docwalk-focus")).toHaveLength(1);
+    expect(lines()[0]!.textContent).toContain("function f()");
+
+    send({ op: "focus-close" });
+    expect(document.querySelectorAll(".docwalk-focus")).toHaveLength(0);
+    expect(document.activeElement).toBe(second);
+    expect(container.inert, "the page behind is usable again").toBe(false);
+  });
+});

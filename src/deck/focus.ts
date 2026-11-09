@@ -77,6 +77,9 @@ function mountView(
   makeStage: (stage: HTMLElement, close: () => void) => Stage,
   onClosed?: OnClosed,
 ): { close: () => void; view: Stage } {
+  // One view at a time: a view opened under another (the presenter's, over one the viewer
+  // opened) would leave the first one open, and inert, after the second closed.
+  current?.close();
   // React keeps this element across deck rebuilds; the `.reveal` inside it is replaced.
   const deckHost = origin.closest(".docwalk-deck-host");
 
