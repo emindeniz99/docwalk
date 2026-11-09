@@ -182,7 +182,7 @@
   "sections_select_all": "Tümünü seç",
   "sections_too_long": "Bu seçim bir bağlantı için çok uzun. Bu ziyaret için geçerli olur, ama bağlantı onu taşımaz.",
   "sections_unknown": "Seçilen bölümlerin hiçbiri bu belgede yok. {count} bölümün tümü gösteriliyor.",
-  "stylus_notice": "Dokunmatik kalem algılandı. Kalem slayta çizer, parmak artık slayt değiştirir. Bunu değiştirmek için Diğer işlemler altında \"Dokunmatik kalem çizer, parmak slayt değiştirir\" seçeneğini kapatın.",
+  "stylus_notice": "Dokunmatik kalem algılandı. Kalem slayda çizer, parmak artık slayt değiştirir. Bunu değiştirmek için Diğer işlemler altında \"Dokunmatik kalem çizer, parmak slayt değiştirir\" seçeneğini kapatın.",
   "table_label": "Tablo. Tam ekranda açmak için Enter tuşuna basın.",
   "image_label": "Görsel. Tam ekranda açmak için Enter tuşuna basın.",
   "image_label_alt": "{alt}. Tam ekranda açmak için Enter tuşuna basın.",
