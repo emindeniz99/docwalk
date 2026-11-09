@@ -249,6 +249,112 @@ describe("a formula that cannot be drawn shows its source (never a crash)", () =
   });
 });
 
+/** `count` inline formulas, each `tex`, in one paragraph, sanitized and attached but not drawn. */
+function boxOf(count: number, tex: string): HTMLElement {
+  const box = document.createElement("div");
+  box.append(purifyHtml(nodesToHtml(parseMarkdown(`${`$${tex}$ `.repeat(count)}`).children)));
+  document.body.append(box);
+  return box;
+}
+
+/** A builder that holds the thread for `ms`, as a heavy formula does. */
+const slowBuilder =
+  (ms: number, built: string[] = []): MathBuilder =>
+  (tex) => {
+    const until = performance.now() + ms;
+    while (performance.now() < until) {
+      // Busy wait: the point is a task that takes this long.
+    }
+    built.push(tex);
+    return document.createElementNS(MATHML_NS, "math");
+  };
+
+describe("many formulas do not hold the page (rule 5)", () => {
+  // Before renderMath yielded, 100 plain 3,990-character formulas were one 14.9 s task.
+  test("the page gets a turn between slices of formulas", async () => {
+    // Formulas that each hold the thread for 5 ms of wall time, so a slice is the same
+    // number of them on any machine. (A timer's longest gap says the same on a quiet
+    // machine, but a loaded one stalls a timer for 200 ms on its own.) A probe timer counts
+    // the formulas built between two of its ticks: the old loop built all 100 in one task.
+    const built: string[] = [];
+    let sinceTick = 0;
+    let most = 0;
+    let ticks = 0;
+    const counted: MathBuilder = (tex, display) => {
+      sinceTick++;
+      return slowBuilder(5, built)(tex, display);
+    };
+    let probe: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      most = Math.max(most, sinceTick);
+      sinceTick = 0;
+      ticks++;
+      probe = setTimeout(tick, 0);
+    };
+    probe = setTimeout(tick, 0);
+    const box = boxOf(100, "x");
+    await renderMath(box, { load: async () => counted, budgetMs: Infinity });
+    clearTimeout(probe);
+    most = Math.max(most, sinceTick);
+    expect(box.querySelectorAll("math")).toHaveLength(100);
+    // 16 ms of 5 ms formulas is 4 per slice; allow for the probe landing between two slices.
+    expect(most).toBeLessThanOrEqual(10);
+    expect(ticks).toBeGreaterThanOrEqual(10);
+  });
+
+  test("real formulas are drawn in slices too, and all of them arrive", async () => {
+    const box = boxOf(60, "x+".repeat(300));
+    let ticks = 0;
+    const probe = setInterval(() => ticks++, 5);
+    await renderMath(box, { budgetMs: Infinity });
+    clearInterval(probe);
+    expect(box.querySelectorAll("math")).toHaveLength(60);
+    expect(ticks).toBeGreaterThan(3);
+  });
+
+  test("a stop() that turns true between formulas ends the run there", async () => {
+    const built: string[] = [];
+    const box = boxOf(20, "x");
+    await renderMath(box, {
+      load: async () => slowBuilder(20, built),
+      stop: () => built.length >= 3,
+    });
+    expect(built).toHaveLength(3);
+    expect(box.querySelectorAll("math")).toHaveLength(3);
+    // The rest are still source, not marked as failed.
+    expect(box.querySelectorAll("code.language-math:not(.docwalk-math-error)")).toHaveLength(17);
+  });
+
+  test("stop() is asked again after the page has had its turn", async () => {
+    // Flips only once a timer set before the call has fired, which needs a yield in between.
+    let fired = false;
+    setTimeout(() => (fired = true), 0);
+    const built: string[] = [];
+    const box = boxOf(10, "x");
+    await renderMath(box, { load: async () => slowBuilder(30, built), stop: () => fired });
+    expect(built.length).toBeLessThan(10);
+    expect(fired).toBe(true);
+  });
+
+  test("formulas past the time budget stay as source, unmarked", async () => {
+    const built: string[] = [];
+    const box = boxOf(30, "x");
+    await renderMath(box, { load: async () => slowBuilder(10, built), budgetMs: 60 });
+    expect(built.length).toBeGreaterThan(0);
+    expect(built.length).toBeLessThan(30);
+    expect(box.querySelectorAll("math")).toHaveLength(built.length);
+    expect(box.querySelectorAll("code.language-math:not(.docwalk-math-error)")).toHaveLength(
+      30 - built.length,
+    );
+  });
+
+  test("a budget that is not spent draws every formula", async () => {
+    const box = boxOf(30, "x");
+    await renderMath(box, { load: async () => slowBuilder(1), budgetMs: 5000 });
+    expect(box.querySelectorAll("math")).toHaveLength(30);
+  });
+});
+
 describe("hostile formulas (rule 5)", () => {
   const trusted: [string, string][] = [
     ["\\href", "\\href{https://tracker.example/x}{click}"],

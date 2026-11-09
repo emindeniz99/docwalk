@@ -14,6 +14,13 @@
  * not load in time stay as the source they were, in the `<code>` or `<pre>`
  * the sanitizer kept. `renderMath` never rejects, so a deck always goes on to
  * measure (rule 4).
+ *
+ * It draws in slices. A document can hold 500 formulas, and one loop over
+ * them was a single task (100 plain 3,990-character formulas: 14.9 s), which
+ * freezes the tab and, in WebKit, the other window of a presenter. After 16 ms
+ * of work it hands the thread back, asks `stop()` again, and goes on. The
+ * promise resolves when the last formula is drawn or left as source, so the
+ * callers that await it still measure after math has rendered (rule 4).
  */
 import { loadWithin } from "./lazy";
 
@@ -32,12 +39,26 @@ export const MAX_FORMULAS = 500;
 /** How long a deck waits for Temml before it measures with the sources. */
 export const MATH_TIMEOUT_MS = 5000;
 
+/**
+ * How long one call may spend building formulas, in total. The per-formula
+ * limits keep one formula to tens of milliseconds, and a document's few dozen
+ * take a few milliseconds each, so 3 s is more than a real document needs.
+ * Formulas past it stay as source, unmarked, and the next call tries them.
+ * Time spent yielded does not count.
+ */
+export const MATH_BUDGET_MS = 3000;
+
+/** How long the loop works before it hands the thread back; about one frame. */
+export const MATH_SLICE_MS = 16;
+
 export type MathBuilder = (tex: string, display: boolean) => Element | null;
 
 export interface MathOptions {
-  /** Checked once Temml is in: a stale build leaves its formulas alone. */
+  /** Checked once Temml is in, and before each formula: a stale build leaves its formulas alone. */
   stop?: () => boolean;
   timeoutMs?: number;
+  /** Most time this call spends building formulas; the rest stay as source. */
+  budgetMs?: number;
   /** Where the builder comes from; tests replace it to simulate a chunk that does not load. */
   load?: () => Promise<MathBuilder>;
 }
@@ -51,16 +72,41 @@ function formulas(root: ParentNode): HTMLElement[] {
   );
 }
 
+/**
+ * Hands the main thread back for a turn. WebKit has no `scheduler.yield`;
+ * a zero timeout is the portable fallback, and it lets timers run too.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /** Replaces every formula under `root` with MathML. Resolves once each is drawn or left as source. */
 export async function renderMath(
   root: ParentNode,
-  { stop = () => false, timeoutMs = MATH_TIMEOUT_MS, load = loadBuilder }: MathOptions = {},
+  {
+    stop = () => false,
+    timeoutMs = MATH_TIMEOUT_MS,
+    budgetMs = MATH_BUDGET_MS,
+    load = loadBuilder,
+  }: MathOptions = {},
 ): Promise<void> {
   const found = formulas(root);
   if (found.length === 0) return;
   const build = await loadWithin(load, timeoutMs);
-  if (!build || stop()) return;
-  for (const code of found.slice(0, MAX_FORMULAS)) draw(code, build);
+  if (!build) return;
+  let spent = 0;
+  let sliceStart = performance.now();
+  for (const code of found.slice(0, MAX_FORMULAS)) {
+    if (stop() || spent >= budgetMs) return;
+    const started = performance.now();
+    draw(code, build);
+    const now = performance.now();
+    spent += now - started;
+    if (now - sliceStart >= MATH_SLICE_MS) {
+      await yieldToEventLoop();
+      sliceStart = performance.now();
+    }
+  }
 }
 
 function draw(code: HTMLElement, build: MathBuilder): void {
