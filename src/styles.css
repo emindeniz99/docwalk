@@ -954,8 +954,10 @@ kbd {
  * The address gives way first (it truncates), so the tools only drop to a
  * second row when the pane is too narrow for them (the comments panel open
  * at 1440 px), and stay one strip there; only a phone splits their groups.
+ * The head is the container its stage controls are sized against.
  */
 .docwalk-preview-head {
+  container: docwalk-preview-head / inline-size;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -985,6 +987,21 @@ kbd {
     :is(.docwalk-annotate-button, .docwalk-annotate-swatch) {
     min-width: var(--dw-space-control);
     min-height: var(--dw-space-control);
+  }
+
+  /*
+   * At 38 px the tools need 398 px: nine controls, six 4 px gaps and two
+   * 16 px gaps between the groups. A narrower head, such as the preview
+   * beside the comments panel at 1280 px, sets them at 32 px, which keeps
+   * them in one row down to 344 px (decision 108).
+   */
+  @container docwalk-preview-head (width < 398px) {
+    .docwalk-app:not([data-view="present"])
+      .docwalk-preview-head
+      :is(.docwalk-annotate-button, .docwalk-annotate-swatch) {
+      min-width: var(--dw-space-2xl);
+      min-height: var(--dw-space-2xl);
+    }
   }
 }
 

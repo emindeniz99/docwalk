@@ -250,10 +250,11 @@ Later rounds:
   2.4.7 because it shows whenever they do. A stricter reading keeps it
   visible at all times. In Firefox the deck's focus stays invisible after
   Present's click until Tab moves it.
-- Layout: with the comments panel open at 1440 px the deck pane is about
-  500 px and the annotation toolbar wraps to two rows; on a phone an
-  expanded file panel leaves the outline about one row inside the 40dvh
-  sidebar; overview thumbnails are clones and repeat the slides' ids.
+- Layout (decision 108): with the comments panel open and a window
+  narrower than about 1264 px the annotation tool groups wrap again, with
+  every control reachable; the diagram focus view copies the SVG with its
+  ids, so they repeat while it is open; at 1280 px the app header takes two
+  rows (113 px against 63 px at 1440).
 - Code colours (decision 76): a grammar that loads after the 5 s timeout
   colours nothing until the next rebuild; the default view's first load
   is 977 kB of the 1 MB limit, and Shiki's precompiled grammars with its
