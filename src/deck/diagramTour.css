@@ -1,0 +1,55 @@
+/* The marks the diagram tour draws on the focus view's copy of a diagram
+   (decision 109). They take the design tokens directly: the stage is the
+   slide white in both themes, and Mermaid's own styles and an author's
+   classDef carry !important, so these do too. Nothing here moves, so
+   prefers-reduced-motion has nothing to stop. */
+
+.docwalk-tour-layer {
+  pointer-events: none;
+}
+
+.docwalk-tour-ring,
+.docwalk-tour-trail,
+.docwalk-tour-edge,
+.docwalk-tour-halo {
+  fill: none !important;
+  pointer-events: none;
+}
+
+/* The current node: solid. */
+.docwalk-tour-ring {
+  stroke: var(--dw-color-primary) !important;
+  stroke-width: 4;
+}
+
+/* Earlier steps: dashed, so current and earlier differ without colour. */
+.docwalk-tour-trail {
+  stroke: var(--dw-color-primary-ink) !important;
+  stroke-width: 3;
+  stroke-dasharray: 8 6;
+}
+
+/* An edge between two consecutive steps. */
+.docwalk-tour-edge {
+  stroke: var(--dw-color-primary-ink) !important;
+  stroke-width: 4;
+}
+
+/* Under each mark, so it stands out on any fill a classDef sets. */
+.docwalk-tour-halo {
+  stroke: var(--dw-color-slide) !important;
+  stroke-width: 8;
+}
+
+/* An edge off the path. The value is TOUR_DIM_OPACITY in tourModel.ts (a test
+   reads both): Mermaid's default line colour keeps 3:1 on the slide at this opacity. */
+[data-docwalk-tour-dim] {
+  opacity: 0.55 !important;
+}
+
+@media (forced-colors: active) {
+  .docwalk-tour-ring,
+  .docwalk-tour-edge {
+    stroke: Highlight !important;
+  }
+}
