@@ -137,6 +137,23 @@ describe("watchPenDrags", () => {
     expect(clickReaches()).toBe(false);
   });
 
+  test("a palm or finger landing mid-drag does not make the watcher forget the pen's drag, so its click is still swallowed and a link drag still cancelled", async () => {
+    const onDrag = await watch();
+    pointer("pointerdown", link, { clientX: 10, clientY: 10 });
+    pointer("pointermove", link, { clientX: 40, clientY: 10 });
+    expect(onDrag).toHaveBeenCalledTimes(1);
+    // A palm (touch) and a second pen pointer land on the stage while the first pen is still down.
+    pointer("pointerdown", stage, { pointerId: 2, pointerType: "touch", clientX: 5, clientY: 90 });
+    pointer("pointerdown", stage, { pointerId: 3, isPrimary: false, clientX: 6, clientY: 90 });
+    const drag = new DragEvent("dragstart", { bubbles: true, cancelable: true });
+    link.dispatchEvent(drag);
+    expect(drag.defaultPrevented).toBe(true);
+    pointer("pointermove", link, { clientX: 60, clientY: 10 });
+    pointer("pointerup", link, { clientX: 10, clientY: 10 });
+    expect(onDrag).toHaveBeenCalledTimes(1);
+    expect(clickReaches()).toBe(false);
+  });
+
   test("a click outside the stage still fires after a pen drag, so an export download or a button press is not lost", async () => {
     // iPadOS sends no click after a Pencil drag, so the armed window stays
     // open for 500 ms; a programmatic click or a keyboard press in it is not

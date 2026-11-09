@@ -145,6 +145,48 @@ test.describe("a pen through CDP", () => {
   });
 });
 
+test.describe("a pen and a palm through CDP", () => {
+  test.skip(
+    ({ browserName }) => browserName !== "chromium",
+    "Input.dispatchMouseEvent is Chromium's",
+  );
+
+  test("a palm landing mid-drag does not let the click that ends the stroke follow the link", async ({
+    context,
+  }) => {
+    const page = await context.newPage();
+    await openDoc(page);
+    const pen = await chromiumPen(context, page);
+    const s = await box(slide(page));
+    // The first pen's notice moves the page; a pen tap on blank slide gets it out of the way.
+    const blank: [number, number] = [s.x + s.width * 0.9, s.y + s.height * 0.9];
+    await pen("mousePressed", ...blank);
+    await pen("mouseReleased", ...blank);
+    await expect(page.locator(".docwalk-notice")).toContainText("A pen is in use");
+    const link = await box(slide(page).getByRole("link", { name: "Go to two" }));
+    const at: [number, number] = [link.x + link.width / 2, link.y + link.height / 2];
+
+    await pen("mousePressed", ...at);
+    await pen("mouseMoved", at[0] + 20, at[1] + 20);
+    await pen("mouseMoved", at[0] + 40, at[1] + 40);
+    // A palm lands on the slide, away from the pen.
+    await slide(page).dispatchEvent("pointerdown", {
+      pointerId: 77,
+      pointerType: "touch",
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: s.x + s.width * 0.1,
+      clientY: s.y + s.height * 0.9,
+    });
+    await pen("mouseMoved", at[0] + 20, at[1] + 20);
+    await pen("mouseMoved", ...at);
+    await pen("mouseReleased", ...at);
+    await page.waitForTimeout(500);
+    await expect(counter(page)).toHaveText("2 / 3");
+  });
+});
+
 // ---- Every engine: the same rules through synthetic pointer events -----------
 
 type Kind = "pen" | "touch" | "mouse";

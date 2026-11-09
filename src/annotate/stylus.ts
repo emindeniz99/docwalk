@@ -121,8 +121,14 @@ export function watchPenDrags(stage: HTMLElement, { enabled, onDrag }: DragWatch
   };
   const onWindowDown = () => disarm();
   const onStageDown = (event: PointerEvent) => {
-    // The pen is still down: this is the layer's hand-over of the same drag to drauu, not a new touch.
-    if (down && event.pointerId === down.pointerId) return;
+    // The pen is still down. Its own second pointerdown is the layer's hand-over of the drag to
+    // drauu; a palm, a finger or another pen pointer landing meanwhile is not the pen's either.
+    // None of them may make the watcher forget the drag.
+    if (
+      down &&
+      (event.pointerId === down.pointerId || event.pointerType !== "pen" || !event.isPrimary)
+    )
+      return;
     down = null;
     if (event.pointerType !== "pen" || !event.isPrimary || event.button !== 0 || !enabled()) return;
     down = event;
