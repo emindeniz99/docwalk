@@ -258,6 +258,28 @@ async function copyInto(
   }
 }
 
+/** Temporary names tried for a case-only rename before giving up. */
+const TEMP_NAME_TRIES = 100;
+
+/**
+ * A name in `parent` that nothing answers to, for the middle step of a
+ * case-only rename: `<name>.docwalk-rename`, then `-2`, `-3` and so on. An
+ * entry that already has one of these names is someone's file or folder,
+ * and is left alone.
+ */
+async function freeTempName(
+  parent: FileSystemDirectoryHandle,
+  dir: string,
+  name: string,
+): Promise<string> {
+  const base = `${name}.docwalk-rename`;
+  for (let i = 1; i <= TEMP_NAME_TRIES; i++) {
+    const temp = i === 1 ? base : `${base}-${i}`;
+    if ((await entryIn(parent, temp)) === null) return temp;
+  }
+  throw new WorkspaceError(m.ws_err_exists({ path: joinPath(dir, base) }));
+}
+
 /**
  * Renames a file or folder in place and returns its new path. Copies then
  * deletes: `FileSystemHandle.move()` is not available for every kind of
@@ -285,7 +307,7 @@ export async function rename(
       throw new WorkspaceError(m.ws_err_exists({ path: target }));
     }
     // Go through a temporary name so the copy never lands on the original.
-    const temp = `${name}.docwalk-rename`;
+    const temp = await freeTempName(parent, dir, name);
     await copyInto(source, parent, temp);
     await parent.removeEntry(name, { recursive: true });
     const tempHandle = await entryIn(parent, temp);

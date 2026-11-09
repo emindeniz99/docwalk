@@ -214,12 +214,34 @@ describe("a case-insensitive local folder", () => {
     expect((await readText(disk, "Docs/keep.md")).text).toBe("keep");
   });
 
-  test("a taken temporary name stops the rename before anything is written", async () => {
+  test("a taken temporary name is left alone and the rename goes through another one", async () => {
+    // The case-only rename copies through `<name>.docwalk-rename`. A file of
+    // that name is someone's file: it must survive, and the rename must not
+    // fail because of it.
     await writeText(disk, "plan.md", "# Plan\n");
     await writeText(disk, "plan.md.docwalk-rename", "someone's file");
-    await expect(rename(disk, "plan.md", "Plan.md")).rejects.toThrow(/already exists/);
-    expect((await readText(disk, "plan.md")).text).toBe("# Plan\n");
+    await writeText(disk, "plan.md.docwalk-rename-2", "and another");
+    expect(await rename(disk, "plan.md", "Plan.md")).toBe("Plan.md");
+    expect((await readText(disk, "Plan.md")).text).toBe("# Plan\n");
     const other = await (await disk.getFileHandle("plan.md.docwalk-rename")).getFile();
     expect(await other.text()).toBe("someone's file");
+    const third = await (await disk.getFileHandle("plan.md.docwalk-rename-2")).getFile();
+    expect(await third.text()).toBe("and another");
+    // Every entry, not only documents: no temporary copy is left behind.
+    const entries: string[] = [];
+    for await (const key of root.keys()) entries.push(key);
+    expect(entries.toSorted()).toEqual([
+      "Plan.md",
+      "plan.md.docwalk-rename",
+      "plan.md.docwalk-rename-2",
+    ]);
+  });
+
+  test("a temporary folder name that is taken is never merged into or deleted", async () => {
+    await writeText(disk, "docs/a.md", "A");
+    await writeText(disk, "docs.docwalk-rename/keep.md", "keep");
+    expect(await rename(disk, "docs", "Docs")).toBe("Docs");
+    expect((await readText(disk, "Docs/a.md")).text).toBe("A");
+    expect((await readText(disk, "docs.docwalk-rename/keep.md")).text).toBe("keep");
   });
 });

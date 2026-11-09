@@ -38,22 +38,109 @@ function collatorFor(locale: string): Intl.Collator {
   return collator;
 }
 
+/** Folded letters kept per locale before the table starts again; a hostile page can hold a million distinct ones. */
+const FOLD_CACHE_LIMIT = 50_000;
+const foldCaches = new Map<string, Map<string, string>>();
+const MARKS = /\p{M}/gu;
+
+/**
+ * One letter as the collator sees it at base sensitivity: lower case, then
+ * compatibility forms and accents dropped, katakana as hiragana. Each step is
+ * kept only when the collator agrees the result equals the letter, so the
+ * Turkish UI keeps ç, ğ, ö, ş, ü and dotless ı as letters of their own and
+ * folds dotted İ to i (decision 116).
+ */
+function foldLetter(letter: string, locale: string): string {
+  let cache = foldCaches.get(locale);
+  if (!cache) foldCaches.set(locale, (cache = new Map()));
+  const known = cache.get(letter);
+  if (known !== undefined) return known;
+  // The locale changes the lower case of I and İ only (Turkish and Azeri;
+  // Lithuanian is no UI locale). toLocaleLowerCase costs 100 times more, and
+  // a hostile page can hold a million distinct letters.
+  const lower =
+    letter === "I" || letter === "İ" ? letter.toLocaleLowerCase(locale) : letter.toLowerCase();
+  const bare = lower.normalize("NFKD").replace(MARKS, "");
+  const code = bare.length === 1 ? bare.charCodeAt(0) : 0;
+  const kana = code >= 0x30a1 && code <= 0x30f6 ? String.fromCharCode(code - 0x60) : bare;
+  let fold = letter;
+  const collator = collatorFor(locale);
+  for (const candidate of [kana, bare, lower]) {
+    if (candidate === letter || (candidate !== "" && collator.compare(letter, candidate) === 0)) {
+      fold = candidate;
+      break;
+    }
+  }
+  if (cache.size >= FOLD_CACHE_LIMIT) cache.clear();
+  cache.set(letter, fold);
+  return fold;
+}
+
+/**
+ * A text with every letter folded, and for each folded code unit the range of
+ * the letter it came from, so a match in the folded text maps back to the
+ * page's own indices.
+ */
+export interface FoldedText {
+  folded: string;
+  starts: Int32Array;
+  ends: Int32Array;
+}
+
+export function foldText(text: string, locale: string): FoldedText {
+  const parts: string[] = [];
+  for (const letter of text) parts.push(foldLetter(letter, locale));
+  const folded = parts.join("");
+  const starts = new Int32Array(folded.length);
+  const ends = new Int32Array(folded.length);
+  let at = 0;
+  let unit = 0;
+  let index = 0;
+  for (const letter of text) {
+    const end = at + letter.length;
+    for (const stop = unit + parts[index++]!.length; unit < stop; unit++) {
+      starts[unit] = at;
+      ends[unit] = end;
+    }
+    at = end;
+  }
+  return { folded, starts, ends };
+}
+
+/** The first match of an already folded query, on whole letters only, or null. */
+function findFolded({ folded, starts, ends }: FoldedText, query: string): TextMatch | null {
+  if (query.length === 0) return null;
+  for (let pos = folded.indexOf(query); pos !== -1; pos = folded.indexOf(query, pos + 1)) {
+    const last = pos + query.length - 1;
+    const wholeStart = pos === 0 || starts[pos] !== starts[pos - 1];
+    const wholeEnd = last === folded.length - 1 || starts[last + 1] !== starts[last];
+    if (wholeStart && wholeEnd) return { start: starts[pos]!, end: ends[last]! };
+  }
+  return null;
+}
+
 /**
  * The first place `query` occurs in `text`, ignoring case and accents, or
  * null. `text` is page text (see `slideText`) and `query` has been through
- * `normalizeQuery`. Like React Aria's `contains`, it compares each window of
- * the query's length with the query; unlike it, it says where.
+ * `normalizeQuery`. Both are folded letter by letter with the collator's
+ * verdicts (`foldLetter`) and searched with `indexOf`, so the work grows with
+ * the text, not with the text times the query (decision 116).
  */
 export function findText(text: string, query: string, locale: string): TextMatch | null {
-  const length = query.length;
-  if (length === 0 || length > text.length) return null;
-  const collator = collatorFor(locale);
-  for (let start = 0; start + length <= text.length; start++) {
-    if (collator.compare(text.slice(start, start + length), query) === 0) {
-      return { start, end: start + length };
-    }
-  }
-  return null;
+  if (query.length === 0 || text.length === 0) return null;
+  return findFolded(foldText(text, locale), foldText(query, locale).folded);
+}
+
+/** Each slide's folded text per locale, built the first time a search reads it and gone with the deck. */
+const foldedSlides = new WeakMap<object, { locale: string; text: string; folded: FoldedText }>();
+
+function foldedSlide(slide: { text: string }, locale: string): FoldedText {
+  const kept = foldedSlides.get(slide);
+  const text = slide.text;
+  if (kept && kept.locale === locale && kept.text === text) return kept.folded;
+  const folded = foldText(text, locale);
+  foldedSlides.set(slide, { locale, text, folded });
+  return folded;
 }
 
 export interface Snippet {
@@ -107,9 +194,10 @@ export function searchText<T extends { text: string }>(
   const hits: TextHit<T>[] = [];
   let total = 0;
   if (query.length < TEXT_MIN_QUERY) return { hits, total };
+  const folded = foldText(query, locale).folded;
   for (const slide of slides) {
     if (skip(slide)) continue;
-    const match = findText(slide.text, query, locale);
+    const match = findFolded(foldedSlide(slide, locale), folded);
     if (!match) continue;
     total++;
     if (hits.length < TEXT_MATCH_LIMIT)

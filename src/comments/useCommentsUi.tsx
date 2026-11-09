@@ -94,7 +94,8 @@ export function useCommentsUi({
       (n) =>
         setNotice({
           ...n,
-          ...(n.tone === "info"
+          // A notice that asks something (decision 119) keeps its own action.
+          ...(n.tone === "info" && !n.action
             ? { action: { label: m.comments_show(), run: () => show(true) } }
             : {}),
         }),
@@ -212,6 +213,8 @@ export function useCommentsUi({
     markEdit: api.markEdit,
     /** The document's identity, which saved marks key by (decision 105). */
     documentKey: api.key,
+    /** The key the document had before decision 120, which saved marks move from. */
+    documentLegacyKey: api.legacyKey,
     /** True when the document cannot be hashed, so it never gets a key. */
     documentUnidentified: api.unidentified,
     onDocumentRendered,

@@ -3,10 +3,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { LoadedDocument } from "../inputs/types";
 import { AUTHOR_KEY } from "./author";
+import { encodeComments } from "./payload";
 import { serializeComments } from "./schema";
 import { openCommentStore } from "./store";
 import type { Anchor, DocComment } from "./types";
-import { useComments, type CommentsApi } from "./useComments";
+import { useComments, type CommentNotice, type CommentsApi } from "./useComments";
 
 /**
  * The hook that owns a document's comments: deleting leaves a tombstone so
@@ -28,8 +29,11 @@ const freshDoc = (): LoadedDocument => ({
 });
 const keyOf = (doc: LoadedDocument) => `file:${(doc.source as { name: string }).name}`;
 
+/** Every notice the hook raised in the page (a share link's import), newest last. */
+const notices: CommentNotice[] = [];
+
 function Harness({ doc, report }: { doc: LoadedDocument; report: (api: CommentsApi) => void }) {
-  report(useComments({ doc, onNotice: () => {} }));
+  report(useComments({ doc, onNotice: (notice) => notices.push(notice) }));
   return null;
 }
 
@@ -61,6 +65,7 @@ const sidecar = (comments: DocComment[]) =>
 
 beforeEach(() => {
   localStorage.removeItem(AUTHOR_KEY);
+  notices.length = 0;
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -93,7 +98,42 @@ describe("deleting a comment", () => {
     expect(stored.deleted.map((t) => t.id)).toEqual([added.id]);
   });
 
-  test("a file that deletes a comment removes it here and says so", async () => {
+  test("a file that would delete a comment here keeps it and asks; Delete removes it (decision 119)", async () => {
+    // A file can carry up to 500 tombstones for any ids. Applied silently, a
+    // file someone sent could wipe a reviewer's comments without a word.
+    const doc = freshDoc();
+    const api = mount(doc);
+    await ready(api);
+    act(() => void api.current!.add(heading, "Mine"));
+    const mine = api.current!.comments[0]!;
+    const file = new File(
+      [serializeComments([comment()], [{ id: mine.id, deleted: mine.updated + 10 }])],
+      "x.comments.json",
+    );
+    const notice = await act(() => api.current!.importFile(file));
+    expect(notice.message).toBe(
+      "Imported 1 comment. It also deletes 1 of your comments here; it stays unless you delete it.",
+    );
+    expect(api.current!.comments.map((c) => c.id).toSorted()).toEqual(
+      [mine.id, "from-a-file"].toSorted(),
+    );
+    // Nothing deleted is stored either, so a reload keeps the comment too.
+    await settle();
+    const store = await openCommentStore();
+    expect((await store.read(keyOf(doc))).deleted).toEqual([]);
+
+    expect(notice.action?.label).toBe("Delete 1 comment");
+    let after: CommentNotice | undefined;
+    act(() => {
+      after = notice.action!.run();
+    });
+    expect(after).toEqual({ message: "Deleted 1 comment.", tone: "info" });
+    expect(api.current!.comments.map((c) => c.id)).toEqual(["from-a-file"]);
+    await settle();
+    expect((await store.read(keyOf(doc))).deleted.map((t) => t.id)).toEqual([mine.id]);
+  });
+
+  test("leaving the question unanswered keeps the comment", async () => {
     const doc = freshDoc();
     const api = mount(doc);
     await ready(api);
@@ -104,8 +144,40 @@ describe("deleting a comment", () => {
       "x.comments.json",
     );
     const notice = await act(() => api.current!.importFile(file));
-    expect(notice.message).toBe("1 comment was removed because the file deletes it.");
+    expect(notice.message).toBe(
+      "It also deletes 1 of your comments here; it stays unless you delete it.",
+    );
+    // Another change saves the list: the held deletion must not ride along with it.
+    act(() => api.current!.setResolved(mine.id, true));
+    await settle();
+    expect(api.current!.comments.map((c) => c.id)).toEqual([mine.id]);
+    expect((await (await openCommentStore()).read(keyOf(doc))).comments).toHaveLength(1);
+  });
+
+  test("a share link that would delete a comment here keeps it and asks too", async () => {
+    const doc: LoadedDocument = {
+      markdown: "# T\n\n## Goals\n\nText.\n",
+      source: { kind: "url", url: `https://docs.example/${crypto.randomUUID()}.md`, trusted: true },
+    };
+    const key = `url:${(doc.source as { url: string }).url}`;
+    const store = await openCommentStore();
+    const mine = comment({ id: "mine-before-the-link", text: "Mine" });
+    await store.save(key, [mine]);
+    const value = await encodeComments([], [{ id: mine.id, deleted: mine.updated + 10 }]);
+    history.replaceState(null, "", `#c=${value}`);
+
+    const api = mount(doc);
+    await ready(api);
+    await expect.poll(() => notices.length).toBe(1);
+    expect(notices[0]!.message).toBe(
+      "This link carries 0 comments; open Comments to read them. It also deletes 1 of your comments here; it stays unless you delete it.",
+    );
+    expect(api.current!.comments.map((c) => c.id)).toEqual([mine.id]);
+    expect(location.hash).toBe("");
+
+    act(() => void notices[0]!.action!.run());
     expect(api.current!.comments).toEqual([]);
+    expect(notices.at(-1)).toEqual({ message: "Deleted 1 comment.", tone: "info" });
   });
 
   test("an edit made after the deletion brings the comment back", async () => {
@@ -120,6 +192,28 @@ describe("deleting a comment", () => {
     expect(notice.message).toBe("Imported 1 comment.");
     expect(api.current!.comments.map((c) => c.text)).toEqual(["Second thoughts"]);
     expect(api.current!.deleted).toEqual([]);
+  });
+});
+
+describe("a ?src= document's key (decision 120)", () => {
+  test("is the address without its query, and comments under the old key move to it once", async () => {
+    const path = `https://docs.example/${crypto.randomUUID()}.md`;
+    const doc: LoadedDocument = {
+      markdown: "# T\n\n## Goals\n\nText.\n",
+      source: { kind: "url", url: `${path}?t=secret-token`, trusted: true },
+    };
+    const store = await openCommentStore();
+    const old = comment({ id: "saved-under-the-old-key", text: "Before 120" });
+    await store.save(`url:${path}?t=secret-token`, [old]);
+
+    const api = mount(doc);
+    await ready(api);
+    expect(api.current!.key).toBe(`url:${path}`);
+    expect(api.current!.comments.map((c) => c.id)).toEqual([old.id]);
+    await settle();
+    // The token is gone from the database: the old record is deleted once it moved.
+    expect((await store.read(`url:${path}?t=secret-token`)).comments).toEqual([]);
+    expect((await store.read(`url:${path}`)).comments.map((c) => c.id)).toEqual([old.id]);
   });
 });
 

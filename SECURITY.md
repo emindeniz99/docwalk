@@ -55,7 +55,10 @@ protects:
   relays ciphertext, caps frame size and room size, and never sees a key or
   a document. A replayed frame is dropped. The control key steers the deck
   and reads and writes the document; the view key in a follow link only
-  receives state, and only state the presenter signed. The presenter's
+  receives state, and only state the presenter signed. The presenter signs
+  the countdown it sends to phone remotes too, and a phone checks it with
+  the public key in its own link, so another holder of the control link
+  cannot set the phones' clocks. The presenter's
   laser, pen marks and focus view (of a diagram, code block, table or image,
   with its zoom, scroll, marked code lines and diagram tour) reach followers
   the same way: as signed `mirror` messages under the view key, never to
@@ -100,6 +103,9 @@ Known limits, by design:
   or resync, as it can cover the page with marks. A follower from before
   decision 110 drops the board ops and the new tools at its schema check
   and keeps showing the slide.
+- Speaker notes are not private. They are HTML comments in the Markdown,
+  so anyone who has the file, a share link or a room link can read them;
+  the presenter window says so under its notes.
 - The relay sees room ids, frame sizes and timing.
 - Whoever hosts docwalk serves its code. A hostile host, a compromised
   browser or a malicious extension is out of scope.

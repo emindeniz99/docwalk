@@ -66,6 +66,8 @@ function useRemoteControl(
   const replyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const room = creds?.room;
   const key = creds?.key;
+  // The public state key, when the link has one: the countdown counts only when it verifies (decision 117).
+  const verify = creds?.verify ?? null;
 
   const expectReply = useCallback(() => {
     clearTimeout(replyTimer.current);
@@ -77,7 +79,7 @@ function useRemoteControl(
     let active = true;
     // connectRoom sends `hello` on every (re)connect; the presenter answers with state.
     const conn = connectRoom({
-      creds: { room, key, view: null },
+      creds: { room, key, view: null, verify },
       role: "remote",
       onMessage: (message) => {
         if (!active) return;
@@ -110,7 +112,7 @@ function useRemoteControl(
       connection.current = null;
       setStatus("connecting");
     };
-  }, [room, key, socketFactory, base, expectReply]);
+  }, [room, key, verify, socketFactory, base, expectReply]);
 
   const send = (message: RemoteMessage) => {
     if (message.type === "step" || message.type === "goto") expectReply();

@@ -147,6 +147,13 @@
   color: var(--dw-color-stage-muted);
 }
 
+.docwalk-presenter-notes-privacy {
+  margin: 0;
+  color: var(--dw-color-stage-muted);
+  font-size: var(--dw-type-caption-size);
+  line-height: var(--dw-type-caption-line-height);
+}
+
 .docwalk-presenter-side {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

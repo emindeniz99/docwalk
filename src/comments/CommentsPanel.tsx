@@ -419,6 +419,15 @@ function PanelBody({
       <p role="status" className="docwalk-comments-status" data-tone={status?.tone}>
         {status?.message ?? ""}
       </p>
+      {status?.action && (
+        // The file would delete comments here: they stay until this is pressed (decision 119).
+        <Button
+          className="docwalk-button docwalk-comments-status-action"
+          onPress={() => announce(status.action!.run())}
+        >
+          {status.action.label}
+        </Button>
+      )}
     </div>
   );
 }

@@ -25,7 +25,8 @@ test("a phone remote moves the presenter's deck and points its laser; a follower
   await expect(dialog.getByText("Room open")).toBeVisible();
   const remoteUrl = await dialog.getByRole("textbox", { name: "Phone remote link" }).inputValue();
   const followUrl = await dialog.getByRole("textbox", { name: "Follow along link" }).inputValue();
-  expect(remoteUrl).toMatch(/\?view=remote#room=[\w-]+&k=[\w-]+$/);
+  // The public state key rides along, so the phone can check the signed countdown (decision 117).
+  expect(remoteUrl).toMatch(/\?view=remote#room=[\w-]+&k=[\w-]+&p=[\w-]+$/);
   await dialog.getByRole("button", { name: "Close" }).click();
 
   // The preview follows the editor's cursor, and replaceSource leaves the

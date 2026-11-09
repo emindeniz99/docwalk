@@ -376,6 +376,10 @@
   color: var(--note-fg);
 }
 
+.docwalk-comments-status-action {
+  align-self: flex-start;
+}
+
 @media (pointer: coarse), (max-width: 640px) {
   .docwalk-comments-actions .docwalk-icon-button {
     width: var(--dw-space-target);

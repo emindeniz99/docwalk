@@ -97,7 +97,9 @@
   "comments_damaged_link": "The comments in this link are damaged and were not imported.",
   "comments_delete": "Delete comment",
   "comments_delete_confirm": "Delete this comment?",
+  "comments_delete_held": "{count, plural, one {Delete # comment} other {Delete # comments}}",
   "comments_deleted": "Comment deleted.",
+  "comments_deleted_held": "{count, plural, one {Deleted # comment.} other {Deleted # comments.}}",
   "comments_diagram_at_start": "Diagram {number} at the start",
   "comments_diagram_nodes": "Diagram nodes",
   "comments_diagram_under": "Diagram {number} under {heading}",
@@ -112,7 +114,6 @@
   "comments_hide": "Hide comments",
   "comments_import": "Import comments file",
   "comments_import_over_cap": "A document keeps at most {max} comments; importing these would pass that.",
-  "comments_import_removed": "{count, plural, one {# comment was removed because the file deletes it.} other {# comments were removed because the file deletes them.}}",
   "comments_import_too_large": "This file is too large to be a comments file.",
   "comments_imported": "{count, plural, one {Imported # comment.} other {Imported # comments.}}",
   "comments_link_carries": "{count, plural, one {This link carries # comment; open Comments to read it.} other {This link carries # comments; open Comments to read them.}}",
@@ -386,6 +387,7 @@
   "presenter_no_preview": "No preview for this slide.",
   "presenter_notes": "Speaker notes",
   "presenter_notes_empty": "No notes for this slide.",
+  "presenter_notes_private": "Not private: notes are HTML comments in the document, so anyone who has the Markdown, a share link or a room link can read them.",
   "presenter_now": "Now",
   "presenter_pace_ahead": "Ahead of schedule",
   "presenter_pace_behind": "Behind schedule",
@@ -612,5 +614,6 @@
   "ws_zip_not_zip": "The file is not a zip archive, or it is damaged.",
   "ws_zip_too_large": "The zip file is larger than {mb} MB.",
   "ws_zip_too_many": "The zip file has more than {count} entries.",
-  "ws_zip_unpacked_too_large": "The zip file unpacks to more than {mb} MB."
+  "ws_zip_unpacked_too_large": "The zip file unpacks to more than {mb} MB.",
+  "comments_would_delete": "{count, plural, one {It also deletes # of your comments here; it stays unless you delete it.} other {It also deletes # of your comments here; they stay unless you delete them.}}"
 }

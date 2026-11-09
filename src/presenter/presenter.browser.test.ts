@@ -440,6 +440,23 @@ describe("speaker notes in the presenter view (decision 79)", () => {
     expect(panel?.textContent).toContain("No notes for this slide.");
   });
 
+  test("says on every slide that notes are not private, since anyone with the document can read them (decision 121)", async () => {
+    // Notes are HTML comments in the Markdown: a share link, a follow link's
+    // document and a phone room all carry them. A speaker must not mistake
+    // the panel for a private place.
+    const channel = fakeChannel();
+    const el = renderView(channel.factory);
+    for (const address of [N_ALPHA, N_BETA]) {
+      await channel.deliver(notesState(address));
+      await expect.poll(() => notesPanel(el)?.textContent).toContain("Not private");
+      const panel = notesPanel(el)!;
+      const said = document.getElementById(panel.getAttribute("aria-describedby") ?? "none");
+      expect(said?.textContent).toBe(
+        "Not private: notes are HTML comments in the document, so anyone who has the Markdown, a share link or a room link can read them.",
+      );
+    }
+  });
+
   test("shows a section's notes on each of its pages, because the notes belong to the section", async () => {
     const channel = fakeChannel();
     const el = renderView(channel.factory);

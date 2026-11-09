@@ -34,6 +34,7 @@ function Harness({ sheet, unreadable = false }: { sheet: boolean; unreadable?: b
     deleted: [],
     ready: true,
     key: "sha256:test",
+    legacyKey: null,
     unidentified: false,
     persistent: !unreadable,
     unreadable,
