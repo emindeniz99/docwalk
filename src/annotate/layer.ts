@@ -429,7 +429,11 @@ export function createAnnotationLayer(
   function onLaserDown(event: PointerEvent) {
     if (mode !== "laser" || fingerSwipes(event)) return;
     // Keep receiving moves while a finger or stylus drags past the overlay edge.
-    laser.setPointerCapture?.(event.pointerId);
+    try {
+      laser.setPointerCapture?.(event.pointerId);
+    } catch {
+      // The pointer is already gone (a quick tap, a synthetic event): nothing to keep receiving.
+    }
     onLaserMove(event);
   }
 
