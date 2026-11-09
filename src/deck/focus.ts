@@ -329,7 +329,8 @@ function diagramStage(stage: HTMLElement, diagram: HTMLElement, close: () => voi
     ...base,
     extras(add, toolbar) {
       if (source !== undefined) {
-        // A short label keeps the toolbar on one row at 390 px; the name says what it does.
+        // A short label, an icon for Tour and a tighter gap (focusTour.css) keep the toolbar
+        // on one row at 390 px; the name says what the button does.
         add(m.focus_sketch(), m.focus_sketch_title(), () => {
           const hosts = [
             ...(diagram.closest(".slides") ?? document).querySelectorAll(".docwalk-diagram"),
@@ -464,10 +465,9 @@ function tourControls(
 
   return {
     mount(add: AddButton, toolbar: HTMLElement) {
-      tourButton = add(m.tour_button(), m.tour_button_title(), () =>
-        running() ? end(true) : start(),
-      );
-      // The name is the visible word; the title carries the hint and the key.
+      // An icon keeps the toolbar on one row at 390 px, as Zoom and Fullscreen
+      // do: the name is "Tour" and the title carries the hint and the key.
+      tourButton = add("◎", m.tour_button_title(), () => (running() ? end(true) : start()));
       tourButton.setAttribute("aria-label", m.tour_button());
       back = add("←", m.tour_back(), () => step(previousStep));
       next = add("→", m.tour_next(), () => step((from) => nextStep(from, count)));

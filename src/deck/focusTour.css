@@ -33,3 +33,12 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* A diagram's toolbar holds seven buttons (the tour makes the seventh): at 390 px
+   they need 371 px of the 366 the toolbar has, so Close wrapped onto a second
+   row. A 4px gap makes them fit and leaves every button its 44px target. */
+@media (max-width: 480px) {
+  .docwalk-focus[data-kind="diagram"] .docwalk-focus-toolbar {
+    gap: var(--dw-space-xs);
+  }
+}

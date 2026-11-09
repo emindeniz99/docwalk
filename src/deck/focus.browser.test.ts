@@ -1,7 +1,7 @@
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, test } from "vitest";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
@@ -97,5 +97,28 @@ describe("the diagram view's toolbar before any tour starts", () => {
     expect([box.width, box.height]).toEqual([1, 1]);
     // The count is a toolbar item that is hidden until the tour runs.
     expect(view.querySelector<HTMLElement>(".docwalk-tour-count")!.hidden).toBe(true);
+  });
+
+  // At 390 px the toolbar once wrapped, leaving Close alone on a second row.
+  test("at 390 px every toolbar button shares one row, each at least 44 px", async () => {
+    await page.viewport(390, 844);
+    try {
+      const view = await openDiagramView();
+      const buttons = [
+        ...view.querySelectorAll<HTMLButtonElement>(".docwalk-focus-toolbar button"),
+      ].filter((b) => !b.hidden);
+      // Zoom out, zoom in, Fit, Fullscreen, Sketch, Tour, Close.
+      expect(buttons).toHaveLength(7);
+      const boxes = buttons.map((b) => b.getBoundingClientRect());
+      expect(new Set(boxes.map((box) => Math.round(box.top))).size).toBe(1);
+      for (const box of boxes) {
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.width).toBeGreaterThanOrEqual(44);
+        expect(box.left).toBeGreaterThanOrEqual(0);
+        expect(box.right).toBeLessThanOrEqual(390);
+      }
+    } finally {
+      await page.viewport(1280, 800);
+    }
   });
 });

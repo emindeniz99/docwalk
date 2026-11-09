@@ -362,10 +362,12 @@ describe("keyboard reach", () => {
     expect(visited.has("Tour")).toBe(true);
   });
 
-  test("the toggle carries aria-pressed and a name that holds its visible word", async () => {
+  // Icon-only since the diagram toolbar had to fit one row at 390 px: it has
+  // no visible word, so the name is "Tour" and the tooltip keeps the hint.
+  test("the toggle is an icon with the name Tour, a tooltip and aria-pressed", async () => {
     await openView();
     const toggle = tourButton()!;
-    expect(toggle.textContent).toBe("Tour");
+    expect(toggle.textContent).toBe("◎");
     expect(toggle.getAttribute("aria-label")).toBe("Tour");
     expect(toggle.title).toBe("Step through the nodes (T)");
   });
