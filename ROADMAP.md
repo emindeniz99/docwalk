@@ -219,9 +219,10 @@ Later rounds:
   schema refuses (65 to 68 killed on 2026-11-09; the 8 left are equivalent
   mutants, such as padding that `atob` does not need); Lighthouse SEO has a
   0.95 floor since 2026-11-09 (decision 104). "Editing the source … notes in the gutter"
-  (`e2e/app.spec.ts`) failed once on WebKit under load and never again in
-  40 runs; one lead is that `App.tsx` diagnostics fall back to line 1
-  (`?? 1`) for a slide from a stale deck. The presenter axe test's 90 s
+  (`e2e/app.spec.ts`) failed once on WebKit; on 2026-11-09 the stale-deck
+  note on line 1 was fixed (cosmetic, not the cause) and the test waits for
+  the ready deck, but it still fails if a rebuild takes over 5 s, which was
+  not measured on WebKit. The presenter axe test's 90 s
   budget assumes CI is about twice as slow as a local run; it was not
   measured on CI.
 - Speaker notes (decision 79): a comment-only part after the first slide
