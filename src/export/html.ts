@@ -18,7 +18,8 @@ export const EXPORT_CSP =
  * One self-contained HTML file of the deck (decision 9): the app's CSS
  * inlined, slides as static HTML with diagrams as inline SVG, sanitized
  * again with DOMPurify, no scripts, no remote requests. It scrolls on screen
- * and prints one slide per page.
+ * and prints one slide per page. It never carries speaker notes, whatever
+ * the options hold: people forward this file (decision 114).
  */
 export async function exportHtml(options: ExportOptions): Promise<Blob> {
   const rules = sameOriginRules(document);
@@ -32,7 +33,7 @@ export async function exportHtml(options: ExportOptions): Promise<Blob> {
   const doc = document.implementation.createHTMLDocument("");
   const css = [fonts.note, fonts.css, appCss, pageCss(options.size)].join("\n");
   writeHead(doc, options.title, escapeStyleText(css), EXPORT_CSP);
-  doc.body.replaceChildren(buildPages(doc, options, offline));
+  doc.body.replaceChildren(buildPages(doc, options, offline, { withNotes: false }));
   return new Blob(["<!doctype html>\n", doc.documentElement.outerHTML], {
     type: "text/html;charset=utf-8",
   });

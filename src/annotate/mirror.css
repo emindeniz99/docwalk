@@ -1,0 +1,64 @@
+/* The presenter's marks and laser as followers and the presenter window see
+   them (decision 88). The overlay never takes a pointer event, and the
+   colours are the pen swatches' design tokens: a message names a colour key,
+   never a colour. */
+
+.docwalk-mirror {
+  position: absolute;
+  inset: 0;
+  /* Above reveal.js's slides (z-index 10 to 12), level with the presenter's own marks. */
+  z-index: 20;
+  pointer-events: none;
+}
+
+/* The whiteboard's paper (decision 110): the slide's colour over the slide box,
+   under the strokes. Like the rest of the overlay it takes no pointer event;
+   the page under it is inert while it shows. */
+.docwalk-mirror-board {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: var(--dw-color-slide);
+}
+
+.docwalk-mirror[data-board] > .docwalk-mirror-board {
+  display: block;
+}
+
+.docwalk-mirror > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.docwalk-mirror [data-color="primary"] {
+  --docwalk-mark: var(--dw-color-primary);
+}
+
+.docwalk-mirror [data-color="focus"] {
+  --docwalk-mark: var(--dw-color-focus);
+}
+
+.docwalk-mirror [data-color="ink"] {
+  --docwalk-mark: var(--dw-color-ink);
+}
+
+.docwalk-mirror path[data-mark],
+.docwalk-mirror g[data-mark] path {
+  fill: var(--docwalk-mark);
+}
+
+.docwalk-mirror g[data-mark] line {
+  stroke: var(--docwalk-mark);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.docwalk-mirror rect[data-mark],
+.docwalk-mirror ellipse[data-mark] {
+  fill: none;
+  stroke: var(--docwalk-mark);
+  stroke-width: 4;
+}

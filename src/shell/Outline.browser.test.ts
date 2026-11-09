@@ -25,6 +25,7 @@ const slide = (index: number, sectionId: string, page: number): SlideInfo => ({
   title: sectionId,
   flagged: false,
   note: null,
+  text: "",
 });
 
 // "intro" has one page; "failure" has three and the presenter is on its third.

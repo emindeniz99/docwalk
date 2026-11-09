@@ -1,4 +1,15 @@
 import { describe, expect, test } from "vitest";
+import { MirrorFeed } from "../annotate/mirrorFeed";
+import {
+  MAX_STROKE_POINTS,
+  mirrorFrameBytes,
+  RESYNC_BYTES_PER_SECOND,
+  RESYNC_MIN_GAP_MS,
+  resyncGapMs,
+  type MarkStroke,
+  type MirrorOp,
+} from "../annotate/mirrorTypes";
+import { API_LIMITS } from "../api/types";
 import {
   createPresenterCredentials,
   createRoomCredentials,
@@ -43,6 +54,67 @@ const MESSAGES: RemoteMessage[] = [
   { type: "laser", x: 0, y: 1 },
   { type: "laser-off" },
   { type: "hello", role: "follower", id: "AbCdEfGhIjKl" },
+  { type: "countdown", countdown: { targetMs: 20 * 60_000, spentMs: 90_500, running: true } },
+  { type: "countdown", countdown: { targetMs: 60_000, spentMs: 0, running: false } },
+  {
+    type: "countdown",
+    countdown: { targetMs: 600 * 60_000, spentMs: 7 * 24 * 60 * 60_000, running: true },
+  },
+  { type: "countdown", countdown: null },
+  { type: "mirror", op: "laser", x: 0.25, y: 0.75 },
+  { type: "mirror", op: "laser-off" },
+  {
+    type: "mirror",
+    op: "stroke",
+    slide: "retries/2",
+    id: 7,
+    tool: "pen",
+    color: "primary",
+    from: 0,
+    points: [0, 0, 2048, 1024, 4096, 4096],
+    end: false,
+  },
+  { type: "mirror", op: "drop", slide: "retries/2", ids: [7, 8] },
+  { type: "mirror", op: "clear", slide: "retries/2" },
+  { type: "mirror", op: "keep", slide: "retries/2", ids: [7, 8] },
+  { type: "mirror", op: "keep", slide: "retries/2", ids: [] },
+  { type: "mirror", op: "focus-open", slide: "retries/2", diagram: 2 },
+  { type: "mirror", op: "focus-view", scale: 2.5, x: -0.25, y: 0.1 },
+  { type: "mirror", op: "focus-close" },
+  // The code, table and image views (decision 106).
+  { type: "mirror", op: "focus-open", slide: "retries/2", code: 1 },
+  { type: "mirror", op: "focus-open", slide: "retries/2", table: 1000 },
+  { type: "mirror", op: "focus-open", slide: "retries/2", image: 3 },
+  { type: "mirror", op: "focus-lines", lines: [1, 4, 100_000] },
+  { type: "mirror", op: "focus-lines", lines: [] },
+  // The diagram tour (decision 109).
+  { type: "mirror", op: "focus-tour", path: [1, 2, 2, 1000] },
+  { type: "mirror", op: "focus-tour", path: [] },
+  // Shapes and the whiteboard (decision 110).
+  {
+    type: "mirror",
+    op: "stroke",
+    slide: "retries/board",
+    id: 8,
+    tool: "rect",
+    color: "ink",
+    from: 0,
+    points: [0, 10, 4096, 4000],
+    end: true,
+  },
+  {
+    type: "mirror",
+    op: "stroke",
+    slide: "retries/board",
+    id: 9,
+    tool: "ellipse",
+    color: "focus",
+    from: 0,
+    points: [100, 200, 300, 400],
+    end: true,
+  },
+  { type: "mirror", op: "board-open", slide: "retries/2" },
+  { type: "mirror", op: "board-close" },
 ];
 
 /** A seal for tests: any sender id, any counter. */
@@ -51,6 +123,15 @@ const SEAL = { sender: "SenderSender", counter: 1 };
 /** `message` inside a valid seal, as JSON text: a key holder's plaintext. */
 const sealed = (message: unknown) =>
   JSON.stringify({ s: SEAL.sender, n: SEAL.counter, m: message });
+
+/** `count` pen strokes of `points` points at the widest numbers, ids from `from`. */
+const widestStrokes = (count: number, points: number, from = 1): MarkStroke[] =>
+  Array.from({ length: count }, (_, i) => ({
+    id: from + i,
+    tool: "pen",
+    color: "primary",
+    points: Array.from({ length: 2 * points }, () => 4096),
+  }));
 
 /** Encrypts arbitrary text under `key`, as a hostile key holder could. */
 async function encryptRaw(key: RoomKey, plaintext: string): Promise<EncryptedFrame> {
@@ -247,6 +328,78 @@ describe("encrypt and decrypt", () => {
   });
 });
 
+describe("the countdown message (decision 112)", () => {
+  const MIN = 60_000;
+  const good = { targetMs: 20 * MIN, spentMs: 5 * MIN, running: true };
+
+  test("passes within 80's limits and as null, and strips what it does not know", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const open = async (countdown: unknown, extra: object = {}) =>
+      (
+        await decrypt(
+          key,
+          await encryptRaw(key, sealed({ type: "countdown", countdown, ...extra })),
+        )
+      )?.message;
+    expect(await open(good)).toEqual({ type: "countdown", countdown: good });
+    expect(await open(null)).toEqual({ type: "countdown", countdown: null });
+    expect(await open({ ...good, note: "<img onerror=x>" }, { html: "x" })).toEqual({
+      type: "countdown",
+      countdown: good,
+    });
+  });
+
+  test("a target under 1 or over 600 minutes, or a fraction of a millisecond, is dropped", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    for (const targetMs of [0, -MIN, MIN - 1, 600 * MIN + 1, 1.5 * MIN + 0.5, null, "60000"]) {
+      const frame = await encryptRaw(
+        key,
+        sealed({ type: "countdown", countdown: { ...good, targetMs } }),
+      );
+      expect([targetMs, await decrypt(key, frame)]).toEqual([targetMs, null]);
+    }
+  });
+
+  test("time spent below zero, fractional, over 7 days or not a number is dropped", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    for (const spentMs of [-1, 0.5, 7 * 24 * 60 * MIN + 1, "0", null]) {
+      const frame = await encryptRaw(
+        key,
+        sealed({ type: "countdown", countdown: { ...good, spentMs } }),
+      );
+      expect([spentMs, await decrypt(key, frame)]).toEqual([spentMs, null]);
+    }
+  });
+
+  test("a missing or non-boolean running flag, a missing field or a wrong shape is dropped", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const { running: _running, ...withoutRunning } = good;
+    for (const countdown of [
+      withoutRunning,
+      { ...good, running: 1 },
+      { ...good, running: "true" },
+      { targetMs: good.targetMs, running: true },
+      { spentMs: 0, running: true },
+      [],
+      "20:00",
+      7,
+      undefined,
+    ]) {
+      const frame = await encryptRaw(key, sealed({ type: "countdown", countdown }));
+      expect([countdown, await decrypt(key, frame)]).toEqual([countdown, null]);
+    }
+  });
+
+  test("it carries durations only: an instant a peer adds is stripped", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const frame = await encryptRaw(
+      key,
+      sealed({ type: "countdown", countdown: { ...good, startedAt: 1_700_000_000_000 } }),
+    );
+    expect((await decrypt(key, frame))?.message).toEqual({ type: "countdown", countdown: good });
+  });
+});
+
 /** A presenter's room with its keys imported: view key, signer and the follow link's verifier. */
 async function signedRoom() {
   const creds = await createPresenterCredentials();
@@ -397,5 +550,363 @@ describe("join links", () => {
     ]) {
       expect(parseJoinFragment(hash)).toBeNull();
     }
+  });
+});
+
+describe("mirror messages (decision 88)", () => {
+  // The presenter's laser, marks and focus view go to every follower. Every
+  // follower holds the view key, so only the presenter's signature makes a
+  // mirror message true, and the schema keeps even a signed one small.
+  const STROKE = MESSAGES.find((m) => m.type === "mirror" && m.op === "stroke")!;
+
+  test("a mirror message the presenter signed verifies, and every op keeps its shape", async () => {
+    const { view, signer, verifier } = await signedRoom();
+    for (const message of MESSAGES.filter((m) => m.type === "mirror")) {
+      const opened = await decrypt(view, await encrypt(view, message, SEAL, signer), verifier);
+      expect(opened?.signed).toBe(true);
+      expect(opened?.message).toEqual(message);
+    }
+  });
+
+  test("an unsigned mirror message, one signed by another key or for another room, does not verify", async () => {
+    const { creds, view, signer, verifier } = await signedRoom();
+    const forger = await signedRoom();
+    const forged = [
+      await encrypt(view, STROKE, SEAL),
+      await encrypt(view, STROKE, SEAL, forger.signer),
+      await encrypt(view, STROKE, SEAL, { ...signer, room: forger.creds.room }),
+    ];
+    for (const frame of forged) expect((await decrypt(view, frame, verifier))?.signed).toBe(false);
+    expect(creds.room).not.toBe(forger.creds.room);
+  });
+
+  test("an edited signed mirror message, or one re-sealed under a new counter, fails the check", async () => {
+    const { view, signer, verifier } = await signedRoom();
+    const frame = await encrypt(view, STROKE, SEAL, signer);
+    const plain = JSON.parse(
+      new TextDecoder().decode(
+        await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: fromBase64Url(frame.iv)! },
+          view,
+          fromBase64Url(frame.data)!,
+        ),
+      ),
+    ) as { s: string; n: number; m: Record<string, unknown>; g: string };
+    const resealed = await encryptRaw(view, JSON.stringify({ ...plain, n: plain.n + 1 }));
+    expect((await decrypt(view, resealed, verifier))?.signed).toBe(false);
+    const moved = await encryptRaw(
+      view,
+      JSON.stringify({ ...plain, m: { ...plain.m, points: [1, 1, 2, 2] } }),
+    );
+    expect((await decrypt(view, moved, verifier))?.signed).toBe(false);
+  });
+
+  test("values outside the ranges the receiver draws are dropped even from a key holder", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const stroke = {
+      type: "mirror",
+      op: "stroke",
+      slide: "a/1",
+      id: 1,
+      tool: "pen",
+      color: "primary",
+      from: 0,
+      points: [1, 2, 3, 4],
+      end: false,
+    };
+    const hostile: unknown[] = [
+      { type: "mirror", op: "laser", x: 1.5, y: 0.5 },
+      { type: "mirror", op: "laser", x: 0.5, y: Number.NaN },
+      { type: "mirror", op: "launch" },
+      { type: "mirror", op: "laser-off", extra: "<img onerror=x>" },
+      { ...stroke, points: [1, 2, 3] },
+      { ...stroke, points: [0, 4097] },
+      { ...stroke, points: [0, -1] },
+      { ...stroke, points: [0.5, 1] },
+      { ...stroke, points: Array.from({ length: 258 }, () => 1) },
+      { ...stroke, from: 3 },
+      { ...stroke, from: 3000 },
+      { ...stroke, from: 2990, points: Array.from({ length: 20 }, () => 1) },
+      { ...stroke, id: -1 },
+      { ...stroke, id: 2 ** 31 },
+      { ...stroke, tool: "rectangle" },
+      // A shape is two corners sent whole; a hostile sender cannot grow or cut it (decision 110).
+      { ...stroke, tool: "rect", points: [1, 2], end: true },
+      { ...stroke, tool: "rect", points: [1, 2, 3, 4], end: false },
+      { ...stroke, tool: "ellipse", points: [1, 2, 3, 4, 5, 6], end: true },
+      { ...stroke, tool: "ellipse", from: 4, points: [1, 2], end: true },
+      { ...stroke, tool: "arrow", points: [1, 2, 3, 4, 5, 6], end: true },
+      { ...stroke, tool: "arrow", points: [1, 2, 3, 4], end: false },
+      { type: "mirror", op: "board-open" },
+      { type: "mirror", op: "board-open", slide: "" },
+      { type: "mirror", op: "board-open", slide: "x".repeat(2049) },
+      { type: "mirror", op: "board-open", slide: "a/1", title: "<b>" },
+      { type: "mirror", op: "board-close", slide: "a/1" },
+      { type: "mirror", op: "board", slide: "a/1" },
+      { ...stroke, color: "#ff0000" },
+      { ...stroke, color: "url(javascript:x)" },
+      { ...stroke, slide: "" },
+      { ...stroke, slide: "x".repeat(2049) },
+      { ...stroke, html: "<script>" },
+      { type: "mirror", op: "drop", slide: "a/1", ids: Array.from({ length: 65 }, (_, i) => i) },
+      { type: "mirror", op: "drop", slide: "a/1", ids: [1.5] },
+      { type: "mirror", op: "clear" },
+      { type: "mirror", op: "focus-open", slide: "a/1", diagram: 0 },
+      { type: "mirror", op: "focus-open", slide: "a/1", diagram: 1001 },
+      { type: "mirror", op: "focus-view", scale: 20, x: 0, y: 0 },
+      { type: "mirror", op: "focus-view", scale: 0, x: 0, y: 0 },
+      { type: "mirror", op: "focus-view", scale: 1, x: 9, y: 0 },
+      // keep (decision 103): a slide and at most 200 whole, bounded ids, nothing else.
+      { type: "mirror", op: "keep", slide: "a/1", ids: Array.from({ length: 201 }, (_, i) => i) },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [1.5] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [-1] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [2 ** 31] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [Number.NaN] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: ["1"] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: "1,2" },
+      { type: "mirror", op: "keep", slide: "a/1" },
+      { type: "mirror", op: "keep", ids: [1] },
+      { type: "mirror", op: "keep", slide: "", ids: [1] },
+      { type: "mirror", op: "keep", slide: "x".repeat(2049), ids: [1] },
+      { type: "mirror", op: "keep", slide: "a/1", ids: [1], html: "<img onerror=x>" },
+    ];
+    for (const message of hostile) {
+      expect(await decrypt(key, await encryptRaw(key, sealed(message)))).toBeNull();
+    }
+  });
+
+  test("a focus op names a block by one kind and its place, and marked lines stay few, whole and in order (decision 106)", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const open = { type: "mirror", op: "focus-open", slide: "a/1" };
+    const lines = { type: "mirror", op: "focus-lines" };
+    const hostile: unknown[] = [
+      // One kind and one place from 1 to 1000; no text, no id, no second kind.
+      { ...open, code: 0 },
+      { ...open, table: 1001 },
+      { ...open, image: 1.5 },
+      { ...open, code: -1 },
+      { ...open, code: Number.POSITIVE_INFINITY },
+      { ...open, code: "1" },
+      { ...open, image: "#figure-1" },
+      { ...open, code: 1, table: 1 },
+      { ...open, diagram: 1, image: 1 },
+      { ...open, video: 1 },
+      { ...open },
+      { type: "mirror", op: "focus-open", code: 1 },
+      { ...open, slide: "", code: 1 },
+      { ...open, slide: "x".repeat(2049), table: 1 },
+      { ...open, code: 1, text: "const a = 1;" },
+      { ...open, image: 1, src: "https://images.invalid/a.png" },
+      // Line numbers from 1, ascending, at most 256 of them, none past 100,000.
+      { ...lines, lines: Array.from({ length: 257 }, (_, i) => i + 1) },
+      { ...lines, lines: [0] },
+      { ...lines, lines: [100_001] },
+      { ...lines, lines: [3, 2] },
+      { ...lines, lines: [2, 2] },
+      { ...lines, lines: [1.5] },
+      { ...lines, lines: [Number.NaN] },
+      { ...lines, lines: ["1"] },
+      { ...lines, lines: "1,2" },
+      { ...lines, lines: null },
+      lines,
+      { ...lines, lines: [1], slide: "a/1" },
+      { ...lines, lines: [1], html: "<mark>" },
+    ];
+    for (const message of hostile) {
+      expect(
+        await decrypt(key, await encryptRaw(key, sealed(message))),
+        `${JSON.stringify(message)}`,
+      ).toBeNull();
+    }
+  });
+
+  test("a tour path is at most 64 whole node numbers from 1 to 1000 and nothing else (decision 109)", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const tour = { type: "mirror", op: "focus-tour" };
+    const hostile: unknown[] = [
+      { ...tour, path: Array.from({ length: 65 }, (_, i) => i + 1) },
+      { ...tour, path: [0] },
+      { ...tour, path: [-1] },
+      { ...tour, path: [1001] },
+      { ...tour, path: [2.5] },
+      { ...tour, path: [Number.NaN] },
+      { ...tour, path: [Number.POSITIVE_INFINITY] },
+      { ...tour, path: [1, "2"] },
+      { ...tour, path: ["node-a"] },
+      { ...tour, path: [null] },
+      { ...tour, path: "1,2" },
+      { ...tour, path: 1 },
+      { ...tour, path: null },
+      tour,
+      { ...tour, path: [1], slide: "a/1" },
+      { ...tour, path: [1], ids: ["a"] },
+      { ...tour, path: [1], html: "<b>" },
+      { type: "mirror", op: "focus-tours", path: [1] },
+      { type: "mirror", op: "tour", path: [1] },
+    ];
+    for (const message of hostile) {
+      expect(
+        await decrypt(key, await encryptRaw(key, sealed(message))),
+        `${JSON.stringify(message)}`,
+      ).toBeNull();
+    }
+    // The longest valid path and the shortest are fine.
+    for (const path of [[], [1], Array.from({ length: 64 }, (_, i) => 937 + i)]) {
+      const opened = await decrypt(key, await encryptRaw(key, sealed({ ...tour, path })));
+      expect(opened?.message, `${path.length} entries`).toEqual({ ...tour, path });
+    }
+  });
+
+  test("the longest tour path fits a relay frame and arrives intact, and the host's estimate holds (decision 109)", async () => {
+    // Like every mirror op it cannot be split into parts: 64 of the widest
+    // node numbers must fit one 16 KB frame, signed.
+    const { view, signer, verifier } = await signedRoom();
+    const widest: RemoteMessage = {
+      type: "mirror",
+      op: "focus-tour",
+      path: Array.from({ length: 64 }, (_, i) => 937 + i),
+    };
+    const frame = await encrypt(view, widest, SEAL, signer);
+    const bytes = JSON.stringify(frame).length;
+    expect(bytes).toBeLessThan(1024);
+    expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(widest);
+    const { type: _type, ...op } = widest as { type: "mirror" } & MirrorOp;
+    const estimate = mirrorFrameBytes(op as MirrorOp);
+    expect(estimate, "the estimate never undercounts").toBeGreaterThanOrEqual(bytes);
+    expect(estimate, "and stays close").toBeLessThan(bytes * 1.02);
+    console.info(
+      `mirror focus-tour: 64 nodes, ${JSON.stringify(widest).length} bytes of JSON, ${bytes} as a frame`,
+    );
+  });
+
+  test("the longest list of marked lines fits a relay frame and arrives intact (decision 106)", async () => {
+    // Like every mirror op it cannot be split into parts, so 256 of the
+    // widest line numbers must fit one 16 KB frame, signed.
+    const { view, signer, verifier } = await signedRoom();
+    const widest: RemoteMessage = {
+      type: "mirror",
+      op: "focus-lines",
+      lines: Array.from({ length: 256 }, (_, i) => 100_000 - 255 + i),
+    };
+    const frame = await encrypt(view, widest, SEAL, signer);
+    const bytes = JSON.stringify(frame).length;
+    expect(bytes).toBeLessThan(3 * 1024);
+    expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(widest);
+    console.info(
+      `mirror focus-lines: 256 lines, ${JSON.stringify(widest).length} bytes of JSON, ${bytes} as a frame`,
+    );
+  });
+
+  test("the widest board-open and the widest shape fit a relay frame, and the host's estimate holds for both (decision 110)", async () => {
+    // The longest address, in characters that take three bytes each: neither
+    // op can be split into parts, and the resync gap is computed from the estimate.
+    const { view, signer, verifier } = await signedRoom();
+    const address = "語".repeat(2048);
+    const widest: RemoteMessage[] = [
+      { type: "mirror", op: "board-open", slide: address },
+      {
+        type: "mirror",
+        op: "stroke",
+        slide: address,
+        id: 2 ** 31 - 1,
+        tool: "ellipse",
+        color: "primary",
+        from: 0,
+        points: [4096, 4096, 4096, 4096],
+        end: true,
+      },
+    ];
+    for (const message of widest) {
+      const { type: _type, ...op } = message as { type: "mirror" } & MirrorOp;
+      const frame = await encrypt(view, message, SEAL, signer);
+      const bytes = JSON.stringify(frame).length;
+      expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+      const opened = await decrypt(view, frame, verifier);
+      expect(opened?.signed).toBe(true);
+      expect(opened?.message).toEqual(message);
+      const estimate = mirrorFrameBytes(op as MirrorOp);
+      expect(estimate, `${op.op}: the estimate never undercounts`).toBeGreaterThanOrEqual(bytes);
+      expect(estimate, `${op.op}: and stays close`).toBeLessThan(bytes * 1.02);
+    }
+  });
+
+  test("the largest keep a presenter can send fits a relay frame and arrives intact (decision 103)", async () => {
+    // A mirror message cannot be split into parts, so the widest keep must
+    // fit one 16 KB frame signed: 200 of the largest ids and the longest
+    // address, in characters that take three bytes each.
+    const { view, signer, verifier } = await signedRoom();
+    const widest: RemoteMessage = {
+      type: "mirror",
+      op: "keep",
+      slide: "語".repeat(2048),
+      ids: Array.from({ length: 200 }, (_, i) => 2 ** 31 - 1 - i),
+    };
+    const frame = await encrypt(view, widest, SEAL, signer);
+    expect(JSON.stringify(frame).length).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(widest);
+  });
+
+  test("a resync waits long enough to cost at most 64 KB/s of sealed frames, whatever the slide holds (decision 103)", async () => {
+    // A follower's hello costs the presenter one resync per gap, signed and
+    // sealed frame by frame. The host estimates that cost from each op's JSON
+    // (mirrorFrameBytes); these are the real frames, with counters as large
+    // as a week-long room reaches.
+    const { view, signer } = await signedRoom();
+    const shapes = {
+      // The receiver's limit: 30,000 points, the widest numbers.
+      full: widestStrokes(20, MAX_STROKE_POINTS),
+      // 200 strokes of one segment each: the frames are mostly seal and signature.
+      small: widestStrokes(200, 2),
+      mixed: [...widestStrokes(180, 2), ...widestStrokes(4, MAX_STROKE_POINTS, 1000)],
+    };
+    const gaps: Record<string, number> = {};
+    for (const [name, marks] of Object.entries(shapes)) {
+      const feed = new MirrorFeed();
+      feed.ingest({ kind: "marks", slide: "retries/2", strokes: marks, reset: true });
+      const ops: MirrorOp[] = [];
+      feed.resync((op) => ops.push(op));
+      let bytes = 0;
+      let estimated = 0;
+      for (const [i, op] of ops.entries()) {
+        const seal = { sender: SEAL.sender, counter: 10_000_000 + i };
+        const frame = await encrypt(view, { type: "mirror", ...op }, seal, signer);
+        bytes += JSON.stringify(frame).length;
+        estimated += mirrorFrameBytes(op);
+      }
+      gaps[name] = resyncGapMs(estimated);
+      expect(estimated, `${name}: the estimate never undercounts`).toBeGreaterThanOrEqual(bytes);
+      expect(estimated, `${name}: and stays close`).toBeLessThan(bytes * 1.02);
+      expect((bytes * 1000) / gaps[name]!, `${name}: bytes a second`).toBeLessThanOrEqual(
+        RESYNC_BYTES_PER_SECOND,
+      );
+      console.info(
+        `mirror resync (${name}): ${ops.length} frames, ${bytes} bytes sealed, next resync after ${gaps[name]} ms`,
+      );
+    }
+    // The review's worst case repeats about every 8 s; a light slide keeps the 2 s floor.
+    expect(gaps["full"]).toBeGreaterThan(7000);
+    expect(gaps["full"]).toBeLessThan(9000);
+    expect(gaps["small"]).toBe(RESYNC_MIN_GAP_MS);
+  });
+
+  test("the largest stroke chunk fits a relay frame with room to spare", async () => {
+    // worker/room.ts drops anything over 16 KB; 128 points of the widest numbers is the ceiling.
+    const { view, signer } = await signedRoom();
+    const widest = {
+      ...STROKE,
+      slide: `${"s".repeat(100)}/12`,
+      points: Array.from({ length: 256 }, () => 4096),
+      end: true,
+    } as RemoteMessage;
+    const frame = await encrypt(view, widest, SEAL, signer);
+    expect(JSON.stringify(frame).length).toBeLessThan(6 * 1024);
   });
 });

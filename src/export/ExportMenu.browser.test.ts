@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
-import { ExportMenu, STATUS_FADE_MS } from "./ExportMenu";
+import { ExportMenu, STATUS_FADE_MS, type ExportMenuProps } from "./ExportMenu";
 import type { ExportOptions } from "./types";
 
 // The exporters have their own tests (export.browser.test.ts); here only the
@@ -107,5 +107,58 @@ describe("export status on a phone", () => {
       .poll(() => status.textContent, { timeout: STATUS_FADE_MS + 2000, interval: 250 })
       .toBe("");
     expect(el.querySelector('[role="status"]')).toBe(status);
+  });
+});
+
+const trigger = (el: HTMLElement) => el.querySelector<HTMLElement>(".docwalk-export-trigger")!;
+const names = () =>
+  [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((i) => i.textContent);
+
+function mountWith(getOptions: ExportMenuProps["getOptions"], hasNotes = false): HTMLElement {
+  const container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  act(() => root!.render(h(ExportMenu, { getOptions, hasNotes })));
+  return container;
+}
+
+describe("Print with speaker notes (decision 114)", () => {
+  test("the item shows only while the document has notes", async () => {
+    const without = mountWith(() => null);
+    await userEvent.click(trigger(without));
+    expect(names()).toEqual(["Print or save as PDF", "Download HTML", "Download PNG images"]);
+    await userEvent.keyboard("{Escape}");
+    act(() => root?.unmount());
+    document.body.replaceChildren();
+
+    const withNotes = mountWith(() => null, true);
+    await userEvent.click(trigger(withNotes));
+    expect(names()).toEqual([
+      "Print or save as PDF",
+      "Print with speaker notes",
+      "Download HTML",
+      "Download PNG images",
+    ]);
+    for (const item of document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      expect(item.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
+
+  test("only that item asks for notes; Print, HTML and PNG never do, and nothing remembers it", async () => {
+    const asked = vi.fn<ExportMenuProps["getOptions"]>(() => null);
+    const el = mountWith(asked, true);
+    const pick = async (name: string) => {
+      await userEvent.click(trigger(el));
+      await userEvent.click(page.getByRole("menuitem", { name }));
+    };
+    await pick("Print with speaker notes");
+    expect(asked).toHaveBeenLastCalledWith(false, true);
+    // A job, not a setting: the next jobs carry no notes.
+    for (const name of ["Print or save as PDF", "Download HTML", "Download PNG images"]) {
+      await pick(name);
+      expect(asked).toHaveBeenLastCalledWith(false, false);
+    }
+    await pick("Print with speaker notes");
+    expect(asked).toHaveBeenLastCalledWith(false, true);
+    expect(asked).toHaveBeenCalledTimes(5);
   });
 });

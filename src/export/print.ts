@@ -21,6 +21,9 @@ const deckResources = (url: URL) => ["http:", "https:", "blob:"].includes(url.pr
  * `afterprint`. A frame left over from a browser that never reports it is
  * removed by the next call.
  *
+ * Speaker notes print when the options carry them (decision 114): the menu
+ * asks for them only on its "Print with speaker notes" item.
+ *
  * `print` exists for tests (a real dialog would block them).
  */
 export async function printDeck(
@@ -60,7 +63,7 @@ export async function printDeck(
       .map((r) => rewriteCssUrls(r.cssText, r.base, (url) => url.origin === location.origin))
       .join("\n");
     writeHead(doc, options.title, escapeStyleText(`${css}\n${pageCss(options.size)}`));
-    const main = buildPages(doc, options, deckResources);
+    const main = buildPages(doc, options, deckResources, { withNotes: true });
     doc.body.replaceChildren(main);
     await settled(main);
   } catch (error) {

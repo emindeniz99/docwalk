@@ -53,7 +53,8 @@ lists every settled design decision.
   image taller than a slide gets a visible note.
 - Three views: an editor with a live slide preview and an outline, a
   document view that renders the file as GitHub would, and presentation
-  mode. ⌘K or Ctrl+K opens a command palette; O opens a slide overview.
+  mode. ⌘K or Ctrl+K opens a command palette that finds a slide by its title
+  or by any words on it; O opens a slide overview.
 - Presenting, the slide fills the screen edge to edge, and any room a
   screen that is not 16:9 leaves around it takes the slide's colour. More
   actions › Fill the screen when presenting switches back to a card on a
@@ -65,13 +66,39 @@ lists every settled design decision.
   keep them with More actions › Always show presenting controls. Safari on
   iPhone cannot show a web page full screen: tap Share › Add to Home Screen
   and present from the home-screen icon for a full-screen deck.
+- Drawing: a pen (P), an arrow (A), a rectangle (R), an ellipse (C), an
+  eraser (E) and a laser (L). W opens a whiteboard, a blank page over the
+  slide with marks of its own, one per section; changing slide closes it.
+  Marks stay in this browser per document, and an export adds each
+  whiteboard that has marks as a page after its section. With a stylus
+  (Apple Pencil, Surface Pen, S Pen) the pen draws at once, and once it has
+  touched the screen your fingers change slides instead of drawing. More
+  actions › Stylus draws, fingers change slides turns that off.
 - Diagram focus: click a Mermaid diagram to fit, zoom, pan, draw on it with
   a pen or point with a laser.
+- Focus view for code blocks, tables and loaded images: click one, or focus
+  it and press Enter, to see it full screen. Code and tables scroll and
+  zoom their type; in code, click a line to mark it, as many as you like,
+  and press Clear to remove them. Marks last until you close the view and
+  never touch the Markdown. A remote image that is still waiting for you to
+  load it does not open.
 - A presenter window with the current and next slide and a timer, synced
-  over `BroadcastChannel` on the same machine.
+  over `BroadcastChannel` on the same machine. Enter a target time in
+  minutes for a countdown with pause and reset, and a pacing bar that shows
+  whether the slides keep up with the clock. The screen stays on while you
+  present.
+- Speaker notes: write an HTML comment (`<!-- … -->`) under a heading and
+  the presenter window shows it under that slide. GitHub hides comments, so
+  the document reads the same there. The notes are plain text; tool
+  comments such as `<!-- prettier-ignore -->` or `<!-- markdownlint-disable -->`
+  are skipped. They sit in the document text, so a share link or a remote
+  room carries them too.
 - A phone remote and a follow-along link for other screens (full mode).
   The room key stays in the link's fragment, so the relay passes only
-  ciphertext.
+  ciphertext. A follower sees your laser, your pen marks and the diagram
+  you open in focus, in the same place on its own screen size; the
+  presenter window shows the laser and marks too. Nothing a follower does
+  reaches you or other followers.
 - Export to PDF through the print view, to one self-contained HTML file, or
   to a PNG per slide.
 - GitHub alerts, footnotes on the slide that cites them, raw HTML filtered
@@ -80,6 +107,10 @@ lists every settled design decision.
   document mode and in exports: TypeScript, JavaScript, JSON, shell,
   Python, Go, Rust, Java, Kotlin, Swift, C, C++, C#, SQL, YAML, TOML, HTML,
   CSS, diff, Markdown, Dockerfile and GraphQL. Other languages stay plain.
+- Math in GitHub's four forms (`$…$`, ``$`…`$``, `$$…$$` and a `math`
+  fence) drawn as MathML, and emoji shortcodes such as `:rocket:`, on
+  slides, in document mode and in exports. `$5 and $10` stays text, and a
+  formula docwalk cannot draw shows its source.
 
 **Edit and keep**
 
@@ -90,6 +121,11 @@ lists every settled design decision.
   was.
 - Comments on a heading or a single diagram node. They travel in the share
   link and export to a `<name>.comments.json` sidecar.
+- Pen and arrow marks stay with the document in your browser. Reopen it and
+  each slide shows its marks again, as long as its text has not changed.
+  The PDF, HTML and PNG exports draw them over the slides; untick Export ›
+  Include marks for clean slides, or remove them with More actions › Delete
+  saved marks.
 - A workspace of files and folders in the browser's private file system,
   with templates and zip import and export. In Chromium you can open a local
   folder instead: docwalk reloads files that change on disk and writes only

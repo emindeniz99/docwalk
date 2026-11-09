@@ -1,0 +1,806 @@
+import { afterEach, describe, expect, test } from "vitest";
+import { purifyHtml } from "../deck/purify";
+import { parseMarkdown } from "../sectioning/sectionize";
+import {
+  MATH_CLASS,
+  MATH_DISPLAY_CLASS,
+  MATH_ERROR_CLASS,
+  MAX_FORMULAS,
+  renderMath,
+  type MathBuilder,
+} from "./math";
+import {
+  FORBIDDEN_MATH_ELEMENTS,
+  MATHML_NS,
+  MATH_ATTRIBUTES,
+  MATH_CLASSES,
+  MATH_ELEMENTS,
+} from "./mathAllow";
+import { MathTooLarge } from "./mathCost";
+import { fromTree } from "./mathRebuild";
+import { createMathRenderer, MATH_DEADLINE_MS } from "./mathRender";
+import { MAX_TEX_CHARS, MAX_TEX_NESTING, nestingOf, texToTree, type MathTree } from "./mathTree";
+import { nodesToHtml } from "./toHtml";
+
+/**
+ * Decision 101, rule 5. A formula is the document's text, and the MathML that
+ * stands for it is built here, after both sanitizers, from lists of names,
+ * attributes and values. These tests hold the lists against what Temml makes
+ * and against what a hostile formula or a hostile tree asks for.
+ */
+
+declare global {
+  interface Window {
+    dwXssRan?: unknown;
+  }
+}
+
+afterEach(() => {
+  document.body.replaceChildren();
+  delete window.dwXssRan;
+});
+
+/**
+ * What the worker and the page do between them, in one place. Production never
+ * runs Temml in the page; these tests do, to hold the lists against its output.
+ */
+const buildMath = (tex: string, display: boolean): Element | null =>
+  fromTree(texToTree(tex, display), display);
+
+/** Renders `markdown` through both sanitizers, attaches it, and draws its formulas. */
+async function render(markdown: string): Promise<HTMLElement> {
+  const box = document.createElement("div");
+  box.append(purifyHtml(nodesToHtml(parseMarkdown(markdown).children)));
+  document.body.append(box);
+  await renderMath(box);
+  return box;
+}
+
+const MATH_NAMES = [...MATH_ELEMENTS];
+
+const UNSAFE_ELEMENT =
+  /^(?:a|img|script|style|iframe|object|embed|svg|foreignobject|semantics|annotation|annotation-xml|maction|mglyph)$/;
+const UNSAFE_ATTRIBUTE = /^(?:href|src|style|id|xlink:href|on.*)$/i;
+
+/** What a formula left behind under `box` that it may not, one line each. */
+function unsafeIn(box: Element): string[] {
+  const found: string[] = [];
+  for (const el of box.querySelectorAll("*")) {
+    const tag = `<${el.localName}>`;
+    if (UNSAFE_ELEMENT.test(el.localName)) found.push(`${tag} element`);
+    if (el.namespaceURI === MATHML_NS && !MATH_NAMES.includes(el.localName)) {
+      found.push(`${tag} is not on the list`);
+    }
+    for (const { name, value } of el.attributes) {
+      if (UNSAFE_ATTRIBUTE.test(name)) found.push(`${name} on ${tag}`);
+      if (el.namespaceURI !== MATHML_NS) continue;
+      if (name === "class") {
+        const extra = value.split(/\s+/).filter((c) => !MATH_CLASSES.has(c) && c !== MATH_CLASS);
+        if (extra.length > 0) found.push(`class ${extra.join(" ")} on ${tag}`);
+      } else if (!MATH_ATTRIBUTES.has(name) || !/^[\w.%+#, -]{0,64}$/.test(value)) {
+        found.push(`${name}="${value}" on ${tag}`);
+      }
+    }
+  }
+  if (window.dwXssRan !== undefined) found.push("a script ran");
+  return found;
+}
+
+/** Nothing a formula may not leave behind, in any element under `box`. */
+function expectSafe(box: Element): void {
+  expect(unsafeIn(box)).toEqual([]);
+}
+
+/** The formula's source, kept as text where a formula could not be drawn. */
+const failed = (box: Element) => [...box.querySelectorAll(`code.${MATH_ERROR_CLASS}`)];
+
+/** A builder that rejects, as a worker that fails to start does. */
+const boom: MathBuilder = () => Promise.reject(new Error("boom"));
+
+describe("the four forms become MathML", () => {
+  test("$…$ is an inline <math> in the sentence", async () => {
+    const box = await render("Energy is $E = mc^2$ here.");
+    const math = box.querySelector("p > math")!;
+    expect(math.namespaceURI).toBe(MATHML_NS);
+    expect(math.classList.contains(MATH_CLASS)).toBe(true);
+    expect(math.hasAttribute("display")).toBe(false);
+    expect(math.querySelector("msup")).not.toBeNull();
+    expect(box.querySelector("code")).toBeNull();
+    expect(box.querySelector("p")!.textContent).toBe("Energy is E=mc2 here.");
+    expectSafe(box);
+  });
+
+  test("$`…`$ keeps underscores out of Markdown and is math", async () => {
+    const box = await render("Load is $`a_b + c_d`$ per node.");
+    expect(box.querySelectorAll("math msub")).toHaveLength(2);
+    expect(box.querySelector("em")).toBeNull();
+    expectSafe(box);
+  });
+
+  test("$$ on its own lines is a display equation in an atomic block", async () => {
+    const box = await render("Before\n\n$$\n\\frac{a}{b}\n$$\n\nAfter");
+    const host = box.querySelector(`div.${MATH_DISPLAY_CLASS}`)!;
+    expect(host.children).toHaveLength(1);
+    const math = host.firstElementChild!;
+    expect(math.localName).toBe("math");
+    expect(math.getAttribute("display")).toBe("block");
+    expect(math.querySelector("mfrac")).not.toBeNull();
+    expect(box.querySelector("pre")).toBeNull();
+    expect(box.textContent).toContain("Before");
+    expect(box.textContent).toContain("After");
+    expectSafe(box);
+  });
+
+  test("a ```math fence is the same display equation", async () => {
+    const box = await render("```math\n\\sqrt{x^2 + y^2}\n```\n");
+    expect(
+      box.querySelector(`div.${MATH_DISPLAY_CLASS} > math[display=block] msqrt`),
+    ).not.toBeNull();
+    expect(box.querySelector("pre")).toBeNull();
+    expectSafe(box);
+  });
+
+  test("$$x$$ in a sentence stays inline", async () => {
+    const box = await render("So $$x^2$$ follows.");
+    expect(box.querySelector("p > math")).not.toBeNull();
+    expect(box.querySelector(`.${MATH_DISPLAY_CLASS}`)).toBeNull();
+  });
+
+  test("a matrix, a sum and an aligned block build", async () => {
+    const box = await render(
+      [
+        "$$\n\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}\n$$",
+        "$$\n\\sum_{i=1}^{n} i\n$$",
+        "$$\n\\begin{aligned}a&=b\\\\c&=d\\end{aligned}\n$$",
+      ].join("\n\n"),
+    );
+    expect(box.querySelectorAll(`.${MATH_DISPLAY_CLASS}`)).toHaveLength(3);
+    expect(box.querySelector("mtable")).not.toBeNull();
+    expect(box.querySelector("munderover")).not.toBeNull();
+    expect(failed(box)).toHaveLength(0);
+    expectSafe(box);
+  });
+
+  test("\\color keeps its colour as an attribute, never as style", async () => {
+    const box = await render("Red: $\\color{red}{x}$ and $\\colorbox{yellow}{y}$.");
+    expect(box.querySelector("[mathcolor='#ff0000']")).not.toBeNull();
+    expect(box.querySelector("[style]")).toBeNull();
+    expectSafe(box);
+  });
+
+  test("\\boxed keeps its box through Temml's own class", async () => {
+    const box = await render("Boxed: $\\boxed{x}$");
+    expect(box.querySelector("math .tml-fbox")).not.toBeNull();
+    expectSafe(box);
+  });
+});
+
+describe("dollars and code are not math (rule 2)", () => {
+  test("a dollar amount stays text and loads nothing", async () => {
+    let loads = 0;
+    const box = document.createElement("div");
+    box.append(purifyHtml(nodesToHtml(parseMarkdown("It costs $5 and $10.").children)));
+    await renderMath(box, {
+      load: async () => {
+        loads++;
+        return async () => null;
+      },
+    });
+    expect(loads).toBe(0);
+    expect(box.textContent).toBe("It costs $5 and $10.");
+  });
+
+  test("a $ inside inline code and a fenced block is code", async () => {
+    const box = await render("Type `$x^2$` now.\n\n```sh\necho $HOME and $PATH\n```\n");
+    expect(box.querySelector("math")).toBeNull();
+    expect(box.querySelector("p code")!.textContent).toBe("$x^2$");
+    expect(box.querySelector("pre code")!.textContent).toBe("echo $HOME and $PATH\n");
+  });
+
+  test("a $$ inside a fenced block with another language stays code", async () => {
+    const box = await render("```tex\n$$\\frac{a}{b}$$\n```\n");
+    expect(box.querySelector("math")).toBeNull();
+    expect(box.querySelector("pre code")!.textContent).toContain("$$\\frac{a}{b}$$");
+  });
+});
+
+describe("a formula that cannot be drawn shows its source (never a crash)", () => {
+  test("an unknown command keeps the TeX as written", async () => {
+    const box = await render("Bad: $\\notacommand{x}$ done.");
+    expect(box.querySelector("math")).toBeNull();
+    const [source] = failed(box);
+    expect(source?.textContent).toBe("\\notacommand{x}");
+    expect(box.querySelector("p")!.textContent).toContain("done.");
+  });
+
+  test("a display equation that fails keeps its pre block", async () => {
+    const box = await render("$$\n\\frac{1}{\n$$\n");
+    expect(box.querySelector(`.${MATH_DISPLAY_CLASS}`)).toBeNull();
+    expect(box.querySelector(`pre.${MATH_ERROR_CLASS}`)?.textContent).toContain("\\frac{1}{");
+  });
+
+  test("a chunk that does not load leaves every formula as source", async () => {
+    const box = document.createElement("div");
+    box.append(purifyHtml(nodesToHtml(parseMarkdown("A $x$ and\n\n$$\ny\n$$\n").children)));
+    await renderMath(box, { load: () => Promise.reject(new Error("offline")) });
+    expect(box.querySelector("math")).toBeNull();
+    expect(box.querySelector("p code.language-math")!.textContent).toBe("x");
+    expect(box.querySelector("pre code.language-math")!.textContent).toBe("y");
+  });
+
+  test("a chunk that takes too long is given up on", async () => {
+    const box = document.createElement("div");
+    box.append(purifyHtml(nodesToHtml(parseMarkdown("A $x$ here").children)));
+    await renderMath(box, { timeoutMs: 20, load: () => new Promise(() => undefined) });
+    expect(box.querySelector("math")).toBeNull();
+  });
+
+  test("a stale build draws nothing", async () => {
+    const box = document.createElement("div");
+    box.append(purifyHtml(nodesToHtml(parseMarkdown("A $x$ here").children)));
+    await renderMath(box, { stop: () => true });
+    expect(box.querySelector("math")).toBeNull();
+  });
+
+  test("a builder that gives null marks the formula", async () => {
+    const box = document.createElement("div");
+    box.append(purifyHtml(nodesToHtml(parseMarkdown("A $x$ here").children)));
+    await renderMath(box, { load: async () => async () => null });
+    expect(failed(box)).toHaveLength(1);
+  });
+
+  test("a builder that rejects stops the run and leaves the rest unmarked", async () => {
+    // A rejection means the renderer is gone (no worker); marking each formula would say
+    // it was refused. They stay as plain source, and the next call tries them.
+    const box = document.createElement("div");
+    box.append(purifyHtml(nodesToHtml(parseMarkdown("A $x$ and $y$ here").children)));
+    await renderMath(box, { load: async () => boom });
+    expect(failed(box)).toHaveLength(0);
+    expect(box.querySelectorAll("code.language-math")).toHaveLength(2);
+  });
+
+  test("a document with more formulas than the limit draws the first ones", async () => {
+    const lines = Array.from({ length: MAX_FORMULAS + 5 }, (_, i) => `$x_{${i}}$`).join(" ");
+    const box = await render(lines);
+    expect(box.querySelectorAll("math")).toHaveLength(MAX_FORMULAS);
+  });
+});
+
+/** `count` inline formulas, each `tex`, in one paragraph, sanitized and attached but not drawn. */
+function boxOf(count: number, tex: string): HTMLElement {
+  const box = document.createElement("div");
+  box.append(purifyHtml(nodesToHtml(parseMarkdown(`${`$${tex}$ `.repeat(count)}`).children)));
+  document.body.append(box);
+  return box;
+}
+
+/** A builder that holds the thread for `ms`, as a heavy formula does. */
+const slowBuilder =
+  (ms: number, built: string[] = []): MathBuilder =>
+  async (tex) => {
+    const until = performance.now() + ms;
+    while (performance.now() < until) {
+      // Busy wait: the point is a task that takes this long.
+    }
+    built.push(tex);
+    return document.createElementNS(MATHML_NS, "math");
+  };
+
+describe("many formulas do not hold the page (rule 5)", () => {
+  // Before renderMath yielded, 100 plain 3,990-character formulas were one 14.9 s task.
+  test("the page gets a turn between slices of formulas", async () => {
+    // Formulas that each hold the thread for 5 ms of wall time, so a slice is the same
+    // number of them on any machine. (A timer's longest gap says the same on a quiet
+    // machine, but a loaded one stalls a timer for 200 ms on its own.) A probe timer counts
+    // the formulas built between two of its ticks: the old loop built all 100 in one task.
+    const built: string[] = [];
+    let sinceTick = 0;
+    let most = 0;
+    let ticks = 0;
+    const counted: MathBuilder = (tex, display) => {
+      sinceTick++;
+      return slowBuilder(5, built)(tex, display);
+    };
+    let probe: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      most = Math.max(most, sinceTick);
+      sinceTick = 0;
+      ticks++;
+      probe = setTimeout(tick, 0);
+    };
+    probe = setTimeout(tick, 0);
+    const box = boxOf(100, "x");
+    await renderMath(box, { load: async () => counted, budgetMs: Infinity });
+    clearTimeout(probe);
+    most = Math.max(most, sinceTick);
+    expect(box.querySelectorAll("math")).toHaveLength(100);
+    // 16 ms of 5 ms formulas is 4 per slice; allow for the probe landing between two slices.
+    expect(most).toBeLessThanOrEqual(10);
+    expect(ticks).toBeGreaterThanOrEqual(10);
+  });
+
+  test("real formulas are drawn in slices too, and all of them arrive", async () => {
+    const box = boxOf(60, "x+".repeat(300));
+    let ticks = 0;
+    const probe = setInterval(() => ticks++, 5);
+    await renderMath(box, { budgetMs: Infinity });
+    clearInterval(probe);
+    expect(box.querySelectorAll("math")).toHaveLength(60);
+    expect(ticks).toBeGreaterThan(3);
+  });
+
+  test("a stop() that turns true between formulas ends the run there", async () => {
+    const built: string[] = [];
+    const box = boxOf(20, "x");
+    await renderMath(box, {
+      load: async () => slowBuilder(20, built),
+      // Counted on the page: stop() is asked again after a build, before the formula is drawn.
+      stop: () => box.querySelectorAll("math").length >= 3,
+    });
+    expect(built).toHaveLength(3);
+    expect(box.querySelectorAll("math")).toHaveLength(3);
+    // The rest are still source, not marked as failed.
+    expect(box.querySelectorAll("code.language-math:not(.docwalk-math-error)")).toHaveLength(17);
+  });
+
+  test("stop() is asked again after the page has had its turn", async () => {
+    // Flips only once a timer set before the call has fired, which needs a yield in between.
+    let fired = false;
+    setTimeout(() => (fired = true), 0);
+    const built: string[] = [];
+    const box = boxOf(10, "x");
+    await renderMath(box, { load: async () => slowBuilder(30, built), stop: () => fired });
+    expect(built.length).toBeLessThan(10);
+    expect(fired).toBe(true);
+  });
+
+  test("formulas past the time budget stay as source, unmarked", async () => {
+    const built: string[] = [];
+    const box = boxOf(30, "x");
+    await renderMath(box, { load: async () => slowBuilder(10, built), budgetMs: 60 });
+    expect(built.length).toBeGreaterThan(0);
+    expect(built.length).toBeLessThan(30);
+    expect(box.querySelectorAll("math")).toHaveLength(built.length);
+    expect(box.querySelectorAll("code.language-math:not(.docwalk-math-error)")).toHaveLength(
+      30 - built.length,
+    );
+  });
+
+  test("a budget that is not spent draws every formula", async () => {
+    const box = boxOf(30, "x");
+    await renderMath(box, { load: async () => slowBuilder(1), budgetMs: 5000 });
+    expect(box.querySelectorAll("math")).toHaveLength(30);
+  });
+});
+
+/** Renderers a test made, disposed after it so no worker outlives its test. */
+const renderers: ReturnType<typeof createMathRenderer>[] = [];
+afterEach(() => {
+  for (const r of renderers.splice(0)) r.dispose();
+});
+
+/** `\a` pastes its argument `r` times, `\b` calls it with `a` letters, and `u` uses of `\b` follow. */
+const bomb = (r: number, a: number, u: number) =>
+  `\\def\\a#1{${"#1".repeat(r)}}\\def\\b{\\a{${"x".repeat(a)}}}${"\\b".repeat(u)}`;
+
+/** The longest time between two ticks of a 10 ms timer while `run` is awaited. */
+async function longestGap(run: () => Promise<unknown>): Promise<number> {
+  let last = performance.now();
+  let longest = 0;
+  const probe = setInterval(() => {
+    const now = performance.now();
+    longest = Math.max(longest, now - last);
+    last = now;
+  }, 10);
+  await run();
+  clearInterval(probe);
+  return Math.max(longest, performance.now() - last);
+}
+
+describe("one formula cannot hold the page (rule 5)", () => {
+  // The re-review's bomb: a macro that repeats its argument 100 times, called through a
+  // second \def 99 times. maxExpand counts 198 expansions; the parse pastes 8.9 million
+  // tokens and held the page thread for about 1.6 s, with no tick of any timer.
+  test("the re-review's 1,320-character bomb keeps its source and the page keeps its turns", async () => {
+    const tex = bomb(100, 900, 99);
+    expect(tex).toHaveLength(1320);
+    const started = performance.now();
+    let box!: HTMLElement;
+    const gap = await longestGap(async () => {
+      box = await render(`$${tex}$`);
+    });
+    expect(performance.now() - started).toBeLessThan(MATH_DEADLINE_MS + 1000);
+    expect(failed(box)).toHaveLength(1);
+    expect(box.querySelector("math")).toBeNull();
+    expect(gap).toBeLessThan(250);
+  });
+
+  test("a bomb the worker can parse runs out its deadline, and the page keeps its turns", async () => {
+    // 1,260 characters; about 950 ms of parse in a Chromium worker, which the deadline stops.
+    const tex = bomb(70, 900, 99);
+    const started = performance.now();
+    let box!: HTMLElement;
+    const gap = await longestGap(async () => {
+      box = await render(`$${tex}$`);
+    });
+    expect(performance.now() - started).toBeLessThan(MATH_DEADLINE_MS + 1000);
+    expect(failed(box)).toHaveLength(1);
+    expect(gap).toBeLessThan(250);
+  });
+
+  test("a formula after one that overran still draws", async () => {
+    const renderer = createMathRenderer({ deadlineMs: 50 });
+    renderers.push(renderer);
+    const box = document.createElement("div");
+    box.append(
+      purifyHtml(nodesToHtml(parseMarkdown(`$${bomb(100, 200, 99)}$ and $x+y$`).children)),
+    );
+    document.body.append(box);
+    await renderMath(box, { load: () => renderer.ready() });
+    expect(failed(box)).toHaveLength(1);
+    expect(box.querySelectorAll("p > math")).toHaveLength(1);
+  });
+
+  test("nesting just inside the limit draws through the worker", async () => {
+    // A worker's stack is smaller than the page's; 23 levels of \frac must still build there.
+    const depth = MAX_TEX_NESTING - 1;
+    const box = await render(`$$\n${"\\frac{1}{".repeat(depth)}x${"}".repeat(depth)}\n$$`);
+    expect(failed(box)).toHaveLength(0);
+    expect(box.querySelectorAll("math mfrac").length).toBeGreaterThanOrEqual(depth);
+  });
+});
+
+describe("hostile formulas (rule 5)", () => {
+  const trusted: [string, string][] = [
+    ["\\href", "\\href{https://tracker.example/x}{click}"],
+    ["\\url", "\\url{https://tracker.example/x}"],
+    ["\\includegraphics", "\\includegraphics{https://tracker.example/pixel.png}"],
+    ["\\style", "\\style{background:url(https://tracker.example/x)}{x}"],
+    ["\\class", "\\class{docwalk-diagram}{x}"],
+    ["\\htmlId", "\\htmlId{user-content-x}{x}"],
+    ["\\data", "\\data{a=b}{x}"],
+  ];
+
+  test.each(trusted)("%s fails and leaves the source as text", async (_name, tex) => {
+    const box = await render(`Look: $${tex}$ end`);
+    expect(box.querySelector("math")).toBeNull();
+    expect(failed(box)[0]?.textContent).toBe(tex);
+    expect(
+      box.querySelector("a, img, [href], [src], [style], [class~='docwalk-diagram']"),
+    ).toBeNull();
+    expectSafe(box);
+  });
+
+  test("HTML inside \\text is text", async () => {
+    const box = await render(
+      '$\\text{<img src=x onerror="window.dwXssRan=1"><script>window.dwXssRan=2</script>}$',
+    );
+    const mtext = box.querySelector("math mtext")!;
+    // Temml turns the spaces of \text into no-break spaces.
+    expect(mtext.textContent?.replaceAll(" ", " ")).toContain("<img src=x");
+    expect(box.querySelector("img, script")).toBeNull();
+    expectSafe(box);
+  });
+
+  test("HTML inside a macro is text", async () => {
+    const box = await render(
+      '$\\newcommand{\\x}{<img src=x onerror="window.dwXssRan=1">}\\x$ and $\\def\\y{<b>bold</b>}\\y$',
+    );
+    expect(box.querySelector("img, b, script")).toBeNull();
+    expectSafe(box);
+  });
+
+  test("angle brackets from the Markdown are text in the formula", async () => {
+    const box = await render("Both $a < b$ and $x<script>window.dwXssRan=1</script>$ appear.");
+    expect(box.querySelector("script")).toBeNull();
+    expectSafe(box);
+  });
+
+  test("a macro definition does not carry over to the next formula", async () => {
+    const box = await render("$\\gdef\\secret{leak}\\secret$ then $\\secret$");
+    expect(box.querySelectorAll("math")).toHaveLength(1);
+    expect(failed(box)[0]?.textContent).toBe("\\secret");
+  });
+
+  test("an expansion bomb fails instead of hanging", async () => {
+    const levels = "abcdefghijklmnop";
+    const defs = [...levels]
+      .map(
+        (c, i) =>
+          `\\def\\${c}{${i + 1 < levels.length ? `\\${levels[i + 1]}\\${levels[i + 1]}` : "x"}}`,
+      )
+      .join("");
+    const started = performance.now();
+    const box = await render(`$${defs}\\a$`);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(box.querySelector("math")).toBeNull();
+    expect(failed(box)).toHaveLength(1);
+  });
+
+  test("a huge space or rule is capped, not laid out", async () => {
+    const box = await render("$\\hspace{99999em}\\rule{1000em}{1000em}$");
+    expect(box.querySelector("math mspace")).not.toBeNull();
+    const sizes = [...box.querySelectorAll("[width], [height]")].flatMap((el) =>
+      [el.getAttribute("width"), el.getAttribute("height")].filter((v) => v !== null),
+    );
+    expect(sizes.filter((value) => Number.parseFloat(value) > 20)).toEqual([]);
+    expectSafe(box);
+  });
+
+  test("an expression over the length limit is source", async () => {
+    const tex = `x+${"y+".repeat(MAX_TEX_CHARS)}z`;
+    const box = await render(`$${tex}$`);
+    expect(box.querySelector("math")).toBeNull();
+    expect(failed(box)).toHaveLength(1);
+  });
+
+  test("deep nesting is source, not a stack overflow", async () => {
+    const depth = MAX_TEX_NESTING + 5;
+    const tex = `${"\\frac{1}{".repeat(depth)}x${"}".repeat(depth)}`;
+    expect(nestingOf(tex)).toBeGreaterThan(MAX_TEX_NESTING);
+    const box = await render(`$$\n${tex}\n$$`);
+    expect(box.querySelector("math")).toBeNull();
+    expect(box.querySelector(`pre.${MATH_ERROR_CLASS}`)).not.toBeNull();
+    const braces = await render(`$${"{".repeat(3000)}x${"}".repeat(3000)}$`);
+    expect(braces.querySelector("math")).toBeNull();
+  });
+
+  test("nesting just inside the limit still draws", () => {
+    const depth = MAX_TEX_NESTING - 2;
+    const tex = `${"{".repeat(depth)}x${"}".repeat(depth)}`;
+    expect(buildMath(tex, false)).not.toBeNull();
+  });
+
+  test("an escaped brace is not a group", () => {
+    expect(nestingOf("\\{".repeat(100))).toBe(0);
+    expect(nestingOf("\\left( \\begin{matrix} a \\end{matrix} \\right)")).toBe(3);
+  });
+
+  test("a tree over the node limit is refused", () => {
+    const wide: MathTree = {
+      name: "mrow",
+      attributes: [],
+      children: Array.from({ length: 50 }, () => ({ name: "mi", attributes: [], children: [] })),
+    };
+    expect(() => fromTree(wide, false, { nodes: 10, depth: 40 })).toThrow(MathTooLarge);
+    let deep: MathTree = { name: "mi", attributes: [], children: ["x"] };
+    for (let i = 0; i < 50; i++) deep = { name: "mrow", attributes: [], children: [deep] };
+    const math: MathTree = { name: "math", attributes: [], children: [deep] };
+    expect(() => fromTree(math, false, { nodes: 3000, depth: 40 })).toThrow(MathTooLarge);
+  });
+});
+
+/** The largest sum of `voffset` (in em, as the rebuild leaves it), up or down, along any path from `el`. */
+function largestShift(el: Element, above = 0): number {
+  const sum = above + (Number.parseFloat(el.getAttribute("voffset") ?? "0") || 0);
+  return Math.max(Math.abs(sum), ...[...el.children].map((child) => largestShift(child, sum)));
+}
+
+/** `n` raises of `amount` around an `x`. */
+const raised = (n: number, amount = "3em") =>
+  `${`\\raisebox{${amount}}{`.repeat(n)}x${"}".repeat(n)}`;
+
+describe("a raise cannot push text off the slide (rule 3)", () => {
+  // Stacked `\raisebox{3em}` drew text 587 px above the slide body with no note: each
+  // raise is within maxSize 20 em, and nothing added them up.
+  test("a raise inside the limit is kept", () => {
+    expect(
+      buildMath(raised(1, "1em"), false)!.querySelector("mpadded")!.getAttribute("voffset"),
+    ).toBe("1em");
+    expect(
+      buildMath("\\lower{2em}{x}", false)!.querySelector("[voffset]")!.getAttribute("voffset"),
+    ).toBe("-2em");
+  });
+
+  test("a raise over the limit loses its offset and the text stays on the line", () => {
+    const math = buildMath(raised(1, "10em"), false)!;
+    expect(math.querySelector("mpadded")).not.toBeNull();
+    expect(math.querySelector("[voffset]")).toBeNull();
+  });
+
+  test("raises that add up past the limit are dropped from there down", () => {
+    // Ten deep still draws; the element depth limit is 40.
+    const math = buildMath(raised(10), false)!;
+    expect(math.querySelectorAll("[voffset]")).toHaveLength(1);
+    expect(largestShift(math)).toBe(3);
+    const lowered = buildMath(`${"\\lower{3em}{".repeat(10)}x${"}".repeat(10)}`, false)!;
+    expect(lowered.querySelectorAll("[voffset]")).toHaveLength(1);
+    expect(largestShift(lowered)).toBe(3);
+  });
+
+  test("an offset in a unit the rebuild cannot add up is dropped", () => {
+    const tree: MathTree = {
+      name: "math",
+      attributes: [],
+      children: [{ name: "mpadded", attributes: [["voffset", "2vh"]], children: [] }],
+    };
+    expect(fromTree(tree, false)!.querySelector("mpadded")!.hasAttribute("voffset")).toBe(false);
+  });
+});
+
+const el = (
+  name: string,
+  attributes: [string, string][] = [],
+  children: MathTree["children"] = [],
+) => ({ name, attributes, children }) satisfies MathTree;
+
+/** A tree as a trusting or buggy worker might send it. */
+function hostile(): MathTree {
+  return el(
+    "math",
+    [
+      ["onclick", "window.dwXssRan=1"],
+      ["style", "background:url(https://tracker.example/x)"],
+      ["href", "https://tracker.example/x"],
+      ["id", "user-content-x"],
+      ["xlink:href", "javascript:window.dwXssRan=1"],
+      ["class", "docwalk-diagram present tml-vec"],
+      ["mathcolor", "red;background:url(https://tracker.example/x)"],
+      ["width", "1em"],
+    ],
+    [
+      el("mi", [["mathvariant", "bold"]], ["x"]),
+      el("maction", [["actiontype", "statusline"]]),
+      el(
+        "semantics",
+        [],
+        [
+          el(
+            "annotation-xml",
+            [["encoding", "text/html"]],
+            [el("img", [["src", "https://tracker.example/pixel.png"]])],
+          ),
+        ],
+      ),
+      el("a", [["href", "https://tracker.example"]], ["link"]),
+      el("script", [], ["window.dwXssRan=1"]),
+      el("svg", [], [el("script")]),
+    ],
+  );
+}
+
+describe("the allowlist holds against a hostile tree, whatever built it", () => {
+  test("only listed names, attributes, values and classes survive", () => {
+    const clean = fromTree(hostile(), false)!;
+    document.body.append(clean);
+    // `fromTree` marks the root with `docwalk-math`, which the old copy left to its caller.
+    expect(clean.outerHTML).toBe(
+      '<math width="1em" class="tml-vec docwalk-math"><mi mathvariant="bold">x</mi></math>',
+    );
+    expectSafe(document.body);
+  });
+
+  test("an element outside the list takes its subtree with it", () => {
+    expect(fromTree(el("div"), false)).toBeNull();
+    expect(fromTree(el("maction"), false)).toBeNull();
+    const inside = fromTree(
+      el("math", [], [el("div", [], [el("mi", [], ["x"])]), el("mi", [], ["y"])]),
+      false,
+    )!;
+    expect(inside.outerHTML).toBe('<math class="docwalk-math"><mi>y</mi></math>');
+  });
+
+  test("the lists name no element that carries markup or behaviour", () => {
+    for (const name of FORBIDDEN_MATH_ELEMENTS) expect(MATH_ELEMENTS.has(name)).toBe(false);
+    for (const name of ["href", "style", "id", "src", "onload", "xlink:href", "class"]) {
+      expect(MATH_ATTRIBUTES.has(name)).toBe(false);
+    }
+  });
+
+  test("text is copied as text, markup characters and all", () => {
+    const copy = fromTree(
+      el("math", [], [el("mtext", [], ['<img src=x onerror="1">&amp;'])]),
+      false,
+    )!;
+    const mtext = copy.querySelector("mtext")!;
+    expect(mtext.childNodes).toHaveLength(1);
+    expect(mtext.textContent).toBe('<img src=x onerror="1">&amp;');
+    expect(mtext.querySelector("*")).toBeNull();
+  });
+
+  test("a display tree gets display=block, an inline tree none", () => {
+    const tree = el("math", [["display", "block"]], [el("mi", [], ["x"])]);
+    expect(fromTree(tree, true)!.getAttribute("display")).toBe("block");
+    expect(fromTree(tree, false)!.hasAttribute("display")).toBe(false);
+  });
+
+  test("the root must be <math>", () => {
+    expect(fromTree(el("mrow", [], [el("mi", [], ["x"])]), false)).toBeNull();
+  });
+});
+
+/** The `innerHTML` of a `<math>` that holds `child` and then an `<mi>ok</mi>`. */
+const withSibling = (child: unknown): string =>
+  fromTree({ name: "math", attributes: [], children: [child, el("mi", [], ["ok"])] }, false)!
+    .innerHTML;
+
+describe("data that is not a tree builds nothing it does not list", () => {
+  test("a root that is not an object gives nothing", () => {
+    for (const root of [42, null, undefined, "math", true, [], [el("math")]]) {
+      expect(fromTree(root, false)).toBeNull();
+    }
+  });
+
+  test("a node with the wrong shape drops itself and its subtree, and the rest stays", () => {
+    const kept = "<mi>ok</mi>";
+    // attributes is an object, not a list of pairs
+    expect(withSibling({ name: "mi", attributes: { onclick: "1" }, children: ["x"] })).toBe(kept);
+    // children is not a list
+    expect(withSibling({ name: "mi", attributes: [], children: "x" })).toBe(kept);
+    // a name that is not a string
+    expect(withSibling({ name: 42, attributes: [], children: [] })).toBe(kept);
+    expect(withSibling({ attributes: [], children: [] })).toBe(kept);
+    // children that are neither elements nor text
+    expect(
+      withSibling({ name: "mrow", attributes: [], children: [7, null, undefined, true] }),
+    ).toBe(`<mrow></mrow>${kept}`);
+  });
+
+  test("a pair that is not two strings is dropped, the element stays", () => {
+    const bad = {
+      name: "math",
+      attributes: [
+        ["width", "1em", "extra"],
+        ["height"],
+        [3, "1em"],
+        ["depth", 4],
+        "mathvariant",
+        null,
+        ["lspace", "2em"],
+      ],
+      children: [],
+    };
+    expect(fromTree(bad, false)!.outerHTML).toBe('<math lspace="2em" class="docwalk-math"></math>');
+  });
+
+  test("a __proto__ pair or key is only a name that is not listed", () => {
+    const tree = JSON.parse(
+      '{"name":"math","attributes":[["__proto__","x"],["constructor","y"]],"__proto__":{"name":"script"},"children":[{"name":"__proto__","attributes":[],"children":[]}]}',
+    ) as unknown;
+    const math = fromTree(tree, false)!;
+    expect(math.outerHTML).toBe('<math class="docwalk-math"></math>');
+    expect(({} as Record<string, unknown>)["name"]).toBeUndefined();
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  });
+
+  test("a tree that is its own child hits the depth limit", () => {
+    const loop: { name: string; attributes: unknown[]; children: unknown[] } = {
+      name: "mrow",
+      attributes: [],
+      children: [],
+    };
+    loop.children.push(loop);
+    expect(() => fromTree({ name: "math", attributes: [], children: [loop] }, false)).toThrow(
+      MathTooLarge,
+    );
+  });
+});
+
+describe("Temml's output passes the lists for the commands people write", () => {
+  const samples = [
+    "E = mc^2",
+    "\\frac{a}{b} + \\sqrt[3]{x}",
+    "\\sum_{i=1}^{n} x_i^2",
+    "\\int_0^\\infty e^{-x^2}\\,dx",
+    "\\begin{bmatrix}1&2\\\\3&4\\end{bmatrix}",
+    "\\begin{cases}x&x>0\\\\-x&\\text{otherwise}\\end{cases}",
+    "\\vec{v}\\cdot\\hat{n}",
+    "\\overline{AB}\\underline{CD}\\widehat{xyz}\\widetilde{abc}",
+    "\\mathbb{R}\\mathcal{L}\\mathfrak{g}\\mathbf{x}\\mathrm{d}",
+    "\\xrightarrow[b]{a}\\overbrace{x}^{y}\\underbrace{x}_{y}",
+    "\\cancel{x}\\bcancel{y}\\xcancel{z}\\sout{w}",
+    "\\binom{n}{k}\\left\\langle x\\right\\rangle",
+    "\\begin{aligned}a&=b\\\\&=c\\end{aligned}",
+    "\\tag{1} x = y",
+    "\\text{if } x \\le 0",
+  ];
+
+  test.each(samples)("%s", (tex) => {
+    const math = buildMath(tex, true);
+    expect(math).not.toBeNull();
+    const box = document.createElement("div");
+    box.append(math!);
+    document.body.append(box);
+    expectSafe(box);
+  });
+});

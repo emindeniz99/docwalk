@@ -1,9 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import {
+  anchorKey,
   buildAnchorIndex,
   countBySection,
+  currentAnchor,
   diagramKey,
+  diagramSig,
+  openCounts,
   resolveAnchor,
   type DiagramNodes,
 } from "./anchors";
@@ -74,6 +78,13 @@ describe("anchor index", () => {
       "detail",
       "architecture",
     ]);
+  });
+
+  test("duplicates count headings inside quotes too, so a slug is the id its slide shows (decision 107)", () => {
+    // GitHub numbers every heading; the quoted one is `goals`, the section `goals-1`.
+    // Comments still attach to top-level headings only.
+    const index = indexFor("> ## Goals\n\n## Goals\n\nText.\n");
+    expect(index.headings.map((h) => [h.slug, h.sectionId])).toEqual([["goals-1", "goals-1"]]);
   });
 
   test("a sub-heading belongs to the slide section that shows it, at any slide level", () => {
@@ -149,6 +160,109 @@ describe("resolving anchors", () => {
       nodes,
     );
     expect(Object.fromEntries(counts)).toEqual({ goals: 1, "goals-1": 1, architecture: 1 });
+  });
+});
+
+// Diagrams under one "Architecture" heading, the rendered node ids of each,
+// and a node anchor on one of them, with the signature of `source` if given.
+const under = (...sources: string[]) =>
+  `# T\n\n## Architecture\n\n${sources.map((s) => `\`\`\`mermaid\n${s}\n\`\`\`\n`).join("\n")}`;
+const rendered = (...ids: string[][]): DiagramNodes =>
+  new Map(
+    ids.map((list, i) => [diagramKey("architecture", i), list.map((id) => ({ id, label: id }))]),
+  );
+const node = (diagram: number, name: string, source?: string) =>
+  ({
+    kind: "node",
+    heading: "architecture",
+    diagram,
+    node: name,
+    ...(source === undefined ? {} : { sig: diagramSig(source) }),
+  }) as const;
+
+describe("node comments and diagrams that move", () => {
+  // Two diagrams under one heading that share the node id `a`, the case where
+  // a position-only match sticks a comment to the wrong diagram without a word.
+  const FIRST = "flowchart LR\n  a --> b";
+  const SECOND = "flowchart TD\n  a --> c";
+
+  test("after two diagrams swap, a comment on a node follows its diagram", () => {
+    const swapped = indexFor(under(SECOND, FIRST));
+    const nodes = rendered(["a", "c"], ["a", "b"]);
+    const onB = node(0, "b", FIRST);
+    expect(resolveAnchor(onB, swapped, nodes).status).toBe("attached");
+    expect(currentAnchor(onB, swapped)).toMatchObject({ diagram: 1 });
+  });
+
+  test("a node id both diagrams share does not stick to the wrong diagram", () => {
+    const swapped = indexFor(under(SECOND, FIRST));
+    expect(currentAnchor(node(0, "a", FIRST), swapped)).toMatchObject({ diagram: 1 });
+    expect(currentAnchor(node(1, "a", SECOND), swapped)).toMatchObject({ diagram: 0 });
+  });
+
+  test("a comment written before signatures existed keeps the recorded position, as before", () => {
+    const swapped = indexFor(under(SECOND, FIRST));
+    expect(currentAnchor(node(0, "a"), swapped)).toMatchObject({ diagram: 0 });
+    expect(resolveAnchor(node(0, "b"), swapped, rendered(["a", "c"], ["a", "b"])).status).toBe(
+      "orphaned",
+    );
+  });
+
+  test("an edited diagram keeps its comments: no diagram matches the signature, so the position decides", () => {
+    const edited = indexFor(under(`${FIRST}\n  b --> d`, SECOND));
+    const onB = node(0, "b", FIRST);
+    expect(currentAnchor(onB, edited)).toMatchObject({ diagram: 0 });
+    expect(resolveAnchor(onB, edited, rendered(["a", "b", "d"], ["a", "c"])).status).toBe(
+      "attached",
+    );
+  });
+
+  test("when two equal diagrams could both be the one, the comment is orphaned instead of guessed", () => {
+    const index = indexFor(under(FIRST, SECOND, FIRST));
+    const onB = node(1, "b", FIRST);
+    expect(resolveAnchor(onB, index, rendered(["a", "b"], ["a", "c"], ["a", "b"]))).toEqual({
+      status: "orphaned",
+      label: "Node b in diagram 2 under #architecture",
+    });
+  });
+
+  test("an equal diagram at the recorded position wins over an equal one elsewhere", () => {
+    const index = indexFor(under(FIRST, FIRST));
+    expect(currentAnchor(node(1, "b", FIRST), index)).toMatchObject({ diagram: 1 });
+    expect(currentAnchor(node(0, "b", FIRST), index)).toMatchObject({ diagram: 0 });
+  });
+
+  test("a diagram that left the heading orphans its comment: other headings are never searched", () => {
+    const other = `\`\`\`mermaid\n${FIRST}\n\`\`\``;
+    const index = indexFor(`# T\n\n## Other\n\n${other}\n\n## Architecture\n\nText.\n`);
+    expect(resolveAnchor(node(0, "b", FIRST), index, rendered(["a", "b"])).status).toBe("orphaned");
+  });
+
+  test("the count on a section follows the diagram the comment now belongs to", () => {
+    const swapped = indexFor(under(SECOND, FIRST));
+    const counts = countBySection(
+      [at({ anchor: node(0, "b", FIRST) })],
+      swapped,
+      rendered(["a", "c"], ["a", "b"]),
+    );
+    expect(Object.fromEntries(counts)).toEqual({ architecture: 1 });
+  });
+
+  test("the node marks follow the diagram, and a comment orphaned between equal diagrams marks no node", () => {
+    // The panel lists the second comment as orphaned; a glow on the node at its old
+    // number would point at a diagram with a different source.
+    const swapped = indexFor(under(SECOND, FIRST));
+    expect([...openCounts([at({ anchor: node(0, "b", FIRST) })], swapped).keys()]).toEqual([
+      anchorKey(node(1, "b")),
+    ]);
+    const guess = indexFor(under(FIRST, SECOND, FIRST));
+    expect(openCounts([at({ anchor: node(1, "b", FIRST) })], guess).size).toBe(0);
+  });
+
+  test("a signature ignores whitespace and tells different diagrams apart", () => {
+    expect(diagramSig("flowchart LR\n  a --> b")).toBe(diagramSig("flowchart LR\r\n a   --> b\n"));
+    expect(diagramSig(FIRST)).not.toBe(diagramSig(SECOND));
+    expect(diagramSig(FIRST)).toMatch(/^[0-9a-f]{1,16}$/);
   });
 });
 

@@ -60,8 +60,55 @@ describe("hostile fragments are refused, never thrown", () => {
     expect(await decodeDoc(value)).toBeNull();
   });
 
-  test("a fragment longer than any link docwalk writes is rejected before decoding", async () => {
-    expect(await decodeDoc("A".repeat(FRAGMENT_MAX_CHARS + 1))).toBeNull();
+  test("a fragment longer than any link docwalk writes is rejected, even when it holds a real document", async () => {
+    // Pseudo-random letters (xorshift32) barely compress, so 100 000 of them
+    // encode past the link cap while inflating far below the document cap:
+    // only the length check can refuse this one.
+    let x = 1;
+    const letters = Array.from({ length: 100_000 }, () => {
+      x ^= x << 13;
+      x ^= x >>> 17;
+      x ^= x << 5;
+      return String.fromCharCode(97 + ((x >>> 0) % 26));
+    }).join("");
+    const encoded = await encodeDoc(letters);
+    expect(encoded.length).toBeGreaterThan(FRAGMENT_MAX_CHARS);
+    expect(await decodeDoc(encoded)).toBeNull();
+  });
+
+  // atob is lenient: it accepts `+`, `/` and `=` and skips whitespace, so
+  // each value below would open as a document without the alphabet check.
+  // Only the exact form docwalk writes opens; anything else is a mangled or
+  // hand-made link.
+  test.each([
+    [
+      "a real document in the standard base64 alphabet",
+      (s: string) => s.replaceAll("-", "+").replaceAll("_", "/"),
+    ],
+    [
+      "a real document with its padding restored",
+      (s: string) => s + "=".repeat((4 - (s.length % 4)) % 4),
+    ],
+    // Four characters, so the length check modulo 4 cannot be what refuses it.
+    [
+      "a real document with whitespace from a wrapped link",
+      (s: string) => `${s.slice(0, 40)}\n \n ${s.slice(40)}`,
+    ],
+  ])("%s is refused", async (_, mangle) => {
+    const markdown =
+      "# Plan\n\n" +
+      Array.from(
+        { length: 40 },
+        (_item, i) => `- Step ${i}: retry after ${2 ** (i % 12)} ms, ünïcödé ✓`,
+      ).join("\n");
+    const encoded = await encodeDoc(markdown);
+    // Preconditions: the value really decodes, and the change touches it.
+    expect(await decodeDoc(encoded)).toBe(markdown);
+    expect(encoded).toMatch(/-.*_|_.*-/);
+    expect(encoded.length % 4).not.toBe(0);
+    const mangled = mangle(encoded);
+    expect(mangled).not.toBe(encoded);
+    expect(await decodeDoc(mangled)).toBeNull();
   });
 
   test("a truncated link (an app cut it short) is rejected instead of showing half a document", async () => {

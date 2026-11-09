@@ -1,24 +1,33 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, ListBox, ListBoxItem } from "react-aria-components";
-import { fitDiagrams, settled, slideBodySize } from "../deck/measure";
+import { MirrorStore } from "../annotate/mirrorStore";
+import { attachMirror } from "../annotate/mirrorView";
+import { fitDiagrams, releaseImageSizes, settled, slideBodySize } from "../deck/measure";
 import { renderDiagrams } from "../deck/mermaid";
 import { paginateSlide } from "../deck/paginate";
 import { flagPages, SLIDE_SIZE, slideAddress } from "../deck/pages";
 import { buildSlides } from "../deck/slides";
 import { ariaLocale, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
+import { renderEmoji } from "../render/emoji";
 import { highlightCode } from "../render/highlight";
+import { renderMath } from "../render/math";
+import { speakerNotes } from "../sectioning/notes";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
+import { useWakeLock } from "../shell/wakeLock";
 import {
   connectPresenter,
   type ChannelFactory,
   type PresenterConnection,
   type PresenterState,
 } from "./bridge";
+import { formatClock } from "./pacing";
+import { CountdownControls, PacingBar, useCountdown } from "./PacingControls";
 import "./presenter.css";
 
 const NO_ADDRESSES: string[] = [];
+const NO_NOTES: string[] = [];
 
 interface PresenterViewProps {
   /** Transport override for tests; defaults to BroadcastChannel. */
@@ -44,13 +53,19 @@ export function PresenterView({ channel }: PresenterViewProps) {
   const [connected, setConnected] = useState(true);
   const [previews, setPreviews] = useState<Previews | null>(null);
   const connection = useRef<PresenterConnection | null>(null);
+  // The audience window's laser and pen marks (decision 88), drawn over the current slide.
+  const [mirror] = useState(() => new MirrorStore());
   const now = useNow();
+  const [countdown, setCountdown] = useCountdown();
+  // The screen stays on while this window is open (decision 80).
+  useWakeLock(true);
   // The window's language follows the main tab's switch (a storage event).
   const locale = useLocale();
 
   useEffect(() => {
     const c = connectPresenter(setState, {
       onConnectionChange: setConnected,
+      onMirror: (op) => mirror.apply(op),
       ...(channel ? { channel } : {}),
     });
     connection.current = c;
@@ -58,12 +73,28 @@ export function PresenterView({ channel }: PresenterViewProps) {
       c.close();
       connection.current = null;
     };
-  }, [channel]);
+  }, [channel, mirror]);
+
+  // The audience tab sends it on to phone remotes (decision 112): on each change, and
+  // again with each heartbeat, so closing this window ends it there as it ends it here.
+  useEffect(() => {
+    connection.current?.setCountdown(countdown);
+  }, [countdown]);
 
   const markdown = state?.markdown;
   const levelKey = state ? JSON.stringify(state.level) : null;
   // Previews carry slide chrome and overflow notes, so a language switch rebuilds them too.
   const key = markdown === undefined ? null : `${locale}\n${levelKey}\n${markdown}`;
+
+  // Speaker notes (decision 79) come from the Markdown this window already
+  // receives, so the bridge carries nothing extra and no other surface sees them.
+  const notes = useMemo(
+    () =>
+      markdown === undefined || levelKey === null
+        ? new Map<string, string[]>()
+        : speakerNotes(sectionize(parseMarkdown(markdown), JSON.parse(levelKey) as LevelOption)),
+    [markdown, levelKey],
+  );
 
   const addresses = state?.addresses ?? NO_ADDRESSES;
   const index = state ? addresses.indexOf(state.current) : -1;
@@ -181,6 +212,7 @@ export function PresenterView({ channel }: PresenterViewProps) {
             {state ? `${index >= 0 ? index + 1 : "–"} / ${addresses.length}` : "– / –"}
           </span>
         </div>
+        <CountdownControls countdown={countdown} onChange={setCountdown} now={now} />
         <div className="docwalk-presenter-nav">
           <Button
             className="docwalk-presenter-control"
@@ -199,6 +231,14 @@ export function PresenterView({ channel }: PresenterViewProps) {
             <ChevronRight size={22} aria-hidden="true" />
           </Button>
         </div>
+        {countdown && state && (
+          <PacingBar
+            countdown={countdown}
+            now={now}
+            addresses={addresses}
+            current={state.current}
+          />
+        )}
       </header>
 
       <p className="docwalk-presenter-status" role="status">
@@ -207,13 +247,17 @@ export function PresenterView({ channel }: PresenterViewProps) {
 
       {state ? (
         <main className="docwalk-presenter-main">
-          <SlidePreview
-            className="docwalk-presenter-current"
-            label={m.presenter_now()}
-            title={titleOf(state.current, pages)}
-            page={pages?.get(state.current)}
-            empty={ready ? m.presenter_no_preview() : ""}
-          />
+          <div className="docwalk-presenter-stage">
+            <SlidePreview
+              className="docwalk-presenter-current"
+              label={m.presenter_now()}
+              title={titleOf(state.current, pages)}
+              page={pages?.get(state.current)}
+              empty={ready ? m.presenter_no_preview() : ""}
+              marks={{ store: mirror, address: state.current }}
+            />
+            <SpeakerNotes notes={notes.get(sectionOf(state.current)) ?? NO_NOTES} />
+          </div>
           <aside className="docwalk-presenter-side">
             <SlidePreview
               className="docwalk-presenter-next"
@@ -261,22 +305,66 @@ export function PresenterView({ channel }: PresenterViewProps) {
   );
 }
 
+/**
+ * The current slide's speaker notes. They are text: React writes each one as
+ * a text node, so a note can never become markup (rule 5). The panel is
+ * always there, so the layout does not move from slide to slide.
+ */
+function SpeakerNotes({ notes }: { notes: readonly string[] }) {
+  return (
+    <section
+      className="docwalk-presenter-notes"
+      aria-labelledby="docwalk-presenter-notes-label"
+      // Long notes scroll inside the panel, so the panel must take the keyboard.
+      tabIndex={0}
+    >
+      <span id="docwalk-presenter-notes-label" className="docwalk-presenter-label">
+        {m.presenter_notes()}
+      </span>
+      {notes.length > 0 ? (
+        notes.map((note, i) => (
+          // The list is replaced as a whole, so the position is the identity.
+          // oxlint-disable-next-line react/no-array-index-key
+          <p key={i} className="docwalk-presenter-note">
+            {note}
+          </p>
+        ))
+      ) : (
+        <p className="docwalk-presenter-notes-empty">{m.presenter_notes_empty()}</p>
+      )}
+    </section>
+  );
+}
+
 interface SlidePreviewProps {
   className: string;
   label: string;
   title: string;
   page: HTMLElement | undefined;
   empty: string;
+  /** The audience window's laser and marks, drawn over this slide when it is the one at `address`. */
+  marks?: { store: MirrorStore; address: string };
 }
 
 /**
  * A slide-sized clone of a page, scaled to fit its frame. The clone is inert:
  * the presenter looks at it, and diagram hosts inside must not take focus.
  */
-function SlidePreview({ className, label, title, page, empty }: SlidePreviewProps) {
+function SlidePreview({ className, label, title, page, empty, marks }: SlidePreviewProps) {
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
+  const overlay = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState({ scale: 0, x: 0, y: 0 });
+  const markStore = marks?.store;
+  const markAddress = marks?.address;
+
+  // The overlay has the canvas's size and transform, so a mark sits where it sits on the slide.
+  useEffect(() => {
+    const el = overlay.current;
+    if (!el || !markStore || markAddress === undefined) return;
+    const view = attachMirror(el, markStore, () => markAddress);
+    return () => view.destroy();
+  }, [markStore, markAddress]);
 
   useEffect(() => {
     const el = frame.current;
@@ -316,6 +404,18 @@ function SlidePreview({ className, label, title, page, empty }: SlidePreviewProp
             transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`,
           }}
         />
+        {marks && (
+          <div
+            ref={overlay}
+            className="docwalk-presenter-marks"
+            hidden={!page}
+            style={{
+              width: SLIDE_SIZE.width,
+              height: SLIDE_SIZE.height,
+              transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`,
+            }}
+          />
+        )}
         {!page && empty && <p className="docwalk-presenter-empty">{empty}</p>}
       </div>
     </figure>
@@ -380,6 +480,8 @@ async function buildPreviews(
     // colours no more code and renders no more diagrams.
     await Promise.all([
       highlightCode(slide, { stop: stopped }),
+      renderMath(slide, { stop: stopped }),
+      renderEmoji(slide, { stop: stopped }),
       renderDiagrams(slide, stopped, { seen, pause: yieldToEventLoop }),
     ]);
     fitDiagrams(slide, body);
@@ -390,6 +492,7 @@ async function buildPreviews(
     // The presenter must see the same notes the audience deck shows, or a
     // clipped slide or an unreadable diagram looks fine in the preview.
     flagPages(built, SLIDE_SIZE);
+    releaseImageSizes(built);
     for (const page of built) pages.set(slideAddress(page), page);
     // Current and next appear together, then the rest one by one.
     const pending = new Set(wanted().map(sectionOf));
@@ -408,13 +511,7 @@ function titleOf(address: string, pages: ReadonlyMap<string, HTMLElement> | null
   return n > 1 ? `${title} (${n})` : title;
 }
 
-export function formatElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const min = Math.floor((total % 3600) / 60);
-  const s = String(total % 60).padStart(2, "0");
-  return h > 0 ? `${h}:${String(min).padStart(2, "0")}:${s}` : `${min}:${s}`;
-}
+export const formatElapsed = formatClock;
 
 function useNow(): number {
   const [now, setNow] = useState(() => Date.now());

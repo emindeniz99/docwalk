@@ -20,8 +20,12 @@ import { PRESENTER_ID, SEAT_TAKEN_CLOSE, type RemoteMessage, type RoomCredential
  * relay forwards frames to every other socket in the room; this client
  * encrypts what it sends, decrypts and validates what it receives, and
  * reconnects on its own. Navigation events are ephemeral: nothing is queued
- * while the socket is down. Instead, remotes and followers send `hello` on
- * every (re)connect and the presenter answers with its current state.
+ * while the socket is down. Instead, remotes, followers and agents send
+ * `hello` on every (re)connect and the presenter answers with its current
+ * state. They also say hello again when they accept a state from a presenter
+ * sender id they have not seen (decision 111): a hello sent while the
+ * presenter's socket was down reached nobody, and a reloaded presenter tab
+ * starts with no count.
  *
  * Keys by role (decision 68): the presenter holds both, remotes and agents
  * the control key, followers the view key. Everything is sent under the
@@ -105,7 +109,22 @@ export interface ConnectOptions {
 
 /** Laser points go out at most this often (about 30 per second). */
 export const LASER_INTERVAL_MS = 33;
+
+/** A phone's laser point, or the presenter's mirrored one (decision 88): both share the throttle. */
+const isLaser = (message: RemoteMessage) =>
+  message.type === "laser" || (message.type === "mirror" && message.op === "laser");
+const isLaserOff = (message: RemoteMessage) =>
+  message.type === "laser-off" || (message.type === "mirror" && message.op === "laser-off");
 export const MAX_RECONNECT_DELAY_MS = 10_000;
+
+/**
+ * A client says hello again when it accepts a presenter state from a sender
+ * id it has not seen (decision 111), at most this often.
+ */
+export const HELLO_AGAIN_GAP_MS = 1000;
+
+/** How many presenter sender ids a client remembers, so a replay of an earlier tab's states costs no hello. */
+const STATE_SENDERS_KEPT = 8;
 
 /** Wait before reconnect attempt `attempt` (0-based): 0.5 s doubling, capped at 10 s. */
 export function reconnectDelay(attempt: number): number {
@@ -220,6 +239,10 @@ export function connectRoom({
   let laserTimer: ReturnType<typeof setTimeout> | undefined;
   let lastLaserAt = Number.NEGATIVE_INFINITY;
   let pendingLaser: RemoteMessage | null = null;
+  // Hello again (decision 111): the sender ids of the last presenter states taken, oldest first.
+  const stateSenders: string[] = [];
+  let lastAgainAt = Number.NEGATIVE_INFINITY;
+  let againTimer: ReturnType<typeof setTimeout> | undefined;
   // Encryption and decryption are async; chaining keeps both directions in order.
   let inbound: Promise<void> = Promise.resolve();
   let outbound: Promise<unknown> = Promise.resolve();
@@ -280,11 +303,16 @@ export function connectRoom({
         } catch {
           return;
         }
-        let message = await unseal(await keysPromise, frame);
+        const sealed = await unseal(await keysPromise, frame);
+        let message = sealed?.message ?? null;
         if (message?.type === "part") message = await assembler.add(message);
         // An answer for another agent is not this participant's business.
         if (message && "to" in message && message.to !== self) return;
-        if (message && !closed) onMessage(message);
+        if (!message || closed) return;
+        if (sealed && role !== "presenter" && message.type === "state") {
+          noteStateSender(sealed.sender);
+        }
+        onMessage(message);
       })
       // A handler that throws (a deck torn down mid-rebuild) must not reject
       // the chain: every later frame would be skipped until a reload. The
@@ -292,12 +320,18 @@ export function connectRoom({
       .catch(reportError);
   }
 
-  /** The message in `frame` if it decrypts under a key this role holds, is new, and that key may carry it. */
-  async function unseal(keys: RoleKeys, frame: unknown): Promise<RemoteMessage | null> {
+  /** The message in `frame` and its sender id if it decrypts under a key this role holds, is new, and that key may carry it. */
+  async function unseal(
+    keys: RoleKeys,
+    frame: unknown,
+  ): Promise<{ message: RemoteMessage; sender: string } | null> {
     if (keys.control) {
       const sealed = await decrypt(keys.control, frame);
-      if (sealed)
-        return guards.control.accept(sealed.sender, sealed.counter) ? sealed.message : null;
+      if (sealed) {
+        return guards.control.accept(sealed.sender, sealed.counter)
+          ? { message: sealed.message, sender: sealed.sender }
+          : null;
+      }
     }
     if (!keys.view) return null;
     const sealed = await decrypt(keys.view, frame, keys.verify ?? undefined);
@@ -307,18 +341,44 @@ export function connectRoom({
     if (role === "presenter" && !(message.type === "hello" && message.role === "follower")) {
       return null;
     }
-    // Any follower could have sealed it: only the presenter's signature makes a state true.
-    if (role === "follower" && !(message.type === "state" && sealed.signed)) return null;
+    // Any follower could have sealed it: only the presenter's signature makes a state, or the
+    // laser, marks and focus view it mirrors (decision 88), true.
+    if (
+      role === "follower" &&
+      !((message.type === "state" || message.type === "mirror") && sealed.signed)
+    ) {
+      return null;
+    }
     // Counters are recorded only for frames this role takes. Recording one
     // first let any view-key holder seal a frame under the presenter's sender
     // id with the largest counter, so followers dropped every real state, or
     // flood the table until the presenter's entry was evicted.
-    return guards.view.accept(sealed.sender, sealed.counter) ? message : null;
+    return guards.view.accept(sealed.sender, sealed.counter)
+      ? { message, sender: sealed.sender }
+      : null;
   }
 
-  /** `message` encrypted under `key` with the next counter, as wire text; a state is signed when this role can. */
+  /** A state from a sender id not among the last few: say hello again. */
+  function noteStateSender(from: string) {
+    if (stateSenders.includes(from)) return;
+    stateSenders.push(from);
+    if (stateSenders.length > STATE_SENDERS_KEPT) stateSenders.shift();
+    const wait = lastAgainAt + HELLO_AGAIN_GAP_MS - Date.now();
+    if (wait <= 0) sendHelloAgain();
+    else againTimer ??= setTimeout(sendHelloAgain, wait);
+  }
+
+  function sendHelloAgain() {
+    againTimer = undefined;
+    if (closed || status !== "open" || role === "presenter") return;
+    lastAgainAt = Date.now();
+    void transmit({ type: "hello", role, id: helloId });
+  }
+
+  /** `message` encrypted under `key` with the next counter, as wire text; a state or mirror message is signed when this role can. */
   async function seal(keys: RoleKeys, key: RoomKey, message: RemoteMessage): Promise<string> {
-    const signer = message.type === "state" ? (keys.sign ?? undefined) : undefined;
+    const signed = message.type === "state" || message.type === "mirror";
+    const signer = signed ? (keys.sign ?? undefined) : undefined;
     return JSON.stringify(await encrypt(key, message, { sender, counter: ++counter }, signer));
   }
 
@@ -326,10 +386,16 @@ export function connectRoom({
     const result = outbound.then(async (): Promise<SendResult> => {
       if (status !== "open" || !socket) return "not-open";
       const keys = await keysPromise;
-      // State goes to followers (view key) and remotes and agents (control key).
+      // State goes to followers (view key) and remotes and agents (control key). What the
+      // presenter mirrors goes to followers alone: remotes and agents never receive it.
       const targets = (
-        message.type === "state" ? [keys.view, keys.control] : [keys.control ?? keys.view]
+        message.type === "state"
+          ? [keys.view, keys.control]
+          : message.type === "mirror"
+            ? [keys.view]
+            : [keys.control ?? keys.view]
       ).filter((key): key is RoomKey => key !== null);
+      if (targets.length === 0) return "not-open";
       const frames: string[] = [];
       for (const key of targets) frames.push(await seal(keys, key, message));
       // Base64url and JSON are ASCII, so length equals bytes.
@@ -360,6 +426,7 @@ export function connectRoom({
     // Guarded: the Workers runtime types (worker/room.test.ts runs this client) take no undefined.
     if (retryTimer !== undefined) clearTimeout(retryTimer);
     if (laserTimer !== undefined) clearTimeout(laserTimer);
+    if (againTimer !== undefined) clearTimeout(againTimer);
     socket?.close();
     socket = null;
     setStatus("closed");
@@ -389,7 +456,7 @@ export function connectRoom({
     id: self,
     send(message) {
       if (closed) return Promise.resolve("not-open");
-      if (message.type === "laser") {
+      if (isLaser(message)) {
         const wait = lastLaserAt + LASER_INTERVAL_MS - Date.now();
         if (wait > 0) {
           pendingLaser = message;
@@ -397,7 +464,7 @@ export function connectRoom({
           return Promise.resolve("queued");
         }
         lastLaserAt = Date.now();
-      } else if (message.type === "laser-off") {
+      } else if (isLaserOff(message)) {
         // A point still waiting would bring the laser back after it was hidden.
         if (laserTimer !== undefined) clearTimeout(laserTimer);
         laserTimer = undefined;

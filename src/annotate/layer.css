@@ -20,6 +20,21 @@
   pointer-events: none;
 }
 
+/* The whiteboard's paper (decision 110): the slide's colour over the slide box,
+   under every draw surface. It takes the pointer so a click never reaches the
+   page it hides. */
+.docwalk-annotate-board {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: var(--dw-color-slide);
+  pointer-events: auto;
+}
+
+.docwalk-annotate[data-board] .docwalk-annotate-board {
+  display: block;
+}
+
 /* Every visited slide keeps its own drawing surface; only the current one shows. */
 .docwalk-annotate-draw:not([data-active="true"]) {
   display: none;
@@ -27,6 +42,8 @@
 
 .docwalk-annotate[data-mode="pen"] .docwalk-annotate-draw,
 .docwalk-annotate[data-mode="arrow"] .docwalk-annotate-draw,
+.docwalk-annotate[data-mode="rect"] .docwalk-annotate-draw,
+.docwalk-annotate[data-mode="ellipse"] .docwalk-annotate-draw,
 .docwalk-annotate[data-mode="eraser"] .docwalk-annotate-draw,
 .docwalk-annotate[data-mode="laser"] .docwalk-annotate-laser {
   pointer-events: auto;

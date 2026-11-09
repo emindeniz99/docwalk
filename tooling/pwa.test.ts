@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { tokens } from "../src/design/tokens.ts";
+import { loadFromFile } from "../src/inputs/load.ts";
 import { CONTENT_SECURITY_POLICY } from "../worker/csp.ts";
 import viteConfig from "../vite.config.ts";
 import {
@@ -104,6 +105,30 @@ describe("web app manifest (decision 11)", () => {
       ...manifest.icons.map((i) => i.src),
     ])
       expect(path.startsWith("/")).toBe(false);
+  });
+
+  // Decision 99: a Markdown file opened with the installed app. Chromium
+  // lists the app next to "Open with" for these extensions and starts it with
+  // the file in launchQueue; other browsers ignore the member.
+  describe("file_handlers", () => {
+    const handler = manifest.file_handlers[0];
+
+    test("offers the app for Markdown files and opens them at the app root", () => {
+      expect(manifest.file_handlers).toHaveLength(1);
+      expect(handler?.accept).toEqual({ "text/markdown": [".md", ".markdown"] });
+      // Resolved against the manifest like start_url, so it stays inside the scope.
+      expect(handler?.action).toBe(manifest.start_url);
+      expect(handler?.action.startsWith("/")).toBe(false);
+    });
+
+    // A handler for an extension the loader refuses would offer the app for
+    // files it can only answer with an error.
+    test("lists only extensions the file loader accepts", async () => {
+      for (const extension of Object.values(handler?.accept ?? {}).flat()) {
+        const result = await loadFromFile(new File(["# A"], `notes${extension}`));
+        expect({ extension, ok: result.ok }).toEqual({ extension, ok: true });
+      }
+    });
   });
 
   test("its colours are design tokens (decision 52)", () => {
@@ -245,6 +270,35 @@ describe("selectPrecache", () => {
     expect(runtime.has("typescript.js")).toBe(true);
   });
 
+  // Decision 101: a formula or a shortcode needs the math worker or gemoji, and
+  // most documents have neither, so neither is part of the install. Temml runs
+  // in the worker; the page half (`mathRender`) is kept out of the precache by
+  // the Temml stylesheet it imports, whose module id matches the rule, and the
+  // worker file follows it (see `selectAssets` below). The stylesheet goes
+  // with the chunk.
+  test("leaves the math page half, its stylesheet and the emoji list to the runtime cache", () => {
+    const { precache, runtime } = selectPrecache([
+      chunk("index.js", { isEntry: true, dynamicImports: ["mathRender.js", "emojiMap.js"] }),
+      chunk("mathRender.js", {
+        moduleIds: [
+          "/app/src/render/mathRender.ts",
+          "/app/node_modules/.pnpm/temml@0.14.0/node_modules/temml/dist/Temml-Local.css",
+        ],
+        css: ["mathRender.css"],
+      }),
+      chunk("emojiMap.js", {
+        moduleIds: [
+          "/app/src/render/emojiMap.ts",
+          "/app/node_modules/.pnpm/gemoji@8.1.0/node_modules/gemoji/index.js",
+        ],
+      }),
+    ]);
+    expect(precache.has("index.js")).toBe(true);
+    const lazy = ["mathRender.js", "mathRender.css", "emojiMap.js"];
+    expect(lazy.filter((name) => precache.has(name))).toEqual([]);
+    expect(lazy.filter((name) => runtime.has(name))).toEqual(lazy);
+  });
+
   test("fails loudly when the graph names a chunk the build did not emit", () => {
     expect(() =>
       selectPrecache([chunk("index.js", { isEntry: true, imports: ["gone.js"] })]),
@@ -282,6 +336,16 @@ describe("selectAssets", () => {
       "assets/editor.worker-ghi.js",
       "excalidraw-assets/fonts/Xiaolai/Xiaolai-Regular-1.woff2",
     ]);
+  });
+
+  // Decision 101: the math worker is named only by the runtime-cached
+  // `mathRender` chunk, so it follows that chunk and stays out of the install.
+  test("leaves the math worker to the runtime cache when only the math page half names it", () => {
+    // `code` is the precached code; the page half that names the worker is not part of it.
+    const withWorker = [...assets, { fileName: "assets/math.worker-abc.js", text: null }];
+    const { precache, runtime } = selectAssets(withWorker, precached, code);
+    expect(precache.has("assets/math.worker-abc.js")).toBe(false);
+    expect(runtime.has("assets/math.worker-abc.js")).toBe(true);
   });
 
   test("precaches a worker that precached code names", () => {

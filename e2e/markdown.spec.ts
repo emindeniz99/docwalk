@@ -27,6 +27,8 @@ const DOC = [
   "",
   "Press <kbd>Ctrl</kbd> + <kbd>K</kbd>, see [the retry budget](#retry-budget).",
   "",
+  "Escalate along [the escalation path](#escalation-path).",
+  "",
   "## 🚀",
   "",
   "Launch plan.",
@@ -45,8 +47,22 @@ const DOC = [
   "",
   "</details>",
   "",
+  "## Settlement",
+  "",
+  "Settlement runs nightly.[^nightly]",
+  "",
+  ...Array.from({ length: 24 }, (_, i) => `Settlement detail ${i + 1}.\n`),
+  "Late files wait a day.[^late]",
+  "",
+  "> [!TIP]",
+  "> #### Escalation path",
+  ">",
+  "> Page the on-call lead.",
+  "",
   "[^daily]: At 02:00 UTC.",
   "[^refunds]: Up to five business days.",
+  "[^nightly]: After the ledger closes.",
+  "[^late]: Up to one business day.",
   "",
 ].join("\n");
 
@@ -78,6 +94,13 @@ async function openDoc(page: Page) {
   await expect(
     page.locator(".reveal .slides > section[data-docwalk-id='heading-1f680']"),
   ).toHaveCount(1);
+  // The sections above are in the DOM before the deck is paginated and live.
+  // When it goes live, the preview follows the editor's cursor, which the
+  // paste left on the last line, to Settlement, in the same pass that applies
+  // the URL's hash: a hash set before then lands on its slide and is left at
+  // once (on WebKit, `#retry-budget` showed no <details>). Once the preview
+  // shows Settlement, a hash change reaches the live deck and stays.
+  await expect(present(page)).toHaveAttribute("data-docwalk-id", "settlement");
 }
 
 /** Goes to a slide the way a shared link does: through the URL hash. */
@@ -125,6 +148,57 @@ test("a link to a sub-heading opens the slide that holds it", async ({ page }) =
   await expect(present(page).locator("#user-content-retry-budget")).toBeVisible();
 });
 
+test("a footnote cited on a continuation page shows there, and following it keeps that page", async ({
+  page,
+}) => {
+  // Decision 107: the list used to land on the last page, wherever its citations were.
+  await openDoc(page);
+  await followHash(page, "#settlement/1");
+  const notes = present(page).locator(".footnotes");
+  await expect(notes).toContainText("After the ledger closes.");
+  await expect(notes).not.toContainText("Up to one business day.");
+  const late = await page
+    .locator(".reveal .slides > section[data-docwalk-id='settlement']", {
+      hasText: "Late files wait a day.",
+    })
+    .getAttribute("data-page");
+  expect(Number(late)).toBeGreaterThan(1);
+  await followHash(page, `#settlement/${late}`);
+  await expect(notes).toContainText("Up to one business day.");
+  await expect(notes).not.toContainText("After the ledger closes.");
+  await present(page).locator("a[data-footnote-ref]").click();
+  await expect(page.locator(":focus")).toHaveAttribute(
+    "id",
+    new RegExp(`^user-content-${late}\\.settlement-fn-late$`),
+  );
+  await expect(page).toHaveURL(new RegExp(`#settlement/${late}$`));
+  await present(page).locator(".data-footnote-backref").click();
+  await expect(page.locator(":focus")).toHaveAttribute("data-footnote-ref", "");
+  // The copies on this page carry ids of their own, so no id repeats in the deck.
+  const ids = await page.locator(".reveal [id]").evaluateAll((els) => els.map((el) => el.id));
+  expect(new Set(ids).size).toBe(ids.length);
+  await expectNoSeriousViolations(page, ".reveal .slides > section.present");
+});
+
+test("a link to a heading inside an alert opens its slide and its place in document view", async ({
+  page,
+}) => {
+  // Decision 107: only headings at the top of the tree had anchors.
+  await openDoc(page);
+  await followHash(page, "#escalation-path");
+  await expect(present(page).locator("#user-content-escalation-path")).toBeVisible();
+  await expect(page).toHaveURL(/#settlement\/\d+$/);
+  await followHash(page, "#sources");
+  await expect(present(page)).toHaveAttribute("data-docwalk-id", "sources");
+  await present(page).getByRole("link", { name: "the escalation path" }).click();
+  await expect(present(page).locator("#user-content-escalation-path")).toBeVisible();
+  await page.getByRole("radio", { name: "Document" }).click();
+  const doc = page.locator(".docwalk-document");
+  await doc.getByRole("link", { name: "the escalation path" }).click();
+  await expect(page.locator(":focus")).toHaveAttribute("id", "user-content-escalation-path");
+  await expect(page.locator(":focus")).toBeInViewport();
+});
+
 test("an emoji-only heading gets a slide address that a link can hold", async ({ page }) => {
   await openDoc(page);
   await followHash(page, "#heading-1f680");
@@ -148,7 +222,7 @@ test("document view: footnotes at the end, links resolved as on GitHub", async (
   await openDoc(page);
   await page.getByRole("radio", { name: "Document" }).click();
   const doc = page.locator(".docwalk-document");
-  await expect(doc.locator(".footnotes li")).toHaveCount(2);
+  await expect(doc.locator(".footnotes li")).toHaveCount(4);
   await doc.locator("a[data-footnote-ref]").first().click();
   await expect(page.locator(":focus")).toHaveAttribute("id", "user-content-fn-daily");
   await expect(page.locator(":focus")).toBeInViewport();
@@ -159,7 +233,7 @@ test("document view: footnotes at the end, links resolved as on GitHub", async (
 test("axe: the new content passes in document view, light and dark", async ({ page }) => {
   await openDoc(page);
   await page.getByRole("radio", { name: "Document" }).click();
-  await expect(page.locator(".docwalk-document .markdown-alert")).toHaveCount(2);
+  await expect(page.locator(".docwalk-document .markdown-alert")).toHaveCount(3);
   await expectNoSeriousViolations(page);
   await page.emulateMedia({ colorScheme: "dark" });
   await expectNoSeriousViolations(page);

@@ -31,6 +31,42 @@ body {
   break-before: page;
 }
 
+/*
+ * Speaker notes (decision 114): a block the width of a slide that grows with
+ * its text. Print breaks a long note across pages; nothing is clipped. The
+ * notes and the slide after them each start a page.
+ */
+.docwalk-export-notes {
+  flex: none;
+  box-sizing: border-box;
+  padding: var(--dw-space-3xl) 64px var(--dw-space-2xl);
+  background: var(--dw-color-slide);
+  color: var(--dw-color-slide-ink);
+  font-family: var(--dw-type-slide-body-family);
+  font-size: var(--dw-type-slide-body-size);
+  line-height: var(--dw-type-slide-body-line-height);
+  overflow: visible;
+  break-before: page;
+}
+
+.docwalk-export-notes h2 {
+  margin: 0 0 var(--dw-space-lg);
+  font-family: var(--dw-type-slide-title-family);
+  font-size: var(--dw-type-slide-title-size);
+  font-weight: var(--dw-type-slide-title-weight);
+  line-height: var(--dw-type-slide-title-line-height);
+}
+
+.docwalk-export-notes p {
+  margin: 0 0 var(--dw-space-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.docwalk-export-notes + .docwalk-export-page {
+  break-before: page;
+}
+
 /* An exported page is a page, not an object on a stage. */
 .docwalk-export-page .docwalk-slide {
   border-radius: 0;

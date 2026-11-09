@@ -56,7 +56,8 @@
   margin-left: auto;
 }
 
-.docwalk-presenter-control {
+.docwalk-presenter-control,
+.docwalk-presenter-text-control {
   display: inline-grid;
   place-items: center;
   width: var(--dw-space-target);
@@ -69,11 +70,13 @@
   cursor: pointer;
 }
 
-.docwalk-presenter-control[data-hovered] {
+.docwalk-presenter-control[data-hovered],
+.docwalk-presenter-text-control[data-hovered] {
   border-color: var(--dw-color-stage-muted);
 }
 
-.docwalk-presenter-control[data-disabled] {
+.docwalk-presenter-control[data-disabled],
+.docwalk-presenter-text-control[data-disabled] {
   color: var(--dw-color-stage-muted);
   cursor: default;
   opacity: 0.5;
@@ -99,6 +102,49 @@
   gap: var(--dw-space-xl);
   min-height: 0;
   padding: var(--dw-space-xl);
+}
+
+/* The current slide above its speaker notes (decision 79). */
+.docwalk-presenter-stage {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--dw-space-lg);
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * A fixed height, so the slide above keeps its size from slide to slide;
+ * longer notes scroll inside, and the panel takes keyboard focus for that.
+ */
+.docwalk-presenter-notes {
+  display: grid;
+  align-content: start;
+  gap: var(--dw-space-sm);
+  height: 26dvh;
+  min-height: 7rem;
+  padding: var(--dw-space-md) var(--dw-space-lg);
+  overflow: auto;
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
+  background: var(--dw-color-stage-raised);
+}
+
+.docwalk-presenter-note,
+.docwalk-presenter-notes-empty {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--dw-type-body-size);
+  line-height: var(--dw-type-body-line-height);
+}
+
+/* Line breaks in a note are the author's; the text is never markup. */
+.docwalk-presenter-note {
+  white-space: pre-wrap;
+}
+
+.docwalk-presenter-notes-empty {
+  color: var(--dw-color-stage-muted);
 }
 
 .docwalk-presenter-side {
@@ -144,7 +190,8 @@
   aspect-ratio: 16 / 9;
 }
 
-.docwalk-presenter-canvas {
+.docwalk-presenter-canvas,
+.docwalk-presenter-marks {
   position: absolute;
   top: 0;
   left: 0;
@@ -236,7 +283,180 @@
     aspect-ratio: 16 / 9;
   }
 
+  .docwalk-presenter-notes {
+    height: auto;
+    max-height: 40dvh;
+  }
+
   .docwalk-presenter-list {
     max-height: 50dvh;
   }
+}
+
+/*
+ * Countdown and pacing bar (decision 80). Colour is never the only signal:
+ * running over also changes the label's words, adds an icon, a heavier edge
+ * and the verdict's words. The stage's note colours already meet 4.5:1.
+ */
+
+.docwalk-presenter-target {
+  display: grid;
+  gap: var(--dw-space-xs);
+}
+
+.docwalk-presenter-target-row {
+  display: flex;
+  gap: var(--dw-space-sm);
+  align-items: center;
+}
+
+.docwalk-presenter-target-input {
+  box-sizing: border-box;
+  width: 5.5rem;
+  height: var(--dw-space-target);
+  padding: 0 var(--dw-space-md);
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
+  background: var(--dw-color-stage-raised);
+  color: var(--dw-color-stage-ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.docwalk-presenter-target-input[aria-invalid="true"] {
+  border-color: var(--dw-color-stage-note-border);
+  border-width: 2px;
+}
+
+.docwalk-presenter-target-error {
+  max-width: 16rem;
+  color: var(--dw-color-stage-note-ink);
+  font-size: var(--dw-type-body-size);
+  line-height: var(--dw-type-body-line-height);
+}
+
+/* A button with a word on it: as tall as the icon buttons (same look, above), as wide as its word. */
+.docwalk-presenter-text-control {
+  width: auto;
+  padding: 0 var(--dw-space-lg);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.docwalk-presenter-countdown-buttons {
+  display: flex;
+  gap: var(--dw-space-sm);
+}
+
+.docwalk-presenter-countdown-label {
+  display: inline-flex;
+  gap: var(--dw-space-xs);
+  align-items: center;
+}
+
+/* Over the target: the words, an icon, a boxed edge and the stage's note colours. */
+.docwalk-presenter-clock[data-over="true"] {
+  padding: var(--dw-space-xs) var(--dw-space-md);
+  border: 2px solid var(--dw-color-stage-note-border);
+  border-radius: var(--dw-radius-md);
+  background: var(--dw-color-stage-note-surface);
+  color: var(--dw-color-stage-note-ink);
+}
+
+.docwalk-presenter-clock[data-over="true"] .docwalk-presenter-label {
+  color: var(--dw-color-stage-note-ink);
+}
+
+/* The bars take the bar's whole second row. */
+.docwalk-presenter-pacing {
+  display: grid;
+  flex: 1 1 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--dw-space-lg);
+  align-items: center;
+  min-width: 0;
+}
+
+.docwalk-presenter-pace-bars {
+  display: grid;
+  gap: var(--dw-space-xs);
+  min-width: 0;
+}
+
+.docwalk-presenter-pace-row {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr) 3rem;
+  gap: var(--dw-space-md);
+  align-items: center;
+}
+
+.docwalk-presenter-pace-row .docwalk-presenter-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docwalk-presenter-pace-track {
+  height: 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--dw-color-stage-muted);
+  border-radius: var(--dw-radius-md);
+  background: var(--dw-color-stage-raised);
+}
+
+.docwalk-presenter-pace-fill {
+  height: 100%;
+  background: var(--dw-color-stage-ink);
+}
+
+/* The two bars differ by a tick as well as by label: the time bar is hatched. */
+.docwalk-presenter-pace-row:first-child .docwalk-presenter-pace-fill {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--dw-color-stage-ink) 0 4px,
+    var(--dw-color-stage-muted) 4px 8px
+  );
+}
+
+.docwalk-presenter-pace-value {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.docwalk-presenter-verdict {
+  display: inline-flex;
+  gap: var(--dw-space-sm);
+  align-items: center;
+  margin: 0;
+  padding: var(--dw-space-xs) var(--dw-space-md);
+  border: 1px solid var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-md);
+  font-weight: 700;
+}
+
+.docwalk-presenter-pacing[data-pace="behind"] .docwalk-presenter-verdict,
+.docwalk-presenter-pacing[data-pace="over"] .docwalk-presenter-verdict {
+  border: 2px solid var(--dw-color-stage-note-border);
+  background: var(--dw-color-stage-note-surface);
+  color: var(--dw-color-stage-note-ink);
+}
+
+@media (max-width: 48rem) {
+  .docwalk-presenter-pacing {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .docwalk-presenter-pace-row {
+    grid-template-columns: 6rem minmax(0, 1fr) 3rem;
+  }
+
+  .docwalk-presenter-verdict {
+    justify-self: start;
+  }
+}
+
+/* The audience window's laser and marks lie over the current slide's preview (decision 88). */
+.docwalk-presenter-marks {
+  pointer-events: none;
 }

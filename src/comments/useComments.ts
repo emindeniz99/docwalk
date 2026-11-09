@@ -2,21 +2,50 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedDocument } from "../inputs/types";
 import { m } from "../paraglide/messages.js";
 import { draftWouldBeReplaced } from "../share/draft";
+import { readAuthor, writeAuthor } from "./author";
 import { contentKey, DRAFT_ALIAS, sourceKey } from "./identity";
 import { commentsParam, decodeComments, hashWithoutComments } from "./payload";
-import { mergeComments, parseCommentsText } from "./schema";
+import {
+  cleanAuthor,
+  dedupeTombstones,
+  mergeSets,
+  parseCommentsText,
+  tombstoneFor,
+} from "./schema";
 import { openCommentStore, type CommentStore } from "./store";
-import { MAX_COMMENTS, MAX_SIDECAR_BYTES, type Anchor, type DocComment } from "./types";
+import {
+  MAX_COMMENTS,
+  MAX_SIDECAR_BYTES,
+  type Anchor,
+  type CommentSet,
+  type DocComment,
+  type Tombstone,
+} from "./types";
 
 export type CommentNotice = { message: string; tone: "info" | "error" };
 
 export interface CommentsApi {
   /** The current document's comments; empty until they have loaded. */
   comments: DocComment[];
+  /** The deletions that go with them (decision 95), for the sidecar and the share link. */
+  deleted: Tombstone[];
   /** False while the document's comments load. */
   ready: boolean;
+  /** The document's identity (decision 65), null while it loads; saved marks use it too (105). */
+  key: string | null;
+  /**
+   * True when the document has no identity because the browser cannot hash
+   * its text (no `crypto.subtle`: plain http outside localhost). `key` then
+   * stays null for good, and so do the comments and the saved marks.
+   */
+  unidentified: boolean;
   /** False when this browser cannot keep comments (no IndexedDB): they last until the page closes. */
   persistent: boolean;
+  /** True when the document's saved comments could not be read: new ones stay in this page until they can be. */
+  unreadable: boolean;
+  /** The display name typed in the panel, as typed (decision 97). Empty when none is set. */
+  author: string;
+  setAuthor: (name: string) => void;
   /** Call before handing an editor change to the document: an edit keeps the document's identity. */
   markEdit: (markdown: string) => void;
   add: (anchor: Anchor, text: string) => boolean;
@@ -30,6 +59,22 @@ export interface CommentsApi {
 export const IMPORT_TOO_LARGE = m.comments_import_too_large;
 export const IMPORT_OVER_CAP = (): string => m.comments_import_over_cap({ max: MAX_COMMENTS });
 export const LINK_COMMENTS_IGNORED = m.comments_link_ignored;
+
+interface State extends CommentSet {
+  key: string | null;
+  /** The saved comments could not be read, so nothing is written over them. */
+  loadFailed: boolean;
+  /** The document's text could not be hashed, so it has no key. */
+  unidentified: boolean;
+}
+
+const EMPTY: State = {
+  key: null,
+  comments: [],
+  deleted: [],
+  loadFailed: false,
+  unidentified: false,
+};
 
 function newId(): string {
   return crypto.randomUUID();
@@ -59,14 +104,14 @@ export function useComments({
   onNotice: (notice: CommentNotice) => void;
 }): CommentsApi {
   const [store, setStore] = useState<CommentStore | null>(null);
-  const [state, setState] = useState<{ key: string | null; comments: DocComment[] }>({
-    key: null,
-    comments: [],
-  });
+  const [state, setState] = useState<State>(EMPTY);
+  const [author, setAuthorState] = useState(readAuthor);
   const stateRef = useRef(state);
+  const authorRef = useRef(author);
   const notify = useRef(onNotice);
   useEffect(() => {
     stateRef.current = state;
+    authorRef.current = author;
     notify.current = onNotice;
   });
 
@@ -82,7 +127,7 @@ export function useComments({
 
   // ---- Comments a share link carries ------------------------------------
   // Read at once: the link's hash is rewritten as the deck navigates.
-  const pending = useRef<{ raw: string; comments: DocComment[] | null } | null>(null);
+  const pending = useRef<{ raw: string; set: CommentSet | null } | null>(null);
   /** Whether the current document came from a link (share fragment, `?src=`, `?repo=`). */
   const linkDoc = useRef(false);
   /** Merges the link's comments once both they and the document's own have loaded. */
@@ -90,7 +135,7 @@ export function useComments({
   const readLink = useCallback((hash: string) => {
     const raw = commentsParam(hash);
     if (raw === null) return;
-    const entry: { raw: string; comments: DocComment[] | null } = { raw, comments: null };
+    const entry: { raw: string; set: CommentSet | null } = { raw, set: null };
     pending.current = entry;
     void decodeComments(raw).then((result) => {
       if (pending.current !== entry) return;
@@ -100,7 +145,7 @@ export function useComments({
         notify.current({ message: result.message, tone: "error" });
         return;
       }
-      entry.comments = result.comments;
+      entry.set = { comments: result.comments, deleted: result.deleted };
       applyPending.current();
     });
   }, []);
@@ -112,12 +157,34 @@ export function useComments({
     return () => globalThis.removeEventListener("hashchange", onHash);
   }, [readLink, startHash]);
 
+  /** Takes what the store holds after a save: another tab's comments and deletions join this page's. */
+  const adopt = useCallback((key: string, stored: CommentSet) => {
+    const cur = stateRef.current;
+    if (cur.key !== key) return;
+    const next = mergeSets(cur, stored);
+    if (!next || (!next.dirty && !cur.loadFailed)) return;
+    stateRef.current = {
+      key,
+      comments: next.comments,
+      deleted: next.deleted,
+      loadFailed: false,
+      unidentified: false,
+    };
+    setState(stateRef.current);
+  }, []);
+
   const saving = useRef(Promise.resolve());
   const persist = useCallback(
-    (key: string, comments: DocComment[]) => {
+    (key: string, set: CommentSet) => {
       if (!store) return;
       saving.current = saving.current
-        .then(() => store.save(key, comments))
+        .then(async () => {
+          // The saved comments could not be read: write only once they can be,
+          // and merge with them, never over them (decision 95).
+          const cur = stateRef.current;
+          if (cur.key === key && cur.loadFailed) await store.read(key);
+          adopt(key, await store.merge(key, set));
+        })
         .catch(() =>
           notify.current({
             message: m.comments_store_failed(),
@@ -125,31 +192,35 @@ export function useComments({
           }),
         );
     },
-    [store],
+    [store, adopt],
   );
 
   useEffect(() => {
     applyPending.current = () => {
       const entry = pending.current;
-      const { key, comments } = stateRef.current;
-      if (!entry?.comments || key === null) return;
+      const { key, comments, deleted } = stateRef.current;
+      if (!entry?.set || key === null) return;
       pending.current = null;
       replaceHash(hashWithoutComments(location.hash));
       if (!linkDoc.current) {
         notify.current({ message: LINK_COMMENTS_IGNORED(), tone: "error" });
         return;
       }
-      const merged = mergeComments(comments, entry.comments);
+      const merged = mergeSets({ comments, deleted }, entry.set);
       if (!merged) {
         notify.current({ message: IMPORT_OVER_CAP(), tone: "error" });
         return;
       }
-      if (merged.changed > 0) {
-        stateRef.current = { key, comments: merged.comments };
+      if (merged.dirty) {
+        stateRef.current = {
+          ...stateRef.current,
+          comments: merged.comments,
+          deleted: merged.deleted,
+        };
         setState(stateRef.current);
-        persist(key, merged.comments);
+        persist(key, merged);
       }
-      const n = entry.comments.length;
+      const n = entry.set.comments.length;
       notify.current({
         message: m.comments_link_carries({ count: n }),
         tone: "info",
@@ -181,7 +252,7 @@ export function useComments({
     editedTo.current = null;
     let live = true;
     // No mutation may land on the previous document's key while this one loads.
-    stateRef.current = { key: null, comments: [] };
+    stateRef.current = EMPTY;
     void (async () => {
       setState(stateRef.current);
       if (!doc) return;
@@ -190,12 +261,31 @@ export function useComments({
         next = await store.getAlias(DRAFT_ALIAS).catch(() => null);
         if (next) aliased.current = next;
       }
-      next ??= await contentKey(doc.markdown);
-      const comments = await store.load(next).catch(() => []);
+      if (next === null) {
+        try {
+          next = await contentKey(doc.markdown);
+        } catch {
+          // No crypto.subtle: the document has no identity. Comments need one; the rest of the page does not.
+          if (live) {
+            stateRef.current = { ...EMPTY, unidentified: true };
+            setState(stateRef.current);
+          }
+          return;
+        }
+      }
+      // A list that cannot be read stays unread: the document opens empty, saves
+      // nothing, and the panel says so, rather than writing over what is there.
+      let loaded: CommentSet = { comments: [], deleted: [] };
+      let loadFailed = false;
+      try {
+        loaded = await store.read(next);
+      } catch {
+        loadFailed = true;
+      }
       if (!live) return;
       const kind = doc.source.kind;
       linkDoc.current = kind === "fragment" || kind === "url" || kind === "repo";
-      stateRef.current = { key: next, comments };
+      stateRef.current = { key: next, ...loaded, loadFailed, unidentified: false };
       setState(stateRef.current);
       applyPending.current();
     })();
@@ -206,11 +296,11 @@ export function useComments({
 
   // ---- Mutations -----------------------------------------------------------
   const change = useCallback(
-    (fn: (comments: DocComment[]) => DocComment[]) => {
-      const { key, comments } = stateRef.current;
+    (fn: (set: CommentSet) => CommentSet) => {
+      const { key, comments, deleted, loadFailed } = stateRef.current;
       if (key === null) return;
-      const next = fn(comments);
-      stateRef.current = { key, comments: next };
+      const next = fn({ comments, deleted });
+      stateRef.current = { key, ...next, loadFailed, unidentified: false };
       setState(stateRef.current);
       persist(key, next);
     },
@@ -222,34 +312,56 @@ export function useComments({
       const { key, comments } = stateRef.current;
       if (key === null || text.trim() === "" || comments.length >= MAX_COMMENTS) return false;
       const now = Date.now();
-      change((list) => [
-        ...list,
-        { id: newId(), anchor, text, created: now, updated: now, resolved: false },
-      ]);
+      const name = cleanAuthor(authorRef.current);
+      change((set) => ({
+        ...set,
+        comments: [
+          ...set.comments,
+          {
+            id: newId(),
+            anchor,
+            text,
+            ...(name === null ? {} : { author: name }),
+            created: now,
+            updated: now,
+            resolved: false,
+          },
+        ],
+      }));
       return true;
     },
     [change],
   );
   const update = useCallback(
     (id: string, text: string) =>
-      change((list) =>
-        list.map((c) =>
+      change((set) => ({
+        ...set,
+        comments: set.comments.map((c) =>
           c.id === id ? { ...c, text, updated: Math.max(Date.now(), c.updated + 1) } : c,
         ),
-      ),
+      })),
     [change],
   );
   const setResolved = useCallback(
     (id: string, resolved: boolean) =>
-      change((list) =>
-        list.map((c) =>
+      change((set) => ({
+        ...set,
+        comments: set.comments.map((c) =>
           c.id === id ? { ...c, resolved, updated: Math.max(Date.now(), c.updated + 1) } : c,
         ),
-      ),
+      })),
     [change],
   );
   const remove = useCallback(
-    (id: string) => change((list) => list.filter((c) => c.id !== id)),
+    (id: string) =>
+      change((set) => {
+        const gone = set.comments.find((c) => c.id === id);
+        if (!gone) return set;
+        return {
+          comments: set.comments.filter((c) => c.id !== id),
+          deleted: dedupeTombstones([tombstoneFor(gone, Date.now()), ...set.deleted]),
+        };
+      }),
     [change],
   );
 
@@ -264,24 +376,39 @@ export function useComments({
       }
       const result = parseCommentsText(text);
       if (!result.ok) return { message: result.message, tone: "error" };
-      const { key, comments } = stateRef.current;
+      const { key, comments, deleted } = stateRef.current;
       if (key === null) return { message: m.comments_doc_loading(), tone: "error" };
-      const merged = mergeComments(comments, result.comments);
+      const merged = mergeSets({ comments, deleted }, result);
       if (!merged) return { message: IMPORT_OVER_CAP(), tone: "error" };
-      change(() => merged.comments);
-      const n = merged.changed;
+      if (merged.dirty) change(() => ({ comments: merged.comments, deleted: merged.deleted }));
+      const added = merged.changed - merged.removed;
+      const parts = [
+        added > 0 ? m.comments_imported({ count: added }) : "",
+        merged.removed > 0 ? m.comments_import_removed({ count: merged.removed }) : "",
+      ].filter(Boolean);
       return {
-        message: n === 0 ? m.comments_nothing_new() : m.comments_imported({ count: n }),
+        message: parts.length === 0 ? m.comments_nothing_new() : parts.join(" "),
         tone: "info",
       };
     },
     [change],
   );
 
+  const setAuthor = useCallback((name: string) => {
+    setAuthorState(name);
+    writeAuthor(name);
+  }, []);
+
   return {
     comments: state.comments,
+    deleted: state.deleted,
     ready: state.key !== null,
-    persistent: store?.persistent ?? true,
+    key: state.key,
+    unidentified: state.unidentified,
+    persistent: (store?.persistent ?? true) && !state.loadFailed,
+    unreadable: state.loadFailed,
+    author,
+    setAuthor,
     markEdit,
     add,
     update,

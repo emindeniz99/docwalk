@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { MirrorOp } from "../annotate/mirrorTypes";
 import type { DeckController } from "../deck/controller";
 import { connectRoom, type RemoteStatus, type SocketFactory } from "./client";
 import type { RemoteMessage, RoomCredentials } from "./types";
@@ -23,6 +24,17 @@ export interface RemoteFollowerOptions {
   socketFactory?: SocketFactory;
   /** The follower page's URL; defaults to the current location. */
   base?: string;
+  /**
+   * Called with each op of the presenter's laser, marks and focus view that
+   * arrived with the presenter's signature (decision 88), in order.
+   */
+  onMirror?: (op: MirrorOp) => void;
+  /**
+   * Called with the slide address of each state the presenter signed, as it
+   * arrives. The whiteboard ends with a change of slide (decision 110), and a
+   * lost `board-close` is only noticed by the state that follows it.
+   */
+  onSlide?: (address: string) => void;
 }
 
 export interface RemoteFollower {
@@ -84,9 +96,18 @@ export function useRemoteFollower({
   controller,
   socketFactory,
   base,
+  onMirror,
+  onSlide,
 }: RemoteFollowerOptions): RemoteFollower {
   const [status, setStatus] = useState<RemoteStatus>("connecting");
   const [state, setState] = useState<FollowState | null>(null);
+  // Read through a ref, so a new callback never restarts the connection.
+  const mirror = useRef(onMirror);
+  const slide = useRef(onSlide);
+  useLayoutEffect(() => {
+    mirror.current = onMirror;
+    slide.current = onSlide;
+  });
   const room = creds?.room;
   const view = creds?.view;
   const verify = creds?.verify;
@@ -101,8 +122,15 @@ export function useRemoteFollower({
       creds: { room, key: null, view, verify },
       role: "follower",
       onMessage: (message) => {
-        if (!active || message.type !== "state") return;
+        if (!active) return;
+        if (message.type === "mirror") {
+          const { type: _kind, ...op } = message;
+          mirror.current?.(op);
+          return;
+        }
+        if (message.type !== "state") return;
         const { type: _type, ...rest } = message;
+        slide.current?.(rest.current);
         const docLink = sameOriginLink(rest.docLink, origin);
         // A link to another site is dropped, and the follower is told it has no document.
         const docLinkTooLong = rest.docLinkTooLong || (rest.docLink !== null && docLink === null);

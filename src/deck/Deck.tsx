@@ -1,15 +1,24 @@
 import Reveal from "reveal.js";
 import "reveal.js/reveal.css";
 import { useEffect, useRef, useState } from "react";
+import { renderEmoji } from "../render/emoji";
 import { focusTarget, fragmentAddress, fragmentTarget } from "../render/fragments";
 import { highlightCode } from "../render/highlight";
+import { renderMath } from "../render/math";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
 import type { Locale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import type { SectionPlan } from "../sectioning/sectionize";
 import { createDeckController, type DeckController } from "./controller";
-import { openDiagramFocus } from "./focus";
-import { fitDiagrams, settled, slideBodySize, type SlideMeasurement } from "./measure";
+import { closeContentFocus, openBlockFocus, openDiagramFocus } from "./focus";
+import { FOCUS_ATTR, markFocusTarget, markFocusTargets } from "./focusTargets";
+import {
+  fitDiagrams,
+  releaseImageSizes,
+  settled,
+  slideBodySize,
+  type SlideMeasurement,
+} from "./measure";
 import { renderDiagrams } from "./mermaid";
 import { paginateSlide } from "./paginate";
 import { flagPages, SLIDE_SIZE, slideAddress } from "./pages";
@@ -151,30 +160,52 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
         return;
       }
       const diagram = (event.target as Element).closest<HTMLElement>(".docwalk-diagram");
-      if (diagram) openDiagramFocus(diagram);
+      if (diagram) {
+        openDiagramFocus(diagram);
+        return;
+      }
+      // A code block, table or loaded image (decision 87). A link inside it is followed, and
+      // a click that ends a text selection is not a request to open anything.
+      const block = (event.target as Element).closest<HTMLElement>(`[${FOCUS_ATTR}]`);
+      if (!block || (event.target as Element).closest("a")) return;
+      const selection = getSelection();
+      if (selection && !selection.isCollapsed && selection.containsNode(block, true)) return;
+      openBlockFocus(block);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Enter") return;
       const diagram = (event.target as Element).closest<HTMLElement>(".docwalk-diagram");
-      if (!diagram) return;
+      // Only the block itself: Enter on a link inside a table follows the link.
+      const block = event.target instanceof HTMLElement && event.target.hasAttribute(FOCUS_ATTR);
+      if (!diagram && !block) return;
       // Otherwise the key's default action clicks the Close button the view has just focused.
       event.preventDefault();
-      openDiagramFocus(diagram);
+      if (diagram) openDiagramFocus(diagram);
+      else openBlockFocus(event.target as HTMLElement);
+    };
+    // An image that finishes loading later (a click on its placeholder, a slow host) becomes
+    // a target then; `load` does not bubble, so listen while it travels down.
+    const onImageLoad = (event: Event) => {
+      if (event.target instanceof HTMLImageElement) markFocusTarget(event.target);
     };
     const onResize = () => {
       if (deck) Object.assign(deck.getConfig(), frameOptions(revealEl, fillRef.current));
     };
     revealEl.addEventListener("click", onClick);
     revealEl.addEventListener("keydown", onKey);
+    revealEl.addEventListener("load", onImageLoad, true);
     const stopClickToLoad = enableClickToLoad(revealEl);
 
     void (async () => {
-      // Code colours load beside the diagrams (they touch other blocks) and
-      // both finish before anything is measured (rule 4). Colours change no
-      // line break; a grammar that fails to load leaves its block plain.
+      // Code colours, formulas and emoji load beside the diagrams (they touch
+      // other nodes) and all finish before anything is measured (rule 4).
+      // Colours change no line break; a grammar that fails to load leaves its
+      // block plain, and a formula that cannot be drawn stays as its source.
       // A newer build makes this one stale; stop it between diagrams.
-      const [, diagramResults] = await Promise.all([
+      const [, , , diagramResults] = await Promise.all([
         highlightCode(slidesEl, { stop: () => cancelled }),
+        renderMath(slidesEl, { stop: () => cancelled }),
+        renderEmoji(slidesEl, { stop: () => cancelled }),
         renderDiagrams(slidesEl, () => cancelled),
       ]);
       if (cancelled) return;
@@ -186,6 +217,8 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
       // progress bar and overview reflect the final pages.
       const pages = slides.flatMap((s) => paginateSlide(s, { size: SLIDE_SIZE }));
       slidesEl.replaceChildren(...pages);
+      // Marks go on the finished pages, so the pagination probes never carry them.
+      markFocusTargets(slidesEl);
 
       deck = new Reveal(revealEl, {
         embedded: true,
@@ -220,6 +253,8 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
       await deck.initialize();
       if (cancelled) return;
       reveal.current = { deck, el: revealEl };
+      // The copy in a code, table or image view belongs to one slide.
+      deck.on("slidechanged", closeContentFocus);
       localizeRevealChrome(revealEl);
 
       const overflowing: DeckReport["overflowing"] = [];
@@ -228,6 +263,8 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
         if (measured.overflows && slide)
           overflowing.push({ id: slideAddress(slide), measurement: measured });
       });
+      // The last measurement of copies: the pages size their images as the author wrote them.
+      releaseImageSizes(pages);
       const report: DeckReport = {
         slides: pages.length,
         overflowing,
@@ -240,8 +277,11 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
 
     return () => {
       cancelled = true;
+      // Before the deck goes: the view's copy is of a slide that is about to be replaced.
+      closeContentFocus();
       revealEl.removeEventListener("click", onClick);
       revealEl.removeEventListener("keydown", onKey);
+      revealEl.removeEventListener("load", onImageLoad, true);
       stopClickToLoad();
       onReady?.(null);
       hadFocus.current = revealEl.contains(document.activeElement);

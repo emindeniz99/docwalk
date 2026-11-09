@@ -2,7 +2,7 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { DeckController, SlideInfo } from "../deck/controller";
-import { useUrlSync, type UrlSyncOptions } from "./useUrlSync";
+import { readInitialSections, useUrlSync, type UrlSyncOptions } from "./useUrlSync";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -18,6 +18,7 @@ function fakeController(addresses: string[]) {
       title: sectionId,
       flagged: false,
       note: null,
+      text: "",
     };
   });
   const listeners = new Set<(slide: SlideInfo) => void>();
@@ -339,5 +340,62 @@ describe("useUrlSync", () => {
     window.location.hash = "#rollout/1";
     await changed;
     expect(controller.current()?.address).toBe("intro/1");
+  });
+});
+
+describe("useUrlSync: the section selection", () => {
+  test("choosing sections writes ?sections= and choosing all removes it, without adding history entries", () => {
+    openAt("?src=x", "");
+    const render = mount({});
+    const before = window.history.length;
+    render({ sections: ["intro", "rollout"] });
+    expect(window.location.search).toBe("?src=x&sections=intro%2Crollout");
+    render({ sections: null });
+    expect(window.location.search).toBe("?src=x");
+    expect(window.history.length).toBe(before);
+  });
+
+  test("the selection the page opened with is not rewritten on first render, so the link keeps its spelling", () => {
+    openAt("?sections=intro,rollout&src=x", "");
+    mount({ sections: ["intro", "rollout"] });
+    expect(window.location.search).toBe("?sections=intro,rollout&src=x");
+  });
+
+  test("readInitialSections reads the link's list, and null for anything invalid", () => {
+    openAt("?sections=intro,rollout", "");
+    expect(readInitialSections()).toEqual(["intro", "rollout"]);
+    openAt("?sections=intro,,rollout", "");
+    expect(readInitialSections()).toBeNull();
+    openAt("", "");
+    expect(readInitialSections()).toBeNull();
+  });
+
+  test("a link to a skipped section opens the first presented slide and rewrites the hash", () => {
+    // The deck holds only the chosen sections, as the app builds it.
+    openAt("?sections=intro,rollout", "#failure-handling/2");
+    const controller = fakeController(["intro/1", "rollout/1"]);
+    mount({ controller, sections: ["intro", "rollout"] });
+    expect(controller.current()?.address).toBe("intro/1");
+    expect(window.location.hash).toBe("#intro/1");
+  });
+
+  test("a GitHub anchor into a skipped section does the same, because the deck has no such heading", () => {
+    openAt("?sections=intro", "#some-deep-heading");
+    const controller = fakeController(["intro/1"]);
+    mount({ controller, sections: ["intro"] });
+    expect(window.location.hash).toBe("#intro/1");
+  });
+
+  test("choosing sections while viewing a skipped one moves to the nearest presented slide", () => {
+    openAt("", "");
+    const full = fakeController(DECK);
+    const render = mount({ controller: full });
+    act(() => full.goTo("failure-handling/2"));
+    // The deck is rebuilt without failure-handling: the viewer was there a moment ago.
+    render({ controller: null, sections: ["intro", "rollout"] });
+    const chosen = fakeController(["intro/1", "rollout/1"]);
+    render({ controller: chosen });
+    expect(["intro/1", "rollout/1"]).toContain(chosen.current()?.address);
+    expect(window.location.hash).toBe(`#${chosen.current()?.address}`);
   });
 });

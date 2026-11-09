@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { parse } from "yaml";
+import { TOUR_DIM_OPACITY } from "../deck/tourModel";
 import { tokens } from "./tokens";
 
-const root = new URL("../../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../../", import.meta.url));
 const frontMatter = parse(
   readFileSync(join(root, "DESIGN.md"), "utf8").split(/^---$/m)[1] ?? "",
 ) as { components: Record<string, Record<string, string>> };
@@ -51,4 +53,59 @@ describe("text colours stay readable on the surface they are drawn on", () => {
     expect(code.length).toBeGreaterThan(0);
     expect(code.filter((name) => !checked.has(name))).toEqual([]);
   });
+});
+
+describe("a marked code line in the focus view (decision 87)", () => {
+  // The focus view's ground is the slide white and a marked line takes the note
+  // fill, so every colour a token can have must still read on it.
+  const colors = tokens.colors as Record<string, string>;
+  const onMark = ["keyword", "string", "comment", "constant", "function", "parameter"];
+
+  test.each(onMark)("code-%s passes 4.5:1 on the note fill", (kind) => {
+    expect(
+      contrast(colors[`code-${kind}`] ?? "", colors["note-surface"] ?? ""),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test("plain code text passes 4.5:1 on the note fill", () => {
+    expect(
+      contrast(colors["slide-ink"] ?? "", colors["note-surface"] ?? ""),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test("the bar beside a marked line passes 3:1 on the slide white", () => {
+    expect(contrast(colors["note-ink"] ?? "", colors["slide"] ?? "")).toBeGreaterThanOrEqual(3);
+  });
+});
+
+/** sRGB mix of `fg` at `alpha` over `bg`, the way a browser composites `opacity`. */
+function mix(fg: string, bg: string, alpha: number): string {
+  const channels = [1, 3, 5].map((i) => {
+    const f = Number.parseInt(fg.slice(i, i + 2), 16);
+    const b = Number.parseInt(bg.slice(i, i + 2), 16);
+    return Math.round(f * alpha + b * (1 - alpha))
+      .toString(16)
+      .padStart(2, "0");
+  });
+  return `#${channels.join("")}`;
+}
+
+describe("diagram tour marks stay visible (decision 109)", () => {
+  // The tour fades edges that are off the path instead of the nodes, because a
+  // faded fill would change the contrast of the words on it. A faded edge, a
+  // ring and a path line still have to stand out from the slide white
+  // (WCAG 1.4.11, 3:1 for graphics).
+  const colors = tokens.colors as Record<string, string>;
+
+  test("Mermaid's default line colour at the dimmed opacity has 3:1 on the slide", () => {
+    const faded = mix("#333333", colors["slide"] ?? "", TOUR_DIM_OPACITY);
+    expect(contrast(faded, colors["slide"] ?? "")).toBeGreaterThanOrEqual(3);
+  });
+
+  test.each(["primary", "primary-ink"])(
+    "%s has 3:1 on the slide, so a ring reads against it",
+    (name) => {
+      expect(contrast(colors[name] ?? "", colors["slide"] ?? "")).toBeGreaterThanOrEqual(3);
+    },
+  );
 });

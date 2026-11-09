@@ -50,7 +50,25 @@ export function setEditorChoice(kind: EditorKind): void {
   } catch {
     // Storage can be unavailable (private mode); the choice still applies for this visit.
   }
+  notify();
+}
+
+function notify(): void {
   for (const listener of listeners) listener();
+}
+
+// The choice lives in storage that every tab of this origin shares, so a pick
+// made in another tab (or site data cleared there) reaches this one as a
+// `storage` event; two windows must not show different editors.
+if (typeof addEventListener === "function") {
+  addEventListener("storage", (event) => {
+    // A null key is the whole store being cleared.
+    if (event.key !== null && event.key !== EDITOR_KEY) return;
+    const next = readEditorChoice(localStore());
+    if (next === current) return;
+    current = next;
+    notify();
+  });
 }
 
 function subscribe(listener: () => void): () => void {

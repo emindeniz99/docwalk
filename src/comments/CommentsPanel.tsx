@@ -23,6 +23,7 @@ import {
   Dialog,
   FileTrigger,
   Header,
+  Input,
   Label,
   ListBox,
   ListBoxItem,
@@ -32,6 +33,7 @@ import {
   Popover,
   Select,
   SelectValue,
+  Text,
   TextArea,
   TextField,
   ToggleButton,
@@ -43,13 +45,14 @@ import { m } from "../paraglide/messages.js";
 import { IconButton } from "../shell/IconButton";
 import {
   anchorKey,
+  currentKey,
   diagramKey,
   resolveAnchor,
   type AnchorIndex,
   type DiagramNodes,
 } from "./anchors";
 import { serializeComments } from "./schema";
-import { MAX_COMMENT_CHARS, type Anchor, type DocComment } from "./types";
+import { MAX_AUTHOR_CHARS, MAX_COMMENT_CHARS, type Anchor, type DocComment } from "./types";
 import type { CommentNotice, CommentsApi } from "./useComments";
 import "./comments.css";
 
@@ -112,7 +115,14 @@ function anchorOptions(
   const diagramNodes: Option[] = [];
   for (const d of index.diagrams) {
     for (const n of nodes.get(diagramKey(d.heading, d.diagram)) ?? []) {
-      const anchor: Anchor = { kind: "node", heading: d.heading, diagram: d.diagram, node: n.id };
+      // The signature goes on the comment, so it can follow this diagram if diagrams are reordered (decision 96).
+      const anchor: Anchor = {
+        kind: "node",
+        heading: d.heading,
+        diagram: d.diagram,
+        node: n.id,
+        sig: d.sig,
+      };
       const number = d.diagram + 1;
       diagramNodes.push({
         key: anchorKey(anchor),
@@ -240,7 +250,7 @@ function PanelBody({
     [];
   for (const { comment, where } of shown) {
     if (where.status !== "attached") continue;
-    const key = anchorKey(comment.anchor);
+    const key = currentKey(comment.anchor, index);
     const last = groups.at(-1);
     if (last?.key === key) last.items.push(comment);
     else groups.push({ key, label: where.label, sectionId: where.sectionId, items: [comment] });
@@ -282,10 +292,19 @@ function PanelBody({
             isDisabled={api.comments.length === 0}
             onPress={() => {
               downloadBlob(
-                new Blob([serializeComments(api.comments)], { type: "application/json" }),
+                new Blob([serializeComments(api.comments, api.deleted)], {
+                  type: "application/json",
+                }),
                 sidecarName,
               );
-              announce({ message: m.comments_saved_file({ name: sidecarName }), tone: "info" });
+              // A name is part of the comment: the file carries it in the clear (decision 97).
+              const named = api.comments.some((c) => c.author !== undefined);
+              announce({
+                message: (named ? m.comments_saved_file_named : m.comments_saved_file)({
+                  name: sidecarName,
+                }),
+                tone: "info",
+              });
             }}
           >
             <Download size={16} aria-hidden="true" />
@@ -299,9 +318,11 @@ function PanelBody({
       {!api.persistent && (
         <p className="docwalk-comments-warning">
           <TriangleAlert size={16} aria-hidden="true" />
-          <span>{m.comments_not_persistent()}</span>
+          <span>{api.unreadable ? m.comments_unreadable() : m.comments_not_persistent()}</span>
         </p>
       )}
+
+      <AuthorField api={api} />
 
       <AddComment
         api={api}
@@ -399,6 +420,28 @@ function PanelBody({
         {status?.message ?? ""}
       </p>
     </div>
+  );
+}
+
+/** The writer's display name (decision 97): kept in this browser, shown on the comments written under it. */
+function AuthorField({ api }: { api: CommentsApi }) {
+  return (
+    <TextField
+      className="docwalk-comments-author-field"
+      value={api.author}
+      onChange={api.setAuthor}
+      maxLength={MAX_AUTHOR_CHARS}
+      autoComplete="off"
+    >
+      <Label className="docwalk-overline">{m.comments_name()}</Label>
+      <Input
+        className="docwalk-comments-author-input"
+        placeholder={m.comments_name_placeholder()}
+      />
+      <Text slot="description" className="docwalk-comments-note">
+        {m.comments_name_note()}
+      </Text>
+    </TextField>
   );
 }
 
@@ -606,6 +649,13 @@ function CommentItem({
       <>
         <p className="docwalk-comments-text">{comment.text}</p>
         <p className="docwalk-comments-meta">
+          {comment.author !== undefined && (
+            <>
+              {/* Plain text in its own bidi isolate: a name cannot reorder the text around it. */}
+              <bdi className="docwalk-comments-author">{comment.author}</bdi>
+              <span> · </span>
+            </>
+          )}
           <time dateTime={new Date(comment.created).toISOString()}>
             {dateFormat(locale).format(comment.created)}
           </time>

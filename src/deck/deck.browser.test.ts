@@ -8,8 +8,17 @@ import "@fontsource-variable/jetbrains-mono";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { BLOCKED_IMAGE_CLASS } from "../render/toHtml";
-import { fitDiagrams, measureBody, measureOffscreen, settled, slideBodySize } from "./measure";
+import {
+  fitDiagrams,
+  measureBody,
+  measureOffscreen,
+  releaseImageSizes,
+  settled,
+  slideBodySize,
+} from "./measure";
 import { prepareDiagramSource, renderDiagrams } from "./mermaid";
+import { paginateSlide } from "./paginate";
+import { flagPages } from "./pages";
 import { buildSlide, buildSlides } from "./slides";
 
 const SIZE = { width: 1280, height: 720 };
@@ -84,6 +93,103 @@ describe("overflow measurement (real layout, never jsdom)", () => {
     const [m] = measureOffscreen([body], SIZE);
     expect(m?.body.y).toBeGreaterThan(500);
   });
+});
+
+/** A 200x400 PNG, drawn here so no fixture file is needed. */
+async function tallPng(): Promise<Blob> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 200;
+  canvas.height = 400;
+  canvas.getContext("2d")?.fillRect(0, 0, 200, 400);
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob as Blob), "image/png"));
+}
+
+/**
+ * From here on, every copy of an image loads it again from an address of its own,
+ * so the copy has no size until that load ends. Returns the undo.
+ */
+function copiesLoadAgain(png: Blob): () => void {
+  const cloneNode = Node.prototype.cloneNode;
+  Node.prototype.cloneNode = function (this: Node, deep?: boolean) {
+    const copy = cloneNode.call(this, deep);
+    if (copy instanceof Element) {
+      for (const img of [copy, ...copy.querySelectorAll("img")]) {
+        if (img instanceof HTMLImageElement && img.src) img.src = URL.createObjectURL(png);
+      }
+    }
+    return copy;
+  };
+  return () => {
+    Node.prototype.cloneNode = cloneNode;
+  };
+}
+
+const listings = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
+  .map((name) => `\`\`\`text\n${name} first\n${name} 2\n${name} 3\n${name} 4\n${name} 5\n\`\`\`\n`)
+  .join("\n");
+
+describe("loaded images and their copies", () => {
+  // Pagination and the overflow note measure copies of the slide at once, before
+  // a copy could load anything. Chromium gives a copy of a decoded image its size
+  // from the document's list of available images; Firefox loads it again when its
+  // cache will not answer (Playwright's routing turns the cache off, and a host can
+  // ask for revalidation), and its copy has no size yet. In CI, Firefox put the
+  // heading, a 400px image and two listings on one page that overflowed with no
+  // note. Here every copy loads again on Chromium too.
+  // Afterwards the pages size their images as the author wrote them: a fixed width and
+  // height would outlive the image, and an HTML export's placeholder took the full size.
+  test.each([
+    ["a Markdown image", "![Chart](/chart.png)", [null, null]],
+    [
+      "an HTML image with only a width",
+      '<img alt="Chart" src="/chart.png" width="150">',
+      ["150", null],
+    ],
+  ])(
+    "%s keeps its size in copies that load it again: every page fits or says it does not",
+    async (_, image, authored) => {
+      const png = await tallPng();
+      const body = mountSlide(`## Chart\n\n${image}\n\n${listings}`);
+      const section = body.closest("section") as HTMLElement;
+      const img = body.querySelector("img") as HTMLImageElement;
+      img.src = URL.createObjectURL(png);
+      await settled(section);
+      expect(img.naturalHeight).toBe(400);
+
+      const undo = copiesLoadAgain(png);
+      let pages: HTMLElement[];
+      try {
+        pages = paginateSlide(section, { size: SIZE });
+        document.body.replaceChildren(
+          ...pages.map((page) => {
+            const frame = document.createElement("div");
+            Object.assign(frame.style, { width: `${SIZE.width}px`, height: `${SIZE.height}px` });
+            frame.append(page);
+            return frame;
+          }),
+        );
+        flagPages(pages, SIZE);
+        releaseImageSizes(pages);
+      } finally {
+        undo();
+      }
+
+      // Once the copies on the pages have loaded, each page fits or shows its note (rule 3).
+      const shown = [...document.querySelectorAll("img")];
+      await Promise.all(shown.map((copy) => copy.decode()));
+      expect(shown.map((copy) => copy.naturalHeight)).toEqual([400]);
+      expect(
+        shown.map((copy) => [copy.getAttribute("width"), copy.getAttribute("height")]),
+      ).toEqual([authored]);
+      expect(shown.map((copy) => copy.getAttribute("style"))).toEqual([null]);
+      const unreported = pages.flatMap((page, i) => {
+        const pageBody = page.querySelector(".docwalk-slide-body") as HTMLElement;
+        const note = page.querySelector<HTMLElement>(".docwalk-overflow");
+        return measureBody(pageBody).overflows && note?.hidden !== false ? [i + 1] : [];
+      });
+      expect(unreported, "pages that overflow without a note").toEqual([]);
+    },
+  );
 });
 
 describe("hostile input", () => {

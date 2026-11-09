@@ -28,8 +28,12 @@ import {
  *   nothing; the stage around the slide still toggles the chrome. Without a
  *   tool, a tap on the slide toggles it too, unless it lands on a link, a
  *   diagram or an image, which do their own thing.
- * - Tab shows the chrome and focuses its first control (Shift+Tab: its last),
- *   so a keyboard user never tabs into nothing. Hidden controls stay in the
+ * - A pen draws with no tool chosen, so it owns the slide as a tool does
+ *   (decision 110). Once a pen has been used a finger owns nothing, whatever
+ *   tool is chosen: a tap on the slide toggles the controls and a swipe moves
+ *   the slide.
+ * - Tab shows the chrome and focuses its first visible control (Shift+Tab: its
+ *   last), so a keyboard user never tabs into nothing. Hidden controls stay in the
  *   accessibility tree, and focus reaching one by any route shows them.
  */
 export const CHROME_IDLE_MS = 3000;
@@ -49,7 +53,7 @@ const CHROME = `${BAR}, .reveal .controls`;
 /** Open layers that keep the chrome up: the overview, the palette, a menu, diagram focus. */
 const OPEN_LAYER = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
 /** Things on a slide a tap is meant for. */
-const SLIDE_TARGET = "a, button, input, summary, img, .docwalk-diagram";
+const SLIDE_TARGET = "a, button, input, summary, img, pre, table, .docwalk-diagram";
 const TABBABLE =
   'button:not(:disabled), a[href], input:not(:disabled):not([type="hidden"]), [tabindex]:not([tabindex="-1"])';
 
@@ -173,8 +177,13 @@ interface Options {
   active: boolean;
   /** The deck pane: the bar above the slide plus the deck. */
   pane: RefObject<HTMLElement | null>;
-  /** A pen, laser, arrow or eraser is selected, so the slide belongs to the tool. */
-  toolActive: boolean;
+  /**
+   * Whether a pointer of this type (`mouse`, `pen` or `touch`) on the slide
+   * belongs to the tool: it draws or points, and is no tap on the page. A
+   * pen draws with no tool chosen, and once a pen is in use a finger swipes
+   * and taps whatever tool is chosen (decision 110, `stylusPolicy.ts`).
+   */
+  slideOwner: (pointerType: string) => boolean;
   /**
    * The fill frame (decision 77): the slide can cover the whole screen and
    * leave no stage beside it, so the strip the bar shows in counts as stage.
@@ -189,7 +198,7 @@ const within = (target: EventTarget | null, selector: string): Element | null =>
 export function usePresentChrome({
   active,
   pane,
-  toolActive,
+  slideOwner,
   barIsStage = false,
 }: Options): PresentChrome {
   const keep = useKeepChromeVisible();
@@ -203,10 +212,10 @@ export function usePresentChrome({
     setHidden(false);
     setHint(false);
   }
-  const tool = useRef(toolActive);
+  const owner = useRef(slideOwner);
   const barStage = useRef(barIsStage);
   useLayoutEffect(() => {
-    tool.current = toolActive;
+    owner.current = slideOwner;
     barStage.current = barIsStage;
   });
 
@@ -276,8 +285,15 @@ export function usePresentChrome({
         }
         // The bar comes before the deck in the DOM, so a plain Tab from the
         // slide would leave the page. Land on the controls instead.
+        // Only a control the user can see and reach takes focus: the annotation
+        // toolbar hides some of its controls by container query, and focus on
+        // one of those would leave the user with nothing to look at. Opacity is
+        // not checked: the hidden bar is transparent until focus shows it.
         const items = [...root.querySelectorAll<HTMLElement>(`${BAR} :is(${TABBABLE})`)].filter(
-          (el) => !(el instanceof HTMLInputElement && el.type === "radio" && !el.checked),
+          (el) =>
+            !(el instanceof HTMLInputElement && el.type === "radio" && !el.checked) &&
+            !el.closest("[inert]") &&
+            el.checkVisibility({ checkVisibilityCSS: true }),
         );
         const target = event.shiftKey ? items.at(-1) : items[0];
         if (!target) return;
@@ -298,11 +314,17 @@ export function usePresentChrome({
       last = { x: event.clientX, y: event.clientY };
       overBar = inChrome(event.target);
       if (!moved || drawing) return;
-      if (tool.current && overSlide(event.clientX, event.clientY)) return;
+      if (owner.current(event.pointerType) && overSlide(event.clientX, event.clientY)) return;
       show();
     };
     const onDown = (event: PointerEvent) => {
-      if (within(event.target, ".docwalk-annotate")) drawing = true;
+      // A pen down on the slide is a stroke under way, drawn or about to be (decision 110).
+      if (
+        within(event.target, ".docwalk-annotate") ||
+        (event.pointerType === "pen" && overSlide(event.clientX, event.clientY))
+      ) {
+        drawing = true;
+      }
       if (event.pointerType === "touch" && event.isPrimary)
         tap = { id: event.pointerId, x: event.clientX, y: event.clientY, t: event.timeStamp };
       else if (inChrome(event.target)) show();
@@ -325,7 +347,7 @@ export function usePresentChrome({
       if (!(target instanceof Node) || !root.contains(target)) return;
       if (document.querySelector(OPEN_LAYER)) return;
       if (overSlide(event.clientX, event.clientY)) {
-        if (tool.current || within(target, SLIDE_TARGET)) return;
+        if (owner.current(event.pointerType) || within(target, SLIDE_TARGET)) return;
       }
       if (isHidden) show();
       else hide();

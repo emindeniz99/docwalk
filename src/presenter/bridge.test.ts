@@ -1,6 +1,8 @@
 // The channels here are BroadcastChannel stand-ins, which take no target origin.
 /* oxlint-disable unicorn/require-post-message-target-origin */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { MirrorFeed } from "../annotate/mirrorFeed";
+import { RESYNC_MIN_GAP_MS, type MarkStroke, type MirrorOp } from "../annotate/mirrorTypes";
 import {
   connectPresenter,
   DISCONNECT_AFTER_MS,
@@ -10,6 +12,7 @@ import {
   type ChannelLike,
   type PresenterState,
 } from "./bridge";
+import type { Countdown } from "./pacing";
 import { PRESENTER_CHANNEL } from "./types";
 
 /**
@@ -54,7 +57,11 @@ const STATE: PresenterState = {
   startedAt: 1_700_000_000_000,
 };
 
-function audience(hub: ReturnType<typeof createHub>, state: { value: PresenterState }) {
+function audience(
+  hub: ReturnType<typeof createHub>,
+  state: { value: PresenterState },
+  onCountdown?: (countdown: Countdown | null) => void,
+) {
   let notify: (() => void) | undefined;
   const goTo = vi.fn<(address: string) => boolean>(() => true);
   const step = vi.fn<(direction: 1 | -1) => void>();
@@ -67,6 +74,7 @@ function audience(hub: ReturnType<typeof createHub>, state: { value: PresenterSt
       notify = onChange;
       return unsubscribe;
     },
+    ...(onCountdown ? { onCountdown } : {}),
     channel: hub.factory,
   });
   return { stop, goTo, step, unsubscribe, change: () => notify?.() };
@@ -97,6 +105,27 @@ describe("audience bridge", () => {
     state.value = { ...STATE, current: "two/1" };
     a.change();
     expect(watcher.received.at(-1)).toEqual({ type: "state", ...STATE, current: "two/1" });
+  });
+
+  test("passes no notes field: the presenter reads notes from the Markdown it already gets, whatever a peer adds", () => {
+    const hub = createHub();
+    const sender = hub.peer();
+    const onState = vi.fn<(s: PresenterState) => void>();
+    connectPresenter(onState, { channel: hub.factory });
+    sender.channel.postMessage({
+      type: "state",
+      ...STATE,
+      notes: ["<img src=x onerror=alert(1)>"],
+    });
+    expect(onState).toHaveBeenCalledTimes(1);
+    expect(onState.mock.calls[0]?.[0]).toEqual(STATE);
+    expect(Object.keys(onState.mock.calls[0]?.[0] ?? {}).toSorted()).toEqual([
+      "addresses",
+      "current",
+      "level",
+      "markdown",
+      "startedAt",
+    ]);
   });
 
   test("answers hello with the state, so a presenter opened later does not wait for the next slide change", () => {
@@ -218,5 +247,416 @@ describe("presenter connection", () => {
     vi.advanceTimersByTime(HEARTBEAT_MS * 3);
     expect(watcher.received).toEqual([]);
     expect(hub.size()).toBe(1);
+  });
+});
+
+describe("mirrored laser and marks (decision 88)", () => {
+  const stroke = (id: number): MarkStroke => ({
+    id,
+    tool: "pen",
+    color: "primary",
+    points: [100, 200, 300, 400],
+  });
+
+  function mirroredAudience(hub: ReturnType<typeof createHub>) {
+    const feed = new MirrorFeed();
+    const stop = startPresenterBridge({
+      getState: () => STATE,
+      goTo: () => true,
+      step: () => {},
+      subscribe: () => () => {},
+      mirror: feed,
+      channel: hub.factory,
+    });
+    return { feed, stop };
+  }
+
+  test("the audience window's laser and marks reach a presenter window", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    onMirror.mockClear();
+    feed.ingest({ kind: "laser", x: 0.25, y: 0.5 });
+    expect(onMirror).toHaveBeenCalledWith({ op: "laser", x: 0.25, y: 0.5 });
+    feed.ingest({ kind: "stroke", slide: "one/1", end: true, ...stroke(1) });
+    expect(onMirror).toHaveBeenLastCalledWith({
+      op: "stroke",
+      slide: "one/1",
+      id: 1,
+      tool: "pen",
+      color: "primary",
+      from: 0,
+      points: [100, 200, 300, 400],
+      end: true,
+    });
+  });
+
+  test("a presenter window gets the slide's marks once, on its first hello, and not on the heartbeat", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1), stroke(2)], reset: true });
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual([
+      "board-close",
+      "keep",
+      "stroke",
+      "stroke",
+    ]);
+    onMirror.mockClear();
+    vi.advanceTimersByTime(HEARTBEAT_MS * 3);
+    expect(onMirror).not.toHaveBeenCalled();
+  });
+
+  test("a second presenter window is brought up to date without repeating it for the first", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1)], reset: true });
+    const first = vi.fn<(op: MirrorOp) => void>();
+    const second = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror: first });
+    first.mockClear();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror: second });
+    // Inside the first window's 2 s gap: the resync waits for its end (decision 103).
+    expect(second).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+    expect(second.mock.calls.map(([op]) => op.op)).toEqual(["board-close", "keep", "stroke"]);
+    // The resync is a broadcast of ops that change nothing for a window that has the marks.
+    expect(first.mock.calls.map(([op]) => op.op)).toEqual(["board-close", "keep", "stroke"]);
+  });
+
+  test("a flood of hellos that ask for a resync gets one at once and one at the end of the gap (decision 103)", () => {
+    // Any same-origin tab can post on the channel; each resync posts every
+    // stroke of the slide again.
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1), stroke(2)], reset: true });
+    const hostile = hub.peer();
+    // Each resync posts stroke 1 once; nothing else here does.
+    const resyncs = () =>
+      hostile.received.filter((m) => {
+        const op = m as { op?: string; id?: number };
+        return op.op === "stroke" && op.id === 1;
+      }).length;
+    for (let i = 0; i < 50; i++) {
+      hostile.channel.postMessage({ type: "hello", resync: true });
+      vi.advanceTimersByTime(10);
+    }
+    expect(resyncs()).toBe(1);
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+    expect(resyncs()).toBe(2);
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS * 5);
+    expect(resyncs()).toBe(2);
+  });
+
+  test("stopping the bridge cancels a resync that was waiting for its gap", () => {
+    const hub = createHub();
+    const { feed, stop } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1)], reset: true });
+    const hostile = hub.peer();
+    hostile.channel.postMessage({ type: "hello", resync: true });
+    hostile.channel.postMessage({ type: "hello", resync: true });
+    stop();
+    hostile.received.length = 0;
+    // The hub throws on a post to a closed channel, so a timer left behind fails here.
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS * 2);
+    expect(hostile.received).toEqual([]);
+  });
+
+  test("the diagram focus view is not sent: the window shows scaled, inert copies of the slides", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    onMirror.mockClear();
+    feed.focus({ kind: "open", slide: "one/1", block: "diagram", n: 1 });
+    feed.focus({ kind: "view", scale: 2, x: 0, y: 0 });
+    feed.focus({ kind: "close" });
+    expect(onMirror).not.toHaveBeenCalled();
+  });
+
+  test("nor is a diagram tour, live or in a resync: the window shows no tour (decision 109)", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1)], reset: true });
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    feed.focus({ kind: "open", slide: "one/1", block: "diagram", n: 1 });
+    feed.focus({ kind: "tour", path: [1, 2] });
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+    hub.peer().channel.postMessage({ type: "hello", resync: true });
+    feed.focus({ kind: "tour", path: [] });
+    feed.focus({ kind: "close" });
+    const ops = onMirror.mock.calls.map(([op]) => op.op);
+    expect(ops).toContain("stroke");
+    expect(ops).not.toContain("focus-tour");
+    expect(ops.filter((op) => op.startsWith("focus"))).toEqual([]);
+  });
+
+  test("nor are the code, table and image views or their line marks, live or in a resync (decision 106)", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1)], reset: true });
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    for (const block of ["code", "table", "image"] as const) {
+      feed.focus({ kind: "open", slide: "one/1", block, n: 1 });
+      feed.focus({ kind: "view", scale: 2, x: 0.5, y: 0.5 });
+      feed.focus({ kind: "lines", lines: [1, 2] });
+      vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+      hub.peer().channel.postMessage({ type: "hello", resync: true });
+      feed.focus({ kind: "close" });
+    }
+    const ops = onMirror.mock.calls.map(([op]) => op.op);
+    // The window still gets the marks, so the resyncs did reach it.
+    expect(ops).toContain("stroke");
+    expect(ops.filter((op) => op.startsWith("focus"))).toEqual([]);
+  });
+
+  test("the board ops reach a presenter window, live and in a resync, while the focus ops still do not (decision 110)", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    onMirror.mockClear();
+    feed.ingest({ kind: "board", slide: "one/1" });
+    expect(onMirror).toHaveBeenLastCalledWith({ op: "board-open", slide: "one/1" });
+    feed.ingest({ kind: "marks", slide: "one/board", strokes: [stroke(1)], reset: true });
+    feed.focus({ kind: "open", slide: "one/1", block: "code", n: 1 });
+    feed.ingest({ kind: "board", slide: null });
+    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual([
+      "board-open",
+      "clear",
+      "stroke",
+      "board-close",
+    ]);
+    // A window that opens while the board is up is told, ahead of the strokes.
+    feed.ingest({ kind: "board", slide: "one/1" });
+    feed.ingest({ kind: "marks", slide: "one/board", strokes: [stroke(1)], reset: true });
+    const late = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror: late });
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+    expect(late.mock.calls.map(([op]) => op.op).slice(0, 2)).toEqual(["board-open", "keep"]);
+  });
+
+  test("a malformed mirror message is dropped: any same-origin tab can post on the channel", () => {
+    const hub = createHub();
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    const onState = vi.fn<(s: PresenterState) => void>();
+    connectPresenter(onState, { channel: hub.factory, onMirror });
+    const hostile = hub.peer();
+    const valid = {
+      type: "mirror",
+      op: "stroke",
+      slide: "one/1",
+      id: 1,
+      tool: "pen",
+      color: "primary",
+      from: 0,
+      points: [1, 2],
+      end: false,
+    };
+    for (const junk of [
+      { type: "mirror", op: "laser", x: 2, y: 0 },
+      { type: "mirror", op: "laser", x: 0.5, y: 0.5, html: "<img onerror=x>" },
+      { type: "mirror", op: "nothing" },
+      { ...valid, points: [1, 2, 3] },
+      { ...valid, points: [5000, 1] },
+      { ...valid, color: "red" },
+      { ...valid, slide: "" },
+      { type: "mirror" },
+    ]) {
+      hostile.channel.postMessage(junk);
+    }
+    expect(onMirror).not.toHaveBeenCalled();
+    expect(onState).not.toHaveBeenCalled();
+    hostile.channel.postMessage(valid);
+    expect(onMirror).toHaveBeenCalledOnce();
+  });
+});
+
+describe("the presenter window's countdown (decision 112)", () => {
+  const MIN = 60_000;
+  const RUNNING: Countdown = { targetMs: 20 * MIN, spentMs: 5 * MIN, startedAt: 1_700_000_000_000 };
+  const PAUSED: Countdown = { targetMs: 20 * MIN, spentMs: 5 * MIN, startedAt: null };
+
+  test("reaches the audience at once and with each heartbeat, so a phone can follow the clock", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    audience(hub, { value: STATE }, onCountdown);
+    const presenter = connectPresenter(() => {}, { channel: hub.factory });
+    presenter.setCountdown(RUNNING);
+    expect(onCountdown.mock.calls).toEqual([[RUNNING]]);
+    vi.advanceTimersByTime(HEARTBEAT_MS);
+    expect(onCountdown.mock.calls).toEqual([[RUNNING], [RUNNING]]);
+    vi.advanceTimersByTime(HEARTBEAT_MS * 2);
+    expect(onCountdown).toHaveBeenCalledTimes(4);
+  });
+
+  test("a change goes out at once, including Reset as null, which is posted once and not repeated", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    audience(hub, { value: STATE }, onCountdown);
+    const presenter = connectPresenter(() => {}, { channel: hub.factory });
+    presenter.setCountdown(RUNNING);
+    presenter.setCountdown(PAUSED);
+    presenter.setCountdown(null);
+    expect(onCountdown.mock.calls).toEqual([[RUNNING], [PAUSED], [null]]);
+    // The heartbeat repeats a countdown, not its absence.
+    onCountdown.mockClear();
+    vi.advanceTimersByTime(HEARTBEAT_MS * 2);
+    expect(onCountdown).not.toHaveBeenCalled();
+  });
+
+  test("a window opened with no countdown posts nothing, so it cannot wipe the clock of another window", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    audience(hub, { value: STATE }, onCountdown);
+    const counting = connectPresenter(() => {}, { channel: hub.factory });
+    counting.setCountdown(RUNNING);
+    // A second presenter window mounts with the countdown it loaded: none.
+    const idle = connectPresenter(() => {}, { channel: hub.factory });
+    idle.setCountdown(null);
+    vi.advanceTimersByTime(HEARTBEAT_MS * 5);
+    expect(onCountdown.mock.calls.filter(([c]) => c === null)).toEqual([]);
+    expect(onCountdown.mock.calls.length).toBeGreaterThan(1);
+    // Closing the counting window still ends the clock after 5 s.
+    counting.close();
+    onCountdown.mockClear();
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS);
+    expect(onCountdown.mock.calls).toEqual([[null]]);
+  });
+
+  test("a heartbeat before any countdown was set posts none: an old audience tab and a new window stay quiet", () => {
+    const hub = createHub();
+    const watcher = hub.peer();
+    connectPresenter(() => {}, { channel: hub.factory });
+    vi.advanceTimersByTime(HEARTBEAT_MS * 3);
+    expect(watcher.received.filter((m) => (m as { type?: string }).type === "countdown")).toEqual(
+      [],
+    );
+  });
+
+  test("the audience forgets it 5 s after the last one, so closing the window clears the phone's clock", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    audience(hub, { value: STATE }, onCountdown);
+    const presenter = connectPresenter(() => {}, { channel: hub.factory });
+    presenter.setCountdown(RUNNING);
+    presenter.close();
+    onCountdown.mockClear();
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS - 1);
+    expect(onCountdown).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onCountdown.mock.calls).toEqual([[null]]);
+    // Once, not again.
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS * 3);
+    expect(onCountdown).toHaveBeenCalledOnce();
+  });
+
+  test("a bridge that starts again clears a clock whose window closed meanwhile, and keeps one that is still talking", () => {
+    // The audience tab rebuilds its bridge with its deck; the clock must not blink
+    // in between, and must not outlive a window that closed during the gap.
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    const first = audience(hub, { value: STATE }, onCountdown);
+    const presenter = connectPresenter(() => {}, { channel: hub.factory });
+    presenter.setCountdown(RUNNING);
+    first.stop();
+    onCountdown.mockClear();
+    audience(hub, { value: STATE }, onCountdown);
+    // The window is still there: its next heartbeat says so, and nothing was cleared.
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS * 3);
+    expect(onCountdown.mock.calls.filter(([c]) => c === null)).toEqual([]);
+    expect(onCountdown).toHaveBeenCalledWith(RUNNING);
+
+    presenter.close();
+    onCountdown.mockClear();
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS);
+    expect(onCountdown.mock.calls).toEqual([[null]]);
+
+    // Started with no window at all: it says "none" once, which changes nothing.
+    onCountdown.mockClear();
+    audience(hub, { value: STATE }, onCountdown);
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS * 3);
+    expect(onCountdown.mock.calls).toEqual([[null]]);
+  });
+
+  test("each request restarts the 5 s, so a window that keeps talking is never forgotten", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    audience(hub, { value: STATE }, onCountdown);
+    const presenter = connectPresenter(() => {}, { channel: hub.factory });
+    presenter.setCountdown(RUNNING);
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS * 4);
+    expect(onCountdown.mock.calls.filter(([c]) => c === null)).toEqual([]);
+  });
+
+  test("stopping the bridge cancels the timer, so a torn-down audience is not called back", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    const a = audience(hub, { value: STATE }, onCountdown);
+    const presenter = connectPresenter(() => {}, { channel: hub.factory });
+    presenter.setCountdown(RUNNING);
+    presenter.close();
+    a.stop();
+    onCountdown.mockClear();
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS * 2);
+    expect(onCountdown).not.toHaveBeenCalled();
+  });
+
+  test("a countdown outside 80's limits is dropped, and so is anything that is not one", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    audience(hub, { value: STATE }, onCountdown);
+    const hostile = hub.peer();
+    for (const countdown of [
+      { targetMs: 0, spentMs: 0, startedAt: null },
+      { targetMs: MIN - 1, spentMs: 0, startedAt: null },
+      { targetMs: 600 * MIN + 1, spentMs: 0, startedAt: null },
+      { targetMs: 1.5 * MIN + 0.5, spentMs: 0, startedAt: null },
+      { targetMs: MIN, spentMs: -1, startedAt: null },
+      { targetMs: MIN, spentMs: Number.NaN, startedAt: null },
+      { targetMs: MIN, spentMs: 0, startedAt: -1 },
+      { targetMs: MIN, spentMs: 0, startedAt: "now" },
+      { targetMs: MIN, spentMs: 0 },
+      { targetMs: "60000", spentMs: 0, startedAt: null },
+      [],
+      "countdown",
+      7,
+    ]) {
+      hostile.channel.postMessage({ type: "countdown", countdown });
+    }
+    hostile.channel.postMessage({ type: "countdown" });
+    expect(onCountdown).not.toHaveBeenCalled();
+  });
+
+  test("strips fields it does not know and asks nothing of the audience's state", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    audience(hub, { value: STATE }, onCountdown);
+    const hostile = hub.peer();
+    const before = hostile.received.length;
+    hostile.channel.postMessage({ type: "countdown", countdown: { ...RUNNING, note: "x" } });
+    expect(onCountdown.mock.calls).toEqual([[RUNNING]]);
+    // It is not a hello: no state was re-sent.
+    expect(hostile.received.length).toBe(before);
+  });
+
+  test("an audience tab that is not listening for it ignores it, as an older build does", () => {
+    const hub = createHub();
+    const a = audience(hub, { value: STATE });
+    const presenter = connectPresenter(() => {}, { channel: hub.factory });
+    expect(() => presenter.setCountdown(RUNNING)).not.toThrow();
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS * 2);
+    expect(a.goTo).not.toHaveBeenCalled();
+  });
+
+  test("setting one after close does nothing, so a late effect cannot post on a closed channel", () => {
+    const hub = createHub();
+    const presenter = connectPresenter(() => {}, { channel: hub.factory });
+    presenter.close();
+    expect(() => presenter.setCountdown(RUNNING)).not.toThrow();
   });
 });
