@@ -4,6 +4,7 @@ import { toString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import { SKIP, visit } from "unist-util-visit";
 import { onlyComments } from "./notes";
 
 export type HeadingDepth = Heading["depth"];
@@ -40,7 +41,7 @@ export interface SectionPlan {
   /** The heading treated as the document title, if any. */
   titleHeading: Heading | null;
   sections: Section[];
-  /** The anchor of every top-level heading, slide-opening or not (see `headingIds`). */
+  /** The anchor of every heading GitHub anchors, slide-opening or not (see `headingIds`). */
   headingIds: ReadonlyMap<Heading, string>;
   /**
    * Link reference and footnote definitions, wherever they appear. They are
@@ -138,10 +139,25 @@ export function fallbackHeadingId(text: string): string {
 }
 
 /**
- * The anchor of every top-level heading: GitHub's own (github-slugger, with
- * its duplicate numbering counted over every heading in document order, deep
- * ones included), or a `fallbackHeadingId` when GitHub's would be empty. The
- * sections take their ids from here, and the renderer writes them as
+ * The headings GitHub gives an anchor, in document order: every heading,
+ * also inside a quote, an alert or a list item, except inside a footnote
+ * definition (decision 107). GitHub prints footnotes after the text, so
+ * leaving their headings out changes no other heading's number.
+ */
+export function anchoredHeadings(root: Root): Heading[] {
+  const headings: Heading[] = [];
+  visit(root, (node) => {
+    if (node.type === "footnoteDefinition") return SKIP;
+    if (node.type === "heading") headings.push(node);
+  });
+  return headings;
+}
+
+/**
+ * The anchor of every heading in `anchoredHeadings`: GitHub's own
+ * (github-slugger, with its duplicate numbering counted over those headings
+ * in document order), or a `fallbackHeadingId` when GitHub's would be empty.
+ * The sections take their ids from here, and the renderer writes them as
  * `id="user-content-<anchor>"`, so a link to a sub-heading can find the
  * slide that holds it.
  */
@@ -149,8 +165,8 @@ export function headingIds(root: Root): Map<Heading, string> {
   const slugger = new GithubSlugger();
   const ids = new Map<Heading, string>();
   const empty: Heading[] = [];
-  for (const node of root.children) {
-    if (node.type !== "heading") continue;
+  const headings = anchoredHeadings(root);
+  for (const node of headings) {
     const text = headingText(node);
     // Keep the slugger counting, so later duplicates get GitHub's numbers.
     const id = slugger.slug(text);
@@ -168,7 +184,7 @@ export function headingIds(root: Root): Map<Heading, string> {
     ids.set(node, id);
   }
   // Document order, so callers iterating the map see headings as written.
-  return new Map(root.children.flatMap((n) => (n.type === "heading" ? [[n, ids.get(n)!]] : [])));
+  return new Map(headings.map((n) => [n, ids.get(n)!]));
 }
 
 const isDefinition = (node: RootContent): boolean =>

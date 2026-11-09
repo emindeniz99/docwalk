@@ -223,6 +223,30 @@ describe("heading anchors in the deck", () => {
     await expect.poll(() => deck.current()?.address).toBe(pages[0]!.address);
   });
 
+  test("a link to a heading inside a quote opens the page that holds it (decision 107)", async () => {
+    // Only headings at the top of the tree had anchors; this link stayed on slide 1.
+    const deck = await mountDeck(
+      [
+        "## Intro",
+        "",
+        "See [the quoted rule](#quoted-rule).",
+        "",
+        "## Rules",
+        "",
+        ...Array.from({ length: 30 }, (_, i) => `Rule note ${i}.\n`),
+        "> ### Quoted rule",
+        ">",
+        "> Keep it short.",
+        "",
+      ].join("\n"),
+    );
+    expect(deck.slides().filter((s) => s.sectionId === "rules").length).toBeGreaterThan(1);
+    await userEvent.click(present().querySelector<HTMLAnchorElement>('a[href="#quoted-rule"]')!);
+    await expect.poll(() => deck.current()?.sectionId).toBe("rules");
+    expect(deck.current()?.page).toBeGreaterThan(1);
+    expect(present().querySelector("blockquote #user-content-quoted-rule")).not.toBeNull();
+  });
+
   test("an unknown anchor is still refused, so the URL sync falls back as before", async () => {
     const deck = await mountDeck(LONG);
     expect(deck.goTo("no-such-heading")).toBe(false);
@@ -333,5 +357,14 @@ describe("document mode links", () => {
     );
     await userEvent.click(doc.querySelector<HTMLAnchorElement>('a[href="#retry-budget"]')!);
     expect(document.activeElement?.id).toBe("user-content-retry-budget");
+  });
+
+  test("a link to a heading inside a list item focuses that heading (decision 107)", async () => {
+    const doc = await mountDocument(
+      `[Jump](#listed-step)\n\n${"Filler.\n\n".repeat(60)}- #### Listed step\n\n  Text.`,
+    );
+    await userEvent.click(doc.querySelector<HTMLAnchorElement>('a[href="#listed-step"]')!);
+    expect(document.activeElement?.id).toBe("user-content-listed-step");
+    expect(document.activeElement?.closest("li")).not.toBeNull();
   });
 });

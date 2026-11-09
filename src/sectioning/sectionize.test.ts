@@ -1,6 +1,7 @@
 import { fc, test as fcTest } from "@fast-check/vitest";
 import { readFileSync } from "node:fs";
 import type { RootContent } from "mdast";
+import { SKIP, visit } from "unist-util-visit";
 import { describe, expect, test } from "vitest";
 import { autoSlideLevel, parseMarkdown, sectionize, type SectionPlan } from "./sectionize";
 
@@ -119,6 +120,34 @@ describe("ids", () => {
     expect([...p.headingIds.values()]).toEqual(["failure-handling", "retry-budget"]);
   });
 
+  test("a heading inside a quote, an alert or a list item gets its GitHub anchor too (decision 107)", () => {
+    const md =
+      "## One\n\n> ### Quoted part\n\n> [!NOTE]\n> #### Inside an alert\n\n- #### In a list\n\n## Two\n\nx\n";
+    const p = plan(md);
+    expect([...p.headingIds.values()]).toEqual([
+      "one",
+      "quoted-part",
+      "inside-an-alert",
+      "in-a-list",
+      "two",
+    ]);
+    expect(ids(p)).toEqual(["one", "two"]);
+  });
+
+  test("duplicates are numbered over nested headings too, in document order, as GitHub does", () => {
+    // GitHub: the quoted heading is `setup`, the section heading after it `setup-1`.
+    const p = plan("> ## Setup\n\n## Setup\n\nSteps.\n");
+    expect([...p.headingIds.values()]).toEqual(["setup", "setup-1"]);
+    expect(ids(p)).toEqual(["intro", "setup-1"]);
+  });
+
+  test("a heading inside a footnote definition gets no anchor and moves no number", () => {
+    // GitHub prints footnotes after the text, so their headings come last.
+    const p = plan("## Notes\n\nSee.[^a]\n\n[^a]: Text.\n\n    ## Notes\n\n## Notes\n\nMore.\n");
+    expect(p.definitions).toHaveLength(1);
+    expect([...p.headingIds.values()]).toEqual(["notes", "notes-1"]);
+  });
+
   test("an emoji-only heading gets an address instead of GitHub's empty anchor, which no link can hold", () => {
     // GitHub gives "## 🚀" the anchor "" (a link to it is just "#"); the
     // slide would have had the address "/1", which the URL parser rejects.
@@ -235,6 +264,7 @@ const block = fc.oneof(
   fc.constant("Setext heading\n---"),
   fc.constantFrom("## 🚀", "### ???", "Text with a note.[^a]", "[^a]: The note.", "[r]: /x"),
   fc.constantFrom("<!-- A speaker note. -->", "<!-- markdownlint-disable MD041 -->"),
+  fc.constantFrom("> ### Heading 3", "- ## Heading 2", "[^b]: Note.\n\n    ## Heading 2"),
 );
 const doc = fc.array(block, { minLength: 0, maxLength: 25 }).map((blocks) => blocks.join("\n\n"));
 const option = fc.oneof(
@@ -276,10 +306,15 @@ describe("properties", () => {
     }
   });
 
-  fcTest.prop([doc])("every top-level heading has a non-empty, linkable anchor", (md) => {
+  fcTest.prop([doc])("every heading outside a footnote has a non-empty, linkable anchor", (md) => {
     const root = parseMarkdown(md);
     const anchors = [...sectionize(root).headingIds.values()];
-    expect(anchors).toHaveLength(root.children.filter((n) => n.type === "heading").length);
+    let headings = 0;
+    visit(root, (node) => {
+      if (node.type === "footnoteDefinition") return SKIP;
+      if (node.type === "heading") headings += 1;
+    });
+    expect(anchors).toHaveLength(headings);
     expect(new Set(anchors).size).toBe(anchors.length);
     for (const a of anchors) expect(a).toMatch(/^[\p{Alphabetic}\p{M}\p{N}\p{Pc}-]+$/u);
   });
