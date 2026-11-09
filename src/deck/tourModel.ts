@@ -10,7 +10,7 @@ export const MAX_TOUR_STEPS = 64;
 export const MAX_TOUR_NODES = 1000;
 /** A diagram with fewer nodes has no tour. */
 export const TOUR_MIN_NODES = 2;
-/** Opacity of an edge off the path. Mermaid's `#333` stays at 3:1 on the slide. */
+/** Opacity of an edge off the path. Mermaid's default line colour keeps 3:1 on the slide. */
 export const TOUR_DIM_OPACITY = 0.55;
 /** Linked node names the status reads out before "and N more". */
 export const TOUR_MAX_NEIGHBOURS_READ = 6;
