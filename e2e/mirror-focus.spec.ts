@@ -369,6 +369,67 @@ const chartHeights = (page: Page) =>
     return { picture: picture.offsetHeight, flow: flow.offsetHeight, tallest };
   });
 
+/**
+ * The Chart section's pages on this screen as they stand: how far each overflows its slide
+ * body, measured on a slide-sized copy once that copy's images have loaded (the way the
+ * deck measures, but waiting), and whether its note shows; each picture in the section;
+ * and the "always load" setting in storage now.
+ */
+const deckState = (page: Page) =>
+  page.evaluate(async () => {
+    const sections = [
+      ...document.querySelectorAll<HTMLElement>(
+        '.reveal .slides > section[data-docwalk-id="chart"]',
+      ),
+    ];
+    const box = document.createElement("div");
+    Object.assign(box.style, {
+      position: "fixed",
+      left: "-100000px",
+      top: "0",
+      width: "1280px",
+      height: "720px",
+      visibility: "hidden",
+      contain: "strict",
+    });
+    document.body.append(box);
+    const pages = [];
+    for (const section of sections) {
+      const copy = section.querySelector(".docwalk-slide")!.cloneNode(true) as HTMLElement;
+      box.replaceChildren(copy);
+      await Promise.all(
+        [...copy.querySelectorAll("img[src]")].map((img) =>
+          (img as HTMLImageElement).decode().catch(() => undefined),
+        ),
+      );
+      const body = copy.querySelector<HTMLElement>(".docwalk-slide-body")!;
+      pages.push({
+        page: Number(section.dataset["page"] ?? "1"),
+        overflow: body.scrollHeight - body.clientHeight,
+        note: section.querySelector<HTMLElement>(".docwalk-overflow")?.hidden === false,
+      });
+    }
+    box.remove();
+    const images = sections.flatMap((section) =>
+      [...section.querySelectorAll("img")].map((img) => ({
+        page: Number(section.dataset["page"] ?? "1"),
+        src: img.getAttribute("src"),
+        blocked: img.classList.contains("docwalk-blocked-image"),
+        complete: img.complete,
+        naturalHeight: img.naturalHeight,
+        height: img.offsetHeight,
+        sizeAttributes: [img.getAttribute("width"), img.getAttribute("height")],
+      })),
+    );
+    let setting: string | null;
+    try {
+      setting = localStorage.getItem("docwalk.loadRemoteImages");
+    } catch {
+      setting = "unreadable";
+    }
+    return { pages, images, setting };
+  });
+
 const pageNumber = (page: Page) =>
   present(page).evaluate((el) => Number(el.dataset["page"] ?? "1"));
 
@@ -399,6 +460,9 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
   );
   const REMOTE_KEY = "docwalk.loadRemoteImages";
   const TALL = tallPng(200, TALL_HEIGHT);
+  // How often the presenter's page asked for the image: more than once means copies of it
+  // loaded it again (Playwright's routing turns the HTTP cache off).
+  let imageRequests = 0;
   await fakeRelay(context);
   const { presenter, followUrl } = await openPresenterRoom(context, {
     doc,
@@ -406,7 +470,10 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
     before: async (page) => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.addInitScript((key) => localStorage.setItem(key, "true"), REMOTE_KEY);
-      await page.route(REMOTE, (route) => route.fulfill({ body: TALL, contentType: "image/png" }));
+      await page.route(REMOTE, (route) => {
+        imageRequests++;
+        return route.fulfill({ body: TALL, contentType: "image/png" });
+      });
     },
   });
   const follower = await openFollower(context, followUrl, {
@@ -414,7 +481,8 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
     slides: null,
     before: async (page) => {
       // The storage is shared with the presenter's page: this one starts without the setting,
-      // and records the text of every focus view that opens on it.
+      // and records the text of every focus view that opens on it. The presenter read the
+      // setting once when it started, so removing it here changes only this page.
       await page.addInitScript((key) => {
         try {
           localStorage.removeItem(key);
@@ -451,6 +519,18 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
     `the loaded image (${loaded.picture}px) must be taller than the placeholder (${blocked.picture}px) by more than the tallest listing with its margins (${slack}px)`,
   ).toBeGreaterThan(slack);
 
+  // How the presenter's deck stands now that its image has loaded: each page measured with
+  // that image, whether it shows its note, and the image itself. Rule 3: a page that does
+  // not fit says so. Pagination that measured the image before it had its size cuts like
+  // the follower and puts more on the image's page than fits.
+  const requested = imageRequests;
+  const state = { ...(await deckState(presenter)), imageRequests: requested };
+  test.info().annotations.push({ type: "presenter", description: JSON.stringify(state) });
+  expect(
+    state.pages.filter((p) => p.overflow > 4 && !p.note),
+    `every presenter page fits or shows its note (presenter ${JSON.stringify(state)})`,
+  ).toEqual([]);
+
   // What each screen's pages hold. If they were cut alike, no follower could open a
   // listing the wrong way and the case would prove nothing.
   const theirs = await listingsByPage(follower);
@@ -462,7 +542,7 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
   expect(theirs, "the follower's pages hold the listings").not.toEqual([]);
   expect(
     JSON.stringify(theirs),
-    `this screen cuts the pages elsewhere, or the case proves nothing (presenter ${JSON.stringify(ours)})`,
+    `this screen cuts the pages elsewhere, or the case proves nothing (presenter ${JSON.stringify(ours)}, its deck ${JSON.stringify(state)})`,
   ).not.toBe(JSON.stringify(ours));
 
   // Pick a page both screens have where the presenter holds a listing the follower's page

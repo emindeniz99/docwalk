@@ -125,14 +125,61 @@ function withOffscreenBox<T>(
 
 /**
  * Wait until measurements mean something (decision 22): fonts loaded, every
- * image under `root` decoded (or failed), then one animation frame so layout
- * has run. Diagrams must already be rendered by the caller.
+ * image under `root` decoded (or failed) and its size pinned for the copies
+ * pagination measures, then one animation frame so layout has run. Diagrams
+ * must already be rendered by the caller; `releaseImageSizes` follows the
+ * last measurement.
  */
 export async function settled(root: ParentNode): Promise<void> {
   await document.fonts.ready;
   const images = [...root.querySelectorAll<HTMLImageElement>("img[src]")];
   await Promise.all(images.map((img) => img.decode().catch(() => undefined)));
+  for (const img of images) pinSize(img);
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/** What `pinSize` set on an image: "ratio", or "size" for the ratio and both attributes. */
+const PINNED = "data-docwalk-pinned";
+
+/**
+ * Pagination and the overflow note measure copies of a slide at once, and a
+ * copy of an image may have to load it again: Firefox does when its cache will
+ * not answer. Until then the copy has no size, so a page could take the
+ * blocks that the image pushes off it. A loaded image therefore keeps its size
+ * where a copy reads it before loading: its ratio, and its width and height
+ * when the author set neither. `releaseImageSizes` takes the pin off again.
+ */
+function pinSize(img: HTMLImageElement): void {
+  const { naturalWidth: width, naturalHeight: height } = img;
+  if (!img.complete || width === 0 || height === 0) return;
+  img.style.aspectRatio = `auto ${width} / ${height}`;
+  if (img.hasAttribute("width") || img.hasAttribute("height")) {
+    img.setAttribute(PINNED, "ratio");
+    return;
+  }
+  img.setAttribute("width", String(width));
+  img.setAttribute("height", String(height));
+  img.setAttribute(PINNED, "size");
+}
+
+/**
+ * Takes the pins `settled` put on images off the pages under `roots`, once
+ * pagination and the overflow note have measured their copies. A fixed width
+ * and height would outlive the image: in an HTML export, which blocks every
+ * image, the placeholder took the image's full size.
+ */
+export function releaseImageSizes(roots: Iterable<ParentNode>): void {
+  for (const root of roots) {
+    for (const img of root.querySelectorAll<HTMLImageElement>(`img[${PINNED}]`)) {
+      if (img.getAttribute(PINNED) === "size") {
+        img.removeAttribute("width");
+        img.removeAttribute("height");
+      }
+      img.style.removeProperty("aspect-ratio");
+      if (!img.getAttribute("style")) img.removeAttribute("style");
+      img.removeAttribute(PINNED);
+    }
+  }
 }
 
 /**
