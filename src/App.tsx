@@ -3,6 +3,7 @@ import {
   Download,
   KeyRound,
   LayoutGrid,
+  ListChecks,
   LogIn,
   Moon,
   Monitor,
@@ -12,6 +13,7 @@ import {
   Share2,
   Sun,
   TableOfContents,
+  Trash,
   X,
 } from "lucide-react";
 import {
@@ -20,8 +22,23 @@ import {
   resolvePenColor,
   type PenColor,
 } from "./annotate/AnnotationToolbar";
+import { BOARD_TEXT, boardAddress, boardKey, isBoardAddress, sectionOf } from "./annotate/board";
+import { markKeys, slideFingerprint, slideFingerprints } from "./annotate/markKeys";
+import { MirrorFeed } from "./annotate/mirrorFeed";
+import { markColorOf } from "./annotate/mirrorTypes";
+import { marksSaver } from "./annotate/savedMarks";
+import {
+  notePenOn,
+  penInUse,
+  stylusDraws,
+  subscribePenInUse,
+  subscribeStylusDraws,
+  useStylusDraws,
+} from "./annotate/stylus";
+import { slideOwner, type PointerKind } from "./annotate/stylusPolicy";
 import type { AnnotationLayer, AnnotationMode } from "./annotate/types";
 import { useAnnotationShortcuts } from "./annotate/useAnnotationShortcuts";
+import { useSavedMarks } from "./annotate/useSavedMarks";
 import {
   lazy,
   Suspense,
@@ -31,6 +48,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type DragEvent,
 } from "react";
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
@@ -38,17 +56,34 @@ import { useSketchRequest } from "./canvas/request";
 import { useCommentsUi } from "./comments/useCommentsUi";
 import { clonePages, type DeckController, type SlideInfo } from "./deck/controller";
 import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
+import { observeFocus } from "./deck/focusEvents";
 import { useOverviewShortcut } from "./deck/useOverviewShortcut";
-import { useEditorChoice } from "./editor/choice";
-import { chooseLocale, localeName, locales, useLocale, type Locale } from "./i18n/locale";
-import type { EditorDiagnostic } from "./editor/types";
+import {
+  COARSE_POINTER,
+  setEditorChoice,
+  useEditorChoice,
+  useStoredEditorChoice,
+} from "./editor/choice";
+import {
+  chooseLocale,
+  getAppLocale,
+  localeName,
+  locales,
+  useLocale,
+  type Locale,
+} from "./i18n/locale";
+import type { EditorDiagnostic, SourceEditorProps } from "./editor/types";
+import { withBoardPages } from "./export/boardPages";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
 import type { HealthResponse } from "./api/types";
 import { SourceBanner } from "./inputs/SourceBanner";
 import { startPresenterBridge } from "./presenter/bridge";
+import { sameCountdown, type Countdown } from "./presenter/pacing";
 import { openPresenterWindow } from "./presenter/window";
 import type { RemoteStatus } from "./remote/client";
+import { speakerNotes } from "./sectioning/notes";
+import { applySelection } from "./sectioning/selection";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { useDraftAutosave } from "./share/draft";
 import { CommandPalette, type Command } from "./shell/CommandPalette";
@@ -69,8 +104,9 @@ import { useTheme, type ThemeChoice } from "./shell/theme";
 import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
 import { useDocument } from "./shell/useDocument";
 import { useMediaQuery } from "./shell/useMediaQuery";
+import { useWakeLock } from "./shell/wakeLock";
 import type { FollowUpdate } from "./shell/RemoteFollower";
-import { useUrlSync } from "./url/useUrlSync";
+import { readInitialSections, useUrlSync } from "./url/useUrlSync";
 import { m } from "./paraglide/messages.js";
 import { workspaceCommands } from "./workspace/commands";
 import { FilesPanel } from "./workspace/FilesPanel";
@@ -85,9 +121,13 @@ const SourceEditor = lazy(() =>
   import("./editor/SourceEditor").then((mod) => ({ default: mod.SourceEditor })),
 );
 // Monaco (decision 53) is larger still and loads only for viewers who pick it.
-const MonacoEditor = lazy(() =>
-  import("./editor/monaco/MonacoEditor").then((mod) => ({ default: mod.MonacoEditor })),
-);
+// Its own text (find panel, context menu) comes from a table that its modules
+// read as they run, so a Turkish viewer's table loads first (decision 102).
+const MonacoEditor = lazy(async () => {
+  if (getAppLocale() === "tr") await import("monaco-editor/nls/lang/tr");
+  const mod = await import("./editor/monaco/MonacoEditor");
+  return { default: mod.MonacoEditor };
+});
 // Dialogs and the exporters (modern-screenshot, the HTML sanitizer, the QR
 // encoder) stay out of the first-load bundle (decision 43).
 const ShareDialog = lazy(() =>
@@ -109,6 +149,13 @@ const ExportMenu = lazy(() =>
 const SlideOverview = lazy(() =>
   import("./deck/SlideOverview").then((mod) => ({ default: mod.SlideOverview })),
 );
+const SectionPicker = lazy(() =>
+  import("./shell/SectionPicker").then((mod) => ({ default: mod.SectionPicker })),
+);
+// Asks before deleting a document's saved marks (decision 105).
+const ClearMarksDialog = lazy(() =>
+  import("./annotate/ClearMarksDialog").then((mod) => ({ default: mod.ClearMarksDialog })),
+);
 // Canvas mode pulls in Excalidraw (several MB); it loads when a diagram is opened as a sketch.
 const SketchDialog = lazy(() =>
   import("./canvas/SketchDialog").then((mod) => ({ default: mod.SketchDialog })),
@@ -125,6 +172,26 @@ const NEXT_THEME: Record<ThemeChoice, ThemeChoice> = {
   light: "dark",
   dark: "system",
 };
+
+/** What the layer asks of the stylus setting and latch (decision 110). */
+const STYLUS_INPUT = {
+  stylusDraws,
+  penInUse,
+  subscribe: (listener: () => void) => {
+    const stopSetting = subscribeStylusDraws(listener);
+    const stopLatch = subscribePenInUse(listener);
+    return () => {
+      stopSetting();
+      stopLatch();
+    };
+  },
+};
+
+/** Set once the first pen has been told that fingers now change slides. */
+const STYLUS_NOTICE_KEY = "docwalk.stylusNoticeSeen";
+
+const pointerKind = (type: string): PointerKind =>
+  type === "pen" || type === "touch" ? type : "mouse";
 
 const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
   connecting: m.follow_connecting,
@@ -145,6 +212,35 @@ function useLazyDialog() {
     setOpen(open);
   }, []);
   return { isOpen, mounted, onOpenChange, open: () => onOpenChange(true) };
+}
+
+/**
+ * The editor in the Edit view. A switch of editor mounts the other one on the
+ * line where this document's cursor last was (decision 102). The line lives
+ * here rather than in App, so a cursor move re-renders the editor only; this
+ * slot unmounts with the Edit view, so coming back starts on line 1.
+ */
+function EditorSlot({
+  Editor,
+  onCursorLine,
+  ...props
+}: Omit<SourceEditorProps, "initialLine"> & { Editor: ComponentType<SourceEditorProps> }) {
+  const [cursor, setCursor] = useState<{ line: number; doc: number | undefined } | null>(null);
+  const { documentId } = props;
+  const report = useCallback(
+    (line: number) => {
+      setCursor({ line, doc: documentId });
+      onCursorLine?.(line);
+    },
+    [documentId, onCursorLine],
+  );
+  return (
+    <Editor
+      {...props}
+      onCursorLine={report}
+      initialLine={cursor && cursor.doc === documentId ? cursor.line : null}
+    />
+  );
 }
 
 export function App() {
@@ -179,11 +275,27 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [revealLine, setRevealLine] = useState<number | null>(null);
   const [presenterRequested, setPresenterRequested] = useState(false);
+  // The presenter window's countdown, which phone remotes show (decision 112). A repeat of the
+  // same values keeps the old object, so the window's 2 s heartbeat re-renders nothing.
+  const [presenterCountdown, setPresenterCountdown] = useState<Countdown | null>(null);
+  const onCountdown = useCallback(
+    (next: Countdown | null) =>
+      setPresenterCountdown((prev) => (sameCountdown(prev, next) ? prev : next)),
+    [],
+  );
   const [mode, setMode] = useState<AnnotationMode>("off");
+  // The page the open whiteboard covers (decision 110), from the layer's events; `told` keeps
+  // the status silent until the first open and then says "closed" once it is.
+  const [boardState, setBoardState] = useState<{ page: string | null; told: boolean }>({
+    page: null,
+    told: false,
+  });
+  const boardPage = boardState.page;
   const [penColor, setPenColor] = useState<PenColor>(PEN_COLORS[0].variable);
   const share = useLazyDialog();
   const join = useLazyDialog();
   const overview = useLazyDialog();
+  const sectionPicker = useLazyDialog();
   const [remoteOn, setRemoteOn] = useState(false);
   const sketch = useSketchRequest(!follow);
   const phone = useMediaQuery(PHONE);
@@ -208,6 +320,9 @@ export function App() {
   // The update prompt (src/pwa/update.css) sits above the status bar, whose height varies.
   const statusbarRef = useBlockSizeProperty<HTMLElement>("--docwalk-statusbar-size");
   const Editor = useEditorChoice() === "monaco" ? MonacoEditor : SourceEditor;
+  // The palette offers the editor not in use, as the More menu does (decisions 53, 102).
+  const storedEditor = useStoredEditorChoice();
+  const coarse = useMediaQuery(COARSE_POINTER);
   // Static mode has no /api: health stays null and every Worker feature stays hidden (rule 6).
   const [health, setHealth] = useState<HealthResponse | null>(null);
   useEffect(() => {
@@ -223,6 +338,10 @@ export function App() {
   }, []);
   const deckRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<AnnotationLayer | null>(null);
+  // What this tab mirrors: the laser, pen marks and diagram focus view. Followers (through
+  // RemotePresenter) and the presenter window (through the bridge) subscribe (decision 88).
+  const [mirrorFeed] = useState(() => new MirrorFeed());
+  useEffect(() => observeFocus((event) => mirrorFeed.focus(event)), [mirrorFeed]);
   const startedAt = useRef(0);
   // The presenter bridge reads the latest document through refs, so it is not restarted on every keystroke.
   const markdownRef = useRef(markdown);
@@ -239,10 +358,43 @@ export function App() {
   }, []);
 
   const root = useMemo(() => parseMarkdown(markdown), [markdown]);
+  // Every section of the document: document mode, the editor and the comments keep all of them.
   const plan = useMemo(() => sectionize(root, level), [root, level]);
+  // The sections to present, from the link (decision 100). A follower ignores it, so it counts
+  // every slide and always has the presenter's current address.
+  const [sections, setSections] = useState<string[] | null>(() =>
+    follow ? null : readInitialSections(),
+  );
+  // Another document than the page's first one starts without a choice: ids such as `summary` repeat.
+  const [shownDocument, setShownDocument] = useState({ id: inputs.openedId, loaded: doc !== null });
+  if (shownDocument.id !== inputs.openedId) {
+    setShownDocument({ id: inputs.openedId, loaded: doc !== null });
+    if (shownDocument.loaded) setSections(null);
+  }
+  const selection = useMemo(() => applySelection(plan, sections), [plan, sections]);
+  const pickerSections = useMemo(
+    () =>
+      plan.sections.map((sec) => ({
+        id: sec.id,
+        label:
+          sec.heading === null && sec.title !== ""
+            ? m.sections_continued({ title: sec.title }, { locale })
+            : sec.title || sec.id,
+      })),
+    [plan, locale],
+  );
   const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : m.app_breaks_only();
   const docTitle = !doc ? m.app_loading_document() : documentTitle(root, plan) || m.app_untitled();
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
+  // Said in a polite status in the deck pane when the whiteboard opens or closes (decision 110).
+  const boardTitle = boardPage
+    ? (slides.find((sl) => sl.sectionId === sectionOf(boardPage))?.title ?? sectionOf(boardPage))
+    : "";
+  const boardStatus = boardPage
+    ? m.board_opened({ title: boardTitle })
+    : boardState.told
+      ? m.board_closed()
+      : "";
 
   // Document mode reads the whole file: the outline scrolls it to a section,
   // and entering it opens at the section the outline marks as current. A
@@ -322,12 +474,49 @@ export function App() {
     documentId: inputs.openedId,
     level,
     view,
+    sections: follow ? undefined : sections,
     onLevel: setLevel,
     // Present needs a user gesture for fullscreen, so a link can open edit or document only.
     onView: (v) => {
       if (v === "edit" || v === "document") show(v);
     },
   });
+
+  // The first pen on the stage (decision 110): fingers now change slides, and the viewer is told
+  // once per browser, and where to change it.
+  useEffect(() => {
+    if (follow || !controller) return;
+    return notePenOn(controller.stage());
+  }, [follow, controller]);
+  useEffect(() => {
+    if (follow) return;
+    let stop: (() => void) | undefined;
+    const unsubscribe = subscribePenInUse(() => {
+      if (!stylusDraws()) return;
+      try {
+        if (localStorage.getItem(STYLUS_NOTICE_KEY) === "true") return;
+        localStorage.setItem(STYLUS_NOTICE_KEY, "true");
+      } catch {
+        // Without storage the notice shows once per visit, since the latch sets once.
+      }
+      // Not while the pen is down: the notice moves the page, and a tap that began on a link
+      // would end on something else. The click of this touch comes before the timeout.
+      const lifted = () => {
+        stop?.();
+        window.setTimeout(() => setNotice({ message: m.stylus_notice(), tone: "info" }), 0);
+      };
+      window.addEventListener("pointerup", lifted, true);
+      window.addEventListener("pointercancel", lifted, true);
+      stop = () => {
+        window.removeEventListener("pointerup", lifted, true);
+        window.removeEventListener("pointercancel", lifted, true);
+      };
+    });
+    return () => {
+      unsubscribe();
+      stop?.();
+    };
+  }, [follow, setNotice]);
 
   // Presenter bridge: only in the tab that opened the presenter window, so two
   // open docwalk tabs never both answer it.
@@ -344,33 +533,13 @@ export function App() {
       goTo: (address) => controller.goTo(address),
       step: (d) => (d === 1 ? controller.next() : controller.prev()),
       subscribe: (onChange) => controller.onChange(() => onChange()),
+      mirror: mirrorFeed,
+      onCountdown,
     });
-  }, [controller, presenterRequested]);
+  }, [controller, presenterRequested, mirrorFeed, onCountdown]);
 
-  // Pen and laser over the slides; each slide keeps its own marks while the deck is open.
-  // The layer (drauu, perfect-freehand) loads after the deck is up, outside the first-load bundle.
-  // A rebuild (an edit, an agent write, a disk reload, a language switch) brings a new stage:
-  // the layer moves onto it, and only slides whose text changed lose their marks.
+  // Set when the annotation layer is up (below, after the saved marks it draws are known).
   const [layerReady, setLayerReady] = useState(0);
-  useEffect(() => {
-    if (!controller) return;
-    let cancelled = false;
-    let stop: (() => void) | undefined;
-    void import("./annotate/layer").then(({ createAnnotationLayer, markKeys }) => {
-      if (cancelled) return;
-      const layer = layerRef.current ?? createAnnotationLayer(controller.stage());
-      layer.moveTo(controller.stage());
-      layerRef.current = layer;
-      const keys = markKeys(controller.stage());
-      stop = controller.onChange((sl) => layer.setKey(keys.get(sl.address) ?? sl.address));
-      layer.retain(keys.values());
-      setLayerReady((n) => n + 1);
-    });
-    return () => {
-      cancelled = true;
-      stop?.();
-    };
-  }, [controller]);
   useEffect(
     () => () => {
       layerRef.current?.destroy();
@@ -384,15 +553,37 @@ export function App() {
   // The pen colour is a CSS variable whose value changes with the theme, so
   // `theme` re-resolves it even though the body does not read it.
   useEffect(() => {
-    if (layerReady) layerRef.current?.setColor(resolvePenColor(penColor));
+    if (layerReady) {
+      layerRef.current?.setColor(resolvePenColor(penColor), markColorOf(penColor) ?? undefined);
+    }
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [penColor, theme, layerReady]);
+  // The whiteboard of the section on screen (decision 110). The layer is the source of truth:
+  // it opens and closes, and the `board` events it sends set `boardState`.
+  const toggleBoard = useCallback(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    if (layer.board()) {
+      layer.setBoard(null);
+      return;
+    }
+    const section = controller?.current()?.sectionId;
+    if (!section) return;
+    layer.setBoard({ key: boardKey(section), address: boardAddress(section) });
+    // The first touch should draw: with no drawing tool chosen, the pen is.
+    if (layer.board()) setMode((chosen) => (chosen === "off" ? "pen" : chosen));
+  }, [controller]);
+  // The deck pane is hidden in the document view; a board there would be open on nothing.
+  useEffect(() => {
+    if (view === "document") layerRef.current?.setBoard(null);
+  }, [view]);
   useAnnotationShortcuts(
     {
       mode,
       setMode,
       undo: () => layerRef.current?.undo(),
       redo: () => layerRef.current?.redo(),
+      board: { open: boardPage !== null, toggle: toggleBoard },
     },
     // Presenting, the keys work anywhere. In the edit view the toolbar is on screen
     // too, so they work while focus is in the deck pane (the slide or the toolbar).
@@ -401,16 +592,32 @@ export function App() {
     view === "present" ? undefined : deckRef,
   );
 
-  // Presenting, the slide fills the screen unless the viewer chose the card
-  // frame (decision 77).
+  // Presenting, and on a follow screen (decision 113), the slide fills the
+  // screen unless the viewer chose the card frame (decision 77).
   const frame = usePresentFrame();
-  const fill = view === "present" && !follow && frame === "fill";
+  const presenting = view === "present" && !follow;
+  const staged = presenting || follow;
+  const fill = staged && frame === "fill";
+  // A follow screen hides its bar like a presenting one, but only while the
+  // slide can be trusted: anything but an open connection, or an incomplete
+  // link, keeps the bar (and the status in it) up.
+  const followOpen = follow && followUpdate.status === "open" && !followUpdate.incomplete;
+  // The screen stays on while presenting (decision 80).
+  useWakeLock(view === "present");
   // Presenting, the bar and tools step aside after a few idle seconds so the
   // slide can take the whole stage (decision 75); usePresentChrome has the rules.
+  const stylusOn = useStylusDraws();
   const chrome = usePresentChrome({
-    active: view === "present" && !follow,
+    active: presenting || followOpen,
     pane: deckRef,
-    toolActive: mode !== "off",
+    slideOwner: (type) =>
+      slideOwner({
+        pointerType: pointerKind(type),
+        drawingTool: mode !== "off" && mode !== "laser",
+        laser: mode === "laser",
+        stylusDraws: stylusOn,
+        penInUse: penInUse(),
+      }),
     barIsStage: fill,
   });
 
@@ -422,18 +629,26 @@ export function App() {
   );
 
   // Notes on slides become editor diagnostics at their section's source line.
+  // Until the deck rebuilds, its slides are those of the text before the last
+  // edit: a slide whose section the edit removed has no line, and its note
+  // waits for the rebuild instead of landing on line 1.
   const diagnostics = useMemo<EditorDiagnostic[]>(
     () =>
-      slides
-        .filter((sl) => sl.flagged)
-        .map((sl) => ({
-          line: sectionLines.get(sl.sectionId) ?? 1,
-          message: m.app_slide_diagnostic(
-            { number: sl.index + 1, address: sl.address, note: sl.note ?? m.app_slide_has_note() },
-            { locale },
-          ),
-          severity: "warning" as const,
-        })),
+      slides.flatMap((sl) => {
+        const line = sectionLines.get(sl.sectionId);
+        if (!sl.flagged || line === undefined) return [];
+        const note = sl.note ?? m.app_slide_has_note();
+        return [
+          {
+            line,
+            message: m.app_slide_diagnostic(
+              { number: sl.index + 1, address: sl.address, note },
+              { locale },
+            ),
+            severity: "warning" as const,
+          },
+        ];
+      }),
     [slides, sectionLines, locale],
   );
 
@@ -517,6 +732,9 @@ export function App() {
         );
         return;
       }
+      // Likewise an open whiteboard (decision 110): that Escape was meant for it, so presenting
+      // goes on windowed with the board up; Escape again closes it, and once more leaves.
+      if (layerRef.current?.board()) return;
       show((v) => (v === "present" ? "edit" : v));
     };
     document.addEventListener("fullscreenchange", onFullscreen);
@@ -575,6 +793,87 @@ export function App() {
   });
   const { markEdit } = comments;
   const { edit } = inputs;
+
+  // Pen and arrow marks saved per document and slide (decision 105), under the comments' identity.
+  const saved = useSavedMarks({
+    documentKey: comments.documentKey,
+    unidentified: comments.documentUnidentified,
+    enabled: !follow,
+    setNotice,
+  });
+  const { marks: savedMarks } = saved;
+
+  // Pen and laser over the slides; each slide keeps its own marks while the deck is open, and
+  // its saved marks come back on its first visit. The layer (drauu, perfect-freehand) loads
+  // after the deck and the document's saved marks are up, outside the first-load bundle.
+  // A rebuild (an edit, an agent write, a disk reload, a language switch) brings a new stage:
+  // the layer moves onto it, and only slides whose text changed lose their marks. Another
+  // document brings other saved marks: the layer starts again from those.
+  /** The saved marks the current layer was made for. */
+  const layerMarks = useRef<typeof savedMarks>(null);
+  const fingerprints = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (!controller || !savedMarks) return;
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    void import("./annotate/layer").then(({ createAnnotationLayer }) => {
+      if (cancelled) return;
+      if (layerRef.current && layerMarks.current !== savedMarks) {
+        // Receivers hear the board close before the layer goes.
+        layerRef.current.setBoard(null);
+        layerRef.current.destroy();
+        layerRef.current = null;
+      }
+      let layer = layerRef.current;
+      if (!layer) {
+        layer = createAnnotationLayer(controller.stage(), {
+          saved: (key, address) => savedMarks.forKey(key, address),
+          input: STYLUS_INPUT,
+        });
+        // What it draws goes to the mirror (decision 88) and into the saved marks (decision
+        // 105). It keeps its observers across rebuilds, so this runs once per document.
+        layer.observe((event) => mirrorFeed.ingest(event));
+        layer.observe((event) => {
+          if (event.kind === "board") setBoardState({ page: event.slide, told: true });
+        });
+        layer.observe(
+          marksSaver(
+            () => savedMarks,
+            // A board's text is "no text", so it outlives edits to its section (decision 110).
+            (address) => (isBoardAddress(address) ? BOARD_TEXT : fingerprints.current.get(address)),
+          ),
+        );
+        layerMarks.current = savedMarks;
+      }
+      const shown = layer;
+      shown.moveTo(controller.stage());
+      layerRef.current = shown;
+      fingerprints.current = slideFingerprints(controller.stage());
+      const keys = markKeys(controller.stage());
+      stop = controller.onChange((sl) =>
+        shown.setKey(keys.get(sl.address) ?? sl.address, sl.address),
+      );
+      // Every present section's whiteboard stays too, though no slide key names it.
+      const boardSections = new Set([...keys.keys()].map(sectionOf));
+      shown.retain([...keys.values(), ...[...boardSections].map(boardKey)]);
+      setLayerReady((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [controller, mirrorFeed, savedMarks]);
+
+  // "Delete saved marks": the records, then every slide's marks and their undo history.
+  const clearMarks = useLazyDialog();
+  const deleteSavedMarks = useCallback(() => {
+    if (!savedMarks) return;
+    layerRef.current?.retain([]);
+    layerRef.current?.clear();
+    void savedMarks.clear().then((done) => {
+      if (done) setNotice({ message: m.marks_cleared(), tone: "info" });
+    });
+  }, [savedMarks, setNotice]);
   const onEdit = useCallback(
     (next: string) => {
       markEdit(next);
@@ -584,18 +883,44 @@ export function App() {
   );
 
   // The exporters work from the paginated pages the audience sees, as copies they may change.
-  const getExportOptions = useCallback((): ExportOptions | null => {
-    if (!controller) return null;
-    return {
-      title: docTitle,
-      size: SLIDE_SIZE,
-      slides: clonePages(controller).map(({ info, element }) => ({
-        address: info.address,
-        title: info.title,
-        element,
-      })),
-    };
-  }, [controller, docTitle]);
+  // Each slide takes the saved marks drawn on its present text (decision 105), unless left out.
+  // A section's speaker notes go on its last slide (decision 114), for the print that asks.
+  // They come from the whole plan: a choice of sections (decision 100) cuts the pages, and the
+  // comment above the first heading stays with the cover whatever is chosen (decision 107).
+  const notes = useMemo(() => speakerNotes(plan), [plan]);
+  const chosenNotes = [...notes.keys()].some((id) => selection.chosen.has(id));
+  const getExportOptions = useCallback(
+    (withMarks: boolean, withNotes: boolean): ExportOptions | null => {
+      if (!controller) return null;
+      const pages = clonePages(controller);
+      const exported = pages.map(({ info, element }, index) => {
+        const marks = withMarks
+          ? (savedMarks?.strokes(info.address, slideFingerprint(element)) ?? [])
+          : [];
+        const isLast = pages[index + 1]?.info.sectionId !== info.sectionId;
+        const sectionNotes = withNotes && isLast ? notes.get(info.sectionId) : undefined;
+        return {
+          address: info.address,
+          title: info.title,
+          element,
+          ...(marks.length > 0 ? { marks } : {}),
+          ...(sectionNotes ? { notes: [...sectionNotes] } : {}),
+        };
+      });
+      return {
+        title: docTitle,
+        size: SLIDE_SIZE,
+        // A section's whiteboard follows its last page when it has marks and marks are wanted (decision 110).
+        slides: withMarks
+          ? withBoardPages(
+              exported,
+              (id) => savedMarks?.strokes(boardAddress(id), BOARD_TEXT) ?? [],
+            )
+          : exported,
+      };
+    },
+    [controller, docTitle, savedMarks, notes],
+  );
 
   const oauthClientId = health?.features.includes("oauth") ? health.githubClientId : undefined;
   const signIn = useCallback(() => {
@@ -613,10 +938,37 @@ export function App() {
     { id: "present", label: m.cmd_present(), run: () => void present() },
     { id: "presenter", label: m.cmd_presenter(), run: openPresenter },
     { id: "overview", label: m.cmd_overview(), hint: "O", run: overview.open },
+    { id: "sections", label: m.cmd_sections(), run: sectionPicker.open },
+    ...(layerReady > 0 && view !== "document"
+      ? [
+          boardPage !== null
+            ? { id: "board-close", label: m.cmd_board_close(), hint: "W", run: toggleBoard }
+            : { id: "board-open", label: m.cmd_board_open(), hint: "W", run: toggleBoard },
+        ]
+      : []),
     { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
     { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
+    // Touch screens keep CodeMirror and are not offered Monaco.
+    ...(coarse
+      ? []
+      : [
+          storedEditor === "monaco"
+            ? {
+                id: "editor-codemirror",
+                label: m.cmd_editor({ editor: "CodeMirror" }),
+                run: () => setEditorChoice("codemirror"),
+              }
+            : {
+                id: "editor-monaco",
+                label: m.cmd_editor({ editor: "Monaco" }),
+                run: () => setEditorChoice("monaco"),
+              },
+        ]),
     { id: "share", label: m.cmd_share(), run: share.open },
     ...(comments.command ? [comments.command] : []),
+    ...(saved.count > 0
+      ? [{ id: "delete-marks", label: m.marks_clear_command(), run: clearMarks.open }]
+      : []),
     { id: "token", label: m.cmd_token(), run: () => inputs.setTokenOpen(true) },
     ...(oauthClientId ? [{ id: "sign-in", label: m.cmd_sign_in(), run: signIn }] : []),
     ...(remoteAvailable ? [{ id: "remote", label: m.cmd_remote(), run: openRemote }] : []),
@@ -667,7 +1019,11 @@ export function App() {
       ? [{ id: "remote", label: m.cmd_remote(), Icon: Cast, run: openRemote }]
       : []),
     { id: "presenter", label: m.cmd_presenter(), Icon: MonitorPlay, run: openPresenter },
+    { id: "sections", label: m.cmd_sections(), Icon: ListChecks, run: sectionPicker.open },
     ...(comments.moreAction ? [comments.moreAction] : []),
+    ...(saved.count > 0
+      ? [{ id: "delete-marks", label: m.marks_clear_command(), Icon: Trash, run: clearMarks.open }]
+      : []),
     ...(phone
       ? [
           {
@@ -707,7 +1063,7 @@ export function App() {
       data-view={follow ? "follow" : view}
       data-pane={phone && view === "edit" && !follow ? phonePane : undefined}
       data-chrome={chrome.hidden ? "hidden" : chrome.hides ? "shown" : undefined}
-      data-frame={view === "present" && !follow ? frame : undefined}
+      data-frame={staged ? frame : undefined}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
@@ -717,7 +1073,7 @@ export function App() {
         </div>
         <div className="docwalk-doc-title">
           <strong>{docTitle}</strong>
-          {subline}
+          {!follow && subline}
         </div>
         {!follow && !phone && (
           <Button className="docwalk-palette-trigger" onPress={() => setPaletteOpen(true)}>
@@ -756,7 +1112,12 @@ export function App() {
                 </Button>
               }
             >
-              <ExportMenu getOptions={getExportOptions} isDisabled={!controller} />
+              <ExportMenu
+                getOptions={getExportOptions}
+                hasMarks={saved.count > 0}
+                hasNotes={chosenNotes}
+                isDisabled={!controller}
+              />
             </Suspense>
             {comments.toggle}
             <MoreMenu actions={moreActions} />
@@ -770,14 +1131,7 @@ export function App() {
             )}
           </div>
         )}
-        {follow ? (
-          <IconButton
-            label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
-            onPress={() => setTheme(NEXT_THEME[theme])}
-          >
-            <ThemeIcon size={18} aria-hidden="true" />
-          </IconButton>
-        ) : (
+        {!follow && (
           <Button
             className="docwalk-button docwalk-present"
             data-variant="primary"
@@ -828,6 +1182,24 @@ export function App() {
             />
             <div className="docwalk-level">
               <LevelSelect value={level} onChange={setLevel} resolved={resolved} />
+              <Button
+                className="docwalk-button docwalk-sections-trigger"
+                isDisabled={!doc}
+                onPress={sectionPicker.open}
+              >
+                {selection.status === "some"
+                  ? m.sections_button_some({
+                      chosen: selection.chosen.size,
+                      total: selection.total,
+                    })
+                  : m.sections_button_all()}
+              </Button>
+              {/* Always mounted, so a choice that matches nothing is announced (WCAG 4.1.3). */}
+              <p role="status" className="docwalk-sections-status">
+                {doc && selection.status === "unknown"
+                  ? m.sections_unknown({ count: selection.total })
+                  : null}
+              </p>
             </div>
           </aside>
         )}
@@ -873,7 +1245,8 @@ export function App() {
           <section className="docwalk-source" aria-label={m.app_markdown_source()}>
             {doc ? (
               <Suspense fallback={<p className="docwalk-loading">{m.app_loading_editor()}</p>}>
-                <Editor
+                <EditorSlot
+                  Editor={Editor}
                   value={markdown}
                   documentId={inputs.docId}
                   onChange={onEdit}
@@ -907,6 +1280,17 @@ export function App() {
                   : "…"}
             </strong>
             <span className="docwalk-preview-address">{current?.address ?? ""}</span>
+            {/* The header is gone on a follow screen (decision 113): its status and theme button live here. */}
+            {follow && subline}
+            {follow && (
+              <IconButton
+                className="docwalk-icon-button docwalk-follow-theme"
+                label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
+                onPress={() => setTheme(NEXT_THEME[theme])}
+              >
+                <ThemeIcon size={18} aria-hidden="true" />
+              </IconButton>
+            )}
             {!follow && (
               <IconButton
                 label={m.cmd_overview()}
@@ -925,6 +1309,8 @@ export function App() {
                 onPress={() => {
                   // This button unmounts on exit; keep focus on the deck, as Escape does.
                   deckRef.current?.querySelector<HTMLElement>(".reveal")?.focus();
+                  // Exit leaves the talk, board and all.
+                  layerRef.current?.setBoard(null);
                   if (document.fullscreenElement) void document.exitFullscreen();
                   else show("edit");
                 }}
@@ -939,6 +1325,8 @@ export function App() {
                   onModeChange={setMode}
                   color={penColor}
                   onColorChange={setPenColor}
+                  board={boardPage !== null}
+                  onBoardToggle={toggleBoard}
                   onUndo={() => layerRef.current?.undo()}
                   onClear={() => layerRef.current?.clear()}
                 />
@@ -946,15 +1334,27 @@ export function App() {
             )}
           </div>
           {doc ? (
-            <Deck plan={plan} locale={locale} onReport={onReport} onReady={onReady} fill={fill} />
+            <Deck
+              plan={selection.plan}
+              locale={locale}
+              onReport={onReport}
+              onReady={onReady}
+              fill={fill}
+            />
           ) : (
             <p className="docwalk-stage-wait">
               {follow ? m.follow_waiting() : m.app_loading_document()}
             </p>
           )}
           {report?.slides === 0 && <p className="docwalk-stage-empty">{m.app_stage_empty()}</p>}
+          {/* Mounted for the whole session, so the board opening and closing is announced (WCAG 4.1.3). */}
+          {!follow && (
+            <p role="status" className="docwalk-board-status">
+              {boardStatus}
+            </p>
+          )}
           {/* Mounted for the whole talk, so the first-time hint is announced (WCAG 4.1.3). */}
-          {view === "present" && !follow && (
+          {staged && (
             <p role="status" className="docwalk-chrome-hint" data-shown={chrome.hint || undefined}>
               {chrome.hint ? m.present_controls_hint() : null}
             </p>
@@ -1013,15 +1413,34 @@ export function App() {
             onGoTo={goTo}
           />
         )}
+        {sectionPicker.mounted && (
+          <SectionPicker
+            isOpen={sectionPicker.isOpen}
+            onOpenChange={sectionPicker.onOpenChange}
+            sections={pickerSections}
+            chosen={selection.chosen}
+            onApply={setSections}
+          />
+        )}
         {remoteAvailable && remoteOn && (
           <RemotePresenter
             controller={controller}
             doc={doc}
             level={level}
+            mirror={mirrorFeed}
+            countdown={presenterCountdown}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
             edit={onEdit}
             setNotice={setNotice}
+          />
+        )}
+        {clearMarks.mounted && (
+          <ClearMarksDialog
+            isOpen={clearMarks.isOpen}
+            onOpenChange={clearMarks.onOpenChange}
+            count={saved.count}
+            onConfirm={deleteSavedMarks}
           />
         )}
         {sketch.request && doc && (

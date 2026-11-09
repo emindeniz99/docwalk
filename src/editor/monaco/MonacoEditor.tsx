@@ -14,12 +14,11 @@ import "monaco-editor/features/linesOperations/register";
 import "monaco-editor/features/multicursor/register";
 import "monaco-editor/features/toggleTabFocusMode/register";
 import "monaco-editor/features/wordOperations/register";
-import "monaco-editor/languages/definitions/markdown/register";
 // Self-hosted: Vite emits the worker as a file of this build, so CSP
 // `worker-src 'self'` holds and nothing loads from a CDN (decision 53).
 // oxlint-disable-next-line import/default -- Vite adds the default export for `?worker`.
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import "../editor.css";
 import "./monaco.css";
 import {
@@ -29,11 +28,13 @@ import {
   type LineNotes,
   minimalChange,
 } from "../sync";
-import type { SourceEditorProps } from "../types";
+import type { EditorDiagnostic, SourceEditorProps } from "../types";
 import { escapeMarkdown } from "./escape";
+import { registerMarkdown } from "./markdown";
 import { monacoTheme, readPalette } from "./theme";
 
 globalThis.MonacoEnvironment = { getWorker: () => new EditorWorker() };
+registerMarkdown();
 
 /** How long a revealed line stays highlighted; the same as the CodeMirror editor. */
 const REVEAL_MS = 1200;
@@ -95,6 +96,7 @@ export function MonacoEditor({
   value,
   onChange,
   onCursorLine,
+  initialLine,
   revealLine,
   diagnostics,
   label,
@@ -115,7 +117,11 @@ export function MonacoEditor({
   useLayoutEffect(() => {
     callbacks.current = { onChange, onCursorLine };
   });
-  const initial = useRef({ value, label });
+  const initial = useRef({ value, label, line: initialLine });
+  const diagnosticsRef = useRef(diagnostics);
+  useLayoutEffect(() => {
+    diagnosticsRef.current = diagnostics;
+  });
 
   useEffect(() => {
     const host = hostRef.current;
@@ -164,6 +170,16 @@ export function MonacoEditor({
     editorRef.current = editor;
     notesRef.current = editor.createDecorationsCollection();
     revealRef.current = editor.createDecorationsCollection();
+    // The shell can pass the line to start on (an editor switch keeps the
+    // viewer's place); like a reveal, it lands in the middle of the pane. This
+    // runs before the cursor listener exists: the shell passed the line in, so
+    // reporting it back would not be a move.
+    const start = clampLine(initial.current.line ?? 1, model?.getLineCount() ?? 1) ?? 1;
+    if (start > 1) {
+      editor.setPosition({ lineNumber: start, column: 1 });
+      editor.revealLineInCenter(start, monaco.ScrollType.Immediate);
+      lastLineRef.current = start;
+    }
 
     const content = editor.onDidChangeModelContent(() => {
       if (!model) return;
@@ -203,9 +219,41 @@ export function MonacoEditor({
     };
   }, []);
 
+  // Diagnostics: a marker (F8 walks them, the hover reads them), a dot in the
+  // glyph margin and a tinted line, all following their line through edits.
+  const showNotes = useCallback((notes: EditorDiagnostic[] | undefined) => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model) return;
+    const groups = groupDiagnostics(notes ?? [], model.getLineCount());
+    groupsRef.current = groups;
+    setMarkers(model, groups);
+    notesRef.current?.set(
+      groups.map((g) => ({
+        range: new Range(g.line, 1, g.line, model.getLineMaxColumn(g.line)),
+        options: {
+          isWholeLine: true,
+          className: `dw-note-line dw-note-line-${g.severity}`,
+          glyphMarginClassName: `dw-note-marker dw-note-${g.severity}`,
+          // Monaco renders this as Markdown; the message may quote the document.
+          glyphMarginHoverMessage: {
+            value: g.messages.map(escapeMarkdown).join("\n\n"),
+            isTrusted: false,
+            supportHtml: false,
+          },
+          stickiness: monaco.TrackedRangeStickiness.AlwaysGrowsWhenTypingAtEdges,
+        },
+      })),
+    );
+    const status = statusRef.current;
+    const announcement = announceDiagnostics(groups);
+    if (status && status.textContent !== announcement) status.textContent = announcement;
+  }, []);
+
   // A different document replaces the text with setValue, which also clears
   // the undo stack: undoing into the previous document would hand its text
-  // to this one. Decorations and markers follow in the diagnostics effect.
+  // to this one. The notes the shell already sent for it are put back; setValue
+  // collapsed the decorations that tracked the old text.
   useEffect(() => {
     const model = editorRef.current?.getModel();
     if (!model || documentId === documentRef.current) return;
@@ -217,7 +265,8 @@ export function MonacoEditor({
     } finally {
       applyingParent.current = false;
     }
-  }, [documentId, value]);
+    showNotes(diagnosticsRef.current);
+  }, [documentId, value, showNotes]);
 
   // Apply the parent's value only when it differs from the document.
   useEffect(() => {
@@ -242,36 +291,7 @@ export function MonacoEditor({
     editorRef.current?.updateOptions({ ariaLabel: label });
   }, [label]);
 
-  // Diagnostics: a marker (F8 walks them, the hover reads them), a dot in the
-  // glyph margin and a tinted line, all following their line through edits.
-  useEffect(() => {
-    const editor = editorRef.current;
-    const model = editor?.getModel();
-    if (!editor || !model) return;
-    const groups = groupDiagnostics(diagnostics ?? [], model.getLineCount());
-    groupsRef.current = groups;
-    setMarkers(model, groups);
-    notesRef.current?.set(
-      groups.map((g) => ({
-        range: new Range(g.line, 1, g.line, model.getLineMaxColumn(g.line)),
-        options: {
-          isWholeLine: true,
-          className: `dw-note-line dw-note-line-${g.severity}`,
-          glyphMarginClassName: `dw-note-marker dw-note-${g.severity}`,
-          // Monaco renders this as Markdown; the message may quote the document.
-          glyphMarginHoverMessage: {
-            value: g.messages.map(escapeMarkdown).join("\n\n"),
-            isTrusted: false,
-            supportHtml: false,
-          },
-          stickiness: monaco.TrackedRangeStickiness.AlwaysGrowsWhenTypingAtEdges,
-        },
-      })),
-    );
-    const status = statusRef.current;
-    const announcement = announceDiagnostics(groups);
-    if (status && status.textContent !== announcement) status.textContent = announcement;
-  }, [diagnostics]);
+  useEffect(() => showNotes(diagnostics), [diagnostics, showNotes]);
 
   // The fade timer lives in a ref, not in the effect's cleanup: a parent that
   // resets revealLine to null right after a reveal must not cancel the fade.

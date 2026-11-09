@@ -55,10 +55,22 @@ export function prepareDiagramSource(source: string): string {
 
 type ParsedDiagram = Awaited<ReturnType<Mermaid["mermaidAPI"]["getDiagramFromText"]>>;
 
-/** The parts of Mermaid's parsed state that name an image it would fetch while rendering. */
-interface ImageSources {
-  getData?: () => { nodes?: { img?: unknown }[] };
+/** The parts of Mermaid's parsed state that the checks below read. */
+interface ParsedState {
+  getData?: () => {
+    nodes?: { img?: unknown }[];
+    edges?: { id?: unknown; start?: unknown; end?: unknown }[];
+  };
   getActors?: () => Map<string, { properties?: Record<string, unknown> }>;
+}
+
+type ParsedGraph = ReturnType<NonNullable<ParsedState["getData"]>>;
+
+/** One edge as Mermaid's parse names it: its id and the ids of its two ends. */
+export interface DiagramEdge {
+  readonly id: string;
+  readonly start: string;
+  readonly end: string;
 }
 
 /**
@@ -70,10 +82,10 @@ interface ImageSources {
  * fails when a Mermaid upgrade adds another. Same-origin and `data:`
  * sources pass, as Markdown images do.
  */
-function remoteImages(diagram: ParsedDiagram): string[] {
-  const db = diagram.db as ImageSources;
+function remoteImages(diagram: ParsedDiagram, graph: ParsedGraph | undefined): string[] {
+  const db = diagram.db as ParsedState;
   const sources: string[] = [];
-  for (const node of db.getData?.().nodes ?? []) {
+  for (const node of graph?.nodes ?? []) {
     if (node.img) sources.push(String(node.img));
   }
   for (const actor of db.getActors?.().values() ?? []) {
@@ -81,6 +93,20 @@ function remoteImages(diagram: ParsedDiagram): string[] {
     if (icon && !String(icon).trim().startsWith("@")) sources.push(String(icon).trim());
   }
   return sources.filter((src) => remoteImageUrl(src) !== null);
+}
+
+/**
+ * The edges of a parsed flowchart, class, state or ER diagram. Other types
+ * have none. `getData` runs once per parse: the state diagram's version
+ * counts edges as it goes.
+ */
+function parsedEdges(graph: ParsedGraph | undefined): DiagramEdge[] {
+  const edges: DiagramEdge[] = [];
+  for (const edge of graph?.edges ?? []) {
+    if (edge.id == null || edge.start == null || edge.end == null) continue;
+    edges.push({ id: String(edge.id), start: String(edge.start), end: String(edge.end) });
+  }
+  return edges;
 }
 
 /**
@@ -117,9 +143,28 @@ export interface DiagramResult {
  * Mermaid config is fixed in `loadMermaid`, so the source alone is the key.
  * Each entry holds the sanitized nodes as rendered, before fitting.
  */
-const rendered = new Map<string, DocumentFragment>();
+const rendered = new Map<string, { nodes: DocumentFragment; edges: readonly DiagramEdge[] }>();
+/**
+ * The edges of the diagram each host shows, from Mermaid's parse. The cache
+ * entry carries them too, but a host outlives its entry: in a deck of more
+ * than `RENDERED_LIMIT` diagrams the first hosts keep an SVG on the page
+ * after the cache dropped it, and the tour still needs their edges (decision
+ * 109). Keyed by the host, so they go with it.
+ */
+const edgesByHost = new WeakMap<HTMLElement, readonly DiagramEdge[]>();
 /** Enough for several documents' diagrams; the oldest entry goes first. */
 const RENDERED_LIMIT = 64;
+
+/**
+ * The edges of the diagram `renderDiagram` last rendered into `host`, as
+ * Mermaid's own parse of its source named them; empty for a type without
+ * edges, for a diagram that failed and for a host that was never rendered.
+ * The SVG cannot say which nodes an edge joins (decision 109). No new parse
+ * runs here.
+ */
+export function diagramEdges(host: HTMLElement): readonly DiagramEdge[] {
+  return edgesByHost.get(host) ?? [];
+}
 
 function cloneChildren(from: Node): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -154,7 +199,8 @@ export async function renderDiagram(
     // Refresh its place, so the entries in use are the last to go.
     rendered.delete(prepared);
     rendered.set(prepared, hit);
-    showSvg(host, hit.cloneNode(true));
+    showSvg(host, hit.nodes.cloneNode(true));
+    edgesByHost.set(host, hit.edges);
     return { ok: true };
   }
   const mermaid = await loadMermaid();
@@ -163,11 +209,16 @@ export async function renderDiagram(
     // Parse first and refuse a diagram that names a remote image: rendering
     // it would contact that host with no click (rule 8, decision 26).
     const parsed = await mermaid.mermaidAPI.getDiagramFromText(prepared);
-    if (remoteImages(parsed).length > 0) throw new Error(m.diagram_remote_image());
+    const graph = (parsed.db as ParsedState).getData?.();
+    if (remoteImages(parsed, graph).length > 0) throw new Error(m.diagram_remote_image());
+    const edges = parsedEdges(graph);
     const { svg } = await mermaid.render(id, prepared);
     showSvg(host, purifySvg(svg));
-    rendered.set(prepared, cloneChildren(host));
-    if (rendered.size > RENDERED_LIMIT) rendered.delete(rendered.keys().next().value as string);
+    edgesByHost.set(host, edges);
+    rendered.set(prepared, { nodes: cloneChildren(host), edges });
+    if (rendered.size > RENDERED_LIMIT) {
+      rendered.delete(rendered.keys().next().value as string);
+    }
     return { ok: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -180,6 +231,7 @@ export async function renderDiagram(
     });
     host.replaceChildren(note, pre);
     host.classList.add("docwalk-diagram-error");
+    edgesByHost.delete(host);
     return { ok: false, error: message };
   } finally {
     // Mermaid leaves a temporary container behind when rendering fails.

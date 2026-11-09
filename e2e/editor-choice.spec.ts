@@ -1,5 +1,5 @@
 import { AxeBuilder } from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { SHORT_DOC, ready, replaceSource } from "./helpers";
 
 /**
@@ -11,6 +11,13 @@ import { SHORT_DOC, ready, replaceSource } from "./helpers";
 const MONACO_ASSET = /\/assets\/(MonacoEditor|editor\.worker|codicon)-/;
 const address = (page: Page) => page.locator(".docwalk-preview-head > span");
 const monacoLines = (page: Page) => page.locator(".monaco-editor .view-lines");
+const top = async (line: Locator) => (await line.boundingBox())?.y ?? Number.NaN;
+// Monaco picks its key bindings from the user agent (`userAgent.indexOf("Macintosh") >= 0` in
+// its platform module). Neither Playwright's ControlOrMeta (the host OS) nor `navigator.platform`
+// agrees: the "Desktop Safari" device changes only the user agent, so on a Linux host
+// `navigator.platform` still says Linux while Monaco binds find to Meta+F.
+const findKey = (page: Page) =>
+  page.evaluate(() => (navigator.userAgent.indexOf("Macintosh") >= 0 ? "Meta+f" : "Control+f"));
 
 async function pickEditor(page: Page, name: "CodeMirror" | "Monaco") {
   await page.getByRole("button", { name: "More actions" }).click();
@@ -120,6 +127,13 @@ test("touch screens keep CodeMirror and are not offered Monaco", async ({ browse
   await expect(page.getByRole("menu", { name: "More actions" })).toBeVisible();
   // The language radios (decision 56) stay; the editor's are gone.
   await expect(page.getByRole("menuitemradio", { name: /CodeMirror|Monaco/ })).toHaveCount(0);
+  // The palette follows the menu: no command to switch to an editor the device cannot use.
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ControlOrMeta+k");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette).toBeVisible();
+  await palette.getByRole("searchbox").fill("Editor: use");
+  await expect(palette.getByRole("menuitem", { name: /Editor: use/ })).toHaveCount(0);
   await context.close();
 });
 
@@ -136,4 +150,96 @@ test("the edit view with Monaco and the open editor menu pass axe", async ({ pag
     .filter((v) => v.impact === "serious" || v.impact === "critical")
     .map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`);
   expect(serious).toEqual([]);
+});
+
+test("the cursor line goes with the viewer to the other editor and back", async ({ page }) => {
+  // Without a starting cursor the other editor opened on line 1, and a viewer
+  // working in a long document had to find their place again after every switch.
+  await ready(page);
+  await replaceSource(page, SHORT_DOC);
+  await page.locator(".cm-line", { hasText: "Second point" }).click();
+  await pickEditor(page, "Monaco");
+  await expect(monacoLines(page)).toContainText("Second point");
+  const marked = page.locator(".monaco-editor .view-overlays .current-line");
+  await expect
+    .poll(async () => {
+      const second = page.locator(".monaco-editor .view-line", { hasText: "Second point" });
+      return Math.abs((await top(marked)) - (await top(second)));
+    })
+    .toBeLessThan(2);
+
+  await page.locator(".monaco-editor .view-line", { hasText: "First point" }).click();
+  await pickEditor(page, "CodeMirror");
+  await expect(page.locator(".cm-activeLine")).toContainText("First point");
+});
+
+test("a pick made in one tab switches the other open tab", async ({ context, page }) => {
+  // The choice lives in localStorage, which every tab shares; two windows of
+  // the same document showing different editors would look like a bug.
+  await ready(page);
+  const other = await context.newPage();
+  await ready(other);
+  await pickEditor(other, "Monaco");
+  await expect(monacoLines(other)).toBeVisible();
+  await expect(monacoLines(page)).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".cm-content")).toHaveCount(0);
+});
+
+test("the command palette offers the other editor and switches to it", async ({ page }) => {
+  await ready(page);
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  // React Aria wraps the "No match" text in a menuitem of its own; it is not a command.
+  const results = palette
+    .getByRole("menuitem")
+    .filter({ hasNot: page.locator(".docwalk-palette-empty") });
+  await page.keyboard.press("ControlOrMeta+k");
+  await palette.getByRole("searchbox").fill("Editor: use");
+  await expect(results).toHaveCount(1);
+  await palette.getByRole("menuitem", { name: "Editor: use Monaco" }).click();
+  await expect(monacoLines(page)).toBeVisible();
+
+  // Now it offers the way back, and the More menu shows the same state.
+  await page.keyboard.press("ControlOrMeta+k");
+  await palette.getByRole("searchbox").fill("Editor: use");
+  await expect(results).toHaveCount(1);
+  await palette.getByRole("menuitem", { name: "Editor: use CodeMirror" }).click();
+  await expect(page.locator(".cm-content")).toBeVisible();
+  await page.getByRole("button", { name: "More actions" }).click();
+  await expect(page.getByRole("menuitemradio", { name: "CodeMirror" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+});
+
+test("Monaco's own panels speak English to an English viewer", async ({ page }) => {
+  await ready(page);
+  await pickEditor(page, "Monaco");
+  await page.locator(".monaco-editor .view-line").first().click();
+  await page.keyboard.press(await findKey(page));
+  await expect(
+    page.locator(".monaco-editor .find-widget").getByRole("textbox", { name: "Find" }),
+  ).toBeVisible();
+});
+
+test.describe("a browser that prefers Turkish", () => {
+  test.use({ locale: "tr-TR" });
+
+  test("Monaco's find panel and context text are Turkish, as the rest of the app is", async ({
+    page,
+  }) => {
+    // Monaco ships its own interface text, in English unless a language table
+    // is loaded before its modules run; the app around it is already Turkish.
+    await page.goto("/");
+    await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slayt/, {
+      timeout: 30_000,
+    });
+    await page.getByRole("button", { name: "Diğer işlemler" }).click();
+    await page.getByRole("menuitemradio", { name: "Monaco" }).click();
+    await expect(monacoLines(page)).toBeVisible({ timeout: 30_000 });
+    await page.locator(".monaco-editor .view-line").first().click();
+    await page.keyboard.press(await findKey(page));
+    await expect(
+      page.locator(".monaco-editor .find-widget").getByRole("textbox", { name: "Bul" }),
+    ).toBeVisible();
+  });
 });

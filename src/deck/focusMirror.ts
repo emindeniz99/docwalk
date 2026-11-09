@@ -1,0 +1,91 @@
+import type { FocusMirror, MirrorStore } from "../annotate/mirrorStore";
+import type { DeckController } from "./controller";
+import { openMirroredFocus, type MirroredFocus } from "./focus";
+import { findBlock } from "./focusTargets";
+import { slideAddress } from "./pages";
+
+/**
+ * A follower's side of the mirrored focus view (decisions 88 and 106): it
+ * opens the view the presenter opened, on this deck's own copy of the block
+ * the presenter named by kind and place, follows its zoom, scroll, marked
+ * lines and diagram tour (decision 109), and closes it with the presenter.
+ *
+ * A code block, an image or a diagram is numbered across its whole section,
+ * so it is the same block on any pagination; a table is numbered on the page
+ * with the presenter's address. When this deck has no such block, the block
+ * is not on the page the follower shows, or the image is not loaded here,
+ * nothing opens and nothing is said; the next change of slide or focus op
+ * tries again. A view the follower closes itself stays closed until the
+ * presenter opens another; one that a rebuild or a change of slide closed
+ * opens again when the follower is back.
+ */
+export function followFocus(controller: DeckController, store: MirrorStore): () => void {
+  let handle: MirroredFocus | null = null;
+  let shown: string | null = null;
+  let dismissed: string | null = null;
+  // What the open view was last given; the store hands out a new object for each change.
+  let view: FocusMirror["view"] | undefined;
+  let lines: FocusMirror["lines"] | undefined;
+  let tour: FocusMirror["tour"] | undefined;
+
+  const shut = () => {
+    const was = handle;
+    handle = null;
+    shown = null;
+    was?.close();
+  };
+
+  const apply = () => {
+    const focus = store.focus;
+    if (!focus) {
+      dismissed = null;
+      shut();
+      return;
+    }
+    const key = `${focus.block} ${focus.n} ${focus.slide}`;
+    if (!handle || shown !== key) {
+      if (dismissed === key) return;
+      shut();
+      // The block is not on the page this follower shows (yet): the next slide change tries again.
+      const block = findBlock(controller.stage(), focus);
+      const page = block?.closest<HTMLElement>("section[data-docwalk-id]");
+      if (!block || !page || slideAddress(page) !== controller.current()?.address) return;
+      const next = openMirroredFocus(block, focus.block, (byViewer) => {
+        if (handle !== next) return;
+        handle = null;
+        shown = null;
+        if (byViewer) dismissed = key;
+      });
+      if (!next) return;
+      handle = next;
+      shown = key;
+      view = undefined;
+      lines = undefined;
+      tour = undefined;
+    }
+    // The laser and the marks change the store too; only a new view or list moves the copy.
+    if (focus.view !== view) {
+      view = focus.view;
+      handle.setView(focus.view);
+    }
+    if (focus.lines !== lines) {
+      lines = focus.lines;
+      handle.setLines(focus.lines);
+    }
+    // By identity too: a follower who stepped on their own keeps their steps
+    // until the presenter's path changes (decision 109).
+    if (focus.tour !== tour) {
+      tour = focus.tour;
+      handle.setTour(focus.tour);
+    }
+  };
+
+  apply();
+  const off = store.subscribe(apply);
+  const stop = controller.onChange(apply);
+  return () => {
+    off();
+    stop();
+    shut();
+  };
+}

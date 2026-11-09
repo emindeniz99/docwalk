@@ -11,6 +11,12 @@
  * followers load it from the share link (`?src=`, `?repo=` or `#doc=`), which
  * the presenter includes in its `hello`.
  *
+ * The presenter also sends the countdown of its presenter window to remotes
+ * (decision 112), under the control key only.
+ *
+ * The presenter also mirrors its laser, pen marks and diagram focus view to
+ * followers (decision 88): `mirror` messages, signed like `state`.
+ *
  * Agents (decision 59) are the exception: a local MCP server (`mcp/`) joins
  * with a room's link and asks the presenter for the document, the slide list,
  * or a document write. Those messages are addressed (`from` on a request,
@@ -19,6 +25,8 @@
  * while "Allow agent edits" is on.
  */
 
+import type { MirrorOp } from "../annotate/mirrorTypes";
+import type { RemoteCountdown } from "../presenter/pacing";
 import type { HeadingDepth } from "../sectioning/sectionize";
 
 /** Plaintext messages, encrypted before sending. */
@@ -37,6 +45,12 @@ export type RemoteMessage =
       /** The presenter's slide level: section ids, and so addresses, depend on it. */
       level: "auto" | HeadingDepth | HeadingDepth[];
     }
+  /**
+   * Presenter -> remotes and agents: the presenter window's countdown, or null
+   * once it is gone (decision 112). Durations only, under the control key: a
+   * follow link never receives it, and a phone counts on from its own clock.
+   */
+  | { type: "countdown"; countdown: RemoteCountdown | null }
   /** Remote -> presenter: next/previous slide. */
   | { type: "step"; direction: 1 | -1 }
   /** Remote -> presenter: jump to an address. */
@@ -81,7 +95,13 @@ export type RemoteMessage =
   | { type: "result"; request: string; to: string; ok: true; revision: string }
   | { type: "result"; request: string; to: string; ok: false; error: AgentError }
   /** One piece of a message too large for a relay frame, for one participant (parts.ts). */
-  | { type: "part"; to: string; id: string; seq: number; total: number; data: string };
+  | { type: "part"; to: string; id: string; seq: number; total: number; data: string }
+  /**
+   * Presenter -> followers: the presenter's laser, pen marks or diagram focus
+   * view (decision 88). Sent under the view key, signed like `state`; a
+   * follower takes it only with a valid signature.
+   */
+  | ({ type: "mirror" } & MirrorOp);
 
 /** One slide as an agent sees it. `note` is the slide's diagnostic (overflow, diagram error). */
 export interface AgentSlide {

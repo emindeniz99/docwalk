@@ -97,8 +97,8 @@ test("editing the source updates the deck and shows slide notes in the gutter", 
   await page.keyboard.press("Control+Home");
   await page.keyboard.press("End");
   await page.keyboard.type(" (edited)");
-  // The header title comes from the parse alone; the deck's cover slide proves the deck rebuilt.
-  await expect(page.locator(".reveal .slides > section").first().locator("h1")).toHaveText(
+  // The header title comes from the parse alone; the cover slide of a ready deck proves the deck rebuilt.
+  await expect(page.locator(".reveal.ready .slides > section").first().locator("h1")).toHaveText(
     /\(edited\)$/,
   );
 

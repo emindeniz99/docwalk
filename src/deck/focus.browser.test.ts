@@ -1,7 +1,7 @@
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, test } from "vitest";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
@@ -68,5 +68,57 @@ describe("closing the diagram focus view after the deck was rebuilt under it", (
     const before = controller.current()!.index;
     await userEvent.keyboard("{ArrowRight}");
     await expect.poll(() => controller.current()!.index).toBe(before + 1);
+  });
+});
+
+async function openDiagramView() {
+  const deck = mountDeck(DOC);
+  await deck.ready(1);
+  const diagram = deck.container.querySelector<HTMLElement>(
+    ".reveal .slides section.present .docwalk-diagram",
+  )!;
+  diagram.focus();
+  await userEvent.keyboard("{Enter}");
+  const view = document.querySelector<HTMLElement>(".docwalk-focus")!;
+  expect(view).not.toBeNull();
+  return view;
+}
+
+describe("the diagram view's toolbar before any tour starts", () => {
+  // The tour's code loads on its first start, and offline it may never load.
+  // The status line must be hidden from the first frame, not once that chunk
+  // arrives: before, it was an unstyled flex item and "Tour ended" could show.
+  test("the status line is visually hidden although the tour's code has not loaded", async () => {
+    const view = await openDiagramView();
+    const status = view.querySelector<HTMLElement>(".docwalk-tour-status")!;
+    expect(status.getAttribute("role")).toBe("status");
+    expect(getComputedStyle(status).position).toBe("absolute");
+    const box = status.getBoundingClientRect();
+    expect([box.width, box.height]).toEqual([1, 1]);
+    // The count is a toolbar item that is hidden until the tour runs.
+    expect(view.querySelector<HTMLElement>(".docwalk-tour-count")!.hidden).toBe(true);
+  });
+
+  // At 390 px the toolbar once wrapped, leaving Close alone on a second row.
+  test("at 390 px every toolbar button shares one row, each at least 44 px", async () => {
+    await page.viewport(390, 844);
+    try {
+      const view = await openDiagramView();
+      const buttons = [
+        ...view.querySelectorAll<HTMLButtonElement>(".docwalk-focus-toolbar button"),
+      ].filter((b) => !b.hidden);
+      // Zoom out, zoom in, Fit, Fullscreen, Sketch, Tour, Close.
+      expect(buttons).toHaveLength(7);
+      const boxes = buttons.map((b) => b.getBoundingClientRect());
+      expect(new Set(boxes.map((box) => Math.round(box.top))).size).toBe(1);
+      for (const box of boxes) {
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.width).toBeGreaterThanOrEqual(44);
+        expect(box.left).toBeGreaterThanOrEqual(0);
+        expect(box.right).toBeLessThanOrEqual(390);
+      }
+    } finally {
+      await page.viewport(1280, 800);
+    }
   });
 });

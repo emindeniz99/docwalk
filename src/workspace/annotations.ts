@@ -63,10 +63,13 @@ async function rekey(
     const next = to === null ? null : keysOf(to);
     try {
       if (store) {
-        const comments = await store.load(old.comments);
-        if (next && comments.length > 0) await store.save(next.comments, comments);
-        // An empty list removes the record.
-        if (comments.length > 0) await store.save(old.comments, []);
+        // The deletions (decision 95) move with the comments, merged into whatever the
+        // new path holds, so a comment deleted before the rename cannot return from an old link.
+        const set = await store.read(old.comments);
+        if (set.comments.length > 0 || set.deleted.length > 0) {
+          if (next) await store.merge(next.comments, set);
+          await store.remove(old.comments);
+        }
       }
     } catch {
       // Comments stay where they were; the rename or delete itself succeeded.

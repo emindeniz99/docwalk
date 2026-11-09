@@ -1,12 +1,15 @@
 import { useEffect, useEffectEvent, type RefObject } from "react";
+import { inFocusView } from "../deck/focusView";
 import type { AnnotationMode } from "./types";
 
-export type AnnotationShortcut = { mode: AnnotationMode } | { action: "undo" | "redo" };
+export type AnnotationShortcut = { mode: AnnotationMode } | { action: "undo" | "redo" | "board" };
 
 const MODE_KEYS: Record<string, AnnotationMode> = {
   p: "pen",
   l: "laser",
   a: "arrow",
+  r: "rect",
+  c: "ellipse",
   e: "eraser",
 };
 
@@ -35,9 +38,17 @@ export function isTextEntry(target: EventTarget | null): boolean {
   );
 }
 
+/** Open layers whose keys are their own (type-to-find, Escape): the overview, a menu, the palette. */
+const OVERLAY = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+
 /** The shortcut a key press asks for, or null when it is not one of ours. */
 export function annotationShortcut(event: KeyboardEvent): AnnotationShortcut | null {
   if (event.defaultPrevented || event.isComposing || isTextEntry(event.target)) return null;
+  // An open focus view (decision 87) is its own layer: P, L, A, R, C, E and Escape are not for the pen.
+  if (inFocusView(event.target)) return null;
+  // The same for an open dialog or menu: W must not toggle the board behind the overview, and the
+  // section picker keeps its type-to-find.
+  if (event.target instanceof Element && event.target.closest(OVERLAY)) return null;
   const key = event.key.toLowerCase();
   const command = event.ctrlKey || event.metaKey;
   if (command && !event.altKey && key === "z") {
@@ -46,6 +57,7 @@ export function annotationShortcut(event: KeyboardEvent): AnnotationShortcut | n
   if (command || event.altKey) return null;
   if (key === "escape") return { mode: "off" };
   if (event.shiftKey) return null;
+  if (key === "w") return { action: "board" };
   const mode = MODE_KEYS[key];
   return mode ? { mode } : null;
 }
@@ -56,11 +68,16 @@ export interface AnnotationShortcutHandlers {
   setMode: (mode: AnnotationMode) => void;
   undo: () => void;
   redo: () => void;
+  /**
+   * The whiteboard (decision 110): W toggles it, and Escape closes it once no
+   * tool is active. Without it, W and that Escape are left alone.
+   */
+  board?: { open: boolean; toggle: () => void };
 }
 
 /**
- * P pen, L laser, A arrow, E eraser, Escape off, Ctrl/Cmd+Z undo,
- * Shift+Ctrl/Cmd+Z redo. Ignored while focus is in a text field, and, when
+ * P pen, L laser, A arrow, R rectangle, C ellipse, E eraser, W whiteboard, Escape off
+ * (tool first, then the whiteboard), Ctrl/Cmd+Z undo, Shift+Ctrl/Cmd+Z redo. Ignored while focus is in a text field, and, when
  * `scope` is given, for keys pressed outside it (so P stays type-ahead in a list).
  */
 export function useAnnotationShortcuts(
@@ -74,11 +91,22 @@ export function useAnnotationShortcuts(
     const shortcut = annotationShortcut(event);
     if (!shortcut) return;
     if ("action" in shortcut) {
-      handlers[shortcut.action]();
+      if (shortcut.action === "board") {
+        if (!handlers.board) return;
+        handlers.board.toggle();
+      } else {
+        handlers[shortcut.action]();
+      }
     } else if (shortcut.mode === "off") {
-      // With no tool active, Escape still belongs to reveal.js and fullscreen.
-      if (handlers.mode === "off") return;
-      handlers.setMode("off");
+      if (handlers.mode !== "off") {
+        handlers.setMode("off");
+      } else if (handlers.board?.open) {
+        // The whiteboard is the next layer to leave.
+        handlers.board.toggle();
+      } else {
+        // With nothing to close, Escape still belongs to reveal.js and fullscreen.
+        return;
+      }
     } else {
       handlers.setMode(shortcut.mode);
     }

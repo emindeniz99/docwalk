@@ -10,6 +10,7 @@ import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { fitDiagrams, measureOffscreen, settled, slideBodySize } from "./measure";
 import { renderDiagrams } from "./mermaid";
+import { fragmentTarget } from "../render/fragments";
 import { paginateSlide } from "./paginate";
 import { buildSlide, buildSlides } from "./slides";
 
@@ -20,8 +21,8 @@ afterEach(() => {
 });
 
 function slideFor(markdown: string): HTMLElement {
-  const section = sectionize(parseMarkdown(markdown)).sections[0];
-  return buildSlide(section as never);
+  const plan = sectionize(parseMarkdown(markdown));
+  return buildSlide(plan.sections[0] as never, { definitions: plan.definitions });
 }
 
 const bodyOf = (page: HTMLElement) => page.querySelector(".docwalk-slide-body") as HTMLElement;
@@ -78,6 +79,26 @@ describe("semantic pagination", () => {
       Array.from({ length: 50 }, (_, i) => `flag.${i}`),
     );
     expect(fitsAll(pages)).toEqual(pages.map(() => false));
+  });
+
+  test("a try puts in only the blocks the last try did not have (decision 43)", () => {
+    // Opening a document waits for every try: each block a try puts in is
+    // styled and laid out again. A search over 80 paragraphs put in 551
+    // copies; most tries only add or drop a few at the end of the last one.
+    const paragraphs = Array.from({ length: 80 }, (_, i) => `Paragraph ${i + 1} of the long part.`);
+    const slide = slideFor(`## Long\n\n${paragraphs.join("\n\n")}\n`);
+    const added = new MutationObserver(() => undefined);
+    added.observe(document.body, { childList: true, subtree: true });
+    const pages = paginateSlide(slide, { size: SIZE });
+    const records = added.takeRecords();
+    added.disconnect();
+    const putIn = records
+      .filter((r) => r.target instanceof Element && r.target.closest(".docwalk-measure"))
+      .flatMap((r) => [...r.addedNodes])
+      .filter((node) => node instanceof Element && node.tagName === "P").length;
+    expect(items(pages, "p")).toEqual(paragraphs);
+    expect(fitsAll(pages)).toEqual(pages.map(() => false));
+    expect(putIn).toBeLessThan(paragraphs.length * 4);
   });
 
   test("an overflowing section splits at its sub-headings first, parent title in the breadcrumb", () => {
@@ -176,6 +197,93 @@ describe("semantic pagination", () => {
   });
 });
 
+/** Footnote texts in a page's list. */
+const notesOn = (page: HTMLElement) =>
+  [...page.querySelectorAll("[data-footnotes] > ol > li")].map((li) =>
+    (li.querySelector("p")?.firstChild?.textContent ?? "").trim(),
+  );
+/** Citations in the page's own text, outside its footnote list. */
+const citationsOn = (page: HTMLElement) =>
+  [...bodyOf(page).querySelectorAll<HTMLAnchorElement>("a[data-footnote-ref]")].filter(
+    (a) => !a.closest("[data-footnotes]"),
+  );
+/** The number a list item shows: its `value`, or its place in an `<ol>` without one. */
+const shownNumber = (li: HTMLLIElement) =>
+  li.hasAttribute("value") ? li.value : [...(li.parentElement?.children ?? [])].indexOf(li) + 1;
+
+describe("footnotes on split slides (decision 107)", () => {
+  const filler = Array.from({ length: 30 }, (_, i) => `Filler paragraph ${i + 1}.`).join("\n\n");
+
+  test("each page shows the footnotes its own text cites, numbered as on the slide", () => {
+    const md = `## Ledger\n\nFirst claim.[^one]\n\n${filler}\n\nLast claim.[^two]\n\n[^one]: Note one.\n[^two]: Note two.\n`;
+    const pages = paginateSlide(slideFor(md), { size: SIZE });
+    expect(pages.length).toBeGreaterThan(1);
+    expect(notesOn(pages[0] as HTMLElement)).toEqual(["Note one."]);
+    const last = pages.at(-1) as HTMLElement;
+    expect(bodyOf(last).textContent).toContain("Last claim.");
+    expect(notesOn(last)).toEqual(["Note two."]);
+    // The citation reads 2, so the list on that page reads 2 as well.
+    const [ref] = citationsOn(last);
+    const item = fragmentTarget(last, ref?.getAttribute("href") ?? "") as HTMLLIElement;
+    expect(ref?.textContent).toBe("2");
+    expect(shownNumber(item)).toBe(2);
+    // Pages between them cite nothing and carry no list.
+    for (const page of pages.slice(1, -1))
+      expect(page.querySelector("[data-footnotes]")).toBeNull();
+    expect(fitsAll(pages)).toEqual(pages.map(() => false));
+  });
+
+  test("a footnote cited on two pages shows on both; each copy links back to its own page's citation", () => {
+    const md = `## Ledger\n\nOpening.[^shared]\n\n${filler}\n\nClosing.[^shared]\n\n[^shared]: The shared note.\n`;
+    const pages = paginateSlide(slideFor(md), { size: SIZE });
+    const withNote = pages.flatMap((p, i) => (notesOn(p).length > 0 ? [i] : []));
+    expect(withNote).toEqual([0, pages.length - 1]);
+    for (const page of [pages[0], pages.at(-1)] as HTMLElement[]) {
+      expect(notesOn(page)).toEqual(["The shared note."]);
+      const [ref] = citationsOn(page);
+      const item = fragmentTarget(page, ref?.getAttribute("href") ?? "");
+      expect(item?.closest("[data-footnotes]")).not.toBeNull();
+      const backs = [...(item?.querySelectorAll("a[data-footnote-backref]") ?? [])];
+      expect(backs).toHaveLength(1);
+      expect(fragmentTarget(page, backs[0]?.getAttribute("href") ?? "")).toBe(ref);
+      // The hidden label the citation points at is on the same page.
+      const label = ref?.getAttribute("aria-describedby") ?? "";
+      expect(page.querySelector(`[id="${CSS.escape(label)}"]`)?.textContent).toBe("Footnotes");
+    }
+    const ids = pages.flatMap((p) => [...p.querySelectorAll("[id]")].map((el) => el.id));
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("a footnote cited inside another one comes along to the page", () => {
+    const md = `## Ledger\n\n${filler}\n\nLast claim.[^a]\n\n[^a]: See also.[^b]\n[^b]: The deeper note.\n`;
+    const pages = paginateSlide(slideFor(md), { size: SIZE });
+    expect(pages.length).toBeGreaterThan(1);
+    expect(notesOn(pages.at(-1) as HTMLElement)).toEqual(["See also.", "The deeper note."]);
+    expect(notesOn(pages[0] as HTMLElement)).toEqual([]);
+  });
+
+  test("a raw HTML section marked as a footnote list above the real one is not taken for it", () => {
+    // The GitHub schema lets `data-footnotes` through on a <section>, so the
+    // author's block can sit above remark-rehype's list. Taking the first match
+    // would drop its content from every page (rule 3); the generated list is
+    // always the last child.
+    const forged =
+      '<section data-footnotes class="footnotes"><ol><li>FORGED CONTENT</li></ol></section>';
+    const md = `## Ledger\n\nOpening.\n\n${forged}\n\n${filler}\n\nA claim.[^a]\n\n[^a]: The real note.\n`;
+    const pages = paginateSlide(slideFor(md), { size: SIZE });
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.some((p) => bodyOf(p).textContent?.includes("FORGED CONTENT"))).toBe(true);
+    const citing = pages.find((p) => bodyOf(p).textContent?.includes("A claim."));
+    expect(notesOn(citing as HTMLElement)).toContain("The real note.");
+  });
+
+  test("a slide that fits keeps its footnote list where it was", () => {
+    const slide = slideFor("## Short\n\nA claim.[^n]\n\n[^n]: The note.\n");
+    expect(paginateSlide(slide, { size: SIZE })).toEqual([slide]);
+    expect(notesOn(slide)).toEqual(["The note."]);
+  });
+});
+
 const tokensOf = (pages: HTMLElement[]) =>
   pages.flatMap((p) => {
     const body = bodyOf(p).cloneNode(true) as HTMLElement;
@@ -187,9 +295,21 @@ const tokensOf = (pages: HTMLElement[]) =>
     return text.join(" ").match(/\bt\d+\b/g) ?? [];
   });
 
-/** Body blocks other than headings: what a page actually shows. */
+/** The footnotes a page shows, by generated number, sorted. */
+const notesShown = (page: HTMLElement) =>
+  [...page.querySelectorAll("[data-footnotes] > ol > li")]
+    .map((li) => Number(/\bf(\d+)\b/.exec(li.textContent ?? "")?.[1]))
+    .toSorted((a, b) => a - b);
+
+/**
+ * Body blocks other than headings: what a page actually shows. A page's
+ * footnote list belongs to the blocks that cite it (decision 107), so it is
+ * not a block of its own.
+ */
 const contentOf = (page: HTMLElement) =>
-  [...bodyOf(page).children].filter((c) => !/^H[1-6]$/.test(c.tagName));
+  [...bodyOf(page).children].filter(
+    (c) => !/^H[1-6]$/.test(c.tagName) && !c.matches("[data-footnotes]"),
+  );
 
 /** A block pagination cannot split any further. */
 const indivisible = (b: Element) =>
@@ -205,19 +325,28 @@ const indivisible = (b: Element) =>
  * duplicated table row, a slide that scrolls for metres) come from shapes
  * nobody thought to write down. Every leaf carries a unique token `t<n>`, so
  * one ordered comparison proves nothing was lost, duplicated or reordered.
+ * Footnote `k` reads `f<k>`, and the generator records which token cites it,
+ * so each page's list can be checked against the text on that page.
  */
 describe("pagination properties", () => {
+  /** Which of the generated footnotes the block cites, if any (its last leaf does). */
+  type Note = { note: number | null };
   type Block =
-    | { kind: "p"; words: number }
+    | ({ kind: "p"; words: number } & Note)
     | { kind: "code"; lines: number }
-    | { kind: "table"; rows: number }
-    | { kind: "list"; ordered: boolean; items: number[] }
+    | ({ kind: "table"; rows: number } & Note)
+    | ({ kind: "list"; ordered: boolean; items: number[] } & Note)
     | { kind: "h3" };
 
+  const NOTES = 4;
+  const note = fc.oneof(
+    { weight: 2, arbitrary: fc.constant(null) },
+    fc.integer({ min: 0, max: NOTES - 1 }),
+  );
   const block: fc.Arbitrary<Block> = fc.oneof(
-    fc.record({ kind: fc.constant("p" as const), words: fc.integer({ min: 1, max: 60 }) }),
+    fc.record({ kind: fc.constant("p" as const), words: fc.integer({ min: 1, max: 60 }), note }),
     fc.record({ kind: fc.constant("code" as const), lines: fc.integer({ min: 1, max: 45 }) }),
-    fc.record({ kind: fc.constant("table" as const), rows: fc.integer({ min: 1, max: 35 }) }),
+    fc.record({ kind: fc.constant("table" as const), rows: fc.integer({ min: 1, max: 35 }), note }),
     fc.record({
       kind: fc.constant("list" as const),
       ordered: fc.boolean(),
@@ -229,17 +358,34 @@ describe("pagination properties", () => {
           maxLength: 30,
         },
       ),
+      note,
     }),
     fc.record({ kind: fc.constant("h3" as const) }),
   );
+  /** Words in each footnote: a short one or a few lines of small type. */
+  const noteWords = fc.array(fc.integer({ min: 1, max: 80 }), {
+    minLength: NOTES,
+    maxLength: NOTES,
+  });
 
-  /** Markdown for the generated slide, and the tokens it holds in document order. */
-  function render(blocks: Block[]): { md: string; tokens: string[] } {
+  /** Markdown for the generated slide, its tokens in document order, and the footnote each citing token cites. */
+  function render(
+    blocks: Block[],
+    words: number[],
+  ): { md: string; tokens: string[]; cites: Map<string, number> } {
     const tokens: string[] = [];
+    const cites = new Map<string, number>();
     const tok = () => {
       const t = `t${tokens.length}`;
       tokens.push(t);
       return t;
+    };
+    /** A token whose leaf cites footnote `k`, when `k` is given. */
+    const citing = (k: number | null) => {
+      const t = tok();
+      if (k === null) return t;
+      cites.set(t, k);
+      return `${t}[^n${k}]`;
     };
     const fence = (lines: number, indent: string) =>
       [
@@ -249,16 +395,27 @@ describe("pagination properties", () => {
       ].join("\n");
     const parts = ["## Slide"];
     for (const [i, b] of blocks.entries()) {
-      if (b.kind === "p") parts.push([tok(), ...Array(b.words - 1).fill("word")].join(" "));
+      if (b.kind === "p") {
+        const t = tok();
+        const leaf = [t, ...Array.from({ length: b.words - 1 }, () => "word")];
+        if (b.note !== null) {
+          cites.set(t, b.note);
+          leaf.push(`[^n${b.note}]`);
+        }
+        parts.push(leaf.join(" "));
+      }
       if (b.kind === "code") parts.push(fence(b.lines, ""));
       if (b.kind === "table") {
-        const rows = Array.from({ length: b.rows }, () => `| ${tok()} | value |`);
+        const rows = Array.from({ length: b.rows }, (_, n) => {
+          const key = n === b.rows - 1 ? citing(b.note) : tok();
+          return `| ${key} | value |`;
+        });
         parts.push(["| Key | Value |", "|---|---|", ...rows].join("\n"));
       }
       if (b.kind === "list") {
         const marker = (n: number) => (b.ordered ? `${n + 1}.` : "-");
         const lines = b.items.map((code, n) => {
-          const head = `${marker(n)} ${tok()}`;
+          const head = `${marker(n)} ${n === b.items.length - 1 ? citing(b.note) : tok()}`;
           const indent = " ".repeat(marker(n).length + 1);
           return code > 0 ? `${head}\n\n${fence(code, indent)}\n` : head;
         });
@@ -270,19 +427,43 @@ describe("pagination properties", () => {
         parts.push("<!-- -->"); // keeps two adjacent lists from merging into one
       }
     }
-    return { md: `${parts.join("\n\n")}\n`, tokens };
+    for (const [k, n] of words.entries()) {
+      parts.push(
+        `[^n${k}]: ${[`f${k}`, ...Array.from({ length: n - 1 }, () => "note")].join(" ")}`,
+      );
+    }
+    return { md: `${parts.join("\n\n")}\n`, tokens, cites };
   }
 
-  fcTest.prop([fc.array(block, { minLength: 1, maxLength: 8 })], { numRuns: 100 })(
-    "no content is lost or duplicated; a page either fits or holds one block that cannot be split; no page is a bare title",
-    (blocks) => {
-      const { md, tokens } = render(blocks);
+  fcTest.prop([fc.array(block, { minLength: 1, maxLength: 8 }), noteWords], { numRuns: 100 })(
+    "no content is lost or duplicated; a page either fits or holds one block that cannot be split; no page is a bare title; each page shows exactly the footnotes it cites",
+    (blocks, words) => {
+      const { md, tokens, cites } = render(blocks, words);
       // Slide level 2 forced, so `###` parts stay inside this one slide.
-      const slide = buildSlide(sectionize(parseMarkdown(md), 2).sections[0] as never);
+      const plan = sectionize(parseMarkdown(md), 2);
+      const slide = buildSlide(plan.sections[0] as never, { definitions: plan.definitions });
       expect(tokensOf([slide]), "generator: the unsplit slide holds every token").toEqual(tokens);
       const pages = paginateSlide(slide, { size: SIZE });
 
       expect(tokensOf(pages)).toEqual(tokens);
+
+      // Each page lists the footnotes its own leaves cite, and no others; a
+      // citation and its item agree on the number, and every footnote link
+      // on a page leads to something on that page.
+      for (const page of pages) {
+        const cited = [...new Set(tokensOf([page]).flatMap((t) => cites.get(t) ?? []))];
+        expect(notesShown(page)).toEqual(cited.toSorted((a, b) => a - b));
+        for (const ref of citationsOn(page)) {
+          const item = fragmentTarget(page, ref.getAttribute("href") ?? "") as HTMLLIElement;
+          expect(item.closest("[data-footnotes]")).not.toBeNull();
+          expect(shownNumber(item)).toBe(Number(ref.textContent));
+        }
+        for (const back of page.querySelectorAll("a[data-footnote-backref]")) {
+          expect(fragmentTarget(page, back.getAttribute("href") ?? "")).not.toBeNull();
+        }
+      }
+      const ids = pages.flatMap((p) => [...p.querySelectorAll("[id]")].map((el) => el.id));
+      expect(new Set(ids).size, "ids are unique across the pages").toBe(ids.length);
 
       // An overflowing page carries the diagnostic, so it must be as small as
       // pagination can make it: one block that cannot be split further.

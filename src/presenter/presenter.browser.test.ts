@@ -3,13 +3,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import { MirrorFeed } from "../annotate/mirrorFeed";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import {
   DISCONNECT_AFTER_MS,
+  HEARTBEAT_MS,
   startPresenterBridge,
   type ChannelFactory,
   type PresenterState,
 } from "./bridge";
+import { PACING_STORAGE_KEY, writeCountdown, type Countdown } from "./pacing";
 import { formatElapsed, PresenterView } from "./PresenterView";
 import { openPresenterWindow } from "./window";
 
@@ -375,6 +378,117 @@ describe("presenter view", () => {
   });
 });
 
+const NOTES_MARKDOWN = [
+  "# Notes deck",
+  "",
+  "Intro.",
+  "",
+  "## Alpha section",
+  "",
+  "<!-- Open with the outage. -->",
+  "",
+  "Text A.",
+  "",
+  "## Beta section",
+  "",
+  "Text B, no notes.",
+  "",
+  "## Gamma section",
+  "",
+  "<!-- prettier-ignore -->",
+  "",
+  "<!-- Ask for questions.",
+  "Then thank the team. -->",
+  "",
+  "Text C.",
+].join("\n");
+const NOTES_ADDRESSES = sectionize(parseMarkdown(NOTES_MARKDOWN), "auto").sections.map(
+  (s) => `${s.id}/1`,
+);
+const [, N_ALPHA, N_BETA, N_GAMMA] = NOTES_ADDRESSES as [string, string, string, string];
+
+const notesPanel = (el: HTMLElement) => el.querySelector<HTMLElement>(".docwalk-presenter-notes");
+const noteTexts = (el: HTMLElement) =>
+  [...el.querySelectorAll(".docwalk-presenter-note")].map((n) => n.textContent);
+
+function notesState(current: string, markdown = NOTES_MARKDOWN, addresses = NOTES_ADDRESSES) {
+  return { type: "state", markdown, level: "auto", current, addresses, startedAt: Date.now() };
+}
+
+describe("speaker notes in the presenter view (decision 79)", () => {
+  test("shows the current slide's notes and swaps them when the slide changes, so the presenter reads what belongs to the slide the room sees", async () => {
+    const channel = fakeChannel();
+    const el = renderView(channel.factory);
+    await channel.deliver(notesState(N_ALPHA));
+    await expect.poll(() => noteTexts(el)).toEqual(["Open with the outage."]);
+
+    await channel.deliver(notesState(N_GAMMA));
+    // A tool directive is not a note; a multi-line note stays one note.
+    await expect.poll(() => noteTexts(el)).toEqual(["Ask for questions.\nThen thank the team."]);
+  });
+
+  test("says so when the slide has no notes, and keeps the panel, so the layout does not jump between slides", async () => {
+    const channel = fakeChannel();
+    const el = renderView(channel.factory);
+    await channel.deliver(notesState(N_ALPHA));
+    await expect.poll(() => noteTexts(el)).toHaveLength(1);
+    const panel = notesPanel(el);
+
+    await channel.deliver(notesState(N_BETA));
+    await expect.poll(() => noteTexts(el)).toEqual([]);
+    expect(notesPanel(el)).toBe(panel);
+    expect(panel?.textContent).toContain("No notes for this slide.");
+  });
+
+  test("shows a section's notes on each of its pages, because the notes belong to the section", async () => {
+    const channel = fakeChannel();
+    const el = renderView(channel.factory);
+    const id = N_ALPHA.split("/")[0];
+    const pages = [`${id}/1`, `${id}/2`];
+    const addresses = [...NOTES_ADDRESSES.slice(0, 1), ...pages, ...NOTES_ADDRESSES.slice(2)];
+    for (const page of pages) {
+      await channel.deliver(notesState(page, NOTES_MARKDOWN, addresses));
+      await expect.poll(() => noteTexts(el)).toEqual(["Open with the outage."]);
+    }
+  });
+
+  test("follows an edit of the Markdown: a note added shows at once", async () => {
+    const channel = fakeChannel();
+    const el = renderView(channel.factory);
+    await channel.deliver(notesState(N_BETA));
+    await expect.poll(() => notesPanel(el)?.textContent).toContain("No notes for this slide.");
+    const edited = NOTES_MARKDOWN.replace("Text B, no notes.", "<!-- Added later. -->\n\nText B.");
+    await channel.deliver(notesState(N_BETA, edited));
+    await expect.poll(() => noteTexts(el)).toEqual(["Added later."]);
+  });
+
+  test("prints hostile note text as text: no element, handler or script comes of it", async () => {
+    const hostile =
+      '<img src=x onerror="window.noteOwned = 1"> </section></main><script>window.noteOwned = 2</script>';
+    const markdown = `# Deck\n\n## Alpha\n\n<!-- ${hostile} -->\n\nText.\n\n## Beta\n\n<!-- never closed\n\nText.\n`;
+    const addresses = sectionize(parseMarkdown(markdown), "auto").sections.map((x) => `${x.id}/1`);
+    const channel = fakeChannel();
+    const el = renderView(channel.factory);
+    await channel.deliver(notesState(addresses[1] as string, markdown, addresses));
+    await expect.poll(() => noteTexts(el)).toEqual([hostile]);
+    const panel = notesPanel(el) as HTMLElement;
+    expect(panel.querySelector("img, script, main, section")).toBeNull();
+    expect((window as { noteOwned?: number }).noteOwned).toBeUndefined();
+    // The page around the panel survived the stray end tags.
+    expect(el.querySelectorAll("main")).toHaveLength(1);
+  });
+
+  test("keeps notes out of the slide previews", async () => {
+    const channel = fakeChannel();
+    const el = renderView(channel.factory);
+    await channel.deliver(notesState(N_ALPHA));
+    await expect.poll(() => previewHeading(el, "docwalk-presenter-current")).toBe("Alpha section");
+    const canvases = [...el.querySelectorAll(".docwalk-presenter-canvas")];
+    expect(canvases.length).toBeGreaterThan(0);
+    for (const canvas of canvases) expect(canvas.textContent).not.toContain("outage");
+  });
+});
+
 describe("presenter helpers", () => {
   test("elapsed time reads like a stopwatch and never goes negative across clock skew", () => {
     expect(formatElapsed(65_000)).toBe("1:05");
@@ -394,5 +508,135 @@ describe("presenter helpers", () => {
     expect(url.searchParams.get("level")).toBe("2");
     // One named window: pressing the button twice must not stack windows.
     expect(target).toBe("docwalk-presenter");
+  });
+});
+
+/** The real audience side with a mirror feed, over the real BroadcastChannel. */
+function mirroredAudience() {
+  const feed = new MirrorFeed();
+  cleanups.push(
+    startPresenterBridge({
+      getState: () => ({
+        markdown: MARKDOWN,
+        level: "auto",
+        current: ALPHA,
+        addresses: ADDRESSES,
+        startedAt: Date.now(),
+      }),
+      goTo: () => true,
+      step: () => {},
+      subscribe: () => () => {},
+      mirror: feed,
+    }),
+  );
+  return feed;
+}
+
+const paperIn = (el: HTMLElement, cls: string) =>
+  el.querySelector<HTMLElement>(`.${cls} .docwalk-mirror-board`);
+const shown = (paper: HTMLElement | null) =>
+  paper !== null && getComputedStyle(paper).display !== "none";
+const boardMarks = (el: HTMLElement) =>
+  el.querySelectorAll(".docwalk-presenter-current .docwalk-mirror [data-mark]").length;
+
+describe("the whiteboard in the presenter window (decision 110)", () => {
+  test("the current preview shows the paper and the board's strokes after board-open, and the next preview shows nothing", async () => {
+    const feed = mirroredAudience();
+    const el = renderView();
+    await expect.poll(() => previewHeading(el, "docwalk-presenter-current")).toBe("Alpha section");
+    expect(shown(paperIn(el, "docwalk-presenter-current"))).toBe(false);
+
+    const section = ALPHA.slice(0, ALPHA.indexOf("/"));
+    feed.ingest({
+      kind: "marks",
+      slide: `${section}/board`,
+      reset: true,
+      strokes: [
+        { id: 1, tool: "pen", color: "primary", points: [1024, 1024, 2048, 2048, 3072, 3072] },
+      ],
+    });
+    feed.ingest({ kind: "board", slide: ALPHA });
+    await expect.poll(() => shown(paperIn(el, "docwalk-presenter-current"))).toBe(true);
+    await expect.poll(() => boardMarks(el)).toBe(1);
+    // The next-slide preview has no overlay: the board covers the page the room is on.
+    expect(el.querySelector(".docwalk-presenter-next .docwalk-mirror")).toBeNull();
+    // The previews are inert copies, so nothing in them took the cover.
+    expect(el.querySelector(".docwalk-presenter-canvas")?.hasAttribute("inert")).toBe(true);
+
+    feed.ingest({ kind: "board", slide: null });
+    await expect.poll(() => shown(paperIn(el, "docwalk-presenter-current"))).toBe(false);
+  });
+
+  test("a board over a page the room is not on leaves the current preview alone", async () => {
+    const feed = mirroredAudience();
+    const el = renderView();
+    await expect.poll(() => previewHeading(el, "docwalk-presenter-current")).toBe("Alpha section");
+    feed.ingest({ kind: "board", slide: BETA });
+    // Give the op its trip over the channel and the overlay its redraw.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(shown(paperIn(el, "docwalk-presenter-current"))).toBe(false);
+    expect(el.querySelector(".docwalk-presenter-next .docwalk-mirror")).toBeNull();
+  });
+});
+
+/** A channel that records what the window posts; nothing answers it. */
+function recordingCountdownChannel() {
+  const posted: { type?: string; countdown?: Countdown | null }[] = [];
+  const factory: ChannelFactory = () => ({
+    postMessage: (message) => posted.push(message as (typeof posted)[number]),
+    listen: () => {},
+    close: () => {},
+  });
+  const countdowns = () => posted.filter((m) => m.type === "countdown").map((m) => m.countdown);
+  return { factory, countdowns };
+}
+
+const PAUSED: Countdown = { targetMs: 20 * 60_000, spentMs: 5 * 60_000, startedAt: null };
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const pressIn = (el: HTMLElement, name: string) =>
+  [...el.querySelectorAll("button")].find((b) => b.textContent === name)!.click();
+
+describe("the countdown sent to the audience tab (decision 112)", () => {
+  afterEach(() => sessionStorage.removeItem(PACING_STORAGE_KEY));
+
+  test("a window opened with no countdown posts nothing about one, so it cannot wipe another window's clock", async () => {
+    const channel = recordingCountdownChannel();
+    renderView(channel.factory);
+    await pause(HEARTBEAT_MS + 400);
+    expect(channel.countdowns()).toEqual([]);
+  });
+
+  test("a window that reloaded with a countdown posts it at once and with each heartbeat", async () => {
+    sessionStorage.setItem(PACING_STORAGE_KEY, writeCountdown(PAUSED));
+    const channel = recordingCountdownChannel();
+    renderView(channel.factory);
+    await expect.poll(() => channel.countdowns()).toEqual([PAUSED]);
+    await expect.poll(() => channel.countdowns().length, { timeout: HEARTBEAT_MS + 1500 }).toBe(2);
+  });
+
+  test("Start posts the countdown, and Reset posts null once", async () => {
+    const channel = recordingCountdownChannel();
+    const el = renderView(channel.factory);
+    const field = await vi.waitFor(() => {
+      const input = el.querySelector<HTMLInputElement>("input.docwalk-presenter-target-input");
+      if (!input) throw new Error("no target field yet");
+      return input;
+    });
+    // React tracks the input's value; set it through the prototype setter so onChange fires.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, "10");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    pressIn(el, "Start");
+    await expect.poll(() => channel.countdowns().length).toBe(1);
+    const started = channel.countdowns()[0]!;
+    expect(started).toMatchObject({ targetMs: 10 * 60_000, spentMs: 0 });
+    expect(started?.startedAt).toEqual(expect.any(Number));
+
+    pressIn(el, "Reset");
+    await expect.poll(() => channel.countdowns().at(-1)).toBeNull();
+    const afterReset = channel.countdowns().length;
+    // The heartbeat does not repeat the absence of a countdown.
+    await pause(HEARTBEAT_MS + 400);
+    expect(channel.countdowns().length).toBe(afterReset);
+    expect(channel.countdowns().filter((c) => c === null)).toHaveLength(1);
   });
 });

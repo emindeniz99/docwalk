@@ -366,3 +366,66 @@ test("the prompt keeps to a phone's safe area in landscape", async ({
     await site.close();
   }
 });
+
+// React Aria's toast region is a landmark, so F6 is the keyboard route to the
+// prompt from anywhere in the app, including the editor and the deck.
+test("F6 moves focus to the update prompt and shows where it landed", async ({ page }) => {
+  const site = await deployment();
+  try {
+    await openThenUpdate(page, site);
+    const region = page.locator(".docwalk-toast-region");
+    await expect(page.locator(".docwalk-toast")).toBeVisible();
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("F6");
+    await expect(region).toBeFocused();
+    // The landmark itself takes focus; with its outline removed the user
+    // would be on an invisible element.
+    expect(
+      await region.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0;
+      }),
+    ).toBe(true);
+    // Tab leaves the landmark for the prompt, then Reload, then Dismiss.
+    const toast = page.locator(".docwalk-toast");
+    await page.keyboard.press("Tab");
+    await expect(toast).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(toast.getByRole("button", { name: "Reload" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(toast.getByRole("button", { name: "Dismiss" })).toBeFocused();
+  } finally {
+    await site.close();
+  }
+});
+
+test("a Markdown file the OS opens with the installed app replaces the sample deck", async ({
+  page,
+}) => {
+  // Chromium hands a launch's files to the consumer, queued from before
+  // anything was mounted. Chromium also has its own `window.launchQueue`,
+  // which a plain assignment cannot replace, so the stand-in is defined over
+  // it; other engines have none, and this is what their code path would see
+  // in Chromium.
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "launchQueue", {
+      configurable: true,
+      value: {
+        setConsumer(consumer: (params: unknown) => void) {
+          consumer({
+            files: [
+              {
+                getFile: async () =>
+                  new File(["# Launched deck\n\nOpened from the file manager.\n"], "notes.md"),
+              },
+            ],
+          });
+        },
+      },
+    });
+  });
+  // Not `ready()`: its status bar check wants "N slides", and this deck is one slide.
+  await page.goto("/");
+  await expect(page.locator(".docwalk-outline-item").first()).toContainText("Launched deck");
+  await expect(page.locator(".docwalk-source-banner")).toContainText("notes.md");
+});

@@ -9,8 +9,10 @@
  * metric, so line breaks and heights stay what pagination measured.
  *
  * Shiki and the grammars are a lazy chunk (`./shiki.ts`), loaded only when a
- * document has a block in one of `CODE_LANGUAGES`. A block in any other
- * language, or one whose grammar fails to load in time, stays plain.
+ * document has a block in one of `CODE_LANGUAGES`; Shiki tokenizes in a Web
+ * Worker, so Mermaid renders beside it on this thread. A block in any other
+ * language, or one whose grammar fails to load, stays plain. A grammar that
+ * lands after the timeout colours its blocks in place (decision 115).
  */
 
 /** The grammars docwalk loads, by Shiki's name for them. */
@@ -112,8 +114,37 @@ export const TOKEN_KINDS = [
 
 export type TokenKind = (typeof TOKEN_KINDS)[number];
 
-/** What the lazy chunk hands back: the lines of `text` as tokens, or null when `language` is not loaded. */
-export type Tokenize = (text: string, language: CodeLanguage) => CodeToken[][] | null;
+/**
+ * What the lazy chunk hands back: the lines of `text` as tokens, or null when
+ * `language` is not loaded. The chunk's answers come from its worker, so they
+ * arrive later.
+ */
+export type Tokenize = (
+  text: string,
+  language: CodeLanguage,
+) => CodeToken[][] | null | Promise<CodeToken[][] | null>;
+
+const KIND_NAMES: ReadonlySet<string> = new Set(TOKEN_KINDS);
+
+/**
+ * `value` as lines of tokens, or null when it is anything else. Tokens come
+ * from the highlighting worker as data: only text and one of `TOKEN_KINDS`
+ * (or none) pass, so no other class reaches the page and colouring never
+ * throws on what it got.
+ */
+export function tokenLines(value: unknown): CodeToken[][] | null {
+  if (!Array.isArray(value)) return null;
+  for (const line of value as unknown[]) {
+    if (!Array.isArray(line)) return null;
+    for (const token of line as unknown[]) {
+      if (typeof token !== "object" || token === null) return null;
+      const { text, kind } = token as Record<string, unknown>;
+      if (typeof text !== "string") return null;
+      if (kind !== null && !(typeof kind === "string" && KIND_NAMES.has(kind))) return null;
+    }
+  }
+  return value as CodeToken[][];
+}
 
 /**
  * How long a deck waits for Shiki and the grammars before it measures with
@@ -122,25 +153,43 @@ export type Tokenize = (text: string, language: CodeLanguage) => CodeToken[][] |
  */
 export const HIGHLIGHT_TIMEOUT_MS = 5000;
 
+/**
+ * How much longer after the timeout a grammar may take and still colour the
+ * blocks already on the page (decision 115). Past this a hung load is
+ * dropped; the next rebuild asks again.
+ */
+export const LATE_HIGHLIGHT_MS = 60_000;
+
 let loader: Promise<typeof import("./shiki")> | null = null;
 
-/** Loads Shiki and the grammars `languages` need; null when that fails or takes too long. */
+/**
+ * Loads Shiki and the grammars `languages` need. `tokenize` is null when
+ * that fails or takes longer than `timeoutMs`; after a timeout `late` is the
+ * load still running, which settles to null if it fails.
+ */
 async function tokenizerFor(
   languages: ReadonlySet<CodeLanguage>,
   timeoutMs: number,
-): Promise<Tokenize | null> {
+): Promise<{ tokenize: Tokenize | null; late: Promise<Tokenize | null> | null }> {
   loader ??= import("./shiki");
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs);
+    timer = setTimeout(() => {
+      timedOut = true;
+      resolve(null);
+    }, timeoutMs);
   });
+  const load = loader
+    .then((shiki) => shiki.loadTokenizer([...languages]))
+    .catch((): null => {
+      // A chunk that failed to load is asked for again by the next render.
+      loader = null;
+      return null;
+    });
   try {
-    const load = loader.then((shiki) => shiki.loadTokenizer([...languages]));
-    return await Promise.race([load, timeout]);
-  } catch {
-    // A chunk that failed to load is asked for again by the next render.
-    loader = null;
-    return null;
+    const tokenize = await Promise.race([load, timeout]);
+    return { tokenize, late: timedOut ? load : null };
   } finally {
     clearTimeout(timer);
   }
@@ -154,34 +203,85 @@ export interface HighlightOptions {
 
 /**
  * Colours every fenced code block under `root` whose language docwalk knows.
- * Resolves once every such block is coloured or left plain; it never
- * rejects, so a deck always goes on to measure.
+ * Resolves once every such block is coloured or left plain, or at the
+ * timeout; it never rejects, so a deck always goes on to measure. A grammar
+ * that lands after the timeout (within `LATE_HIGHLIGHT_MS`, and only while
+ * `stop()` is false) colours the blocks then under `root`, in place: colour
+ * changes no metric (decision 76), so nothing is measured again (115).
  */
 export async function highlightCode(
   root: ParentNode,
   { stop = () => false, timeoutMs = HIGHLIGHT_TIMEOUT_MS }: HighlightOptions = {},
 ): Promise<void> {
+  const blocks = plainBlocks(root);
+  if (blocks.length === 0) return;
+  const { tokenize, late } = await tokenizerFor(new Set(blocks.map((b) => b.language)), timeoutMs);
+  if (tokenize) {
+    if (!stop()) await colourAll(blocks, tokenize, stop);
+    return;
+  }
+  if (late) void colourLate(root, late, stop);
+}
+
+/** The blocks under `root` that a known grammar could colour and nothing has yet. */
+function plainBlocks(root: ParentNode): { code: HTMLElement; language: CodeLanguage }[] {
   const blocks: { code: HTMLElement; language: CodeLanguage }[] = [];
   for (const code of root.querySelectorAll<HTMLElement>("pre > code")) {
     const language = languageOf(code);
     // Element children mean the block is coloured already (a copy of a page).
     if (language && code.children.length === 0) blocks.push({ code, language });
   }
-  if (blocks.length === 0) return;
-  const tokenize = await tokenizerFor(new Set(blocks.map((b) => b.language)), timeoutMs);
-  if (!tokenize || stop()) return;
-  for (const { code, language } of blocks) colour(code, language, tokenize);
+  return blocks;
 }
 
-function colour(code: HTMLElement, language: CodeLanguage, tokenize: Tokenize): void {
+/**
+ * The late pass (decision 115). It asks `root` for its blocks again, because
+ * pagination replaces a split section's elements with copies after the
+ * timeout.
+ */
+async function colourLate(
+  root: ParentNode,
+  late: Promise<Tokenize | null>,
+  stop: () => boolean,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cutoff = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), LATE_HIGHLIGHT_MS);
+  });
+  try {
+    const tokenize = await Promise.race([late, cutoff]);
+    if (!tokenize || stop()) return;
+    await colourAll(plainBlocks(root), tokenize, stop);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Asks for every block's tokens at once, so the worker never waits on the page between blocks. */
+async function colourAll(
+  blocks: { code: HTMLElement; language: CodeLanguage }[],
+  tokenize: Tokenize,
+  stop: () => boolean,
+): Promise<void> {
+  await Promise.all(blocks.map(({ code, language }) => colour(code, language, tokenize, stop)));
+}
+
+async function colour(
+  code: HTMLElement,
+  language: CodeLanguage,
+  tokenize: Tokenize,
+  stop: () => boolean,
+): Promise<void> {
   const text = code.textContent ?? "";
   let lines: CodeToken[][] | null;
   try {
-    lines = tokenize(text, language);
+    lines = tokenLines(await tokenize(text, language));
   } catch {
     return;
   }
-  if (!lines) return;
+  // A stale build leaves its blocks alone, and a block that changed while
+  // its tokens were on the way (coloured by another pass) is not coloured twice.
+  if (!lines || stop() || code.children.length > 0 || code.textContent !== text) return;
   // The spans must spell the block's text exactly, or copy, search and the
   // measured layout would change; anything else leaves the block plain.
   if (lines.map((line) => line.map((t) => t.text).join("")).join("\n") !== text) return;

@@ -5,7 +5,16 @@ import { afterEach, describe, expect, test, vi, type Mock } from "vitest";
 import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import { MirrorFeed } from "../annotate/mirrorFeed";
+import {
+  MAX_STROKE_POINTS,
+  mirrorFrameBytes,
+  resyncGapMs,
+  type MarkStroke,
+} from "../annotate/mirrorTypes";
+import { API_LIMITS } from "../api/types";
 import type { DeckController, SlideInfo } from "../deck/controller";
+import type { Countdown } from "../presenter/pacing";
 import {
   connectRoom,
   LASER_INTERVAL_MS,
@@ -154,6 +163,7 @@ function fakeController(count = 10, pages?: Array<[string, number]>): FakeContro
     title: `Title ${i}`,
     flagged: false,
     note: null,
+    text: "",
   }));
   count = slides.length;
   const emit = () => listeners.forEach((l) => l(slides[index]!));
@@ -487,6 +497,32 @@ describe("presenter host", () => {
       }),
     );
     await vi.waitFor(() => expect(host.current!.status).toBe("open"));
+  });
+
+  test("a burst of hellos gets one state at once and one more after 250 ms, not one each (decision 103)", async () => {
+    // Each state is signed and sealed under both keys and carries the doc
+    // link; a hello still gets an answer, from the deck as it is then.
+    const relay = new FakeRelay();
+    const host = mountHost({
+      controller: fakeController(),
+      docLink: "https://docwalk.example/?src=x",
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+    // Past both windows a join opens: a join sends two hellos (decision 111),
+    // one on open and one after the first state, and 103 answers the second at
+    // the end of its 250 ms window, which opens a second window.
+    await new Promise((r) => setTimeout(r, 800));
+    const before = ofType(follower, "state").length;
+    for (let i = 0; i < 20; i++) {
+      const id = `FloodFlood${String(i).padStart(2, "0")}`;
+      await follower.conn.send({ type: "hello", role: "follower", id });
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    expect(ofType(follower, "state").length - before).toBe(2);
   });
 
   test("a remote's step and goto drive the presenter's deck, and every change is announced", async () => {
@@ -982,6 +1018,25 @@ describe("follower", () => {
     expect(result.current!.status).toBe("open");
   });
 
+  test("tells onSlide the address of every signed state, so a board for another page can be dropped (decision 110)", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const onSlide = vi.fn<(address: string) => void>();
+    mountFollower({
+      creds,
+      controller: fakeController(),
+      socketFactory: relay.factory,
+      base: BASE,
+      onSlide,
+    });
+    await vi.waitFor(() => expect(ofType(presenter, "hello")).toHaveLength(1));
+    await presenter.conn.send(presenterState("section-2/1"));
+    await presenter.conn.send(presenterState("section-3/1"));
+    await vi.waitFor(() => expect(onSlide).toHaveBeenCalledTimes(2));
+    expect(onSlide.mock.calls).toEqual([["section-2/1"], ["section-3/1"]]);
+  });
+
   test("catches up once its deck is ready, since state can arrive before the document loads", async () => {
     const relay = new FakeRelay();
     const creds = await createPresenterCredentials();
@@ -1315,6 +1370,331 @@ describe("phone remote view", () => {
   });
 });
 
+const COUNTDOWN_MIN = 60_000;
+const PAUSED_COUNTDOWN: Countdown = {
+  targetMs: 20 * COUNTDOWN_MIN,
+  spentMs: 5 * COUNTDOWN_MIN,
+  startedAt: null,
+};
+const countdownsOf = (p: Peer) => ofType(p, "countdown");
+const settle = () => new Promise((r) => setTimeout(r, 300));
+
+async function hostWithCountdown(countdown?: Countdown | null) {
+  const relay = new FakeRelay();
+  const props: HostProps = {
+    controller: fakeController(),
+    docLink: null,
+    enabled: true,
+    socketFactory: relay.factory,
+    base: BASE,
+    ...(countdown === undefined ? {} : { countdown }),
+  };
+  const host = mountHost(props);
+  const change = (next: Countdown | null) =>
+    mount(h(HostProbe, { ...props, countdown: next, report: (r) => (host.current = r) }));
+  return {
+    relay,
+    host,
+    change,
+    remote: await joinCreds(host, "remote"),
+    follow: await joinCreds(host, "follow"),
+  };
+}
+
+// The minimal presenter of setupRemoteView sends the state; these send the countdown.
+const sendCountdown = (
+  presenter: Peer,
+  next: { targetMs: number; spentMs: number; running: boolean } | null,
+) => presenter.conn.send({ type: "countdown", countdown: next });
+const clockEl = () => document.querySelector<HTMLElement>(".docwalk-remote-clock");
+const timerEl = () => document.querySelector<HTMLElement>('[role="timer"]');
+
+describe("the countdown on the phone remote (decision 112)", () => {
+  const MIN = COUNTDOWN_MIN;
+  const PAUSED = PAUSED_COUNTDOWN;
+  const SLOW = { timeout: 4000 };
+
+  test("the host sends the countdown to a phone and never to a follower", async () => {
+    const { relay, remote, follow } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    const follower = peer(relay, follow, "follower");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+    await settle();
+    // Durations, not instants: the phone's clock is not the laptop's.
+    expect(countdownsOf(phone).at(-1)).toEqual({
+      type: "countdown",
+      countdown: { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false },
+    });
+    expect(countdownsOf(follower)).toEqual([]);
+    // Nor can a follower read it off the wire: the view key opens the states and nothing else.
+    const viewKey = await importKey(follow.view!);
+    const readable: string[] = [];
+    for (const frame of relay.wire) {
+      const sealed = await decrypt(viewKey, JSON.parse(frame));
+      if (sealed) readable.push(sealed.message.type);
+    }
+    expect(readable).toContain("state");
+    expect(readable).not.toContain("countdown");
+  });
+
+  test("a phone's hello gets the state and then the countdown", async () => {
+    const { relay, remote } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    const order = phone.received
+      .map((m) => m.type)
+      .filter((type) => type === "state" || type === "countdown");
+    expect(order.slice(0, 2)).toEqual(["state", "countdown"]);
+  });
+
+  test("a change goes out at once: start, pause, resume and Reset", async () => {
+    const { relay, remote, change } = await hostWithCountdown(null);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(ofType(phone, "state").length).toBeGreaterThan(0));
+    await settle();
+    // The hello was answered with "none", which is what the phone should hold; count from here.
+    expect(countdownsOf(phone).every((m) => m.countdown === null)).toBe(true);
+    const base = countdownsOf(phone).length;
+
+    const startedAt = Date.now() - 1000;
+    change({ targetMs: 20 * MIN, spentMs: 5 * MIN, startedAt });
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(base + 1));
+    const running = countdownsOf(phone)[base]!.countdown!;
+    expect(running.running).toBe(true);
+    // The time spent so far travels, not the instant it started.
+    expect(running.spentMs).toBeGreaterThanOrEqual(5 * MIN + 1000);
+    expect(running.spentMs).toBeLessThan(5 * MIN + 5000);
+    expect(Object.keys(running).toSorted()).toEqual(["running", "spentMs", "targetMs"]);
+
+    change(PAUSED);
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(base + 2));
+    expect(countdownsOf(phone)[base + 1]!.countdown).toEqual({
+      targetMs: 20 * MIN,
+      spentMs: 5 * MIN,
+      running: false,
+    });
+
+    change(null);
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(base + 3));
+    expect(countdownsOf(phone)[base + 2]).toEqual({ type: "countdown", countdown: null });
+
+    // The same values in a new object say nothing new.
+    change(null);
+    change({ ...PAUSED });
+    change({ ...PAUSED });
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(base + 4));
+    await settle();
+    expect(countdownsOf(phone)).toHaveLength(base + 4);
+  });
+
+  test("a host with no countdown tells each phone so at its hello", async () => {
+    const { relay, remote } = await hostWithCountdown();
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    await settle();
+    expect(countdownsOf(phone).every((m) => m.countdown === null)).toBe(true);
+  });
+
+  test("a phone that missed the end of the countdown while its socket was down is told at its next hello", async () => {
+    const { relay, remote, change } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    expect(countdownsOf(phone).at(-1)?.countdown).not.toBeNull();
+    await settle();
+    // Sockets in order: the presenter's, then the phone's.
+    relay.drop(1);
+    change(null);
+    await vi.waitFor(() => expect(phone.statuses).toContain("reconnecting"));
+    await vi.waitFor(() => expect(phone.statuses.at(-1)).toBe("open"), SLOW);
+    await vi.waitFor(() => expect(countdownsOf(phone).at(-1)?.countdown).toBeNull(), SLOW);
+  });
+
+  test("a presenter tab that reloads with no countdown tells the phones that stayed connected", async () => {
+    const relay = new FakeRelay();
+    const first = mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      countdown: PAUSED,
+    });
+    const phone = peer(relay, await joinCreds(first, "remote"), "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    expect(countdownsOf(phone).at(-1)?.countdown).not.toBeNull();
+    // The reload loses the countdown: the new host is built with none (a reloaded tab has not
+    // asked for the presenter window again).
+    act(() => root?.unmount());
+    root = null;
+    mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      countdown: null,
+    });
+    await vi.waitFor(() => expect(countdownsOf(phone).at(-1)?.countdown).toBeNull(), SLOW);
+  });
+
+  test("when the socket reopens the phone gets the state and the countdown again", async () => {
+    const { relay, remote } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    await settle();
+    const before = countdownsOf(phone).length;
+    relay.drop(0);
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(before), SLOW);
+  });
+
+  test("a countdown that someone else sends changes nothing on the host", async () => {
+    const { relay, remote, host } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    await settle();
+    const before = ofType(phone, "state").length;
+    await phone.conn.send({
+      type: "countdown",
+      countdown: { targetMs: MIN, spentMs: 0, running: true },
+    });
+    await settle();
+    expect(host.current!.status).toBe("open");
+    expect(ofType(phone, "state").length).toBe(before);
+  });
+
+  test("RemoteView shows the time left and the verdict in words", async () => {
+    // Slide 3 of 10 is 25% of the talk.
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    await vi.waitFor(() => expect(timerEl()?.textContent).toBe("15:00"));
+    expect(clockEl()!.textContent).toContain("Time left");
+    expect(clockEl()!.textContent).toContain("On pace");
+    expect(clockEl()!.getAttribute("data-pace")).toBe("on-pace");
+    expect(timerEl()!.getAttribute("aria-label")).toBe("Time left");
+
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 15 * MIN, running: false });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Behind schedule"));
+    expect(clockEl()!.getAttribute("data-pace")).toBe("behind");
+    expect(timerEl()!.textContent).toBe("5:00");
+
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 1 * MIN, running: false });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Ahead of schedule"));
+    expect(clockEl()!.getAttribute("data-pace")).toBe("ahead");
+  });
+
+  test("the verdict follows the slide: the same clock is behind on slide 3 and ahead on slide 10", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 15 * MIN, running: false });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Behind schedule"));
+    await presenter.conn.send({
+      type: "state",
+      current: "end/1",
+      index: 9,
+      total: 10,
+      title: "End",
+      docLink: null,
+      docLinkTooLong: false,
+      level: "auto",
+    });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Ahead of schedule"));
+  });
+
+  test("past zero it says Over time with a warning icon, so colour is never the only signal", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 21 * MIN, running: false });
+    await vi.waitFor(() => expect(timerEl()?.textContent).toBe("−1:00"));
+    expect(clockEl()!.getAttribute("data-over")).toBe("true");
+    expect(clockEl()!.textContent).toContain("Over time");
+    expect(clockEl()!.querySelector("svg")).not.toBeNull();
+    expect(timerEl()!.getAttribute("aria-label")).toBe("Over time");
+  });
+
+  test("it says Paused while paused and counts on while running", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: true });
+    await vi.waitFor(() => expect(timerEl()).not.toBeNull());
+    expect(clockEl()!.textContent).not.toContain("Paused");
+    // Counts on from the moment the message arrived, by the phone's own clock.
+    const first = timerEl()!.textContent;
+    expect(first).toMatch(/^(15:00|14:5\d)$/);
+    await vi.waitFor(() => expect(timerEl()!.textContent).not.toBe(first), SLOW);
+
+    await sendCountdown(presenter, {
+      targetMs: 20 * MIN,
+      spentMs: 5 * MIN + 30_000,
+      running: false,
+    });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Paused"));
+    expect(timerEl()!.textContent).toBe("14:30");
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(timerEl()!.textContent).toBe("14:30");
+
+    await sendCountdown(presenter, {
+      targetMs: 20 * MIN,
+      spentMs: 5 * MIN + 30_000,
+      running: true,
+    });
+    await vi.waitFor(() => expect(clockEl()!.textContent).not.toContain("Paused"));
+  });
+
+  test("it is a read-only timer outside the slide-count live region, with no controls", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    await vi.waitFor(() => expect(timerEl()).not.toBeNull());
+    expect(timerEl()!.closest("[aria-live]")).toBeNull();
+    expect(clockEl()!.querySelector("button, input, a, [tabindex]")).toBeNull();
+    // The count line stays the only live region.
+    expect(document.querySelectorAll("[aria-live]")).toHaveLength(1);
+    // And it leaves the pad its height: a few lines, not a panel.
+    expect(clockEl()!.getBoundingClientRect().height).toBeLessThan(120);
+  });
+
+  test("Reset in the presenter window takes the clock off the phone", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    await vi.waitFor(() => expect(timerEl()).not.toBeNull());
+    await sendCountdown(presenter, null);
+    await vi.waitFor(() => expect(timerEl()).toBeNull());
+    expect(clockEl()).toBeNull();
+  });
+
+  test("a phone that never gets a countdown shows no timer", async () => {
+    await setupRemoteView();
+    await settle();
+    expect(timerEl()).toBeNull();
+    expect(clockEl()).toBeNull();
+  });
+
+  test(
+    "when the presenter is away the clock goes with it, and comes back with the presenter",
+    { timeout: PRESENTER_REPLY_MS + 6000 },
+    async () => {
+      const presenter = await setupRemoteView();
+      await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+      await vi.waitFor(() => expect(timerEl()).not.toBeNull());
+      await userEvent.click(button("Next"));
+      await vi.waitFor(() => expect(status()).toBe(PRESENTER_AWAY()), {
+        timeout: PRESENTER_REPLY_MS + 2000,
+      });
+      expect(timerEl()).toBeNull();
+
+      // Back: the state brings the controls and the countdown it sent last comes back.
+      await presenter.conn.send({
+        type: "state",
+        current: "retries/1",
+        index: 2,
+        total: 10,
+        title: "Retries",
+        docLink: null,
+        docLinkTooLong: false,
+        level: "auto",
+      });
+      await vi.waitFor(() => expect(timerEl()?.textContent).toBe("15:00"));
+    },
+  );
+});
+
 describe("join dialog", () => {
   const host = {
     joinUrls: {
@@ -1435,6 +1815,230 @@ describe("join dialog: agents", () => {
     expect(dialog().textContent).toContain(describeAgentEdit({ name: "claude-code", at }));
     expect(describeAgentEdit({ name: "claude-code", at })).toMatch(
       /^Last changed by claude-code at .*03/,
+    );
+  });
+});
+
+describe("mirror messages (decision 88)", () => {
+  // The presenter's laser, marks and focus view reach followers inside the
+  // same encrypted, signed room as its state, and nowhere else.
+  const mirrors = (p: Peer) => ofType(p, "mirror");
+  const laser = (p: Peer) => mirrors(p).filter((m) => m.op === "laser");
+  const stroke = (id: number, n = 3): MarkStroke => ({
+    id,
+    tool: "pen",
+    color: "primary",
+    points: Array.from({ length: n * 2 }, (_, i) => (id * 100 + i) % 4097),
+  });
+  const quiet = () => new Promise((r) => setTimeout(r, 120));
+  // A hello makes the presenter resync once, 150 ms on or up to 2 s later.
+  const SETTLE = { timeout: 4000 };
+  const settled = (p: Peer) =>
+    vi.waitFor(() => expect(mirrors(p).some((m) => m.op === "focus-close")).toBe(true), SETTLE);
+
+  async function hostWithFeed() {
+    const relay = new FakeRelay();
+    const feed = new MirrorFeed();
+    const host = mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      mirror: feed,
+    });
+    const follow = await joinCreds(host, "follow");
+    const remote = await joinCreds(host, "remote");
+    return { relay, feed, host, follow, remote };
+  }
+
+  test("a mark the presenter makes reaches a follower and never a phone remote", async () => {
+    const { relay, feed, follow, remote } = await hostWithFeed();
+    const follower = peer(relay, follow, "follower");
+    const phone = peer(relay, remote, "remote");
+    await opened(follower);
+    await opened(phone);
+    feed.ingest({ kind: "laser", x: 0.25, y: 0.75 });
+    await vi.waitFor(() =>
+      expect(laser(follower)).toEqual([{ type: "mirror", op: "laser", x: 0.25, y: 0.75 }]),
+    );
+    await quiet();
+    expect(mirrors(phone)).toEqual([]);
+  });
+
+  test("a phone's laser reaches followers as the presenter's own", async () => {
+    const { relay, follow, remote } = await hostWithFeed();
+    const follower = peer(relay, follow, "follower");
+    const phone = peer(relay, remote, "remote");
+    await opened(follower);
+    await opened(phone);
+    await settled(follower);
+    await phone.conn.send({ type: "laser", x: 0.5, y: 0.25 });
+    await vi.waitFor(() => expect(laser(follower)).toHaveLength(1));
+    expect(laser(follower)[0]).toMatchObject({ x: 0.5, y: 0.25 });
+    await phone.conn.send({ type: "laser-off" });
+    await vi.waitFor(() =>
+      expect(mirrors(follower).at(-1)).toEqual({ type: "mirror", op: "laser-off" }),
+    );
+  });
+
+  test("a follower cannot make another follower show anything: only the presenter's signature counts", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const { sign: _sign, ...followLink } = creds;
+    const forger = peer(relay, { ...followLink, key: null }, "follower");
+    const watcher = peer(relay, { ...followLink, key: null }, "follower");
+    await opened(presenter);
+    await opened(forger);
+    await opened(watcher);
+    const forged: RemoteMessage = { type: "mirror", op: "laser", x: 0.9, y: 0.9 };
+    await forger.conn.send(forged);
+    // Even a forger with a signing key of its own: it is not the room's.
+    const own = await createPresenterCredentials();
+    const impostor = peer(
+      relay,
+      { room: creds.room, key: own.key, view: creds.view, sign: own.sign },
+      "presenter",
+    );
+    await opened(impostor);
+    await impostor.conn.send(forged);
+    await quiet();
+    expect(mirrors(watcher)).toEqual([]);
+    await presenter.conn.send({ type: "mirror", op: "laser", x: 0.1, y: 0.2 });
+    await vi.waitFor(() => expect(laser(watcher)).toHaveLength(1));
+    expect(laser(watcher)[0]).toMatchObject({ x: 0.1, y: 0.2 });
+    // The presenter takes nothing but a follower's hello under the view key.
+    expect(mirrors(presenter)).toEqual([]);
+  });
+
+  test("a relay that repeats a mirror frame cannot show it twice", async () => {
+    const { relay, feed, follow } = await hostWithFeed();
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    await settled(follower);
+    feed.ingest({ kind: "laser", x: 0.4, y: 0.4 });
+    await vi.waitFor(() => expect(laser(follower)).toHaveLength(1));
+    const frame = relay.wire.at(-1)!;
+    relay.replay(frame);
+    relay.replay(frame);
+    await quiet();
+    expect(laser(follower)).toHaveLength(1);
+  });
+
+  test("a follower that joins late gets the open code view, its zoom and scroll and its marked lines, signed (decision 106)", async () => {
+    const { relay, feed, follow, remote } = await hostWithFeed();
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: [], reset: true });
+    feed.focus({ kind: "open", slide: "section-0/1", block: "code", n: 2 });
+    feed.focus({ kind: "view", scale: 1.5, x: 0, y: 0.25 });
+    feed.focus({ kind: "lines", lines: [2, 7] });
+    const follower = peer(relay, follow, "follower");
+    const phone = peer(relay, remote, "remote");
+    await opened(follower);
+    await opened(phone);
+    const focusOps = () => mirrors(follower).filter((m) => m.op.startsWith("focus"));
+    await vi.waitFor(() => expect(focusOps()).toHaveLength(3), SETTLE);
+    expect(focusOps()).toEqual([
+      { type: "mirror", op: "focus-open", slide: "section-0/1", code: 2 },
+      { type: "mirror", op: "focus-view", scale: 1.5, x: 0, y: 0.25 },
+      { type: "mirror", op: "focus-lines", lines: [2, 7] },
+    ]);
+    // A change of marks goes to followers alone, like every mirror op.
+    feed.focus({ kind: "lines", lines: [7] });
+    await vi.waitFor(() =>
+      expect(mirrors(follower).at(-1)).toEqual({ type: "mirror", op: "focus-lines", lines: [7] }),
+    );
+    await quiet();
+    expect(mirrors(phone)).toEqual([]);
+  });
+
+  test("a follower that joins late gets the current slide's marks apart from the state", async () => {
+    const { relay, feed, follow } = await hostWithFeed();
+    const slide = "section-0/1";
+    feed.ingest({ kind: "marks", slide, strokes: [stroke(1), stroke(2)], reset: true });
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    await vi.waitFor(
+      () => expect(mirrors(follower).filter((m) => m.op === "stroke")).toHaveLength(2),
+      SETTLE,
+    );
+    // The resync names what to keep and never empties the slide first (decision 103).
+    expect(mirrors(follower).map((m) => m.op)).toContain("keep");
+    expect(mirrors(follower).map((m) => m.op)).not.toContain("clear");
+    // The state is the size it was: no marks ride in it.
+    const state = ofType(follower, "state")[0]!;
+    expect(Object.keys(state).toSorted()).toEqual(
+      [
+        "current",
+        "docLink",
+        "docLinkTooLong",
+        "index",
+        "level",
+        "title",
+        "total",
+        "type",
+      ].toSorted(),
+    );
+  });
+
+  test("a follower that says hello again and again gets one resync, not one for each", async () => {
+    const { relay, feed, follow } = await hostWithFeed();
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: [stroke(1)], reset: true });
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    const keeps = () => mirrors(follower).filter((m) => m.op === "keep");
+    await vi.waitFor(() => expect(keeps()).toHaveLength(1), SETTLE);
+    for (let i = 0; i < 6; i++) {
+      await follower.conn.send({ type: "hello", role: "follower", id: `HelloHello${i}x` });
+    }
+    await quiet();
+    await quiet();
+    expect(keeps()).toHaveLength(1);
+  });
+
+  test("a heavy resync is not repeated until its frames are paid for at 64 KB/s (decision 103)", async () => {
+    // Twelve full strokes are about 270 KB of signed frames: however often a
+    // follower says hello, the next resync waits about 4 s, not the 2 s floor,
+    // and it still comes.
+    const { relay, feed, follow } = await hostWithFeed();
+    const heavy = Array.from({ length: 12 }, (_, i) => stroke(i + 1, MAX_STROKE_POINTS));
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: heavy, reset: true });
+    let cost = 0;
+    feed.resync((op) => (cost += mirrorFrameBytes(op)));
+    const gap = resyncGapMs(cost);
+    expect(gap).toBeGreaterThan(3500);
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    const keeps = () => mirrors(follower).filter((m) => m.op === "keep").length;
+    const arrivals: number[] = [];
+    const deadline = performance.now() + 3 * gap;
+    while (arrivals.length < 2 && performance.now() < deadline) {
+      await follower.conn.send({ type: "hello", role: "follower", id: "HeavyHeavy01" });
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        while (keeps() > arrivals.length) arrivals.push(performance.now());
+      }
+    }
+    expect(arrivals).toHaveLength(2);
+    expect(arrivals[1]! - arrivals[0]!).toBeGreaterThan(gap - 500);
+    expect(arrivals[1]! - arrivals[0]!).toBeLessThan(gap + 2000);
+  }, 20_000);
+
+  test("a long stroke goes out in frames the relay accepts, and arrives whole", async () => {
+    const { relay, feed, follow } = await hostWithFeed();
+    const follower = peer(relay, follow, "follower");
+    await opened(follower);
+    await settled(follower);
+    const long = stroke(7, 1500);
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: [], reset: true });
+    feed.ingest({ kind: "stroke", slide: "section-0/1", end: true, ...long });
+    await vi.waitFor(() =>
+      expect(mirrors(follower).some((m) => m.op === "stroke" && m.end)).toBe(true),
+    );
+    const chunks = mirrors(follower).flatMap((m) => (m.op === "stroke" ? [m] : []));
+    expect(chunks.flatMap((c) => c.points)).toEqual(long.points);
+    expect(Math.max(...relay.wire.map((frame) => frame.length))).toBeLessThanOrEqual(
+      API_LIMITS.maxFrameBytes,
     );
   });
 });

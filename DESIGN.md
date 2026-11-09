@@ -336,6 +336,10 @@ gains a border, so colour-blind readers see the state too.
 - `note-*` colours carry diagnostics: content that was split, scaled down
   or is too tall. They are yellow, not red: a note is information, not an
   error.
+- The diagram tour rings the current node in `primary` (solid) and earlier
+  steps in `primary-ink` (dashed), each on a `slide` halo; edges off the path
+  fade to 0.55, which keeps Mermaid's `#333` lines at 3:1 on the slide. Words
+  and fills never fade (decision 109).
 - `focus` is a blue ring, distinct from the accent, so keyboard focus never
   looks like selection.
 - `alert-*` colours are GitHub's own for `> [!NOTE]`, `[!TIP]`,
@@ -388,8 +392,15 @@ outline becomes a sheet.
 
 Spacing follows a 4px base (`xs` to `3xl`). Controls are `control` (38px)
 high with a mouse, so header buttons, icon buttons and the annotation tools
-in the edit preview share one row height. Interactive targets are at least
-`target` (44px) high on touch screens and on the stage while presenting.
+in the edit preview share one row height. A preview too narrow for the
+annotation tools at that height, such as one beside the comments panel at
+1280px, sets them and the overview button at `2xl` (32px), so they keep one
+row (decision 108). Where even that leaves too little room for all twelve,
+Rectangle, Ellipse, Whiteboard and Clear marks move into a More tools menu
+at the end of the strip (decision 110); no control goes below 24px (WCAG
+2.5.8). Interactive
+targets are at least `target` (44px) high on touch screens and on the stage
+while presenting.
 
 ## Elevation & Depth
 

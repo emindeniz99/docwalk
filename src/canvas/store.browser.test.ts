@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { deleteSketch, loadSketch, saveSketch, type StoredSketch } from "./store";
+import { deleteSketch, listSketches, loadSketch, saveSketch, type StoredSketch } from "./store";
 
 const sketch = (key: string, text: string): StoredSketch => ({
   key,
@@ -47,5 +47,19 @@ describe("sketch store (decision 54)", () => {
   test("a record in a shape this version cannot read is ignored, not handed to Excalidraw", async () => {
     await saveSketch({ key: "broken", elements: "nope" } as unknown as StoredSketch);
     expect(await loadSketch("broken")).toBeNull();
+  });
+
+  test("the stored sketches are listed newest first with a size, so a viewer can choose what to delete (decision 98)", async () => {
+    await saveSketch({ ...sketch("doc-a\nhash-1", "a1"), savedAt: 10 });
+    await saveSketch({ ...sketch("doc-b\nhash-1", "b1".repeat(5000)), savedAt: 20 });
+    // A record this version cannot read is not offered: the viewer could not tell what it is.
+    await saveSketch({ key: "broken", elements: "nope" } as unknown as StoredSketch);
+    const listed = (await listSketches()).filter((item) => KEYS.includes(item.key));
+    expect(listed.map((item) => item.key)).toEqual(["doc-b\nhash-1", "doc-a\nhash-1"]);
+    expect(listed.map((item) => item.savedAt)).toEqual([20, 10]);
+    // The size follows the content: ten thousand characters of text weigh more than a few.
+    expect(listed[0]!.bytes).toBeGreaterThan(10_000);
+    expect(listed[1]!.bytes).toBeGreaterThan(0);
+    expect(listed[1]!.bytes).toBeLessThan(listed[0]!.bytes);
   });
 });

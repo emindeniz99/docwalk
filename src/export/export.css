@@ -1,4 +1,6 @@
-/* Export menu, plus the two off-screen hosts the exporters mount in the app document. */
+/* Export menu, plus the two off-screen hosts the exporters mount in the app
+   document, and the saved marks over an exported page. The print view and the
+   HTML file copy these rules from the app's style sheets. */
 
 .docwalk-export-menu-root {
   display: inline-flex;
@@ -46,4 +48,49 @@
 .docwalk-export-capture .docwalk-slide {
   border-radius: 0;
   box-shadow: none;
+}
+
+/* Saved marks over an exported page (decision 105): an SVG with the slide's
+   view box, coloured by the pen swatches' tokens, as on the stage. */
+.docwalk-export-page {
+  position: relative;
+}
+
+.docwalk-export-marks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.docwalk-export-marks [data-color="primary"] {
+  --docwalk-mark: var(--dw-color-primary);
+}
+
+.docwalk-export-marks [data-color="focus"] {
+  --docwalk-mark: var(--dw-color-focus);
+}
+
+.docwalk-export-marks [data-color="ink"] {
+  --docwalk-mark: var(--dw-color-ink);
+}
+
+.docwalk-export-marks path[data-tool="pen"],
+.docwalk-export-marks g[data-tool="arrow"] path {
+  fill: var(--docwalk-mark);
+}
+
+.docwalk-export-marks g[data-tool="arrow"] line {
+  stroke: var(--docwalk-mark);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.docwalk-export-marks rect[data-tool="rect"],
+.docwalk-export-marks ellipse[data-tool="ellipse"] {
+  fill: none;
+  stroke: var(--docwalk-mark);
+  stroke-width: 4;
 }

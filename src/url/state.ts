@@ -1,5 +1,5 @@
 /**
- * Viewer state in the URL (decisions 20 and 21). Every value is validated
+ * Viewer state in the URL (decisions 20, 21 and 100). Every value is validated
  * with Valibot at this boundary (decision 46): a link may be hand-edited or
  * hostile, so anything that does not parse becomes `null` instead of
  * throwing, and the app falls back to its defaults.
@@ -30,6 +30,26 @@ const MAX_HASH_LENGTH = MAX_SECTION_ID * 12 + 6;
 const SectionIdSchema = v.pipe(
   v.string(),
   v.regex(new RegExp(`^[\\p{Alphabetic}\\p{M}\\p{N}\\p{Pc}-]{1,${MAX_SECTION_ID}}$`, "u")),
+);
+
+/** Most ids a `?sections=` list may name, and the longest encoded value (decision 100). */
+const MAX_SECTIONS = 100;
+const MAX_SECTIONS_VALUE = 4000;
+
+/**
+ * The raw (percent-encoded) value of `?sections=`: ids joined by commas,
+ * which format writes as `%2C`. The length is checked before anything is
+ * split or decoded, so a hostile value costs one comparison. One bad item
+ * (empty, outside the id alphabet, too long) fails the whole list.
+ */
+const SectionsSchema = v.pipe(
+  v.string(),
+  v.maxLength(MAX_SECTIONS_VALUE),
+  v.transform((raw) => raw.split(/,|%2c/i).map((part) => decode(part) ?? "")),
+  v.array(SectionIdSchema),
+  v.minLength(1),
+  v.maxLength(MAX_SECTIONS),
+  v.transform((ids) => [...new Set(ids)]),
 );
 
 const PageSchema = v.pipe(v.string(), v.regex(/^[1-9]\d{0,4}$/), v.transform(Number));
@@ -87,11 +107,26 @@ function parseAddress(hash: string): string | null {
   return parts.includes(null) ? null : canonicalAddress(parts as string[]);
 }
 
+/**
+ * The value of the first `name` parameter as written, still percent-encoded
+ * (`URLSearchParams` would decode it, and the length limit of `sections` is
+ * on the written form). `null` when the parameter is absent.
+ */
+function rawQueryParam(url: URL, name: string): string | null {
+  for (const pair of url.search.slice(1).split("&")) {
+    if (decodeQueryKey(pair) !== name) continue;
+    const at = pair.indexOf("=");
+    return at < 0 ? "" : pair.slice(at + 1);
+  }
+  return null;
+}
+
 export function parseViewerUrl(url: URL): ViewerUrlState {
   return {
     address: parseAddress(url.hash),
     level: validate(LevelSchema, url.searchParams.get("level")),
     view: validate(ViewSchema, url.searchParams.get("view")),
+    sections: validate(SectionsSchema, rawQueryParam(url, "sections")),
   };
 }
 
@@ -102,6 +137,26 @@ function formatLevel(level: ViewerUrlState["level"]): string | null {
     : String(level);
   // Round-trip through the parser so format never writes what parse rejects.
   return validate(LevelSchema, raw) === null ? null : raw;
+}
+
+/**
+ * The ids as `setQueryParam` will write them (joined by commas, which it
+ * encodes), or `null` for none, an empty list, or a list parse would refuse:
+ * an id outside the alphabet, more than 100 ids, over 4000 encoded characters.
+ */
+function formatSections(sections: readonly string[] | null): string | null {
+  if (sections === null || sections.length === 0) return null;
+  const unique = [...new Set(sections)];
+  // Checked first: `encodeURIComponent` throws on a lone surrogate, which no id may hold.
+  if (unique.some((id) => validate(SectionIdSchema, id) === null)) return null;
+  const raw = unique.join(",");
+  // Round-trip through the parser, as for `level`, for the count and length limits.
+  return validate(SectionsSchema, encodeURIComponent(raw)) === null ? null : raw;
+}
+
+/** Whether `format` would write this choice into a link (the picker warns when it would not). */
+export function sectionsFitInLink(sections: readonly string[]): boolean {
+  return sections.length === 0 || formatSections(sections) !== null;
 }
 
 function decodeQueryKey(pair: string): string | null {
@@ -137,6 +192,7 @@ export function formatViewerUrl(base: URL, state: Partial<ViewerUrlState>): URL 
   const url = new URL(base);
   if (state.level !== undefined) setQueryParam(url, "level", formatLevel(state.level));
   if (state.view !== undefined) setQueryParam(url, "view", validate(ViewSchema, state.view));
+  if (state.sections !== undefined) setQueryParam(url, "sections", formatSections(state.sections));
   if (state.address !== undefined && !isReservedHash(url.hash)) {
     const address = state.address === null ? null : canonicalAddress(state.address.split("/"));
     url.hash = address ?? "";

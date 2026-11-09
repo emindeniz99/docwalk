@@ -1,6 +1,14 @@
 import DOMPurify, { type Config } from "dompurify";
+import { marksOverlay } from "../annotate/markSvg";
+import { unmarkFocusTargets } from "../deck/focusTargets";
 import { rewriteCssUrls } from "./cssText";
 import { m } from "../paraglide/messages.js";
+import {
+  FORBIDDEN_MATH_ELEMENTS,
+  MATHML_NS,
+  mathAttributeAllowed,
+  mathClasses,
+} from "../render/mathAllow";
 import rawPageCss from "./page.css?raw";
 import type { ExportOptions, ExportSlide } from "./types";
 
@@ -35,6 +43,18 @@ const purifier = DOMPurify(window);
 let activePolicy: ResourcePolicy = offline;
 
 purifier.addHook("afterSanitizeAttributes", (node) => {
+  // A formula is the app's own MathML (decision 101). The profile below lets MathML through, so
+  // this keeps to the lists the builder used: no `href`, `style`, `id` or handler on any of it.
+  if (node.namespaceURI === MATHML_NS) {
+    for (const { name, value } of Array.from(node.attributes)) {
+      if (name === "class") {
+        const kept = mathClasses(value, node.localName === "math").join(" ");
+        if (kept) node.setAttribute(name, kept);
+        else node.removeAttribute(name);
+      } else if (!mathAttributeAllowed(name, value)) node.removeAttribute(name);
+    }
+    return;
+  }
   // A copy: removing from the live NamedNodeMap while iterating it would skip attributes.
   for (const { name, value } of Array.from(node.attributes)) {
     const lower = name.toLowerCase();
@@ -68,10 +88,11 @@ function resourceAllowed(value: string, policy: ResourcePolicy): boolean {
 
 const PURIFY_CONFIG: Config & { RETURN_DOM_FRAGMENT: true } = {
   RETURN_DOM_FRAGMENT: true,
-  USE_PROFILES: { html: true, svg: true, svgFilters: true },
+  USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
   // Mermaid styles each diagram with one <style> inside its SVG.
   ADD_TAGS: ["style"],
   FORBID_TAGS: [
+    ...FORBIDDEN_MATH_ELEMENTS,
     "script",
     "foreignObject",
     "image",
@@ -103,6 +124,8 @@ export function prepareSlide(el: HTMLElement, policy: ResourcePolicy): HTMLEleme
   for (const attr of ["style", "hidden", "aria-hidden", "inert"]) el.removeAttribute(attr);
   el.classList.remove("present", "past", "future");
   for (const hidden of el.querySelectorAll("[hidden]")) hidden.remove();
+  // Code, tables and images open in the focus view on a slide; a static page has none (decision 87).
+  unmarkFocusTargets(el);
   for (const host of el.querySelectorAll<HTMLElement>(".docwalk-diagram")) {
     for (const attr of ["tabindex", "role", "aria-label", "data-source"])
       host.removeAttribute(attr);
@@ -128,7 +151,10 @@ export function prepareSlide(el: HTMLElement, policy: ResourcePolicy): HTMLEleme
   return el;
 }
 
-/** One slide on its own page box, prepared and sanitized again (DOMPurify) for a document `doc`. */
+/**
+ * One slide on its own page box, with its saved marks over it, prepared and
+ * sanitized again (DOMPurify) for a document `doc`.
+ */
 export function buildPage(
   doc: Document,
   slide: ExportSlide,
@@ -145,27 +171,70 @@ export function buildPage(
   page.style.width = `${options.size.width}px`;
   page.style.height = `${options.size.height}px`;
   page.append(prepareSlide(slide.element, policy));
+  // Built from numbers (markSvg.ts) and sanitized with the page all the same.
+  if (slide.marks?.length) page.append(marksOverlay(inert, slide.marks));
+  return sanitized(doc, page, policy, "a slide");
+}
+
+/** `el` sanitized with DOMPurify under `policy` and imported into `doc`. */
+function sanitized(doc: Document, el: HTMLElement, policy: ResourcePolicy, what: string) {
   activePolicy = policy;
   let clean: DocumentFragment;
   try {
-    clean = purifier.sanitize(page, PURIFY_CONFIG);
+    clean = purifier.sanitize(el, PURIFY_CONFIG);
   } finally {
     activePolicy = offline;
   }
   const result = clean.firstElementChild;
-  if (!(result instanceof Element)) throw new Error("docwalk: a slide was empty after sanitizing");
+  if (!(result instanceof Element)) throw new Error(`docwalk: ${what} was empty after sanitizing`);
   return doc.importNode(result, true) as HTMLElement;
 }
 
-/** Every slide, in order, inside `<main class="docwalk-export">`. */
+/**
+ * A section's speaker notes (decision 114) on a block as wide as a slide:
+ * the slide's title, then one paragraph per comment. The strings are set as
+ * `textContent`, so Markdown and HTML in a note print as typed, and the block
+ * is sanitized like a slide page. Its height grows with its text and print
+ * breaks it across pages (`page.css`), so a long note loses nothing.
+ */
+export function buildNotes(
+  doc: Document,
+  slide: ExportSlide,
+  options: ExportOptions,
+  policy: ResourcePolicy,
+): HTMLElement {
+  const block = inert.createElement("section");
+  block.className = "docwalk-export-notes";
+  block.setAttribute("aria-label", m.export_notes_label({ title: slide.title }));
+  block.style.width = `${options.size.width}px`;
+  const heading = inert.createElement("h2");
+  heading.textContent = slide.title;
+  block.append(heading);
+  for (const note of slide.notes ?? []) {
+    const paragraph = inert.createElement("p");
+    paragraph.textContent = note;
+    block.append(paragraph);
+  }
+  return sanitized(doc, block, policy, "a notes page");
+}
+
+/**
+ * Every slide, in order, inside `<main class="docwalk-export">`. With
+ * `withNotes`, a slide that carries notes is followed by its notes block;
+ * without it, notes are ignored (the HTML file passes false, decision 114).
+ */
 export function buildPages(
   doc: Document,
   options: ExportOptions,
   policy: ResourcePolicy,
+  { withNotes = false }: { withNotes?: boolean } = {},
 ): HTMLElement {
   const main = doc.createElement("main");
   main.className = "docwalk-export";
-  options.slides.forEach((slide, i) => main.append(buildPage(doc, slide, i, options, policy)));
+  options.slides.forEach((slide, i) => {
+    main.append(buildPage(doc, slide, i, options, policy));
+    if (withNotes && slide.notes?.length) main.append(buildNotes(doc, slide, options, policy));
+  });
   return main;
 }
 

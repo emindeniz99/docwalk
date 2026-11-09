@@ -13,6 +13,7 @@ import { rich } from "../i18n/rich";
 import { m } from "../paraglide/messages.js";
 import { clonePages, type ClonedPage, type DeckController } from "./controller";
 import { SLIDE_SIZE } from "./pages";
+import { renameIds } from "./renameIds";
 import "./overview.css";
 
 interface SlideOverviewProps {
@@ -39,7 +40,7 @@ export function SlideOverview({
 }: SlideOverviewProps) {
   // Copied once per opening, so the thumbnails show the deck as it is now.
   const slides = useMemo(
-    () => (isOpen && controller ? clonePages(controller) : []),
+    () => (isOpen && controller ? thumbnails(controller) : []),
     [isOpen, controller],
   );
   return (
@@ -66,6 +67,17 @@ export function SlideOverview({
       </Modal>
     </ModalOverlay>
   );
+}
+
+/**
+ * Copies of the pages whose ids are their own, so the open overview repeats
+ * none of the deck's: headings, footnotes and each diagram's SVG with its
+ * markers (decision 108).
+ */
+function thumbnails(controller: DeckController): ClonedPage[] {
+  const pages = clonePages(controller);
+  for (const [i, page] of pages.entries()) renameIds(page.element, `docwalk-overview-${i + 1}-`);
+  return pages;
 }
 
 function OverviewBody({

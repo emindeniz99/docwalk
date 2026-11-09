@@ -1,9 +1,29 @@
-import { Eraser, LocateFixed, MoveUpRight, Pen, Trash, Undo2, type LucideIcon } from "lucide-react";
+import {
+  Circle,
+  Ellipsis,
+  Eraser,
+  LocateFixed,
+  MoveUpRight,
+  Pen,
+  Presentation,
+  Square,
+  Trash,
+  Undo2,
+  type LucideIcon,
+} from "lucide-react";
 import { useContext, useRef, type ReactNode, type RefObject } from "react";
 import {
   Button,
+  Keyboard,
+  Menu,
+  MenuItem,
+  MenuSection,
+  MenuTrigger,
+  Popover,
   Radio,
   RadioGroup,
+  Separator,
+  Text,
   ToggleButton,
   ToggleButtonGroup,
   Toolbar,
@@ -38,13 +58,40 @@ export function resolvePenColor(
 
 type ToolMode = Exclude<AnnotationMode, "off">;
 
-// Shortcut keys stay the same in every language (P, L, A, E).
-const TOOLS: { mode: ToolMode; label: () => string; shortcut: string; Icon: LucideIcon }[] = [
+interface Tool {
+  mode: ToolMode;
+  label: () => string;
+  shortcut: string;
+  Icon: LucideIcon;
+}
+
+// Shortcut keys stay the same in every language (P, L, A, R, C, E).
+const TOOLS: Tool[] = [
   { mode: "pen", label: m.tool_pen, shortcut: "P", Icon: Pen },
   { mode: "laser", label: m.tool_laser, shortcut: "L", Icon: LocateFixed },
   { mode: "arrow", label: m.tool_arrow, shortcut: "A", Icon: MoveUpRight },
+  { mode: "rect", label: m.tool_rect, shortcut: "R", Icon: Square },
+  { mode: "ellipse", label: m.tool_ellipse, shortcut: "C", Icon: Circle },
   { mode: "eraser", label: m.tool_eraser, shortcut: "E", Icon: Eraser },
 ];
+
+/**
+ * The tools that move into the More tools menu, with Whiteboard and Clear
+ * marks, when the stage head is too narrow for twelve controls (decision 110).
+ * styles.css hides the `docwalk-annotate-overflow` controls and shows the
+ * menu button at those widths.
+ */
+const SHAPES = TOOLS.filter((t) => t.mode === "rect" || t.mode === "ellipse");
+const OVERFLOW = " docwalk-annotate-overflow";
+const BOARD = "board";
+
+/**
+ * React Aria's ToggleButton filters out `aria-keyshortcuts`, so the key is set
+ * on the element itself. Assistive technology reads it (WCAG 4.1.2 in spirit,
+ * and decision 110 asks every tool to carry it).
+ */
+const keyShortcut = (shortcut: string) => (el: HTMLElement | null) =>
+  el?.setAttribute("aria-keyshortcuts", shortcut);
 
 const isTool = (key: unknown): key is ToolMode => TOOLS.some((t) => t.mode === key);
 
@@ -115,12 +162,85 @@ export interface AnnotationToolbarProps {
   onModeChange: (mode: AnnotationMode) => void;
   color: PenColor;
   onColorChange: (color: PenColor) => void;
+  /** The whiteboard (decision 110) is open. */
+  board: boolean;
+  onBoardToggle: () => void;
   onUndo: () => void;
   onClear: () => void;
 }
 
+/**
+ * Rectangle, Ellipse, Whiteboard and Clear marks in one menu, for a stage head
+ * too narrow for their buttons. The button takes the active shape's icon and
+ * name, since that shape's own button is out of sight.
+ */
+function MoreTools({ mode, onModeChange, board, onBoardToggle, onClear }: AnnotationToolbarProps) {
+  const shape = SHAPES.find((t) => t.mode === mode);
+  const Icon = shape?.Icon ?? Ellipsis;
+  const name = shape ? m.annotate_more_active({ tool: shape.label() }) : m.annotate_more();
+  return (
+    <MenuTrigger>
+      <Tip label={name}>
+        <Button
+          aria-label={name}
+          className="docwalk-annotate-button docwalk-annotate-more"
+          data-active={shape ? "" : undefined}
+        >
+          <Icon size={18} aria-hidden="true" />
+        </Button>
+      </Tip>
+      <Popover className="docwalk-popover" placement="bottom end">
+        <Menu aria-label={m.annotate_more()} className="docwalk-menu">
+          <MenuSection
+            aria-label={m.annotate_tool()}
+            selectionMode="single"
+            selectedKeys={shape ? [shape.mode] : []}
+            onSelectionChange={(keys) => {
+              // Picking the active shape again turns annotation off, as its button does.
+              const [k] = [...keys];
+              onModeChange(isTool(k) ? k : "off");
+            }}
+          >
+            {SHAPES.map(({ mode: id, label, shortcut, Icon: ShapeIcon }) => (
+              <MenuItem key={id} id={id} textValue={label()} className="docwalk-menu-item">
+                <ShapeIcon size={16} aria-hidden="true" />
+                <Text slot="label">{label()}</Text>
+                <Keyboard>{shortcut}</Keyboard>
+              </MenuItem>
+            ))}
+          </MenuSection>
+          <MenuSection
+            aria-label={m.annotate_board()}
+            selectionMode="multiple"
+            // A checkbox item keeps a menu open; the board covers the slide to draw on, so close it.
+            shouldCloseOnSelect
+            selectedKeys={board ? [BOARD] : []}
+            onSelectionChange={onBoardToggle}
+          >
+            <MenuItem id={BOARD} textValue={m.annotate_board()} className="docwalk-menu-item">
+              <Presentation size={16} aria-hidden="true" />
+              <Text slot="label">{m.annotate_board()}</Text>
+              <Keyboard>W</Keyboard>
+            </MenuItem>
+          </MenuSection>
+          <Separator className="docwalk-menu-separator" />
+          <MenuItem
+            id="clear"
+            textValue={m.annotate_clear()}
+            className="docwalk-menu-item"
+            onAction={onClear}
+          >
+            <Trash size={16} aria-hidden="true" />
+            <Text slot="label">{m.annotate_clear()}</Text>
+          </MenuItem>
+        </Menu>
+      </Popover>
+    </MenuTrigger>
+  );
+}
+
 export function AnnotationToolbar(props: AnnotationToolbarProps) {
-  const { mode, onModeChange, color, onColorChange, onUndo, onClear } = props;
+  const { mode, onModeChange, color, onColorChange, board, onBoardToggle, onUndo, onClear } = props;
   return (
     <Toolbar aria-label={m.annotate_label()} className="docwalk-annotate-toolbar">
       <ToggleButtonGroup
@@ -139,8 +259,8 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
             <ToggleButton
               id={id}
               aria-label={label()}
-              aria-keyshortcuts={shortcut}
-              className="docwalk-annotate-button"
+              ref={keyShortcut(shortcut)}
+              className={`docwalk-annotate-button${SHAPES.some((t) => t.mode === id) ? OVERFLOW : ""}`}
             >
               <Icon size={18} aria-hidden="true" />
             </ToggleButton>
@@ -162,6 +282,17 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
         ))}
       </RadioGroup>
       <div className="docwalk-annotate-group">
+        <Tip label={m.annotate_board()} shortcut="W">
+          <ToggleButton
+            aria-label={m.annotate_board()}
+            ref={keyShortcut("W")}
+            className={`docwalk-annotate-button${OVERFLOW}`}
+            isSelected={board}
+            onChange={onBoardToggle}
+          >
+            <Presentation size={18} aria-hidden="true" />
+          </ToggleButton>
+        </Tip>
         <Tip label={m.annotate_undo()} shortcut={<ModShortcut keyName="Z" />}>
           <Button
             aria-label={m.annotate_undo()}
@@ -172,10 +303,13 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
             <Undo2 size={18} aria-hidden="true" />
           </Button>
         </Tip>
+        {/* Before Clear marks, so Clear stays the last control wherever the menu is hidden:
+            presenting's Shift+Tab lands on the last control in the page (decision 75). */}
+        <MoreTools {...props} />
         <Tip label={m.annotate_clear()}>
           <Button
             aria-label={m.annotate_clear()}
-            className="docwalk-annotate-button"
+            className={`docwalk-annotate-button${OVERFLOW}`}
             onPress={onClear}
           >
             <Trash size={18} aria-hidden="true" />

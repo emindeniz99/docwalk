@@ -30,7 +30,14 @@ protects:
   `strict` mode after a pre-pass that strips `%%{init}%%` overrides and CSS
   `url()`; docwalk refuses a diagram that names a remote image, and passes
   Mermaid's SVG through DOMPurify too. Code colours are added after both
-  sanitizers, as text and class names only. The deployed site sends
+  sanitizers, as text and class names only. Formulas are drawn after both
+  too: Temml runs in a Web Worker with `trust` off and limits on length,
+  nesting and size, and the page stops that worker after 500 ms per
+  formula. The page rebuilds the worker's data tree into fresh elements,
+  keeping only listed element names, attributes, values and classes, and
+  holds lengths and shifts to a few em; the exports hold MathML to the same
+  lists. Emoji shortcodes change the text of text nodes and nothing
+  else. The deployed site sends
   a content security policy with `script-src 'self'` (plus, by its hash,
   the one inline script: the check for browsers too old to run docwalk)
   and `frame-ancestors 'none'`. A static host gets the same policy from a
@@ -48,7 +55,27 @@ protects:
   relays ciphertext, caps frame size and room size, and never sees a key or
   a document. A replayed frame is dropped. The control key steers the deck
   and reads and writes the document; the view key in a follow link only
-  receives state, and only state the presenter signed. The join links
+  receives state, and only state the presenter signed. The presenter's
+  laser, pen marks and focus view (of a diagram, code block, table or image,
+  with its zoom, scroll, marked code lines and diagram tour) reach followers
+  the same way: as signed `mirror` messages under the view key, never to
+  remotes or agents. A mirror message holds numbers, a tool, a colour key and
+  a slide address only, and names a block by its kind and place on the slide,
+  never by its text. A `focus-tour` carries node numbers only, at most 64 of
+  them from 1 to 1000, never a node id or a label; a follower drops numbers
+  past its own node count, so a hostile presenter can ring nodes of the
+  follower's own diagram and do nothing more. The ops a follower accepts,
+  each only under the presenter's signature, are `laser`, `laser-off`,
+  `stroke`, `drop`, `clear` and `keep`, the focus view's ops, and for the
+  whiteboard (decision 110) `board-open` and `board-close`, with `rect` and
+  `ellipse` as new stroke tools. A shape or arrow arrives as one stroke of
+  exactly four numbers; a longer or shorter one is refused. A receiver draws
+  the marks itself, caps what it keeps and opens a view only on its own copy
+  of the block; a follower cannot sign a message or close the board. A
+  follower opens an image view only on an image it has loaded itself, so
+  mirroring never fetches an image the follower blocked. The presenter resends a slide's marks to a follower
+  that says hello at most every 2 s, and less often the more the last resend
+  cost, and answers hellos with at most one state per 250 ms. The join links
   appear once the presenter's socket is open, and a presenter whose room
   someone else reached first moves to a new room. Agent writes apply only
   while the presenter has switched on "Allow agent edits".
@@ -59,9 +86,20 @@ Known limits, by design:
   deck. Share it like a password.
 - Followers share one view key, but they take state only when the
   presenter's per-room signing key signed it; the public half is in the
-  follow link. A follower can still show other followers an older state the
-  presenter signed, until the presenter's next state. A tab that reloads can
-  receive a frame it saw before the reload.
+  follow link. A follower, or the relay, can still repeat a frame the
+  presenter signed to a follower that has not seen a later one from the
+  same presenter tab: one that joins late or reconnects, and, once the
+  presenter reloads its tab, any follower that never saw the earlier tab.
+  A repeated state lasts until the presenter's next one and a laser point
+  for 3 s; a mark stays until the presenter clears that slide, returns to
+  it or resends its marks, and a focus view until Escape or the next
+  resend. A relay can drop the message that hides a laser or closes a focus
+  view. A tab that reloads can receive a frame it saw before the reload.
+- A presenter whose signature a follower accepts can cover that follower's
+  page with a blank whiteboard (`board-open`) until its next slide change
+  or resync, as it can cover the page with marks. A follower from before
+  decision 110 drops the board ops and the new tools at its schema check
+  and keeps showing the slide.
 - The relay sees room ids, frame sizes and timing.
 - Whoever hosts docwalk serves its code. A hostile host, a compromised
   browser or a malicious extension is out of scope.
