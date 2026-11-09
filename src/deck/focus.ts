@@ -492,6 +492,8 @@ function tourControls(
         return true;
       }
       if (event.key === "t" || event.key === "T") {
+        // A held key repeats: only the press toggles.
+        if (event.repeat) return true;
         if (running()) end(true);
         else start();
         return true;

@@ -171,6 +171,25 @@ describe("starting and ending the tour", () => {
     expect(document.activeElement).toBe(tourButton());
   });
 
+  // Holding T sends keydown again and again with `repeat` set. Each one used to
+  // toggle: the tour flickered on and off and one focus-tour went out per repeat.
+  test("holding T starts the tour once: key repeats change nothing and send nothing", async () => {
+    await openView();
+    const events = record();
+    const press = (repeat: boolean) =>
+      (document.activeElement ?? document.body).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "t", repeat, bubbles: true, cancelable: true }),
+      );
+    press(false);
+    await expect.poll(() => ringed()).toBe("Alpha");
+    for (let i = 0; i < 4; i += 1) press(true);
+    // Let a wrongly ended tour show: its marks are cleared a frame later.
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    expect(tourButton()!.getAttribute("aria-pressed")).toBe("true");
+    expect(ringed()).toBe("Alpha");
+    expect(tours(events)).toEqual([[1]]);
+  });
+
   test("closing the view ends the tour: the next view starts without one", async () => {
     const deck = await openView();
     await startTour();
