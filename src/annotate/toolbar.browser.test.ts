@@ -76,7 +76,7 @@ describe("annotation toolbar", () => {
         ".docwalk-annotate-toolbar button, .docwalk-annotate-swatch",
       ),
     ];
-    expect(controls).toHaveLength(4 + 3 + 2);
+    expect(controls).toHaveLength(6 + 3 + 2);
     for (const c of controls) {
       const name =
         c.getAttribute("aria-label") ?? c.querySelector("input")?.getAttribute("aria-label");
@@ -85,6 +85,42 @@ describe("annotation toolbar", () => {
       expect(r.width).toBeGreaterThanOrEqual(44);
       expect(r.height).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  test("Rectangle and Ellipse sit between Arrow and Eraser, named, with their shortcut keys (decision 110)", () => {
+    const el = render(harness());
+    const names = [...el.querySelectorAll(".docwalk-annotate-group:first-child button")].map((b) =>
+      b.getAttribute("aria-label"),
+    );
+    expect(names).toEqual(["Pen", "Laser pointer", "Arrow", "Rectangle", "Ellipse", "Eraser"]);
+    // React Aria's ToggleButton drops aria-keyshortcuts, so the toolbar sets it on the element.
+    for (const [name, shortcut] of [
+      ["Pen", "P"],
+      ["Laser pointer", "L"],
+      ["Arrow", "A"],
+      ["Rectangle", "R"],
+      ["Ellipse", "C"],
+      ["Eraser", "E"],
+    ] as const) {
+      const button = el.querySelector<HTMLElement>(`[aria-label="${name}"]`)!;
+      expect(button.getAttribute("aria-keyshortcuts")).toBe(shortcut);
+      const box = button.getBoundingClientRect();
+      expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+      expect(button.querySelector("svg")).not.toBeNull();
+    }
+  });
+
+  test.each([
+    ["Rectangle", "rect"],
+    ["Ellipse", "ellipse"],
+  ])("pressing %s selects it and pressing it again turns annotation off", (name, mode) => {
+    const el = render(harness());
+    const button = el.querySelector<HTMLElement>(`[aria-label="${name}"]`)!;
+    act(() => button.click());
+    expect(text(el, "mode")).toBe(mode);
+    expect(button.getAttribute("aria-checked") ?? button.getAttribute("aria-pressed")).toBe("true");
+    act(() => button.click());
+    expect(text(el, "mode")).toBe("off");
   });
 
   test("pressing a tool selects it and pressing it again turns annotation off", () => {
@@ -130,6 +166,42 @@ describe("annotation shortcuts", () => {
     key({ key: "e" });
     expect(text(el, "mode")).toBe("eraser");
     expect(key({ key: "Escape" }).defaultPrevented).toBe(true);
+    expect(text(el, "mode")).toBe("off");
+  });
+
+  test("R picks the rectangle and C the ellipse, in either case", () => {
+    const el = render(harness());
+    key({ key: "r" });
+    expect(text(el, "mode")).toBe("rect");
+    key({ key: "C" });
+    expect(text(el, "mode")).toBe("ellipse");
+    key({ key: "r" });
+    expect(text(el, "mode")).toBe("rect");
+  });
+
+  test("R and C leave text entry and a focus view alone", () => {
+    const el = render(harness());
+    // The keys work on the page, so the refusals below are not just missing keys.
+    key({ key: "r" });
+    expect(text(el, "mode")).toBe("rect");
+    key({ key: "Escape" });
+    const input = el.querySelector("input[aria-label=Search]")!;
+    for (const k of ["r", "c"]) key({ key: k }, input);
+    const focusView = document.createElement("div");
+    focusView.className = "docwalk-focus";
+    const inside = document.createElement("button");
+    focusView.append(inside);
+    el.append(focusView);
+    for (const k of ["r", "c"]) expect(key({ key: k }, inside).defaultPrevented).toBe(false);
+    expect(text(el, "mode")).toBe("off");
+  });
+
+  test("Ctrl+R and Ctrl+C keep reloading and copying", () => {
+    const el = render(harness());
+    expect(key({ key: "r" }).defaultPrevented).toBe(true);
+    key({ key: "Escape" });
+    expect(key({ key: "r", ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(key({ key: "c", metaKey: true }).defaultPrevented).toBe(false);
     expect(text(el, "mode")).toBe("off");
   });
 
@@ -222,6 +294,8 @@ describe("annotation toolbar keyboard (WCAG 2.1.1)", () => {
     expect(text(el, "mode")).toBe("laser");
 
     await userEvent.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
+    expect(label()).toBe("Ellipse");
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
     expect(label()).toBe("Vermilion");
     await userEvent.keyboard("{ArrowRight}");
     expect(label()).toBe("Blue");

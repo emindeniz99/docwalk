@@ -8,6 +8,8 @@ const MODE_KEYS: Record<string, AnnotationMode> = {
   p: "pen",
   l: "laser",
   a: "arrow",
+  r: "rect",
+  c: "ellipse",
   e: "eraser",
 };
 
@@ -39,7 +41,7 @@ export function isTextEntry(target: EventTarget | null): boolean {
 /** The shortcut a key press asks for, or null when it is not one of ours. */
 export function annotationShortcut(event: KeyboardEvent): AnnotationShortcut | null {
   if (event.defaultPrevented || event.isComposing || isTextEntry(event.target)) return null;
-  // An open focus view (decision 87) is its own layer: P, L, A, E and Escape are not for the pen.
+  // An open focus view (decision 87) is its own layer: P, L, A, R, C, E and Escape are not for the pen.
   if (inFocusView(event.target)) return null;
   const key = event.key.toLowerCase();
   const command = event.ctrlKey || event.metaKey;
@@ -62,7 +64,7 @@ export interface AnnotationShortcutHandlers {
 }
 
 /**
- * P pen, L laser, A arrow, E eraser, Escape off, Ctrl/Cmd+Z undo,
+ * P pen, L laser, A arrow, R rectangle, C ellipse, E eraser, Escape off, Ctrl/Cmd+Z undo,
  * Shift+Ctrl/Cmd+Z redo. Ignored while focus is in a text field, and, when
  * `scope` is given, for keys pressed outside it (so P stays type-ahead in a list).
  */
