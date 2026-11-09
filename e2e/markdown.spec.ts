@@ -141,6 +141,38 @@ test("a link to a sub-heading opens the slide that holds it", async ({ page }) =
   await expect(present(page).locator("#user-content-retry-budget")).toBeVisible();
 });
 
+test("a footnote cited on a continuation page shows there, and following it keeps that page", async ({
+  page,
+}) => {
+  // Decision 107: the list used to land on the last page, wherever its citations were.
+  await openDoc(page);
+  await followHash(page, "#settlement/1");
+  const notes = present(page).locator(".footnotes");
+  await expect(notes).toContainText("After the ledger closes.");
+  await expect(notes).not.toContainText("Up to one business day.");
+  const late = await page
+    .locator(".reveal .slides > section[data-docwalk-id='settlement']", {
+      hasText: "Late files wait a day.",
+    })
+    .getAttribute("data-page");
+  expect(Number(late)).toBeGreaterThan(1);
+  await followHash(page, `#settlement/${late}`);
+  await expect(notes).toContainText("Up to one business day.");
+  await expect(notes).not.toContainText("After the ledger closes.");
+  await present(page).locator("a[data-footnote-ref]").click();
+  await expect(page.locator(":focus")).toHaveAttribute(
+    "id",
+    new RegExp(`^user-content-${late}\\.settlement-fn-late$`),
+  );
+  await expect(page).toHaveURL(new RegExp(`#settlement/${late}$`));
+  await present(page).locator(".data-footnote-backref").click();
+  await expect(page.locator(":focus")).toHaveAttribute("data-footnote-ref", "");
+  // The copies on this page carry ids of their own, so no id repeats in the deck.
+  const ids = await page.locator(".reveal [id]").evaluateAll((els) => els.map((el) => el.id));
+  expect(new Set(ids).size).toBe(ids.length);
+  await expectNoSeriousViolations(page, ".reveal .slides > section.present");
+});
+
 test("a link to a heading inside an alert opens its slide and its place in document view", async ({
   page,
 }) => {
