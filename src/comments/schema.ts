@@ -290,3 +290,22 @@ export function mergeSets(local: CommentSet, incoming: CommentSet): MergeResult 
     dirty: changed > 0 || !sameTombstones(local.deleted, deleted),
   };
 }
+
+/**
+ * A merge of a share link or a sidecar file that removes no comment already
+ * here (decision 119). The tombstones that would remove one are held back and
+ * returned, so the user can apply them on purpose (`deleteHeld`). Everything
+ * else merges as `mergeSets` does.
+ */
+export function mergeKeepingLocal(
+  local: CommentSet,
+  incoming: CommentSet,
+): { merged: MergeResult | null; held: Tombstone[] } {
+  const full = mergeSets(local, incoming);
+  if (!full || full.removed === 0) return { merged: full, held: [] };
+  const kept = new Set(full.comments.map((c) => c.id));
+  const gone = new Set(local.comments.filter((c) => !kept.has(c.id)).map((c) => c.id));
+  const held = incoming.deleted.filter((t) => gone.has(t.id));
+  const deleted = incoming.deleted.filter((t) => !gone.has(t.id));
+  return { merged: mergeSets(local, { comments: incoming.comments, deleted }), held };
+}

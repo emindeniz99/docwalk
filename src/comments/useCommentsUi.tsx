@@ -94,7 +94,8 @@ export function useCommentsUi({
       (n) =>
         setNotice({
           ...n,
-          ...(n.tone === "info"
+          // A notice that asks something (decision 119) keeps its own action.
+          ...(n.tone === "info" && !n.action
             ? { action: { label: m.comments_show(), run: () => show(true) } }
             : {}),
         }),

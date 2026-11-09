@@ -97,7 +97,9 @@
   "comments_damaged_link": "Bu bağlantıdaki yorumlar bozuk olduğu için içe aktarılmadı.",
   "comments_delete": "Yorumu sil",
   "comments_delete_confirm": "Bu yorum silinsin mi?",
+  "comments_delete_held": "{count, plural, other {# yorumu sil}}",
   "comments_deleted": "Yorum silindi.",
+  "comments_deleted_held": "{count, plural, other {# yorum silindi.}}",
   "comments_diagram_at_start": "Diyagram {number} · belgenin başı",
   "comments_diagram_nodes": "Diyagram düğümleri",
   "comments_diagram_under": "Diyagram {number} · {heading}",
@@ -112,7 +114,6 @@
   "comments_hide": "Yorumları gizle",
   "comments_import": "Yorum dosyasını içe aktar",
   "comments_import_over_cap": "Bir belgede en fazla {max} yorum tutulur; bunları içe aktarmak bu sınırı aşar.",
-  "comments_import_removed": "{count, plural, other {Dosya sildiği için # yorum kaldırıldı.}}",
   "comments_import_too_large": "Bu dosya bir yorum dosyası olamayacak kadar büyük.",
   "comments_imported": "{count, plural, other {# yorum içe aktarıldı.}}",
   "comments_link_carries": "{count, plural, other {Bu bağlantı # yorum taşıyor; okumak için Yorumlar panelini açın.}}",
@@ -612,5 +613,6 @@
   "ws_zip_not_zip": "Dosya bir zip arşivi değil ya da bozuk.",
   "ws_zip_too_large": "Zip dosyası {mb} MB sınırından büyük.",
   "ws_zip_too_many": "Zip dosyasında {count} girdiden fazlası var.",
-  "ws_zip_unpacked_too_large": "Zip dosyası açıldığında {mb} MB sınırını aşıyor."
+  "ws_zip_unpacked_too_large": "Zip dosyası açıldığında {mb} MB sınırını aşıyor.",
+  "comments_would_delete": "{count, plural, other {Ayrıca buradaki yorumlarınızdan # tanesini siliyor; siz silmedikçe yerinde kalır.}}"
 }

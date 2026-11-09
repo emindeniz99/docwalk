@@ -388,6 +388,47 @@ test("a deleted comment stays deleted when an older sidecar is imported", async 
   await expect(panel(page).getByText("Soon deleted")).toHaveCount(0);
 });
 
+test("a sidecar that deletes comments here keeps them until the user deletes them", async ({
+  page,
+}) => {
+  // Decision 119: a file names any ids it likes, so it deletes nothing here without asking.
+  await openWithDoc(page);
+  await addComment(page, "Goals", "Mine to keep");
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    panel(page)
+      .getByRole("button", { name: /^Export comments as/ })
+      .click(),
+  ]);
+  const exported = JSON.parse(await readFile((await download.path())!, "utf8")) as {
+    comments: { id: string; updated: number }[];
+  };
+  const mine = exported.comments[0]!;
+  const hostile = JSON.stringify({
+    ...exported,
+    comments: [],
+    deleted: [{ id: mine.id, deleted: mine.updated + 1000 }],
+  });
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    panel(page).getByRole("button", { name: "Import comments file" }).click(),
+  ]);
+  await chooser.setFiles({
+    name: "from-someone.comments.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(hostile),
+  });
+  await expect(panel(page).getByRole("status")).toHaveText(
+    "It also deletes 1 of your comments here; it stays unless you delete it.",
+  );
+  await expect(panel(page).getByText("Mine to keep")).toBeVisible();
+
+  await panel(page).getByRole("button", { name: "Delete 1 comment" }).click();
+  await expect(panel(page).getByRole("status")).toHaveText("Deleted 1 comment.");
+  await expect(panel(page).getByText("Mine to keep")).toHaveCount(0);
+  await expect(panel(page).getByRole("button", { name: "Delete 1 comment" })).toHaveCount(0);
+});
+
 // Two diagrams for one heading that both have a node `a`.
 const CLIENT = ["```mermaid", "flowchart LR", "  a[Client] --> b[Gateway]", "```"].join("\n");
 const QUEUE = ["```mermaid", "flowchart LR", "  a[Queue] --> c[Worker]", "```"].join("\n");
