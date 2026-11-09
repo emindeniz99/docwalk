@@ -284,12 +284,12 @@ Later rounds:
   every control reachable; the diagram focus view copies the SVG with its
   ids, so they repeat while it is open; at 1280 px the app header takes two
   rows (113 px against 63 px at 1440).
-- Code colours (decision 76): a grammar that loads after the 5 s timeout
-  colours nothing until the next rebuild; the default view's first load
-  is 977 kB of the 1 MB limit, and Shiki's precompiled grammars with its
-  raw engine (experimental upstream) would save an estimated 18 kB; a language
-  outside the 24 stays plain, and Markdown bold and italic in a code block
-  get no colour (the theme marks them with weight only).
+- Code colours (decisions 76 and 115): a grammar that lands after the 5 s
+  timeout colours its blocks in place within 60 s, but an open overview or
+  focus view keeps its plain copy until reopened, and the presenter's previews
+  stay plain until their next build; Shiki's precompiled grammars with its raw
+  engine (experimental upstream) would save an estimated 18 kB of the first
+  load; a language outside the 24 stays plain.
 - While presenting in real fullscreen, Escape with a dialog open closes the
   dialog and leaves fullscreen (browsers keep the key); presenting goes on
   windowed until a second Escape.
