@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { purifyHtml } from "../deck/purify";
 import { parseMarkdown } from "../sectioning/sectionize";
 import { renderEmoji } from "./emoji";
@@ -284,6 +284,65 @@ describe("expressions built to exhaust the renderer", () => {
     expect(first!.querySelector("math mtext")).not.toBeNull();
     expect(second!.querySelector("math")).toBeNull();
     expect(failedSources(second!)).toEqual([over]);
+  });
+});
+
+/**
+ * Work Temml does between the source limits and the output limits. The
+ * source stays short and the output is refused, but Temml builds a body
+ * several times on the way (`\cancelto` three, the lap family twice), so
+ * nesting grows exponentially. Before the parse-tree estimate, `\cancelto`
+ * 12 deep took 4.5 s on a quiet machine and `\llap` 18 deep 1.9 s; a `\def`
+ * of a run of `x` used 199 times under `maxExpand` spent 18 s in `toNode()`.
+ */
+describe("formulas that make Temml do too much work", () => {
+  /** A refusal takes a few milliseconds, load included; the old code took seconds. */
+  const REFUSED_WITHIN_MS = 200;
+
+  // The first render loads Temml's chunk, which is no part of what these time.
+  beforeAll(async () => {
+    await render("$x$");
+  });
+
+  const bombs: [string, string][] = [
+    ["\\cancelto nested 12 deep", deep("\\cancelto{a}{", "}", 12)],
+    ["\\llap nested 18 deep", deep("\\llap{", "}", 18)],
+    ["\\mathllap nested 18 deep", deep("\\mathllap{", "}", 18)],
+    ["\\equilibriumRight nested 14 deep", deep("\\equilibriumRight{", "}", 14)],
+    // 726 characters: 320 `x` per use, and 199 uses is under maxExpand 200.
+    ["a \\def run used 199 times", `\\def\\a{${"x".repeat(320)}}${"\\a".repeat(199)}`],
+  ];
+
+  test.each(bombs)("%s is refused before it is built", async (_name, tex) => {
+    const started = performance.now();
+    const { box } = await render(`$${tex}$`);
+    expect(performance.now() - started).toBeLessThan(REFUSED_WITHIN_MS);
+    expect(failedSources(box)).toEqual([tex]);
+    expect(box.querySelector("math")).toBeNull();
+  });
+
+  test("the same bombs in display math are refused as fast", async () => {
+    const started = performance.now();
+    const { box } = await render(`$$\n${bombs.map(([, tex]) => tex).join(" \\\\ ")}\n$$\n`);
+    expect(performance.now() - started).toBeLessThan(REFUSED_WITHIN_MS);
+    expect(box.querySelector("math")).toBeNull();
+    expect(box.querySelector(`pre.${MATH_ERROR_CLASS}`)).not.toBeNull();
+  });
+
+  const fine: [string, string][] = [
+    ["\\cancelto", "\\cancelto{a}{x+y}"],
+    ["\\cancelto nested 3 deep", deep("\\cancelto{a}{", "}", 3)],
+    ["\\llap", "\\llap{x}"],
+    ["\\mathllap nested 3 deep", deep("\\mathllap{", "}", 3)],
+    ["\\equilibriumRight with labels", "\\equilibriumRight{ab}[cd]"],
+    ["a macro used a few times", "\\def\\a{x^2+y^2}\\a+\\a+\\a"],
+    ["a long run of text", `\\text{${"a".repeat(3000)}}`],
+  ];
+
+  test.each(fine)("%s still draws", async (_name, tex) => {
+    const { box } = await render(`$${tex}$`);
+    expect(failedSources(box)).toEqual([]);
+    expect(box.querySelector("math")).not.toBeNull();
   });
 });
 

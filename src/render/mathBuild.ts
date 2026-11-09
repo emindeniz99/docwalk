@@ -9,7 +9,8 @@
  */
 import temml from "temml";
 import "temml/dist/Temml-Local.css";
-import { rebuild } from "./mathRebuild";
+import { buildWork, countTree, MAX_BUILD_WORK } from "./mathCost";
+import { MATH_LIMITS, rebuild } from "./mathRebuild";
 
 /** Longest formula docwalk renders, in characters. A page of TeX is a few hundred. */
 export const MAX_TEX_CHARS = 4000;
@@ -49,15 +50,28 @@ const OPTIONS = {
   maxSize: [20, 20] as [number, number],
 };
 
-/** The formula as a `<math>` element, or `null` when it cannot be shown. */
+/**
+ * The formula as a `<math>` element, or `null` when it cannot be shown.
+ *
+ * Between the source limits and the output limits Temml does work that no
+ * limit on either end bounds, so it is measured first (`./mathCost.ts`):
+ * the parse tree for what the builders will make, then Temml's build tree
+ * for what `toNode()` would turn into DOM elements. A formula over either
+ * is refused before that work is done.
+ */
 export function buildMath(tex: string, display: boolean): Element | null {
   if (tex.trim() === "" || tex.length > MAX_TEX_CHARS || nestingOf(tex) > MAX_TEX_NESTING) {
     return null;
   }
   try {
+    // A parse that throws is a formula Temml rejects. Each call gets its own `macros`.
+    // oxlint-disable-next-line no-underscore-dangle -- Temml's name for the parse tree API.
+    const parsed = temml.__parse(tex, { ...OPTIONS, displayMode: display, macros: {} });
+    if (buildWork(parsed, MAX_BUILD_WORK) > MAX_BUILD_WORK) return null;
     // The tree: `renderToString` makes a string to parse, and `render` fills a given element.
     // oxlint-disable-next-line no-underscore-dangle -- Temml's name for the tree API.
     const tree = temml.__renderToMathMLTree(tex, { ...OPTIONS, displayMode: display, macros: {} });
+    countTree(tree, MATH_LIMITS);
     const built = tree.toNode();
     const math = built instanceof Element ? rebuild(built) : null;
     if (math?.localName !== "math") return null;
