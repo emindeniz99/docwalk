@@ -80,7 +80,7 @@ const OPTIONS = {
 const HEX_COLOR = /^#[0-9a-f]{3,8}$/i;
 const RGB_COLOR = /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/i;
 
-/** A hex colour from a hex or an `rgb(r, g, b)` value, or null. */
+/** A hex colour from a hex value or an `rgb` function of three numbers, or null. */
 function hexColour(value: unknown): string | null {
   if (typeof value !== "string") return null;
   if (HEX_COLOR.test(value)) return value;
@@ -95,7 +95,7 @@ function hexColour(value: unknown): string | null {
  * is sent as style, but what it meant is sent in a form that is allowed: a
  * text or background colour becomes `mathcolor` or `mathbackground`, and the
  * box of `\boxed` becomes Temml's `tml-fbox` class. A colour must be a hex or
- * `rgb()` value.
+ * `rgb` function value.
  */
 function fromStyle(style: Record<string, unknown>): {
   attributes: [string, string][];
