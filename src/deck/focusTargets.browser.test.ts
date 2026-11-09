@@ -9,6 +9,7 @@ import { offline, prepareSlide } from "../export/pages";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import { clonePages, type DeckController } from "./controller";
 import { Deck } from "./Deck";
+import { openMirroredFocus } from "./focus";
 import { findBlock, locateBlock } from "./focusTargets";
 import { isOverviewKey } from "./useOverviewShortcut";
 
@@ -299,6 +300,43 @@ describe("line marks in code", () => {
     await userEvent.click(clearButton());
     expect(marked().length).toBe(0);
     expect((clearButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("Clear hands focus to the line stop, so Escape still closes the view", async () => {
+    // Disabling the button that holds focus drops focus to <body>, where the view's
+    // keys do not reach: Escape did nothing until the viewer clicked into the view again.
+    await openCode();
+    await userEvent.click(lines()[1]!);
+    await userEvent.click(lines()[2]!);
+    await userEvent.click(clearButton());
+    expect((clearButton() as HTMLButtonElement).disabled).toBe(true);
+    // The line that was the tab stop, where marking goes on.
+    expect(document.activeElement).toBe(lines()[2]);
+    expect(overlay()!.contains(document.activeElement)).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    expect(overlay()).toBeNull();
+  });
+
+  test("a presenter's cleared marks do not strand a follower's focus on Clear", async () => {
+    // The same fault from the other side: the mirror empties the marks while the
+    // follower's focus rests on the Clear button.
+    const deck = mountDeck(CODE);
+    await deck.ready();
+    const opened = openMirroredFocus(
+      present(deck).querySelector<HTMLElement>("pre")!,
+      "code",
+      () => undefined,
+    )!;
+    opened.setLines([1, 2]);
+    clearButton().focus();
+    expect(document.activeElement).toBe(clearButton());
+    opened.setLines([]);
+    expect((clearButton() as HTMLButtonElement).disabled).toBe(true);
+    // A disabled button can stay the active element in Chrome while keys go to <body>.
+    expect(document.activeElement).not.toBe(clearButton());
+    expect(overlay()!.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+    opened.close();
   });
 
   test("arrow keys move between lines, Space and Enter mark, with one tab stop", async () => {

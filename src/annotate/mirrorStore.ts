@@ -38,6 +38,8 @@ export interface FocusMirror extends FocusPlace {
   view: { scale: number; x: number; y: number } | null;
   /** Marked lines, from 1, ascending; always empty for a diagram, table or image. */
   lines: readonly number[];
+  /** The diagram tour's path, as node numbers from 1; empty without a tour and for every other kind (decision 109). */
+  tour: readonly number[];
 }
 
 const MAX_STROKE_NUMBERS = 2 * MAX_STROKE_POINTS;
@@ -135,7 +137,7 @@ export class MirrorStore {
         const open = this.focus;
         const place = focusPlaceOf(op);
         if (open?.slide === place.slide && open.block === place.block && open.n === place.n) break;
-        this.focus = { ...place, view: null, lines: [] };
+        this.focus = { ...place, view: null, lines: [], tour: [] };
         changed = true;
         break;
       }
@@ -152,6 +154,14 @@ export class MirrorStore {
         const open = this.focus;
         if (open?.block !== "code" || sameList(open.lines, op.lines)) break;
         this.focus = { ...open, lines: [...op.lines] };
+        changed = true;
+        break;
+      }
+      case "focus-tour": {
+        // Only a diagram view has a tour; an equal path is a resync's repeat.
+        const open = this.focus;
+        if (open?.block !== "diagram" || sameList(open.tour, op.path)) break;
+        this.focus = { ...open, tour: [...op.path] };
         changed = true;
         break;
       }

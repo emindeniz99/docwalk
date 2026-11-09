@@ -397,3 +397,139 @@ describe("a view the follower already has open (decision 106)", () => {
     expect(container.inert, "the page behind is usable again").toBe(false);
   });
 });
+
+const FLOW =
+  "## Diagram\n\n```mermaid\nflowchart LR\n  a[Alpha] --> b[Beta]\n  b --> c[Gamma]\n```\n\n## Next\n\nMore text.\n";
+
+const nodes = () => [...(view()?.querySelectorAll<SVGGElement>("svg g.node") ?? [])];
+const rings = () => [...(view()?.querySelectorAll(".docwalk-tour-ring") ?? [])];
+const countText = () => view()?.querySelector(".docwalk-tour-count")?.textContent ?? "";
+const statusText = () => view()?.querySelector(".docwalk-tour-status")?.textContent ?? "";
+
+/** The label of the node the solid ring surrounds, or null. */
+function ringed(): string | null {
+  const [ring] = rings();
+  if (!ring) return null;
+  const outer = ring.getBoundingClientRect();
+  const inside = nodes().filter((node) => {
+    const box = node.getBoundingClientRect();
+    return (
+      box.left >= outer.left - 1 &&
+      box.right <= outer.right + 1 &&
+      box.top >= outer.top - 1 &&
+      box.bottom <= outer.bottom + 1
+    );
+  });
+  return inside.length === 1 ? (inside[0]!.textContent ?? "").trim() : null;
+}
+
+describe("a follower shows the presenter's diagram tour (decision 109)", () => {
+  test("a stored path rings the same node on the follower's copy, and an empty path takes the rings off", async () => {
+    const { controller, address } = await mountDeck(FLOW);
+    const { send } = follow(controller);
+    controller.goTo(address("Diagram"));
+    send({ op: "focus-open", slide: address("Diagram"), diagram: 1 });
+    expect(view()?.dataset["kind"]).toBe("diagram");
+    expect(rings()).toHaveLength(0);
+    send({ op: "focus-tour", path: [1, 2] });
+    await expect.poll(() => ringed()).toBe("Beta");
+    expect(countText()).toBe("2 / 3");
+    expect(statusText()).toContain("Beta");
+    send({ op: "focus-tour", path: [1, 2, 3] });
+    await expect.poll(() => ringed()).toBe("Gamma");
+    send({ op: "focus-tour", path: [] });
+    await expect.poll(() => rings().length).toBe(0);
+  });
+
+  test("a path that arrives with the open, before the view's first Fit, is drawn once Fit has run", async () => {
+    const { controller, address } = await mountDeck(FLOW);
+    const { send } = follow(controller);
+    controller.goTo(address("Diagram"));
+    // No frame between the ops: the view opens, and the path is already in the store.
+    send(
+      { op: "focus-open", slide: address("Diagram"), diagram: 1 },
+      { op: "focus-view", scale: 1, x: 0, y: 0 },
+      { op: "focus-tour", path: [2] },
+    );
+    await expect.poll(() => ringed()).toBe("Beta");
+  });
+
+  test("a path held while the follower is on another slide is drawn when the view opens there", async () => {
+    const { controller, address } = await mountDeck(FLOW);
+    const { send } = follow(controller);
+    controller.goTo(address("Next"));
+    send(
+      { op: "focus-open", slide: address("Diagram"), diagram: 1 },
+      { op: "focus-tour", path: [1, 3] },
+    );
+    expect(view()).toBeNull();
+    controller.goTo(address("Diagram"));
+    await expect.poll(() => ringed()).toBe("Gamma");
+  });
+
+  test("numbers above this diagram's node count are dropped, and a path of nothing but those is no tour", async () => {
+    const { controller, address } = await mountDeck(FLOW);
+    const { send } = follow(controller);
+    controller.goTo(address("Diagram"));
+    send({ op: "focus-open", slide: address("Diagram"), diagram: 1 });
+    send({ op: "focus-tour", path: [1, 99, 3, 1000] });
+    await expect.poll(() => ringed()).toBe("Gamma");
+    expect(countText()).toBe("3 / 3");
+    send({ op: "focus-tour", path: [50, 60] });
+    await expect.poll(() => rings().length).toBe(0);
+  });
+
+  test("a follower that stepped on its own keeps its steps through an equal resync and the laser, and takes the presenter's next change", async () => {
+    const { controller, address } = await mountDeck(FLOW);
+    const { send } = follow(controller);
+    controller.goTo(address("Diagram"));
+    send({ op: "focus-open", slide: address("Diagram"), diagram: 1 });
+    send({ op: "focus-tour", path: [1] });
+    await expect.poll(() => ringed()).toBe("Alpha");
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.poll(() => ringed()).toBe("Beta");
+    // A resync repeats what the follower holds; the laser moves; neither is a change of path.
+    send(
+      { op: "focus-open", slide: address("Diagram"), diagram: 1 },
+      { op: "focus-view", scale: 1, x: 0, y: 0 },
+      { op: "focus-tour", path: [1] },
+      { op: "laser", x: 0.5, y: 0.5 },
+    );
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    expect(ringed()).toBe("Beta");
+    send({ op: "focus-tour", path: [1, 3] });
+    await expect.poll(() => ringed()).toBe("Gamma");
+  });
+
+  test("Escape on a follower ends its tour without dismissing the view, and the presenter's next change brings the tour back", async () => {
+    const { controller, address } = await mountDeck(FLOW);
+    const { send } = follow(controller);
+    controller.goTo(address("Diagram"));
+    send({ op: "focus-open", slide: address("Diagram"), diagram: 1 });
+    send({ op: "focus-tour", path: [1, 2] });
+    await expect.poll(() => ringed()).toBe("Beta");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => rings().length).toBe(0);
+    expect(view()).not.toBeNull();
+    send({ op: "focus-tour", path: [1, 2, 3] });
+    await expect.poll(() => ringed()).toBe("Gamma");
+    // A second Escape ends it again; a third closes the view, and that stays closed.
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => rings().length).toBe(0);
+    await userEvent.keyboard("{Escape}");
+    expect(view()).toBeNull();
+    send({ op: "focus-tour", path: [2] });
+    expect(view()).toBeNull();
+  });
+
+  test("only a diagram view has a tour: a path sent while a code view is open changes nothing", async () => {
+    const withCode = FLOW.replace("```\n\n## Next", "```\n\n```ts\nconst a = 1;\n```\n\n## Next");
+    const { controller, address } = await mountDeck(withCode);
+    const { send } = follow(controller);
+    controller.goTo(address("Diagram"));
+    send({ op: "focus-open", slide: address("Diagram"), code: 1 });
+    send({ op: "focus-tour", path: [1, 2] });
+    expect(view()?.dataset["kind"]).toBe("code");
+    expect(rings()).toHaveLength(0);
+  });
+});
