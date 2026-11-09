@@ -376,6 +376,24 @@ describe("mirrored laser and marks (decision 88)", () => {
     expect(onMirror).not.toHaveBeenCalled();
   });
 
+  test("nor is a diagram tour, live or in a resync: the window shows no tour (decision 109)", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1)], reset: true });
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    feed.focus({ kind: "open", slide: "one/1", block: "diagram", n: 1 });
+    feed.focus({ kind: "tour", path: [1, 2] });
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+    hub.peer().channel.postMessage({ type: "hello", resync: true });
+    feed.focus({ kind: "tour", path: [] });
+    feed.focus({ kind: "close" });
+    const ops = onMirror.mock.calls.map(([op]) => op.op);
+    expect(ops).toContain("stroke");
+    expect(ops).not.toContain("focus-tour");
+    expect(ops.filter((op) => op.startsWith("focus"))).toEqual([]);
+  });
+
   test("nor are the code, table and image views or their line marks, live or in a resync (decision 106)", () => {
     const hub = createHub();
     const { feed } = mirroredAudience(hub);

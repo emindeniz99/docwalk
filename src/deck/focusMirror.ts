@@ -7,8 +7,8 @@ import { slideAddress } from "./pages";
 /**
  * A follower's side of the mirrored focus view (decisions 88 and 106): it
  * opens the view the presenter opened, on this deck's own copy of the block
- * the presenter named by kind and place, follows its zoom, scroll and marked
- * lines, and closes it with the presenter.
+ * the presenter named by kind and place, follows its zoom, scroll, marked
+ * lines and diagram tour (decision 109), and closes it with the presenter.
  *
  * A code block, an image or a diagram is numbered across its whole section,
  * so it is the same block on any pagination; a table is numbered on the page
@@ -26,6 +26,7 @@ export function followFocus(controller: DeckController, store: MirrorStore): () 
   // What the open view was last given; the store hands out a new object for each change.
   let view: FocusMirror["view"] | undefined;
   let lines: FocusMirror["lines"] | undefined;
+  let tour: FocusMirror["tour"] | undefined;
 
   const shut = () => {
     const was = handle;
@@ -60,6 +61,7 @@ export function followFocus(controller: DeckController, store: MirrorStore): () 
       shown = key;
       view = undefined;
       lines = undefined;
+      tour = undefined;
     }
     // The laser and the marks change the store too; only a new view or list moves the copy.
     if (focus.view !== view) {
@@ -69,6 +71,12 @@ export function followFocus(controller: DeckController, store: MirrorStore): () 
     if (focus.lines !== lines) {
       lines = focus.lines;
       handle.setLines(focus.lines);
+    }
+    // By identity too: a follower who stepped on their own keeps their steps
+    // until the presenter's path changes (decision 109).
+    if (focus.tour !== tour) {
+      tour = focus.tour;
+      handle.setTour(focus.tour);
     }
   };
 
