@@ -59,12 +59,14 @@ export function paginateSlide(slide: HTMLElement, options: PaginateOptions): HTM
     // Group 0 keeps the slide heading; a sub-group opens with its own
     // heading and carries the slide title in its breadcrumb.
     const crumbsFor = (g: number) => (g === 0 ? crumbs : [...crumbs, title].filter(Boolean));
-    for (const [g, group] of mergeFitting(probe, groups, crumbsFor, notes).entries()) {
+    const lay = placer(body, notes);
+    const shell = emptyCopy(slide);
+    for (const [g, group] of mergeFitting(probe, groups, crumbsFor, lay).entries()) {
       const groupTitle = g === 0 ? title : (group[0]?.textContent ?? "").trim();
       const groupCrumbs = crumbsFor(g);
       setBreadcrumb(probe, groupCrumbs);
-      for (const blocks of fillPages(probe, group, groupTitle, notes)) {
-        pages.push(makePage(slide, blocks, pages.length, groupCrumbs, notes));
+      for (const blocks of fillPages(probe, group, groupTitle, lay)) {
+        pages.push(makePage(shell, blocks, pages.length, groupCrumbs, notes));
       }
     }
     return pages;
@@ -83,7 +85,7 @@ function mergeFitting(
   probe: HTMLElement,
   groups: Element[][],
   crumbsFor: (g: number) => string[],
-  notes: Element | null,
+  lay: (blocks: Element[]) => void,
 ): Element[][] {
   const body = bodyOf(probe);
   const merged: Element[][] = [];
@@ -91,7 +93,7 @@ function mergeFitting(
     const last = merged.at(-1);
     if (last) {
       setBreadcrumb(probe, crumbsFor(merged.length - 1));
-      place(body, [...last, ...group], notes);
+      lay([...last, ...group]);
       if (fits(body)) {
         merged[merged.length - 1] = [...last, ...group];
         continue;
@@ -111,7 +113,7 @@ function fillPages(
   probe: HTMLElement,
   blocks: Element[],
   title: string,
-  notes: Element | null,
+  lay: (blocks: Element[]) => void,
 ): Element[][] {
   const body = bodyOf(probe);
   const pages: Element[][] = [];
@@ -120,7 +122,7 @@ function fillPages(
   while (remaining.length > 0) {
     const header = pages.length > 0 && title ? [continuedHeading(title)] : [];
     const tryFit = (candidate: Element[]) => {
-      place(body, [...header, ...candidate], notes);
+      lay([...header, ...candidate]);
       return fits(body);
     };
 
@@ -245,14 +247,29 @@ function splitAtSubheadings(body: HTMLElement): Element[][] {
   return groups.filter((g) => g.length > 0);
 }
 
+/**
+ * A copy of `slide` with an empty body, for `makePage` to copy once a page:
+ * the body's blocks (diagrams among them) would only be copied to be thrown
+ * away, once for every page of the slide.
+ */
+function emptyCopy(slide: HTMLElement): HTMLElement {
+  const body = bodyOf(slide);
+  const copy = (node: Node): Node => {
+    const out = node.cloneNode(false);
+    if (node !== body) for (const child of node.childNodes) out.appendChild(copy(child));
+    return out;
+  };
+  return copy(slide) as HTMLElement;
+}
+
 function makePage(
-  original: HTMLElement,
+  shell: HTMLElement,
   blocks: Element[],
   index: number,
   breadcrumb: string[],
   notes: Element | null,
 ): HTMLElement {
-  const page = original.cloneNode(true) as HTMLElement;
+  const page = shell.cloneNode(true) as HTMLElement;
   page.dataset["page"] = String(index + 1);
   place(bodyOf(page), blocks, notes);
   if (index > 0) tagFootnoteIds(bodyOf(page), index + 1);
@@ -267,15 +284,48 @@ function place(body: Element, blocks: Element[], notes: Element | null): void {
 }
 
 /**
+ * `place` for the probe, which lays out one try after another (decision 43:
+ * opening a document waits for them). A try mostly keeps the blocks of the
+ * one before and adds or drops a few at the end, so the copies of the blocks
+ * both share stay where they are, and a block dropped and taken again gets
+ * its copy back. The browser then styles and lays out only what changed,
+ * instead of every block of every try. What `body` holds after each call is
+ * what `place` would have built; only the footnotes are rebuilt every time.
+ */
+function placer(body: Element, notes: Element | null): (blocks: Element[]) => void {
+  const copies = new Map<Element, Element>();
+  let shown: Element[] = [];
+  let footnotes: Element | null = null;
+  body.replaceChildren();
+  return (blocks) => {
+    footnotes?.remove();
+    let kept = 0;
+    while (kept < shown.length && shown[kept] === blocks[kept]) kept++;
+    for (const block of shown.slice(kept)) copies.get(block)?.remove();
+    for (const block of blocks.slice(kept)) {
+      let copy = copies.get(block);
+      if (!copy) {
+        copy = clone(block);
+        copies.set(block, copy);
+      }
+      body.append(copy);
+    }
+    shown = blocks;
+    footnotes = appendFootnotes(body, notes);
+  };
+}
+
+/**
  * Appends the footnotes `body` cites (decision 107): the items of the slide's
  * list that a citation in `body` points at, and those cited inside them, in
  * the slide's order with the slide's numbers (`value`), so a 3 in the text
  * reads 3 in the list. An item keeps only the back links to citations in
- * `body`; one to another page would lead nowhere here.
+ * `body`; one to another page would lead nowhere here. Returns the list it
+ * appended, if any.
  */
-function appendFootnotes(body: Element, notes: Element | null): void {
+function appendFootnotes(body: Element, notes: Element | null): Element | null {
   const list = notes?.querySelector(":scope > ol");
-  if (!notes || !list) return;
+  if (!notes || !list) return null;
   const cited = new Set<Element>();
   const cite = (root: Element) => {
     for (const ref of root.querySelectorAll("a[data-footnote-ref]")) {
@@ -286,7 +336,7 @@ function appendFootnotes(body: Element, notes: Element | null): void {
     }
   };
   cite(body);
-  if (cited.size === 0) return;
+  if (cited.size === 0) return null;
   const items = list.cloneNode(false) as Element;
   for (const [i, item] of [...list.children].entries()) {
     if (!cited.has(item)) continue;
@@ -301,6 +351,7 @@ function appendFootnotes(body: Element, notes: Element | null): void {
   for (const back of copy.querySelectorAll("a[data-footnote-backref]")) {
     if (!fragmentTarget(body, back.getAttribute("href") ?? "")) back.remove();
   }
+  return copy;
 }
 
 /**
