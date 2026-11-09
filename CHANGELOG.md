@@ -62,7 +62,9 @@ The first release.
   reset it, and read the time left, which goes below zero once you run over,
   with a label and an icon as well as colour. A pacing bar sets the share of
   time used against the share of slides done and says whether you are ahead,
-  on pace or behind. The countdown survives a reload of the window.
+  on pace or behind. The countdown survives a reload of the window. The
+  phone remote shows it too, read-only: time left or over, Paused, and the
+  verdict in words. Followers do not get it.
 - Search in the command palette reads slide text as well as titles. A word
   in a slide's body lists that slide under "In slide text" with a snippet and
   the match marked, and choosing it opens the page that holds the words.
