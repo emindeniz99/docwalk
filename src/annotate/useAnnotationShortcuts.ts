@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, type RefObject } from "react";
 import { inFocusView } from "../deck/focusView";
 import type { AnnotationMode } from "./types";
 
-export type AnnotationShortcut = { mode: AnnotationMode } | { action: "undo" | "redo" };
+export type AnnotationShortcut = { mode: AnnotationMode } | { action: "undo" | "redo" | "board" };
 
 const MODE_KEYS: Record<string, AnnotationMode> = {
   p: "pen",
@@ -51,6 +51,7 @@ export function annotationShortcut(event: KeyboardEvent): AnnotationShortcut | n
   if (command || event.altKey) return null;
   if (key === "escape") return { mode: "off" };
   if (event.shiftKey) return null;
+  if (key === "w") return { action: "board" };
   const mode = MODE_KEYS[key];
   return mode ? { mode } : null;
 }
@@ -61,11 +62,19 @@ export interface AnnotationShortcutHandlers {
   setMode: (mode: AnnotationMode) => void;
   undo: () => void;
   redo: () => void;
+  /**
+   * The whiteboard (decision 110): W toggles it, and Escape closes it once no
+   * tool is active. Without it, W and that Escape are left alone.
+   */
+  board?: { open: boolean; toggle: () => void };
 }
 
+/** Open layers whose Escape is their own: the overview, a menu, the palette. */
+const OVERLAY = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+
 /**
- * P pen, L laser, A arrow, R rectangle, C ellipse, E eraser, Escape off, Ctrl/Cmd+Z undo,
- * Shift+Ctrl/Cmd+Z redo. Ignored while focus is in a text field, and, when
+ * P pen, L laser, A arrow, R rectangle, C ellipse, E eraser, W whiteboard, Escape off
+ * (tool first, then the whiteboard), Ctrl/Cmd+Z undo, Shift+Ctrl/Cmd+Z redo. Ignored while focus is in a text field, and, when
  * `scope` is given, for keys pressed outside it (so P stays type-ahead in a list).
  */
 export function useAnnotationShortcuts(
@@ -79,11 +88,25 @@ export function useAnnotationShortcuts(
     const shortcut = annotationShortcut(event);
     if (!shortcut) return;
     if ("action" in shortcut) {
-      handlers[shortcut.action]();
+      if (shortcut.action === "board") {
+        if (!handlers.board) return;
+        handlers.board.toggle();
+      } else {
+        handlers[shortcut.action]();
+      }
     } else if (shortcut.mode === "off") {
-      // With no tool active, Escape still belongs to reveal.js and fullscreen.
-      if (handlers.mode === "off") return;
-      handlers.setMode("off");
+      if (handlers.mode !== "off") {
+        handlers.setMode("off");
+      } else if (
+        handlers.board?.open &&
+        !(event.target instanceof Element && event.target.closest(OVERLAY))
+      ) {
+        // The whiteboard is the next layer to leave; a dialog's own Escape is not ours.
+        handlers.board.toggle();
+      } else {
+        // With nothing to close, Escape still belongs to reveal.js and fullscreen.
+        return;
+      }
     } else {
       handlers.setMode(shortcut.mode);
     }

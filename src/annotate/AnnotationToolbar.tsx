@@ -4,6 +4,7 @@ import {
   LocateFixed,
   MoveUpRight,
   Pen,
+  Presentation,
   Square,
   Trash,
   Undo2,
@@ -135,12 +136,15 @@ export interface AnnotationToolbarProps {
   onModeChange: (mode: AnnotationMode) => void;
   color: PenColor;
   onColorChange: (color: PenColor) => void;
+  /** The whiteboard (decision 110) is open. */
+  board: boolean;
+  onBoardToggle: () => void;
   onUndo: () => void;
   onClear: () => void;
 }
 
 export function AnnotationToolbar(props: AnnotationToolbarProps) {
-  const { mode, onModeChange, color, onColorChange, onUndo, onClear } = props;
+  const { mode, onModeChange, color, onColorChange, board, onBoardToggle, onUndo, onClear } = props;
   return (
     <Toolbar aria-label={m.annotate_label()} className="docwalk-annotate-toolbar">
       <ToggleButtonGroup
@@ -182,6 +186,17 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
         ))}
       </RadioGroup>
       <div className="docwalk-annotate-group">
+        <Tip label={m.annotate_board()} shortcut="W">
+          <ToggleButton
+            aria-label={m.annotate_board()}
+            ref={keyShortcut("W")}
+            className="docwalk-annotate-button"
+            isSelected={board}
+            onChange={onBoardToggle}
+          >
+            <Presentation size={18} aria-hidden="true" />
+          </ToggleButton>
+        </Tip>
         <Tip label={m.annotate_undo()} shortcut={<ModShortcut keyName="Z" />}>
           <Button
             aria-label={m.annotate_undo()}
