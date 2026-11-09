@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import { MirrorFeed } from "../annotate/mirrorFeed";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import {
   DISCONNECT_AFTER_MS,
@@ -505,5 +506,73 @@ describe("presenter helpers", () => {
     expect(url.searchParams.get("level")).toBe("2");
     // One named window: pressing the button twice must not stack windows.
     expect(target).toBe("docwalk-presenter");
+  });
+});
+
+/** The real audience side with a mirror feed, over the real BroadcastChannel. */
+function mirroredAudience() {
+  const feed = new MirrorFeed();
+  cleanups.push(
+    startPresenterBridge({
+      getState: () => ({
+        markdown: MARKDOWN,
+        level: "auto",
+        current: ALPHA,
+        addresses: ADDRESSES,
+        startedAt: Date.now(),
+      }),
+      goTo: () => true,
+      step: () => {},
+      subscribe: () => () => {},
+      mirror: feed,
+    }),
+  );
+  return feed;
+}
+
+const paperIn = (el: HTMLElement, cls: string) =>
+  el.querySelector<HTMLElement>(`.${cls} .docwalk-mirror-board`);
+const shown = (paper: HTMLElement | null) =>
+  paper !== null && getComputedStyle(paper).display !== "none";
+const boardMarks = (el: HTMLElement) =>
+  el.querySelectorAll(".docwalk-presenter-current .docwalk-mirror [data-mark]").length;
+
+describe("the whiteboard in the presenter window (decision 110)", () => {
+  test("the current preview shows the paper and the board's strokes after board-open, and the next preview shows nothing", async () => {
+    const feed = mirroredAudience();
+    const el = renderView();
+    await expect.poll(() => previewHeading(el, "docwalk-presenter-current")).toBe("Alpha section");
+    expect(shown(paperIn(el, "docwalk-presenter-current"))).toBe(false);
+
+    const section = ALPHA.slice(0, ALPHA.indexOf("/"));
+    feed.ingest({
+      kind: "marks",
+      slide: `${section}/board`,
+      reset: true,
+      strokes: [
+        { id: 1, tool: "pen", color: "primary", points: [1024, 1024, 2048, 2048, 3072, 3072] },
+      ],
+    });
+    feed.ingest({ kind: "board", slide: ALPHA });
+    await expect.poll(() => shown(paperIn(el, "docwalk-presenter-current"))).toBe(true);
+    await expect.poll(() => boardMarks(el)).toBe(1);
+    // The next-slide preview has no overlay: the board covers the page the room is on.
+    expect(el.querySelector(".docwalk-presenter-next .docwalk-mirror")).toBeNull();
+    // The previews are inert copies, so nothing in them took the cover.
+    expect(el.querySelector(".docwalk-presenter-canvas")?.hasAttribute("inert")).toBe(true);
+
+    feed.ingest({ kind: "board", slide: null });
+    await expect.poll(() => shown(paperIn(el, "docwalk-presenter-current"))).toBe(false);
+  });
+
+  test("a board over a page the room is not on leaves the current preview alone", async () => {
+    const feed = mirroredAudience();
+    const el = renderView();
+    await expect.poll(() => previewHeading(el, "docwalk-presenter-current")).toBe("Alpha section");
+    feed.ingest({ kind: "board", slide: BETA });
+    // Give the op its trip over the channel and the overlay its redraw.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(shown(paperIn(el, "docwalk-presenter-current"))).toBe(false);
+    expect(el.querySelector(".docwalk-presenter-next .docwalk-mirror")).toBeNull();
   });
 });

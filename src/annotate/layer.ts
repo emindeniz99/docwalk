@@ -10,9 +10,13 @@ import {
   type MarkColor,
   type MarkEvent,
   type MarkStroke,
+  type MarkTool,
 } from "./mirrorTypes";
+import { coverPage } from "./boardCover";
 import { strokeElement } from "./markSvg";
 import { outlinePath } from "./outline";
+import { watchPenDrags } from "./stylus";
+import { acceptedInput } from "./stylusPolicy";
 import type { AnnotationLayer, AnnotationLayerOptions, AnnotationMode } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -23,11 +27,20 @@ export const LASER_TRAIL_MS = 600;
 const PEN_SIZE = 4;
 const LASER_SIZE = 12;
 
-const DRAUU_MODE: Record<"pen" | "arrow" | "eraser", DrawingMode> = {
+/** The modes drauu draws or erases in; the laser and "off" are the layer's own. */
+type DrawMode = MarkTool | "eraser";
+const DRAUU_MODE: Record<DrawMode, DrawingMode> = {
   pen: "stylus",
   arrow: "line",
+  rect: "rectangle",
+  ellipse: "ellipse",
   eraser: "eraseLine",
 };
+
+const attrNum = (el: Element | null, name: string) => Number(el?.getAttribute(name));
+
+const isMarkTool = (mode: AnnotationMode): mode is MarkTool =>
+  mode === "pen" || mode === "arrow" || mode === "rect" || mode === "ellipse";
 
 interface LaserPoint {
   x: number;
@@ -40,6 +53,19 @@ function surface(kind: "draw" | "laser"): SVGSVGElement {
   svg.classList.add("docwalk-annotate-surface", `docwalk-annotate-${kind}`);
   svg.setAttribute("aria-hidden", "true");
   return svg;
+}
+
+/**
+ * Cuts off a stroke still being drawn. drauu keeps the id of the pointer that
+ * began it until that pointer's own pointerup, which it ignores once nothing
+ * is being drawn, so without the reset the drawing would refuse every other
+ * pointer. No public call does it.
+ */
+function abandonStroke(drawing: Drauu) {
+  drawing.cancel();
+  drawing.drawing = false;
+  // oxlint-disable-next-line no-underscore-dangle
+  (drawing as unknown as { _originalPointerId: number | null })._originalPointerId = null;
 }
 
 function prefersReducedMotion(): boolean {
@@ -62,10 +88,15 @@ export function createAnnotationLayer(
   host: HTMLElement,
   options: AnnotationLayerOptions = {},
 ): AnnotationLayer {
+  const { input } = options;
   const root = document.createElement("div");
   root.className = "docwalk-annotate";
+  // The whiteboard's paper (decision 110): hidden unless a board is open, under every draw surface.
+  const paper = document.createElement("div");
+  paper.className = "docwalk-annotate-board";
+  paper.setAttribute("aria-hidden", "true");
   const laser = surface("laser");
-  root.append(laser);
+  root.append(paper, laser);
 
   // The overlay is absolutely positioned, so it needs a containing block.
   let stage = host;
@@ -96,7 +127,7 @@ export function createAnnotationLayer(
   let nextStrokeId = 1;
   interface Capture {
     id: number;
-    tool: "pen" | "arrow";
+    tool: MarkTool;
     color: MarkColor;
     points: number[];
     last: { x: number; y: number } | null;
@@ -110,18 +141,41 @@ export function createAnnotationLayer(
 
   let mode: AnnotationMode = "off";
   let key: string | null = null;
+  /** The open whiteboard: its drawing and address, the page it covers and the undo of that cover. */
+  let board: { address: string; page: string; drawing: Drauu; uncover: () => void } | null = null;
   /** One drawing per slide key; `null` holds marks made before the first key. */
   const drawings = new Map<string | null, Drauu>();
 
-  /** Bring a drawing up to the current tool and colour. */
+  /**
+   * The pointer types a drawing accepts (decision 110). Once a pen is in use,
+   * drauu leaves a finger's touch alone: it bubbles to reveal.js, which swipes.
+   */
+  function applyInput(drawing: Drauu) {
+    const types =
+      input &&
+      acceptedInput({
+        drawingTool: isMarkTool(mode) || mode === "eraser",
+        laser: mode === "laser",
+        stylusDraws: input.stylusDraws(),
+        penInUse: input.penInUse(),
+      });
+    if (types) drawing.options.acceptsInputTypes = [...types] as ("mouse" | "touch" | "pen")[];
+    else delete drawing.options.acceptsInputTypes;
+  }
+
+  /** Bring a drawing up to the current tool, colour and accepted input. */
   function applyTool(drawing: Drauu) {
     drawing.brush.color = color;
-    if (mode === "pen" || mode === "arrow" || mode === "eraser") {
+    if (isMarkTool(mode) || mode === "eraser") {
       drawing.brush.arrowEnd = mode === "arrow";
       // Also re-indexes the strokes for drauu's eraser.
       drawing.mode = DRAUU_MODE[mode];
     }
+    applyInput(drawing);
   }
+
+  /** True while a pen drag is handed to drauu: its own `pointerdown` is not a new drag. */
+  let handingOver = false;
 
   function createDrawing(): Drauu {
     const svg = surface("draw");
@@ -130,10 +184,9 @@ export function createAnnotationLayer(
     applyTool(drawing);
     drawing.on("start", () => {
       if (drawing !== active) return;
-      capture =
-        mode === "pen" || mode === "arrow"
-          ? { id: nextStrokeId++, tool: mode, color: colorKey, points: [], last: null }
-          : null;
+      // A pen drag with no tool chosen is a pen stroke (decision 110).
+      const tool = isMarkTool(mode) ? mode : handingOver ? "pen" : null;
+      capture = tool ? { id: nextStrokeId++, tool, color: colorKey, points: [], last: null } : null;
     });
     drawing.on("changed", () => {
       if (drawing !== active) return;
@@ -197,6 +250,35 @@ export function createAnnotationLayer(
     });
   }
 
+  /**
+   * The two corners of a drawn shape (decision 110): an arrow's two ends in
+   * the order it was drawn, or the box of a `<rect>` or `<ellipse>`, top-left
+   * first. Null when the element is none of those or has no size yet.
+   */
+  function cornersOf(node: Element): number[] | null {
+    let box: [number, number, number, number];
+    const line = node.querySelector("line");
+    if (line) {
+      box = [attrNum(line, "x1"), attrNum(line, "y1"), attrNum(line, "x2"), attrNum(line, "y2")];
+    } else if (node.localName === "rect") {
+      const [x, y] = [attrNum(node, "x"), attrNum(node, "y")];
+      box = [x, y, x + attrNum(node, "width"), y + attrNum(node, "height")];
+    } else if (node.localName === "ellipse") {
+      const [cx, cy, rx, ry] = [
+        attrNum(node, "cx"),
+        attrNum(node, "cy"),
+        attrNum(node, "rx"),
+        attrNum(node, "ry"),
+      ];
+      box = [cx - rx, cy - ry, cx + rx, cy + ry];
+    } else {
+      return null;
+    }
+    const from = unitPoint(box[0], box[1]);
+    const to = unitPoint(box[2], box[3]);
+    return from && to ? [quantize(from.x), quantize(from.y), quantize(to.x), quantize(to.y)] : null;
+  }
+
   function commitStroke(drawing: Drauu, node?: Element) {
     const done = capture;
     capture = null;
@@ -211,13 +293,9 @@ export function createAnnotationLayer(
         if (done.points[n - 2] !== x || done.points[n - 1] !== y) done.points.push(x, y);
       }
     } else {
-      // Read the drawn line, since shift and alt move its ends.
-      const line = node.querySelector("line");
-      const from = unitPoint(Number(line?.getAttribute("x1")), Number(line?.getAttribute("y1")));
-      const to = unitPoint(Number(line?.getAttribute("x2")), Number(line?.getAttribute("y2")));
-      if (from && to) {
-        done.points = [quantize(from.x), quantize(from.y), quantize(to.x), quantize(to.y)];
-      }
+      // Every other tool is two corners. Read the drawn element, since Shift and Alt move them.
+      const corners = cornersOf(node);
+      if (corners) done.points = corners;
     }
     if (done.points.length === 0) return;
     strokeOf.set(node, { id: done.id, tool: done.tool, color: done.color, points: done.points });
@@ -273,6 +351,8 @@ export function createAnnotationLayer(
 
   // The handlers createDrawing wires read `active`, but only after this line has run.
   let active = createDrawing();
+  /** The current slide's drawing: `active`, unless a whiteboard is open over it. */
+  let slideDrawing = active;
   slideOf.set(active, null);
   drawings.set(null, active);
   show(active);
@@ -331,8 +411,12 @@ export function createAnnotationLayer(
     frame = requestAnimationFrame(renderTrail);
   }
 
+  /** A finger is for swiping once a pen is in use, so it moves no laser either. */
+  const fingerSwipes = (event: PointerEvent) =>
+    event.pointerType === "touch" && !!input?.penInUse() && input.stylusDraws();
+
   function onLaserMove(event: PointerEvent) {
-    if (mode !== "laser") return;
+    if (mode !== "laser" || fingerSwipes(event)) return;
     const { x, y } = toLocal(event);
     const unit = unitPoint(x, y);
     if (unit) {
@@ -356,9 +440,13 @@ export function createAnnotationLayer(
   }
 
   function onLaserDown(event: PointerEvent) {
-    if (mode !== "laser") return;
+    if (mode !== "laser" || fingerSwipes(event)) return;
     // Keep receiving moves while a finger or stylus drags past the overlay edge.
-    laser.setPointerCapture?.(event.pointerId);
+    try {
+      laser.setPointerCapture?.(event.pointerId);
+    } catch {
+      // The pointer is already gone (a quick tap, a synthetic event): nothing to keep receiving.
+    }
     onLaserMove(event);
   }
 
@@ -367,6 +455,91 @@ export function createAnnotationLayer(
     if (prefersReducedMotion()) clearLaser();
     else notify({ kind: "laser-off" });
   }
+
+  function openBoard(next: { key: string; address: string }) {
+    const page = slideOf.get(slideDrawing);
+    if (key === null || page == null) return;
+    if (board) {
+      if (board.address === next.address) return;
+      closeBoard(false);
+    }
+    // A stroke still being drawn on the slide belongs to neither page.
+    abandonStroke(slideDrawing);
+    let drawing = drawings.get(next.key);
+    if (!drawing) {
+      drawing = createDrawing();
+      slideOf.set(drawing, next.address);
+      drawings.set(next.key, drawing);
+      restore(drawing, next.key, next.address);
+    }
+    board = { address: next.address, page, drawing, uncover: coverPage(stage) };
+    active = drawing;
+    root.toggleAttribute("data-board", true);
+    applyTool(active);
+    show(active);
+    notify({ kind: "board", slide: page });
+    reportMarks(true);
+  }
+
+  /** Undoes `openBoard` in reverse. `report` is false when a change of slide reports its own marks next. */
+  function closeBoard(report: boolean) {
+    const open = board;
+    if (!open) return;
+    // A stroke still being drawn on the board is cancelled while the board is still the active drawing.
+    abandonStroke(open.drawing);
+    board = null;
+    open.uncover();
+    root.removeAttribute("data-board");
+    active = slideDrawing;
+    applyTool(active);
+    show(active);
+    notify({ kind: "board", slide: null });
+    if (report) reportMarks(true);
+  }
+
+  /**
+   * A pen that has moved past the drag threshold with no tool chosen starts a
+   * pen stroke where it went down: drauu gets the `pointerdown` the page took,
+   * and its own window listeners carry the rest of the stroke. A tap never
+   * gets here, so its click still follows a link or opens a diagram.
+   */
+  function startPenDrag(down: PointerEvent) {
+    const drawing = active;
+    const svg = drawing.el;
+    if (!svg) return;
+    drawing.brush.arrowEnd = false;
+    drawing.brush.color = color;
+    drawing.mode = "stylus";
+    handingOver = true;
+    try {
+      svg.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: down.pointerId,
+          pointerType: "pen",
+          isPrimary: down.isPrimary,
+          button: 0,
+          buttons: 1,
+          pressure: down.pressure,
+          clientX: down.clientX,
+          clientY: down.clientY,
+        }),
+      );
+    } finally {
+      handingOver = false;
+    }
+  }
+  const watchStage = (target: HTMLElement) =>
+    input
+      ? watchPenDrags(target, {
+          enabled: () => !handingOver && mode === "off" && input.stylusDraws(),
+          onDrag: startPenDrag,
+        })
+      : () => {};
+  let stopWatching = watchStage(host);
+  // A setting or latch change reaches the drawing on screen at once.
+  const stopInput = input?.subscribe?.(() => applyInput(active));
 
   laser.addEventListener("pointerdown", onLaserDown);
   laser.addEventListener("pointermove", onLaserMove);
@@ -402,17 +575,18 @@ export function createAnnotationLayer(
     },
     setKey(next, address = next) {
       if (next === key) return;
+      // Another page closes the board; the same page under a new key (a rebuild) leaves it open.
+      if (board && board.page !== address) closeBoard(false);
       if (key === null) {
         // Marks made before the first key belong to the first slide.
         drawings.delete(null);
-        drawings.set(next, active);
-        slideOf.set(active, address);
-        restore(active, next, address);
+        drawings.set(next, slideDrawing);
+        slideOf.set(slideDrawing, address);
+        restore(slideDrawing, next, address);
         refreshEraser();
       } else {
         // A stroke still being drawn when the slide changes belongs to no slide.
-        active.cancel();
-        active.drawing = false;
+        abandonStroke(slideDrawing);
         let drawing = drawings.get(next);
         if (!drawing) {
           drawing = createDrawing();
@@ -420,25 +594,41 @@ export function createAnnotationLayer(
           drawings.set(next, drawing);
           restore(drawing, next, address);
         }
-        active = drawing;
-        applyTool(active);
-        show(active);
+        slideDrawing = drawing;
+        if (!board) {
+          active = drawing;
+          applyTool(active);
+          show(active);
+        }
       }
       key = next;
       clearLaser();
-      reportMarks(true);
+      // Under an open board the receivers keep the board's marks.
+      if (!board) reportMarks(true);
     },
+    setBoard(next) {
+      if (next) openBoard(next);
+      else closeBoard(true);
+    },
+    board: () => board?.address ?? null,
     moveTo(next) {
       if (next === stage) return;
       clearLaser();
       detach();
       attach(next);
+      stopWatching();
+      stopWatching = watchStage(next);
+      // The rebuilt deck has a new current page; the board covers that one.
+      if (board) {
+        board.uncover();
+        board.uncover = coverPage(next);
+      }
     },
     retain(keys) {
       const keep = new Set<string | null>(keys);
       const dropped = new Set<string>();
       for (const [k, drawing] of drawings) {
-        if (drawing === active || keep.has(k)) continue;
+        if (drawing === active || drawing === slideDrawing || keep.has(k)) continue;
         const slide = slideOf.get(drawing);
         if (slide != null) dropped.add(slide);
         // drauu forgets its element on unmount, so take it first.
@@ -459,6 +649,10 @@ export function createAnnotationLayer(
       return () => observers.delete(listener);
     },
     destroy() {
+      stopWatching();
+      stopInput?.();
+      board?.uncover();
+      board = null;
       clearLaser();
       observers.clear();
       laser.removeEventListener("pointerdown", onLaserDown);
