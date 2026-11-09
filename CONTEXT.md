@@ -46,6 +46,11 @@ rendered. docwalk shows one instead of clipping or shrinking (19).
 **Diagram focus**: the mode a click on a Mermaid diagram opens: fit, zoom,
 pan, reset, fullscreen, pen and laser (3, 28, 29).
 
+**Diagram tour**: stepping through a diagram's nodes in the diagram focus
+view. The steps form a path, the last one current; it belongs to the open
+view and is mirrored to followers as node numbers (109). Code:
+`src/deck/diagramTour.ts`, `tourModel.ts`.
+
 **Document mode**: the doc rendered as GitHub would show it, scrolling, no
 slides (3, 10).
 
@@ -194,6 +199,7 @@ Add a row here before introducing a new one.
 | task mark                   | görev işareti               | named "tamamlandı", "tamamlanmadı"         |
 | text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |
 | diagram, node               | diyagram, düğüm             |                                            |
+| diagram tour, step          | diyagram turu, adım         | "Tur" on the button                        |
 | focus view                  | odak görünümü               | "tam ekran" in the dialog's names          |
 | line mark                   | satır işareti               | the "Temizle" button removes them          |
 | mirror, mirrored            | yansıtma, yansıtılan        | the presenter's laser and marks on others  |

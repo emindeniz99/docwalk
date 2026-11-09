@@ -336,6 +336,10 @@ gains a border, so colour-blind readers see the state too.
 - `note-*` colours carry diagnostics: content that was split, scaled down
   or is too tall. They are yellow, not red: a note is information, not an
   error.
+- The diagram tour rings the current node in `primary` (solid) and earlier
+  steps in `primary-ink` (dashed), each on a `slide` halo; edges off the path
+  fade to 0.55, which keeps Mermaid's `#333` lines at 3:1 on the slide. Words
+  and fills never fade (decision 109).
 - `focus` is a blue ring, distinct from the accent, so keyboard focus never
   looks like selection.
 - `alert-*` colours are GitHub's own for `> [!NOTE]`, `[!TIP]`,
