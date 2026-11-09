@@ -125,14 +125,33 @@ function withOffscreenBox<T>(
 
 /**
  * Wait until measurements mean something (decision 22): fonts loaded, every
- * image under `root` decoded (or failed), then one animation frame so layout
- * has run. Diagrams must already be rendered by the caller.
+ * image under `root` decoded (or failed) and its size pinned, then one
+ * animation frame so layout has run. Diagrams must already be rendered by the
+ * caller.
  */
 export async function settled(root: ParentNode): Promise<void> {
   await document.fonts.ready;
   const images = [...root.querySelectorAll<HTMLImageElement>("img[src]")];
   await Promise.all(images.map((img) => img.decode().catch(() => undefined)));
+  for (const img of images) pinSize(img);
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Pagination and the overflow note measure copies of a slide at once, and a
+ * copy of an image may have to load it again: Firefox does when its cache will
+ * not answer. Until then the copy has no size, so a page could take the
+ * blocks that the image pushes off it. A loaded image therefore keeps its size
+ * where a copy reads it before loading: its ratio, and its width and height
+ * when the author set neither. Laid out loaded, it looks as it did.
+ */
+function pinSize(img: HTMLImageElement): void {
+  const { naturalWidth: width, naturalHeight: height } = img;
+  if (!img.complete || width === 0 || height === 0) return;
+  img.style.aspectRatio = `auto ${width} / ${height}`;
+  if (img.hasAttribute("width") || img.hasAttribute("height")) return;
+  img.setAttribute("width", String(width));
+  img.setAttribute("height", String(height));
 }
 
 /**
