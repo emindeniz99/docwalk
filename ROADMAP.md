@@ -414,7 +414,105 @@ Rules:
   body gives the before and after numbers from step 1 (shell size, first load,
   line counts). Update MEMORY and remove this entry in the same branch.
 
-### 2. The next feature round
+### 2. Pan and zoom in the focus views that feel like Excalidraw (owner, 2026-11-09)
+
+A bug fix with a decision row (it refines the focus-view rows). Estimate:
+one to two days. It can run before or after the pass, but not beside it,
+because both touch `src/deck/focus.ts`.
+
+What the owner saw: in an opened Mermaid diagram, two-finger scrolling on a
+trackpad does not move the diagram, and pinch zoom jumps too far at once.
+
+Cause, found in `src/deck/focus.ts` on 2026-11-09:
+
+- A wheel event without Ctrl or Cmd returns early (`onWheel`), so a
+  two-finger trackpad scroll, which arrives as exactly that, does nothing.
+- `@panzoom/panzoom`'s `zoomWithWheel` with `step: 0.25` multiplies the
+  scale by 1.25 per wheel event, whatever the event's size. A trackpad pinch
+  sends dozens of small events (`ctrlKey` set, small `deltaY`), so one gesture
+  zooms many times over. The code and table focus views do the same with
+  `SCALE_STEP = 0.25` per event.
+
+Target behaviour, as in Excalidraw and Figma:
+
+- Two-finger scroll (wheel without Ctrl/Cmd) pans by `deltaX` and `deltaY`;
+  Shift turns a vertical wheel into a horizontal pan.
+- Pinch, and Ctrl/Cmd + wheel, zoom smoothly in proportion to `deltaY`
+  (for example `scale *= Math.exp(-deltaY * k)`, with `deltaMode` lines and
+  pages converted to pixels), around the pointer, within the current limits.
+- A mouse wheel without a modifier still pans, so nothing zooms by accident.
+- Safari's `gesturestart`/`gesturechange` pinch and two-finger touch
+  (pan and pinch together) on phones and tablets work the same way.
+- The keyboard and the zoom buttons keep their fixed steps.
+- Only the focus overlay takes the wheel; a diagram on a slide or in the
+  document still scrolls the page.
+
+Tests: browser tests that send a pinch as forty small `ctrlKey` wheel events
+and check the total zoom stays within the gesture's size, that a plain wheel
+pans and does not zoom, and the same for the code and table views. A hand check
+on a Mac trackpad and an iPad is still needed; record it.
+
+### 3. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
+
+The owner's idea: besides slides (pages) and the document view (one column),
+show the Markdown the way Prezi does. All sections sit on one large canvas;
+you zoom out to see the whole document and zoom in to read a section. The
+presentation moves the camera from section to section in document order.
+Clicking a diagram, table, code block or image opens it in the focus view.
+
+This is a large feature (weeks, not days). Grill it into decisions before any
+code. "Canvas mode" already names the Excalidraw sketch (decision 54), so this
+needs its own name ("map mode" here). Questions to settle:
+
+- **Layout from structure only** (rule 1, no new syntax): for example one
+  column per `##` section with its `###` parts stacked inside, or a tree
+  from the heading levels. Does the viewer let people drag frames, and is
+  that viewer state (rule 1), never written into the Markdown?
+- **Pagination:** a frame grows with its content, so rule 3's overflow
+  handling has nothing to split; atomic blocks that are too big for the
+  screen go to the focus view.
+- **Addressing and sync:** links and followers address a section
+  (rule 7); does the camera follow the presenter, and is it mirrored like the
+  laser (decisions 88, 103)?
+- **Performance:** render Mermaid only for frames near the view, and keep the
+  first load inside decision 43 (lazy chunk).
+- **Accessibility and motion:** keyboard moves between sections, the camera
+  respects `prefers-reduced-motion`, and screen readers get document order.
+- **Reuse:** pan and zoom from item 2, the focus views, the pen and laser
+  layer, and the overview's section frames.
+
+A cheaper first step that delivers part of it: the document view gets
+click-to-open for diagrams, tables, code and images. Today only the slides open
+the focus view (`openDiagramFocus` and `openBlockFocus` in
+`src/deck/focus.ts` are wired into `Deck.tsx` only).
+
+### 4. Small UX fixes seen on 2026-11-09
+
+From screenshots of the sample and a feature document on desktop and phone:
+
+- The status bar says "7 notes" for overflow notes, and speaker notes
+  (decision 79) are now also "notes". Rename one of them, for example
+  "7 overflow notes".
+- The editor colours fenced code with the link colour (`.dw-tok-code` in
+  `src/editor/editor.css` uses `--link`), so code blocks look red, as if
+  something were wrong. Give code its own neutral token in DESIGN.md.
+- On a phone in landscape, the shown presenting controls take two rows and
+  cover about a third of the slide until they hide (decision 77 accepted the
+  overlay); look for a one-row layout.
+- The one-time "Tap or move to show controls" hint sits over slide content on
+  a phone; check it against short and tall slides.
+
+### 5. A review of PR #5's feature code and a real-device UX pass
+
+The security review on 2026-11-09 read the risky parts of PR #5 (rendering,
+the room protocol, the workspace, dependencies); the rest of its roughly
+11,700 lines of app code was covered by tests but not read line by line, and
+no one has walked the new features on real devices. After the simplification
+pass: a code review of the remaining feature code (focus views, tour,
+whiteboard, countdown, saved marks, comments round two) and a hand test on a
+Mac trackpad, an iPhone and an iPad, with findings written here.
+
+### 6. The next feature round
 
 Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
 for this round is built. After the pass, re-check the survey as its "Re-check"
