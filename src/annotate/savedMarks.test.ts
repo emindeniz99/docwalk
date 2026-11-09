@@ -315,6 +315,35 @@ describe("the marks of one document", () => {
     expect(marks.put("h1/1", "aa", slide)).toBe(true);
   });
 
+  test("marks saved under a document's old key move to its new key once (decision 120)", async () => {
+    // A `?src=` key used to keep the query, where a token can sit.
+    const store = memoryMarksStore();
+    const OLD = "url:https://docs.example/plan.md?t=secret";
+    const NEW = "url:https://docs.example/plan.md";
+    await store.put(record({ doc: OLD, slide: "intro/1", text: "aa" }));
+    await store.put(
+      record({ doc: OLD, slide: "risks/1", text: "bb", strokes: [{ tool: "pen" } as SavedStroke] }),
+    );
+
+    const marks = await loadMarks(store, NEW, vi.fn(), OLD);
+    expect(marks.strokes("intro/1", "aa")).toEqual([pen()]);
+    // Only what the reader accepts moves; the old key holds nothing afterwards.
+    expect(readSlides(NEW, await store.load(NEW)).map((s) => s.slide)).toEqual(["intro/1"]);
+    expect(await store.load(OLD)).toEqual([]);
+  });
+
+  test("an old key is left alone once the new key has marks of its own", async () => {
+    const store = memoryMarksStore();
+    const OLD = "url:https://docs.example/plan.md?t=secret";
+    const NEW = "url:https://docs.example/plan.md";
+    await store.put(record({ doc: OLD, slide: "intro/1", text: "cc" }));
+    await store.put(record({ doc: NEW, slide: "intro/1", text: "dd" }));
+    const marks = await loadMarks(store, NEW, vi.fn(), OLD);
+    expect(marks.strokes("intro/1", "dd")).toEqual([pen()]);
+    expect(marks.strokes("intro/1", "cc")).toEqual([]);
+    expect(await store.load(OLD)).toHaveLength(1);
+  });
+
   test("clear deletes every slide of the document, and only of that document", async () => {
     const store = memoryMarksStore();
     const marks = await loadMarks(store, DOC, vi.fn());

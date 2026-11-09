@@ -3,7 +3,7 @@ import type { LoadedDocument } from "../inputs/types";
 import { m } from "../paraglide/messages.js";
 import { draftWouldBeReplaced } from "../share/draft";
 import { readAuthor, writeAuthor } from "./author";
-import { contentKey, DRAFT_ALIAS, sourceKey } from "./identity";
+import { contentKey, DRAFT_ALIAS, legacySourceKey, sourceKey } from "./identity";
 import { commentsParam, decodeComments, hashWithoutComments } from "./payload";
 import {
   cleanAuthor,
@@ -39,6 +39,8 @@ export interface CommentsApi {
   ready: boolean;
   /** The document's identity (decision 65), null while it loads; saved marks use it too (105). */
   key: string | null;
+  /** The identity the document had before decision 120, or null: saved marks move from it once. */
+  legacyKey: string | null;
   /**
    * True when the document has no identity because the browser cannot hash
    * its text (no `crypto.subtle`: plain http outside localhost). `key` then
@@ -68,6 +70,8 @@ export const LINK_COMMENTS_IGNORED = m.comments_link_ignored;
 
 interface State extends CommentSet {
   key: string | null;
+  /** The key the document had before decision 120, when it differs: saved marks move from it too. */
+  legacyKey?: string | null;
   /** The saved comments could not be read, so nothing is written over them. */
   loadFailed: boolean;
   /** The document's text could not be hashed, so it has no key. */
@@ -333,10 +337,30 @@ export function useComments({
       } catch {
         loadFailed = true;
       }
+      // Decision 120: a `?src=` key used to keep the query, where a token can sit. What is
+      // stored under that key moves to the new one, once, and the old record goes.
+      const legacy = legacySourceKey(doc.source);
+      if (legacy && !loadFailed && loaded.comments.length === 0 && loaded.deleted.length === 0) {
+        try {
+          const old = await store.read(legacy);
+          if (old.comments.length > 0 || old.deleted.length > 0) {
+            loaded = await store.merge(next, old);
+            await store.remove(legacy);
+          }
+        } catch {
+          // The old record stays where it is; the next open tries again.
+        }
+      }
       if (!live) return;
       const kind = doc.source.kind;
       linkDoc.current = kind === "fragment" || kind === "url" || kind === "repo";
-      stateRef.current = { key: next, ...loaded, loadFailed, unidentified: false };
+      stateRef.current = {
+        key: next,
+        legacyKey: legacy,
+        ...loaded,
+        loadFailed,
+        unidentified: false,
+      };
       setState(stateRef.current);
       applyPending.current();
     })();
@@ -456,6 +480,7 @@ export function useComments({
     deleted: state.deleted,
     ready: state.key !== null,
     key: state.key,
+    legacyKey: state.legacyKey ?? null,
     unidentified: state.unidentified,
     persistent: (store?.persistent ?? true) && !state.loadFailed,
     unreadable: state.loadFailed,

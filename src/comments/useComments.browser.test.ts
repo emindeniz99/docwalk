@@ -195,6 +195,28 @@ describe("deleting a comment", () => {
   });
 });
 
+describe("a ?src= document's key (decision 120)", () => {
+  test("is the address without its query, and comments under the old key move to it once", async () => {
+    const path = `https://docs.example/${crypto.randomUUID()}.md`;
+    const doc: LoadedDocument = {
+      markdown: "# T\n\n## Goals\n\nText.\n",
+      source: { kind: "url", url: `${path}?t=secret-token`, trusted: true },
+    };
+    const store = await openCommentStore();
+    const old = comment({ id: "saved-under-the-old-key", text: "Before 120" });
+    await store.save(`url:${path}?t=secret-token`, [old]);
+
+    const api = mount(doc);
+    await ready(api);
+    expect(api.current!.key).toBe(`url:${path}`);
+    expect(api.current!.comments.map((c) => c.id)).toEqual([old.id]);
+    await settle();
+    // The token is gone from the database: the old record is deleted once it moved.
+    expect((await store.read(`url:${path}?t=secret-token`)).comments).toEqual([]);
+    expect((await store.read(`url:${path}`)).comments.map((c) => c.id)).toEqual([old.id]);
+  });
+});
+
 describe("a second tab", () => {
   test("a stale save does not overwrite its comments or bring back its deletions", async () => {
     const doc = freshDoc();

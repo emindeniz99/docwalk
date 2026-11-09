@@ -330,12 +330,28 @@ export async function loadMarks(
   store: MarksStore,
   doc: string,
   onProblem: (problem: MarksProblem) => void,
+  /** The key `doc` had before decision 120: its records move to `doc` once, when `doc` has none. */
+  legacy: string | null = null,
 ): Promise<DocumentMarks> {
+  let slides: SavedSlide[];
   try {
-    return new DocumentMarks(doc, readSlides(doc, await store.load(doc)), store, onProblem);
+    slides = readSlides(doc, await store.load(doc));
   } catch {
     return new DocumentMarks(doc, [], null, onProblem);
   }
+  if (slides.length === 0 && legacy !== null && legacy !== doc) {
+    try {
+      const old = readSlides(legacy, await store.load(legacy));
+      if (old.length > 0) {
+        for (const slide of old) await store.put({ doc, ...slide });
+        await store.clear(legacy);
+        slides = old;
+      }
+    } catch {
+      // The old records stay; the next open tries again.
+    }
+  }
+  return new DocumentMarks(doc, slides, store, onProblem);
 }
 
 /**

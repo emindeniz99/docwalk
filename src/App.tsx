@@ -797,6 +797,7 @@ export function App() {
   // Pen and arrow marks saved per document and slide (decision 105), under the comments' identity.
   const saved = useSavedMarks({
     documentKey: comments.documentKey,
+    legacyKey: comments.documentLegacyKey,
     unidentified: comments.documentUnidentified,
     enabled: !follow,
     setNotice,

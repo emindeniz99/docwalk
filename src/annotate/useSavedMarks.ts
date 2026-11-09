@@ -30,11 +30,14 @@ export interface SavedMarksApi {
  */
 export function useSavedMarks({
   documentKey,
+  legacyKey = null,
   unidentified,
   enabled,
   setNotice,
 }: {
   documentKey: string | null;
+  /** The key the document had before decision 120; its marks move to `documentKey` once. */
+  legacyKey?: string | null;
   /** The document cannot get a key (no `crypto.subtle`): marks stay in memory and nothing is saved. */
   unidentified: boolean;
   enabled: boolean;
@@ -44,8 +47,11 @@ export function useSavedMarks({
   const [unsaved] = useState(() => new DocumentMarks("", [], null, () => {}));
   const [loaded, setLoaded] = useState<DocumentMarks | null>(null);
   const notify = useRef(setNotice);
+  // Read when a document's marks load, not a reason to load them again.
+  const legacy = useRef(legacyKey);
   useEffect(() => {
     notify.current = setNotice;
+    legacy.current = legacyKey;
   });
 
   const onProblem = useCallback((problem: MarksProblem) => {
@@ -57,7 +63,7 @@ export function useSavedMarks({
     if (!store || documentKey === null || loaded?.doc === documentKey) return;
     let live = true;
     void store
-      .then((s) => loadMarks(s, documentKey, onProblem))
+      .then((s) => loadMarks(s, documentKey, onProblem, legacy.current))
       .then((next) => {
         if (live) setLoaded(next);
       });

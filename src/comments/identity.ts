@@ -3,7 +3,8 @@
  * document identity").
  *
  * - A document with a home keeps that home as its identity: `?src=` URL
- *   (with access parameters removed, so no token is ever stored), `?repo=`
+ *   (origin and path only, so no token in its query is ever stored;
+ *   decision 120), `?repo=`
  *   path, an opened file's name, or a workspace file's root (and folder) and path. The file at that home can change
  *   upstream and the comments stay with it; a comment whose heading went
  *   away shows as orphaned rather than vanishing with a new hash.
@@ -24,7 +25,7 @@ export const DRAFT_ALIAS = "draft";
 export function sourceKey(source: DocumentSource): string | null {
   switch (source.kind) {
     case "url":
-      return `url:${publicSourceUrl(source.url).url}`;
+      return `url:${addressOnly(source.url)}`;
     case "repo":
       return `repo:${source.repo}@${source.ref ?? ""}:${source.path}`;
     case "file":
@@ -40,6 +41,27 @@ export function sourceKey(source: DocumentSource): string | null {
     default:
       return null;
   }
+}
+
+/** A `?src=` URL as origin and path: any query parameter can be a credential, and so can user info. */
+function addressOnly(raw: string): string {
+  try {
+    const url = new URL(raw);
+    return url.origin === "null" ? `${url.protocol}${url.pathname}` : url.origin + url.pathname;
+  } catch {
+    return raw.replace(/[?#].*$/s, "");
+  }
+}
+
+/**
+ * The key a `?src=` document had before decision 120 (the address with only
+ * its access parameters and fragment removed), when it differs from today's.
+ * Comments and saved marks under it are moved to the new key once, then deleted.
+ */
+export function legacySourceKey(source: DocumentSource): string | null {
+  if (source.kind !== "url") return null;
+  const old = `url:${publicSourceUrl(source.url).url}`;
+  return old === sourceKey(source) ? null : old;
 }
 
 /** `sha256:<hex>` of the document text. */
