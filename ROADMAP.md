@@ -78,6 +78,11 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   `?sections=`; the deck, outline, palette, overview, presenter list and
   exports hold the chosen sections, and document mode and the editor keep
   the whole file. `e2e/sections.spec.ts` covers it (19 tests on Chromium).
+- Done 2026-11-09: the diagram tour (decision 109, proposed): in the diagram
+  focus view, T or the Tour button steps through a flowchart, class, state
+  or ER diagram node by node along its edges, fading what is not linked and
+  naming what is; followers see the same path. `e2e/diagram-tour.spec.ts`
+  and `e2e/diagram-tour-mirror.spec.ts` cover it (5 tests on Chromium).
 
 Still open in v1:
 
@@ -317,8 +322,7 @@ the least work. Each starts with a decision row, then failing tests, then
 code.
 
 1. Math and emoji shortcodes, which GitHub renders natively.
-2. A step-through tour of a Mermaid diagram's nodes and paths.
-3. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+2. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 
