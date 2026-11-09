@@ -253,13 +253,9 @@ function splitAtSubheadings(body: HTMLElement): Element[][] {
  * away, once for every page of the slide.
  */
 function emptyCopy(slide: HTMLElement): HTMLElement {
-  const body = bodyOf(slide);
-  const copy = (node: Node): Node => {
-    const out = node.cloneNode(false);
-    if (node !== body) for (const child of node.childNodes) out.appendChild(copy(child));
-    return out;
-  };
-  return copy(slide) as HTMLElement;
+  const copy = slide.cloneNode(true) as HTMLElement;
+  bodyOf(copy).replaceChildren();
+  return copy;
 }
 
 function makePage(
