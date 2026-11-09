@@ -83,7 +83,7 @@ describe("reading stored marks back", () => {
     ],
     [
       "a tool docwalk has no drawing for",
-      record({ strokes: [{ ...pen(), tool: "rect" } as never] }),
+      record({ strokes: [{ ...pen(), tool: "highlighter" } as never] }),
     ],
     ["a colour that is not a key", record({ strokes: [{ ...pen(), color: "red" } as never] })],
     ["a colour that is CSS", record({ strokes: [{ ...pen(), color: "url(#x)" } as never] })],
