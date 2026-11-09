@@ -9,6 +9,7 @@ import { offline, prepareSlide } from "../export/pages";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import { clonePages, type DeckController } from "./controller";
 import { Deck } from "./Deck";
+import { findBlock, locateBlock } from "./focusTargets";
 import { isOverviewKey } from "./useOverviewShortcut";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -510,5 +511,82 @@ describe("shortcuts do not reach through an open view", () => {
     await userEvent.keyboard("o{ArrowDown}");
     window.removeEventListener("keydown", listen);
     expect(seen).toEqual([]);
+  });
+});
+
+/** A stage of pages as the deck builds it: `pages` lists each page's address and its inner HTML. */
+function stageOf(pages: [string, string][]) {
+  const stage = document.createElement("div");
+  for (const [address, html] of pages) {
+    const [id, page] = address.split("/");
+    const section = document.createElement("section");
+    section.dataset["docwalkId"] = id!;
+    section.dataset["page"] = page!;
+    section.innerHTML = html;
+    stage.append(section);
+  }
+  document.body.append(stage);
+  return stage;
+}
+const at = (stage: HTMLElement, address: string, selector: string, i: number) =>
+  [...stage.querySelectorAll("section")]
+    .find((s) => s.dataset["docwalkId"] + "/" + s.dataset["page"] === address)!
+    .querySelectorAll<HTMLElement>(selector)[i]!;
+
+describe("where a block sits (decision 106)", () => {
+  test("code blocks, images and diagrams are numbered across the pages of their section, because they never split", () => {
+    // The same section paginated two ways must give the same number to the same listing.
+    const wide = stageOf([
+      ["s/1", "<img><pre>A</pre><pre>B</pre>"],
+      ["s/2", "<pre>C</pre><img>"],
+      ["t/1", "<pre>other</pre>"],
+    ]);
+    const c = at(wide, "s/2", "pre", 0);
+    expect(locateBlock(c, "code")).toEqual({ slide: "s/2", block: "code", n: 3 });
+    expect(locateBlock(at(wide, "s/2", "img", 0), "image")).toEqual({
+      slide: "s/2",
+      block: "image",
+      n: 2,
+    });
+    // Another section starts again at 1.
+    expect(locateBlock(at(wide, "t/1", "pre", 0), "code")).toEqual({
+      slide: "t/1",
+      block: "code",
+      n: 1,
+    });
+    const diagrams = stageOf([
+      ["d/1", '<div class="docwalk-diagram"></div>'],
+      ["d/2", '<div class="docwalk-diagram"></div>'],
+    ]);
+    expect(locateBlock(at(diagrams, "d/2", ".docwalk-diagram", 0), "diagram")?.n).toBe(2);
+  });
+
+  test("the number finds the same listing on a deck that paginates the section differently", () => {
+    const theirs = stageOf([
+      ["s/1", "<p>placeholder</p><pre>A</pre><pre>B</pre>"],
+      ["s/2", "<pre>C</pre><pre>D</pre>"],
+    ]);
+    // Named on the presenter's page 2, found on this deck's page 1 or 2 alike.
+    expect(findBlock(theirs, { slide: "s/2", block: "code", n: 3 })).toBe(
+      at(theirs, "s/2", "pre", 0),
+    );
+    expect(findBlock(theirs, { slide: "s/3", block: "code", n: 2 })).toBe(
+      at(theirs, "s/1", "pre", 1),
+    );
+    expect(findBlock(theirs, { slide: "s/1", block: "code", n: 5 })).toBeNull();
+    expect(findBlock(theirs, { slide: "nowhere/1", block: "code", n: 1 })).toBeNull();
+  });
+
+  test("a table can split, so it is numbered on its own page", () => {
+    const stage = stageOf([
+      ["s/1", "<table></table><table></table>"],
+      ["s/2", "<table></table>"],
+    ]);
+    const last = at(stage, "s/2", "table", 0);
+    expect(locateBlock(last, "table")).toEqual({ slide: "s/2", block: "table", n: 1 });
+    expect(findBlock(stage, { slide: "s/2", block: "table", n: 1 })).toBe(last);
+    expect(findBlock(stage, { slide: "s/1", block: "table", n: 2 })).toBe(
+      at(stage, "s/1", "table", 1),
+    );
   });
 });

@@ -7,16 +7,18 @@ import {
   MARK_COLORS,
   MARK_TOOLS,
   MAX_CHUNK_POINTS,
-  MAX_DIAGRAMS,
+  MAX_CODE_LINES,
   MAX_DROP_IDS,
+  MAX_FOCUS_BLOCKS,
   MAX_KEEP_IDS,
+  MAX_MARKED_LINES,
   MAX_SLIDE_ADDRESS_CHARS,
   MAX_STROKE_POINTS,
   type MirrorOp,
 } from "./mirrorTypes";
 
 /**
- * The schema of every mirror op (decision 88), checked where the ops arrive:
+ * The schema of every mirror op (decisions 88, 103 and 106), checked where the ops arrive:
  * in a room message after it decrypts (src/remote/crypto.ts) and on the
  * presenter bridge (src/presenter/bridge.ts). Strict: a field it does not
  * name fails the whole message, so nothing a sender adds can ride along.
@@ -34,6 +36,11 @@ const Pan = v.pipe(
   v.minValue(-FOCUS_PAN_LIMIT),
   v.maxValue(FOCUS_PAN_LIMIT),
 );
+
+/** A block's number among the blocks of its kind on its slide (decision 106). */
+const Place = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_FOCUS_BLOCKS));
+const Line = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_CODE_LINES));
+const focusOpen = { type: v.literal("mirror"), op: v.literal("focus-open"), slide: Slide };
 
 const Points = v.pipe(
   v.array(Coord),
@@ -74,18 +81,26 @@ export const MirrorMessageSchema = v.variant("op", [
     slide: Slide,
     ids: v.pipe(v.array(StrokeId), v.maxLength(MAX_KEEP_IDS)),
   }),
-  v.strictObject({
-    type: v.literal("mirror"),
-    op: v.literal("focus-open"),
-    slide: Slide,
-    diagram: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_DIAGRAMS)),
-  }),
+  // One key names the block's kind (decision 106); a message with two, or none, fails.
+  v.strictObject({ ...focusOpen, diagram: Place }),
+  v.strictObject({ ...focusOpen, code: Place }),
+  v.strictObject({ ...focusOpen, table: Place }),
+  v.strictObject({ ...focusOpen, image: Place }),
   v.strictObject({
     type: v.literal("mirror"),
     op: v.literal("focus-view"),
     scale: v.pipe(v.number(), v.finite(), v.minValue(FOCUS_SCALE_MIN), v.maxValue(FOCUS_SCALE_MAX)),
     x: Pan,
     y: Pan,
+  }),
+  v.strictObject({
+    type: v.literal("mirror"),
+    op: v.literal("focus-lines"),
+    lines: v.pipe(
+      v.array(Line),
+      v.maxLength(MAX_MARKED_LINES),
+      v.check((list) => list.every((n, i) => i === 0 || n > list[i - 1]!), "lines ascend"),
+    ),
   }),
   v.strictObject({ type: v.literal("mirror"), op: v.literal("focus-close") }),
 ]) satisfies v.GenericSchema<unknown, { type: "mirror" } & MirrorOp>;

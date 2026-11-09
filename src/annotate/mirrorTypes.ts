@@ -1,6 +1,7 @@
 /**
  * What the presenter mirrors to followers and to the presenter window
- * (decision 88): the laser, pen and arrow strokes, and the diagram focus view.
+ * (decision 88): the laser, pen and arrow strokes, and the focus view of a
+ * diagram, code block, table or image with its line marks (decision 106).
  * This file has no DOM types and no schema library, so the first-load bundle,
  * the Node-run unit tests and the `docwalk-mcp` agent can all import it.
  *
@@ -39,8 +40,12 @@ export const MAX_DROP_IDS = 64;
 export const MAX_KEEP_IDS = MAX_SLIDE_STROKES;
 /** The longest address a message may carry (the same ceiling as a `goto`). */
 export const MAX_SLIDE_ADDRESS_CHARS = 2048;
-/** Diagrams are numbered from 1 on their slide; no slide has more than this. */
-export const MAX_DIAGRAMS = 1000;
+/** A focus op numbers its block from 1 among the blocks of its kind on the slide; no slide has more of one kind. */
+export const MAX_FOCUS_BLOCKS = 1000;
+/** Marked lines in one `focus-lines` (decision 106): a presenter who marks more mirrors the first ones. */
+export const MAX_MARKED_LINES = 256;
+/** The highest line number a `focus-lines` may name. */
+export const MAX_CODE_LINES = 100_000;
 
 /** The focus view's zoom range (Panzoom's, in src/deck/focus.ts) and the pan a receiver follows. */
 export const FOCUS_SCALE_MIN = 0.1;
@@ -100,6 +105,63 @@ export function quantize(unit: number): number {
   return Math.round(Math.min(1, Math.max(0, unit)) * COORD_MAX);
 }
 
+/** The four kinds of focus view (decisions 87 and 106). */
+export const FOCUS_VIEW_KINDS = ["diagram", "code", "table", "image"] as const;
+export type FocusViewKind = (typeof FOCUS_VIEW_KINDS)[number];
+
+/**
+ * The block an open focus view shows: its slide, its kind and its number
+ * among the blocks of that kind on the slide, from 1. Never its text or an id.
+ */
+export interface FocusPlace {
+  slide: string;
+  block: FocusViewKind;
+  n: number;
+}
+
+/**
+ * `focus-open` names the block with one key for its kind (decision 106): the
+ * diagram's shape of decision 88, and the same for code, tables and images.
+ */
+type FocusOpenOp = { op: "focus-open"; slide: string } & (
+  | { diagram: number }
+  | { code: number }
+  | { table: number }
+  | { image: number }
+);
+
+/** The `focus-open` op for `place`. */
+export function focusOpenOp({ slide, block, n }: FocusPlace): FocusOpenOp {
+  switch (block) {
+    case "diagram":
+      return { op: "focus-open", slide, diagram: n };
+    case "code":
+      return { op: "focus-open", slide, code: n };
+    case "table":
+      return { op: "focus-open", slide, table: n };
+    case "image":
+      return { op: "focus-open", slide, image: n };
+  }
+}
+
+/** The block a `focus-open` op names. */
+export function focusPlaceOf(op: FocusOpenOp): FocusPlace {
+  const { slide } = op;
+  if ("diagram" in op) return { slide, block: "diagram", n: op.diagram };
+  if ("code" in op) return { slide, block: "code", n: op.code };
+  if ("table" in op) return { slide, block: "table", n: op.table };
+  return { slide, block: "image", n: op.image };
+}
+
+/**
+ * Marked lines as a `focus-lines` op carries them: whole numbers from 1 to
+ * `MAX_CODE_LINES`, each once, ascending, the first `MAX_MARKED_LINES`.
+ */
+export function markedLines(lines: readonly number[]): number[] {
+  const valid = lines.filter((n) => Number.isInteger(n) && n >= 1 && n <= MAX_CODE_LINES);
+  return [...new Set(valid)].toSorted((a, b) => a - b).slice(0, MAX_MARKED_LINES);
+}
+
 /** The ops that travel to a receiver. The same shapes go in a room message and over the bridge. */
 export type MirrorOp =
   /** The presenter's laser in slide units (0..1). */
@@ -131,10 +193,17 @@ export type MirrorOp =
    * receiver that has them never shows the slide empty.
    */
   | { op: "keep"; slide: string; ids: number[] }
-  /** The presenter opened the focus view on the `diagram`-th diagram (from 1) of a slide. */
-  | { op: "focus-open"; slide: string; diagram: number }
-  /** Zoom and pan of the open focus view; the pan is a fraction of the stage, so any screen frames alike. */
+  /** The presenter opened the focus view on the `n`-th diagram, code block, table or image (from 1) of a slide. */
+  | FocusOpenOp
+  /**
+   * Zoom and position of the open focus view. A diagram or image: the scale
+   * over Fit and the pan as a fraction of the stage, so any screen frames
+   * alike. Code or a table: the type size over Fit, and how far the view is
+   * scrolled across and down as a fraction of how far it can scroll (0..1).
+   */
   | { op: "focus-view"; scale: number; x: number; y: number }
+  /** The marked lines of the open code view, from 1, ascending (decision 106). */
+  | { op: "focus-lines"; lines: number[] }
   | { op: "focus-close" };
 
 /** A mark as the layer reports it (src/annotate/layer.ts) and the feed keeps it. */
@@ -162,6 +231,8 @@ export type MarkEvent =
 
 /** What the focus view tells its observers (src/deck/focusEvents.ts). */
 export type FocusEvent =
-  | { kind: "open"; slide: string; diagram: number }
+  | ({ kind: "open" } & FocusPlace)
   | { kind: "view"; scale: number; x: number; y: number }
+  /** The lines marked in the open code view now, from 1. */
+  | { kind: "lines"; lines: readonly number[] }
   | { kind: "close" };
