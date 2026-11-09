@@ -190,13 +190,20 @@ export class DocumentMarks {
   private readonly listeners = new Set<() => void>();
   private readonly told = new Set<MarksProblem>();
 
-  /** `store` is null when the stored marks could not be read: writing then would replace them unseen. */
+  private readonly store: MarksStore | null;
+
+  /**
+   * `store` is null when the stored marks could not be read: writing then
+   * would replace them unseen. A key no record can carry is the same: the
+   * marks stay on screen, nothing is saved, and the first one says so.
+   */
   constructor(
     readonly doc: string,
     slides: readonly SavedSlide[],
-    private readonly store: MarksStore | null,
+    store: MarksStore | null,
     private readonly onProblem: (problem: MarksProblem) => void,
   ) {
+    this.store = doc.length >= 1 && doc.length <= MAX_DOCUMENT_KEY_CHARS ? store : null;
     for (const slide of slides) {
       this.slides.set(slide.slide, slide);
       this.points += pointsOf(slide.strokes);
@@ -226,6 +233,8 @@ export class DocumentMarks {
    * document would pass a cap.
    */
   put(address: string, fingerprint: string, strokes: readonly SavedStroke[]): boolean {
+    // The empty key is no document (marks that are never kept): nothing to hold, nothing to say.
+    if (this.doc === "") return false;
     const kept = strokes.map(({ tool, color, points }) => ({ tool, color, points: [...points] }));
     const before = this.slides.get(address);
     const points = this.points - (before ? pointsOf(before.strokes) : 0) + pointsOf(kept);
@@ -234,7 +243,8 @@ export class DocumentMarks {
       kept.length === 0 ||
       ((before !== undefined || this.slides.size < MAX_SAVED_SLIDES) &&
         points <= MAX_DOCUMENT_POINTS &&
-        v.is(StoredSlideSchema, record));
+        // The key was checked when this was built; a long one must not read as "full".
+        v.is(StoredSlideSchema, { ...record, doc: "-" }));
     if (!fits) {
       this.tell("full");
       return false;

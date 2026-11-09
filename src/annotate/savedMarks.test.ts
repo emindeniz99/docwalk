@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { MarkEvent } from "./mirrorTypes";
 import {
+  DocumentMarks,
   loadMarks,
   markKey,
   marksSaver,
@@ -293,6 +294,32 @@ describe("the marks of one document", () => {
     expect(problem.mock.calls).toEqual([["failed"]]);
     // Nor does it say it deleted what it could not reach.
     expect(await marks.clear()).toBe(false);
+  });
+
+  test("a document key the schema would refuse saves nothing and says the save failed, not that it is full", async () => {
+    const store = memoryMarksStore();
+    const put = vi.spyOn(store, "put");
+    const problem = vi.fn<(kind: "full" | "failed") => void>();
+    const marks = await loadMarks(store, "k".repeat(4097), problem);
+    marks.put("intro/1", "aa", strokes);
+    await marks.settled();
+    expect(put).not.toHaveBeenCalled();
+    expect(problem.mock.calls).toEqual([["failed"]]);
+    expect(await marks.clear()).toBe(false);
+  });
+
+  test("marks with no document at all keep nothing and say nothing", async () => {
+    const marks = new DocumentMarks("", [], null, () => {});
+    expect(marks.put("intro/1", "aa", strokes)).toBe(false);
+    expect(marks.size).toBe(0);
+  });
+
+  test("a key at the limit saves like any other", async () => {
+    const store = memoryMarksStore();
+    const marks = await loadMarks(store, "k".repeat(4096), vi.fn());
+    expect(marks.put("intro/1", "aa", strokes)).toBe(true);
+    await marks.settled();
+    expect(await store.load("k".repeat(4096))).toHaveLength(1);
   });
 
   test("a delete the store refuses is not reported as done", async () => {
