@@ -14,6 +14,7 @@ import {
 } from "../annotate/mirrorTypes";
 import { API_LIMITS } from "../api/types";
 import type { DeckController, SlideInfo } from "../deck/controller";
+import type { Countdown } from "../presenter/pacing";
 import {
   connectRoom,
   LASER_INTERVAL_MS,
@@ -1365,6 +1366,288 @@ describe("phone remote view", () => {
     mount(h(RemoteView, { creds: { room, key: null, view } }));
     expect(document.querySelector("h1")?.textContent).toBe("This remote link is incomplete");
   });
+});
+
+const COUNTDOWN_MIN = 60_000;
+const PAUSED_COUNTDOWN: Countdown = {
+  targetMs: 20 * COUNTDOWN_MIN,
+  spentMs: 5 * COUNTDOWN_MIN,
+  startedAt: null,
+};
+const countdownsOf = (p: Peer) => ofType(p, "countdown");
+const settle = () => new Promise((r) => setTimeout(r, 300));
+
+async function hostWithCountdown(countdown?: Countdown | null) {
+  const relay = new FakeRelay();
+  const props: HostProps = {
+    controller: fakeController(),
+    docLink: null,
+    enabled: true,
+    socketFactory: relay.factory,
+    base: BASE,
+    ...(countdown === undefined ? {} : { countdown }),
+  };
+  const host = mountHost(props);
+  const change = (next: Countdown | null) =>
+    mount(h(HostProbe, { ...props, countdown: next, report: (r) => (host.current = r) }));
+  return {
+    relay,
+    host,
+    change,
+    remote: await joinCreds(host, "remote"),
+    follow: await joinCreds(host, "follow"),
+  };
+}
+
+// The minimal presenter of setupRemoteView sends the state; these send the countdown.
+const sendCountdown = (
+  presenter: Peer,
+  next: { targetMs: number; spentMs: number; running: boolean } | null,
+) => presenter.conn.send({ type: "countdown", countdown: next });
+const clockEl = () => document.querySelector<HTMLElement>(".docwalk-remote-clock");
+const timerEl = () => document.querySelector<HTMLElement>('[role="timer"]');
+
+describe("the countdown on the phone remote (decision 112)", () => {
+  const MIN = COUNTDOWN_MIN;
+  const PAUSED = PAUSED_COUNTDOWN;
+  const SLOW = { timeout: 4000 };
+
+  test("the host sends the countdown to a phone and never to a follower", async () => {
+    const { relay, remote, follow } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    const follower = peer(relay, follow, "follower");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+    await settle();
+    // Durations, not instants: the phone's clock is not the laptop's.
+    expect(countdownsOf(phone).at(-1)).toEqual({
+      type: "countdown",
+      countdown: { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false },
+    });
+    expect(countdownsOf(follower)).toEqual([]);
+    // Nor can a follower read it off the wire: the view key opens the states and nothing else.
+    const viewKey = await importKey(follow.view!);
+    const readable: string[] = [];
+    for (const frame of relay.wire) {
+      const sealed = await decrypt(viewKey, JSON.parse(frame));
+      if (sealed) readable.push(sealed.message.type);
+    }
+    expect(readable).toContain("state");
+    expect(readable).not.toContain("countdown");
+  });
+
+  test("a phone's hello gets the state and then the countdown", async () => {
+    const { relay, remote } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    const order = phone.received
+      .map((m) => m.type)
+      .filter((type) => type === "state" || type === "countdown");
+    expect(order.slice(0, 2)).toEqual(["state", "countdown"]);
+  });
+
+  test("a change goes out at once: start, pause, resume and Reset", async () => {
+    const { relay, remote, change } = await hostWithCountdown(null);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(ofType(phone, "state").length).toBeGreaterThan(0));
+    await settle();
+    // No countdown yet, so a null at the hello would only be noise.
+    expect(countdownsOf(phone)).toEqual([]);
+
+    const startedAt = Date.now() - 1000;
+    change({ targetMs: 20 * MIN, spentMs: 5 * MIN, startedAt });
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(1));
+    const running = countdownsOf(phone)[0]!.countdown!;
+    expect(running.running).toBe(true);
+    // The time spent so far travels, not the instant it started.
+    expect(running.spentMs).toBeGreaterThanOrEqual(5 * MIN + 1000);
+    expect(running.spentMs).toBeLessThan(5 * MIN + 5000);
+    expect(Object.keys(running).toSorted()).toEqual(["running", "spentMs", "targetMs"]);
+
+    change(PAUSED);
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(2));
+    expect(countdownsOf(phone)[1]!.countdown).toEqual({
+      targetMs: 20 * MIN,
+      spentMs: 5 * MIN,
+      running: false,
+    });
+
+    change(null);
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(3));
+    expect(countdownsOf(phone)[2]).toEqual({ type: "countdown", countdown: null });
+
+    // The same values in a new object say nothing new.
+    change(null);
+    change({ ...PAUSED });
+    change({ ...PAUSED });
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(4));
+    await settle();
+    expect(countdownsOf(phone)).toHaveLength(4);
+  });
+
+  test("a host with no countdown says nothing about one", async () => {
+    const { relay, remote } = await hostWithCountdown();
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(ofType(phone, "state").length).toBeGreaterThan(0));
+    await settle();
+    expect(countdownsOf(phone)).toEqual([]);
+  });
+
+  test("when the socket reopens the phone gets the state and the countdown again", async () => {
+    const { relay, remote } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    await settle();
+    const before = countdownsOf(phone).length;
+    relay.drop(0);
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(before), SLOW);
+  });
+
+  test("a countdown that someone else sends changes nothing on the host", async () => {
+    const { relay, remote, host } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    await settle();
+    const before = ofType(phone, "state").length;
+    await phone.conn.send({
+      type: "countdown",
+      countdown: { targetMs: MIN, spentMs: 0, running: true },
+    });
+    await settle();
+    expect(host.current!.status).toBe("open");
+    expect(ofType(phone, "state").length).toBe(before);
+  });
+
+  test("RemoteView shows the time left and the verdict in words", async () => {
+    // Slide 3 of 10 is 25% of the talk.
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    await vi.waitFor(() => expect(timerEl()?.textContent).toBe("15:00"));
+    expect(clockEl()!.textContent).toContain("Time left");
+    expect(clockEl()!.textContent).toContain("On pace");
+    expect(clockEl()!.getAttribute("data-pace")).toBe("on-pace");
+    expect(timerEl()!.getAttribute("aria-label")).toBe("Time left");
+
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 15 * MIN, running: false });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Behind schedule"));
+    expect(clockEl()!.getAttribute("data-pace")).toBe("behind");
+    expect(timerEl()!.textContent).toBe("5:00");
+
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 1 * MIN, running: false });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Ahead of schedule"));
+    expect(clockEl()!.getAttribute("data-pace")).toBe("ahead");
+  });
+
+  test("the verdict follows the slide: the same clock is behind on slide 3 and ahead on slide 10", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 15 * MIN, running: false });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Behind schedule"));
+    await presenter.conn.send({
+      type: "state",
+      current: "end/1",
+      index: 9,
+      total: 10,
+      title: "End",
+      docLink: null,
+      docLinkTooLong: false,
+      level: "auto",
+    });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Ahead of schedule"));
+  });
+
+  test("past zero it says Over time with a warning icon, so colour is never the only signal", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 21 * MIN, running: false });
+    await vi.waitFor(() => expect(timerEl()?.textContent).toBe("−1:00"));
+    expect(clockEl()!.getAttribute("data-over")).toBe("true");
+    expect(clockEl()!.textContent).toContain("Over time");
+    expect(clockEl()!.querySelector("svg")).not.toBeNull();
+    expect(timerEl()!.getAttribute("aria-label")).toBe("Over time");
+  });
+
+  test("it says Paused while paused and counts on while running", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: true });
+    await vi.waitFor(() => expect(timerEl()).not.toBeNull());
+    expect(clockEl()!.textContent).not.toContain("Paused");
+    // Counts on from the moment the message arrived, by the phone's own clock.
+    const first = timerEl()!.textContent;
+    expect(first).toMatch(/^(15:00|14:5\d)$/);
+    await vi.waitFor(() => expect(timerEl()!.textContent).not.toBe(first), SLOW);
+
+    await sendCountdown(presenter, {
+      targetMs: 20 * MIN,
+      spentMs: 5 * MIN + 30_000,
+      running: false,
+    });
+    await vi.waitFor(() => expect(clockEl()!.textContent).toContain("Paused"));
+    expect(timerEl()!.textContent).toBe("14:30");
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(timerEl()!.textContent).toBe("14:30");
+
+    await sendCountdown(presenter, {
+      targetMs: 20 * MIN,
+      spentMs: 5 * MIN + 30_000,
+      running: true,
+    });
+    await vi.waitFor(() => expect(clockEl()!.textContent).not.toContain("Paused"));
+  });
+
+  test("it is a read-only timer outside the slide-count live region, with no controls", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    await vi.waitFor(() => expect(timerEl()).not.toBeNull());
+    expect(timerEl()!.closest("[aria-live]")).toBeNull();
+    expect(clockEl()!.querySelector("button, input, a, [tabindex]")).toBeNull();
+    // The count line stays the only live region.
+    expect(document.querySelectorAll("[aria-live]")).toHaveLength(1);
+    // And it leaves the pad its height: a few lines, not a panel.
+    expect(clockEl()!.getBoundingClientRect().height).toBeLessThan(120);
+  });
+
+  test("Reset in the presenter window takes the clock off the phone", async () => {
+    const presenter = await setupRemoteView();
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    await vi.waitFor(() => expect(timerEl()).not.toBeNull());
+    await sendCountdown(presenter, null);
+    await vi.waitFor(() => expect(timerEl()).toBeNull());
+    expect(clockEl()).toBeNull();
+  });
+
+  test("a phone that never gets a countdown shows no timer", async () => {
+    await setupRemoteView();
+    await settle();
+    expect(timerEl()).toBeNull();
+    expect(clockEl()).toBeNull();
+  });
+
+  test(
+    "when the presenter is away the clock goes with it, and comes back with the presenter",
+    { timeout: PRESENTER_REPLY_MS + 6000 },
+    async () => {
+      const presenter = await setupRemoteView();
+      await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+      await vi.waitFor(() => expect(timerEl()).not.toBeNull());
+      await userEvent.click(button("Next"));
+      await vi.waitFor(() => expect(status()).toBe(PRESENTER_AWAY()), {
+        timeout: PRESENTER_REPLY_MS + 2000,
+      });
+      expect(timerEl()).toBeNull();
+
+      // Back: the state brings the controls and the countdown it sent last comes back.
+      await presenter.conn.send({
+        type: "state",
+        current: "retries/1",
+        index: 2,
+        total: 10,
+        title: "Retries",
+        docLink: null,
+        docLinkTooLong: false,
+        level: "auto",
+      });
+      await vi.waitFor(() => expect(timerEl()?.textContent).toBe("15:00"));
+    },
+  );
 });
 
 describe("join dialog", () => {

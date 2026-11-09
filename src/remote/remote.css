@@ -83,6 +83,59 @@
   text-align: center;
 }
 
+/*
+ * The presenter window's countdown, read-only (decision 112): one wrapped row
+ * of label, time, "Paused" and the verdict, so the pad keeps its height. Past
+ * zero it takes the stage's note colours, an icon and a heavier edge, so the
+ * colour is never the only signal.
+ */
+.docwalk-remote-clock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--dw-space-xs) var(--dw-space-md);
+  margin: 0;
+  padding: var(--dw-space-xs) var(--dw-space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--dw-radius-md);
+  background: var(--dw-color-stage-raised);
+}
+
+.docwalk-remote-clock-label {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: var(--dw-space-xs);
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+  font-weight: 600;
+}
+
+.docwalk-remote-clock-time {
+  font-size: var(--dw-type-heading-size);
+  font-weight: 700;
+}
+
+.docwalk-remote-clock-note {
+  color: var(--muted);
+  font-size: var(--dw-type-caption-size);
+  font-weight: 600;
+}
+
+.docwalk-remote-clock[data-over="true"],
+.docwalk-remote-clock[data-pace="behind"] {
+  border: 2px solid var(--dw-color-stage-note-border);
+  background: var(--dw-color-stage-note-surface);
+  color: var(--dw-color-stage-note-ink);
+}
+
+.docwalk-remote-clock[data-over="true"] .docwalk-remote-clock-label,
+.docwalk-remote-clock[data-over="true"] .docwalk-remote-clock-note,
+.docwalk-remote-clock[data-pace="behind"] .docwalk-remote-clock-note {
+  color: var(--dw-color-stage-note-ink);
+}
+
 /* Read by screen readers, not drawn. */
 .docwalk-remote-sr {
   position: absolute;

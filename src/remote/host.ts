@@ -3,6 +3,7 @@ import * as v from "valibot";
 import type { MirrorFeed } from "../annotate/mirrorFeed";
 import { mirrorFrameBytes, resyncGapMs, type MirrorOp } from "../annotate/mirrorTypes";
 import type { DeckController } from "../deck/controller";
+import { toRemoteCountdown, type Countdown } from "../presenter/pacing";
 import type { LevelOption } from "../sectioning/sectionize";
 import { answerAgent, isAgentRequest, type AgentHostContext } from "./agent";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
@@ -26,6 +27,11 @@ import type { RemoteMessage } from "./types";
  * Both, and every step or goto, need the control key of the phone remote
  * link; the follow link carries only the view key (decision 68).
  * The switch belongs to the room and starts off, also after a reload.
+ *
+ * The countdown of the presenter window (decision 112) goes to remotes as a
+ * message of its own under the control key: on every change, after the state
+ * that answers a hello or opens the socket, and as null once it is gone.
+ * Followers never get it.
  *
  * The join links stay hidden until the presenter's socket has opened, so
  * the presenter's seat token is the first the relay sees (decision 71).
@@ -83,6 +89,12 @@ export interface RemoteHostOptions {
    * it, and resyncs a follower that joins late.
    */
   mirror?: MirrorFeed | null;
+  /**
+   * The presenter window's countdown, which phone remotes show (decision
+   * 112); null or undefined when there is none. The host sends durations on
+   * every change and never to followers.
+   */
+  countdown?: Countdown | null;
 }
 
 export interface RemoteHost {
@@ -133,6 +145,11 @@ function claimRoom(room: string): Promise<boolean> {
   return claim;
 }
 
+/** What makes two countdowns differ for the phones: the target, the time spent and the instant it started. */
+function countdownKey(countdown: Countdown | null): string | null {
+  return countdown ? `${countdown.targetMs}:${countdown.spentMs}:${countdown.startedAt}` : null;
+}
+
 function storage(): Storage | null {
   try {
     return globalThis.sessionStorage ?? null;
@@ -171,6 +188,7 @@ export function useRemoteHost({
   onAgentEdit,
   onAgentEditRefused,
   mirror = null,
+  countdown = null,
 }: RemoteHostOptions): RemoteHost {
   /** Null while a new room's keys are generated (none stored, a duplicated tab, a taken seat). */
   const [creds, setCreds] = useState(readStoredCredentials);
@@ -196,6 +214,12 @@ export function useRemoteHost({
   const builtForRef = useRef<string | null>(null);
   const deckWaiters = useRef(new Set<() => void>());
   const allowRef = useRef(allowAgentEdits);
+  const countdownRef = useRef(countdown);
+  /**
+   * What the phones were last sent, as `countdownKey` writes it: null for
+   * nothing sent or a cleared clock, undefined when a send did not go out.
+   */
+  const sentCountdownRef = useRef<string | null | undefined>(null);
   const callbacks = useRef({ onAgentEdit, onAgentEditRefused });
   useLayoutEffect(() => {
     if (controller !== controllerRef.current) builtForRef.current = controller ? markdown : null;
@@ -204,6 +228,7 @@ export function useRemoteHost({
     // An applied write sets the ref at once; the prop catches up a render later.
     markdownRef.current = markdown;
     allowRef.current = allowAgentEdits;
+    countdownRef.current = countdown;
     callbacks.current = { onAgentEdit, onAgentEditRefused };
   });
   useEffect(() => {
@@ -237,6 +262,29 @@ export function useRemoteHost({
     } else if (result === "sent") {
       setDocLinkTooLong(state.docLinkTooLong);
     }
+  }, []);
+
+  /**
+   * Sends the countdown to the phones. A change goes out when it differs from
+   * what they were sent; `again` (a hello, a reopened socket) resends a running
+   * or paused countdown they may have missed, and says nothing when there is none.
+   */
+  const sendCountdown = useCallback(async (now: Countdown | null, again: boolean) => {
+    const conn = connection.current;
+    if (!conn) return;
+    const key = countdownKey(now);
+    if (
+      again ? now === null && sentCountdownRef.current === null : key === sentCountdownRef.current
+    ) {
+      return;
+    }
+    sentCountdownRef.current = key;
+    const result = await conn.send({
+      type: "countdown",
+      countdown: now ? toRemoteCountdown(now, Date.now()) : null,
+    });
+    // The socket was not open: the next change or hello sends it again.
+    if (result !== "sent" && sentCountdownRef.current === key) sentCountdownRef.current = undefined;
   }, []);
 
   useEffect(() => {
@@ -291,6 +339,11 @@ export function useRemoteHost({
       }, wait);
     };
 
+    /** The state, then the countdown the phones may have missed (decision 112). */
+    const announce = async () => {
+      await sendState();
+      if (active) await sendCountdown(countdownRef.current, true);
+    };
     let helloStateTimer: ReturnType<typeof setTimeout> | undefined;
     let lastHelloState = Number.NEGATIVE_INFINITY;
     const answerHello = () => {
@@ -298,7 +351,7 @@ export function useRemoteHost({
       const send = () => {
         helloStateTimer = undefined;
         lastHelloState = Date.now();
-        if (active) void sendState();
+        if (active) void announce();
       };
       const wait = lastHelloState + HELLO_STATE_GAP_MS - Date.now();
       if (wait > 0) helloStateTimer = setTimeout(send, wait);
@@ -397,6 +450,7 @@ export function useRemoteHost({
           mirror?.laserOff();
           break;
         case "state":
+        case "countdown":
         case "doc":
         case "slides":
         case "result":
@@ -418,7 +472,7 @@ export function useRemoteHost({
         setStatus(next);
         if (next === "open") {
           setOpened(room.room);
-          void sendState();
+          void announce();
           // Followers that stayed may have missed marks while the socket was down.
           scheduleResync();
         }
@@ -438,13 +492,14 @@ export function useRemoteHost({
       clearTimeout(laserTimer);
       clearTimeout(resyncTimer);
       clearTimeout(helloStateTimer);
+      sentCountdownRef.current = null;
       stopMirror?.();
       conn.close();
       connection.current = null;
       setStatus("connecting");
       setLaser(null);
     };
-  }, [room, socketFactory, base, sendState, mirror]);
+  }, [room, socketFactory, base, sendState, sendCountdown, mirror]);
 
   // Subscribing announces the current slide at once, and again on every change,
   // including after the deck is rebuilt or the doc link changes.
@@ -454,6 +509,11 @@ export function useRemoteHost({
     docLinkRef.current = docLink;
     return controller.onChange(() => void sendState());
   }, [ready, controller, docLink, sendState]);
+
+  // A change of the countdown reaches the phones at once, also the one that ends it.
+  useEffect(() => {
+    if (ready) void sendCountdown(countdown, false);
+  }, [ready, countdown, sendCountdown]);
 
   const roomId = creds?.room ?? null;
   const setAllowAgentEdits = useCallback(

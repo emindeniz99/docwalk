@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
+import { ChevronLeft, ChevronRight, Crosshair, TriangleAlert } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -9,6 +9,16 @@ import {
 import { Button } from "react-aria-components";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
+import {
+  formatRemaining,
+  fromRemoteCountdown,
+  isOver,
+  paceOf,
+  remainingMs,
+  slideShareOf,
+  timeShare,
+  type Countdown,
+} from "../presenter/pacing";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
 import type { FollowState } from "./follower";
 import type { RemoteMessage, RoomCredentials } from "./types";
@@ -49,6 +59,8 @@ function useRemoteControl(
   const [status, setStatus] = useState<RemoteStatus>("connecting");
   const [state, setState] = useState<FollowState | null>(null);
   const [presenterAway, setPresenterAway] = useState(false);
+  // The presenter window's countdown, anchored to this phone's clock on arrival (decision 112).
+  const [countdown, setCountdown] = useState<Countdown | null>(null);
   const connection = useRef<RoomConnection | null>(null);
   const replyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const room = creds?.room;
@@ -67,7 +79,15 @@ function useRemoteControl(
       creds: { room, key, view: null },
       role: "remote",
       onMessage: (message) => {
-        if (!active || message.type !== "state") return;
+        if (!active) return;
+        if (message.type === "countdown") {
+          // Durations only: a running clock counts on from the moment it arrives.
+          setCountdown(
+            message.countdown ? fromRemoteCountdown(message.countdown, Date.now()) : null,
+          );
+          return;
+        }
+        if (message.type !== "state") return;
         const { type: _type, ...rest } = message;
         clearTimeout(replyTimer.current);
         setPresenterAway(false);
@@ -95,7 +115,75 @@ function useRemoteControl(
     if (message.type === "step" || message.type === "goto") expectReply();
     void connection.current?.send(message);
   };
-  return { status, state, presenterAway, send };
+  return { status, state, presenterAway, countdown, send };
+}
+
+/**
+ * Milliseconds until the clock's face next changes, for a countdown with
+ * `remaining` left: it counts whole seconds toward zero (`formatRemaining`),
+ * so a plain 1 s timer from the message's arrival would skip a number.
+ */
+function untilNextSecond(remaining: number): number {
+  const into = remaining >= 0 ? remaining % 1000 : 1000 + (remaining % 1000);
+  return (into === 0 ? 1000 : into) + 2;
+}
+
+/**
+ * The presenter window's countdown, read-only: the time left or over, Paused
+ * while paused, and the verdict in words (decision 112). No bars and no
+ * Elapsed clock: the pad needs the height. Not a live region: the count line
+ * above stays the only one, so a ticking clock never talks over a press.
+ */
+function RemoteClock({
+  countdown,
+  position,
+}: {
+  countdown: Countdown;
+  position: { index: number; total: number } | null;
+}) {
+  const [now, setNow] = useState(Date.now);
+  const running = countdown.startedAt !== null;
+  // A countdown that just arrived reads as it was sent until the first tick: a `now` from
+  // before its arrival counts no time.
+  useEffect(() => {
+    if (!running) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setNow(Date.now());
+      timer = setTimeout(tick, untilNextSecond(remainingMs(countdown, Date.now())));
+    };
+    timer = setTimeout(tick, untilNextSecond(remainingMs(countdown, Date.now())));
+    return () => clearTimeout(timer);
+  }, [countdown, running]);
+
+  const over = isOver(countdown, now);
+  const share = position ? slideShareOf(position.index, position.total) : null;
+  const pace = share === null ? null : paceOf(timeShare(countdown, now), share);
+  const label = over ? m.presenter_countdown_over() : m.presenter_countdown_left();
+  const verdict =
+    pace === "ahead"
+      ? m.presenter_pace_ahead()
+      : pace === "behind"
+        ? m.presenter_pace_behind()
+        : m.presenter_pace_on();
+  return (
+    <div
+      className="docwalk-remote-clock"
+      data-over={over ? "true" : undefined}
+      data-pace={over ? "over" : (pace ?? undefined)}
+    >
+      <span className="docwalk-remote-clock-label">
+        {over && <TriangleAlert size={16} aria-hidden="true" />}
+        {label}
+      </span>
+      <span role="timer" aria-label={label} className="docwalk-remote-clock-time">
+        {formatRemaining(remainingMs(countdown, now))}
+      </span>
+      {!running && <span className="docwalk-remote-clock-note">{m.phone_countdown_paused()}</span>}
+      {/* Past zero the label already says Over time. */}
+      {!over && pace !== null && <span className="docwalk-remote-clock-note">{verdict}</span>}
+    </div>
+  );
 }
 
 const clamp = (n: number) => Math.min(1, Math.max(0, n));
@@ -182,7 +270,11 @@ function LaserPad({ send, disabled }: { send: (m: RemoteMessage) => void; disabl
 
 /** The phone remote (`?view=remote#room=..&k=..`). No document is loaded here: only the presenter's state. */
 export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
-  const { status, state, presenterAway, send } = useRemoteControl(creds, socketFactory, base);
+  const { status, state, presenterAway, countdown, send } = useRemoteControl(
+    creds,
+    socketFactory,
+    base,
+  );
   // A page root: its text follows a language switch made in another docwalk tab.
   useLocale();
 
@@ -228,6 +320,13 @@ export function RemoteView({ creds, socketFactory, base }: RemoteViewProps) {
             : m.phone_slide_unknown()}
         </span>
       </p>
+      {/* Only while the presenter answers: a clock from a presenter that is away would run on unseen. */}
+      {countdown && !disabled && (
+        <RemoteClock
+          countdown={countdown}
+          position={state ? { index: state.index, total: state.total } : null}
+        />
+      )}
       <LaserPad send={send} disabled={disabled} />
       <footer className="docwalk-remote-controls">
         <Button
