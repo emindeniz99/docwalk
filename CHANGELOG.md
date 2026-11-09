@@ -46,6 +46,14 @@ The first release.
   `$$…$$`, ` ```math ` fences and `:rocket:`. Formulas are drawn as MathML
   in a worker that stops after 500 ms, and a dollar amount such as
   `$5 and $10` stays text.
+- A whiteboard for each section (W, the annotation toolbar or the palette)
+  with its own marks, shown to followers and in the presenter window, saved
+  with your marks and printed as a page after its section. Rectangle (R)
+  and ellipse (C) tools. A stylus draws on the slide without choosing a
+  tool; once a pen has touched the screen, fingers change slides. More
+  actions › Stylus draws, fingers change slides turns it off.
+- Export › Print with speaker notes prints each chosen section's notes on a
+  page after its last slide. The HTML file and PNG images never carry notes.
 - A diagram tour: in a diagram's focus view, press T or Tour to step
   through a flowchart, class, state or ER diagram node by node along its
   edges. Nodes and edges off the path fade, and a status line names what the
