@@ -36,6 +36,47 @@ function voffsetEm(value: string): number | null {
 }
 
 /**
+ * The most a space, a width, a height or a depth may add or take away, in em.
+ * `voffset` was summed and held to 3 em, but the other attributes that move
+ * ink passed with any value up to Temml's `maxSize` 20 em: `\rule{-30em}{1em}`
+ * writes a negative `width`, and a negative `lspace` or `width` slides what
+ * follows back over what came before, with no note (rule 3). Temml's own
+ * lengths are 0.5 em or less except the 3.5 em minimum of `\xrightarrow`;
+ * `\quad` and `\qquad` are 1 em and 2 em. 4 em keeps all of those.
+ */
+export const MAX_LENGTH_EM = 4;
+
+/** The attributes `fromTree` holds to `MAX_LENGTH_EM`. `voffset` has its own rule. */
+const SPACING_ATTRIBUTES: ReadonlySet<string> = new Set(["width", "lspace", "rspace"]);
+const EXTENT_ATTRIBUTES: ReadonlySet<string> = new Set(["height", "depth"]);
+
+/** A multiple of the element's own size: Temml writes `\llap` as `lspace="-1width"`. */
+const OWN_SIZE = /^([+-]?(?:\d+\.?\d*|\.\d+))(width|height|depth)$/;
+
+/**
+ * What to keep of a `width`, `lspace`, `rspace`, `height` or `depth`, or null to
+ * drop it. A unit the rebuild cannot add up is dropped, as for `voffset`. A
+ * width or space below zero is dropped: nothing Temml writes needs one, and it
+ * is how ink slides over its neighbours. A height or depth keeps its sign,
+ * because Temml writes `+0.3em`, `-0.18em` and `\rule[-1em]`'s pair to adjust a
+ * box. Past `MAX_LENGTH_EM` the value is cut to it, keeping a leading `+`,
+ * which `mpadded` reads as "add". A multiple of the element's own size passes
+ * up to one: `\llap` is `-1width`, `\clap` `-0.5width`, and a box can slide
+ * only by what it holds.
+ */
+function lengthValue(name: string, value: string): string | null {
+  const text = value.trim();
+  const own = OWN_SIZE.exec(text);
+  if (own) return Math.abs(Number(own[1])) <= 1 ? text : null;
+  if (/^[+-]?0+(?:\.0*)?$/.test(text)) return text; // `0`: the one unitless length.
+  const em = voffsetEm(text);
+  if (em === null) return null;
+  if (SPACING_ATTRIBUTES.has(name) && em < 0) return null;
+  if (Math.abs(em) <= MAX_LENGTH_EM) return text;
+  return `${text.startsWith("+") ? "+" : ""}${em < 0 ? "-" : ""}${MAX_LENGTH_EM}em`;
+}
+
+/**
  * The `<math>` element for `tree`, or `null` when `tree` is not allowed
  * (a root that is not a `math` element, or anything that is not a tree). Every
  * element is made with `createElementNS`; nothing is parsed from a string. A
@@ -77,6 +118,9 @@ export function fromTree(
           to.setAttribute(key, value);
           below = shift + em;
         }
+      } else if (SPACING_ATTRIBUTES.has(key) || EXTENT_ATTRIBUTES.has(key)) {
+        const kept = lengthValue(key, value);
+        if (kept !== null && mathAttributeAllowed(key, kept)) to.setAttribute(key, kept);
       } else if (key === "class") classes.push(...mathClasses(value));
       else if (mathAttributeAllowed(key, value)) to.setAttribute(key, value);
     }

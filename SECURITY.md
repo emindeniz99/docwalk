@@ -31,10 +31,12 @@ protects:
   `url()`; docwalk refuses a diagram that names a remote image, and passes
   Mermaid's SVG through DOMPurify too. Code colours are added after both
   sanitizers, as text and class names only. Formulas are drawn after both
-  too: Temml runs with `trust` off and limits on length, nesting and size,
-  and docwalk copies its MathML into fresh elements, keeping only listed
-  element names, attributes, values and classes; the exports hold MathML to
-  the same lists. Emoji shortcodes change the text of text nodes and nothing
+  too: Temml runs in a Web Worker with `trust` off and limits on length,
+  nesting and size, and the page stops that worker after 500 ms per
+  formula. The page rebuilds the worker's data tree into fresh elements,
+  keeping only listed element names, attributes, values and classes, and
+  holds lengths and shifts to a few em; the exports hold MathML to the same
+  lists. Emoji shortcodes change the text of text nodes and nothing
   else. The deployed site sends
   a content security policy with `script-src 'self'` (plus, by its hash,
   the one inline script: the check for browsers too old to run docwalk)

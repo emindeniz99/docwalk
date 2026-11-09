@@ -4,7 +4,8 @@ import { parseMarkdown } from "../sectioning/sectionize";
 import { renderEmoji } from "./emoji";
 import { MATH_CLASS, MATH_DISPLAY_CLASS, MATH_ERROR_CLASS, renderMath } from "./math";
 import { MATHML_NS, MATH_CLASSES, MATH_ELEMENTS, mathAttributeAllowed } from "./mathAllow";
-import { MAX_TEX_CHARS } from "./mathTree";
+import { fromTree } from "./mathRebuild";
+import { MAX_TEX_CHARS, type MathTree } from "./mathTree";
 import { nodesToHtml } from "./toHtml";
 
 /**
@@ -230,6 +231,176 @@ describe("commands that draw, minus what would reach the page", () => {
     expect(box.querySelectorAll("math")).toHaveLength(1);
     expect(unsafeIn(box)).toEqual([]);
     expect(urls).toEqual([]);
+  });
+});
+
+const LENGTH_ATTRIBUTES = ["width", "lspace", "rspace", "height", "depth"] as const;
+
+/** Every `width`, `lspace`, `rspace`, `height` and `depth` under `root`, as `name=value`, in document order. */
+function lengthsIn(root: Element): string[] {
+  return [...root.querySelectorAll("*")].flatMap((el) =>
+    LENGTH_ATTRIBUTES.filter((name) => el.hasAttribute(name)).map(
+      (name) => `${el.localName}:${name}=${el.getAttribute(name)}`,
+    ),
+  );
+}
+
+const mathOf = (...children: MathTree[]): MathTree => ({
+  name: "math",
+  attributes: [],
+  children,
+});
+const withAttributes = (name: string, attributes: [string, string][]): MathTree => ({
+  name,
+  attributes,
+  children: [],
+});
+/** What the page keeps of one `name` carrying `attributes`. */
+const kept = (name: string, attributes: [string, string][]) =>
+  lengthsIn(fromTree(mathOf(withAttributes(name, attributes)), false)!);
+
+describe("a length cannot slide ink over other content (rule 3)", () => {
+  // `voffset` was summed and held to 3 em. The attributes that move ink sideways, or
+  // make the box smaller than its ink, took any value Temml's 20 em `maxSize` allowed
+  // (a negative `\rule` width, `lspace="-1width"`), so a formula could draw over text
+  // beside it with no note.
+  test("a negative width or space is dropped, so ink cannot slide left over its neighbours", () => {
+    expect(kept("mspace", [["width", "-30em"]])).toEqual([]);
+    expect(kept("mspace", [["width", "-0.5px"]])).toEqual([]);
+    expect(kept("mpadded", [["lspace", "-2em"]])).toEqual([]);
+    expect(kept("mpadded", [["lspace", "-3pt"]])).toEqual([]);
+    expect(kept("mo", [["rspace", "-1em"]])).toEqual([]);
+    expect(kept("mpadded", [["width", "-1cm"]])).toEqual([]);
+  });
+
+  test("a positive width or space is capped at 4 em, in any unit", () => {
+    expect(kept("mspace", [["width", "20em"]])).toEqual(["mspace:width=4em"]);
+    expect(kept("mspace", [["width", "100pt"]])).toEqual(["mspace:width=4em"]);
+    expect(kept("mspace", [["width", "999999999999em"]])).toEqual(["mspace:width=4em"]);
+    expect(kept("mpadded", [["lspace", "10em"]])).toEqual(["mpadded:lspace=4em"]);
+    expect(kept("mo", [["rspace", "5cm"]])).toEqual(["mo:rspace=4em"]);
+    expect(kept("mpadded", [["width", "+20em"]])).toEqual(["mpadded:width=+4em"]);
+  });
+
+  test("a height or depth is capped at 4 em either way and keeps its sign", () => {
+    expect(kept("mpadded", [["height", "30em"]])).toEqual(["mpadded:height=4em"]);
+    expect(kept("mpadded", [["height", "-30em"]])).toEqual(["mpadded:height=-4em"]);
+    expect(kept("mpadded", [["depth", "+30em"]])).toEqual(["mpadded:depth=+4em"]);
+    expect(kept("mpadded", [["depth", "-30em"]])).toEqual(["mpadded:depth=-4em"]);
+    expect(kept("mspace", [["height", "1000em"]])).toEqual(["mspace:height=4em"]);
+  });
+
+  test("lengths Temml writes itself stay as they are", () => {
+    const own: [string, string][] = [
+      ["width", "0.1px"],
+      ["lspace", "0"],
+      ["rspace", "0.2778em"],
+      ["height", "+0.3em"],
+      ["depth", "-0.18em"],
+    ];
+    expect(kept("mpadded", own)).toEqual([
+      "mpadded:width=0.1px",
+      "mpadded:lspace=0",
+      "mpadded:rspace=0.2778em",
+      "mpadded:height=+0.3em",
+      "mpadded:depth=-0.18em",
+    ]);
+    expect(kept("mspace", [["width", "3.5000em"]])).toEqual(["mspace:width=3.5000em"]);
+    expect(kept("mspace", [["width", "4em"]])).toEqual(["mspace:width=4em"]);
+  });
+
+  test("a unit the rebuild cannot add up is dropped", () => {
+    expect(kept("mspace", [["width", "2vh"]])).toEqual([]);
+    expect(kept("mspace", [["width", "50%"]])).toEqual([]);
+    expect(kept("mspace", [["width", "5"]])).toEqual([]);
+    expect(kept("mspace", [["width", "negativethinmathspace"]])).toEqual([]);
+    expect(kept("mpadded", [["lspace", "-5ex"]])).toEqual([]);
+    expect(kept("mpadded", [["height", "9rem"]])).toEqual([]);
+    expect(kept("mpadded", [["depth", "em"]])).toEqual([]);
+  });
+
+  test("a multiple of the element's own size is kept up to one, as \\llap writes it", () => {
+    expect(kept("mpadded", [["lspace", "-1width"]])).toEqual(["mpadded:lspace=-1width"]);
+    expect(kept("mpadded", [["lspace", "-0.5width"]])).toEqual(["mpadded:lspace=-0.5width"]);
+    expect(kept("mpadded", [["lspace", "-100width"]])).toEqual([]);
+    expect(kept("mpadded", [["lspace", "-1.5width"]])).toEqual([]);
+    expect(kept("mpadded", [["width", "50height"]])).toEqual([]);
+    expect(kept("mpadded", [["height", "-30depth"]])).toEqual([]);
+  });
+
+  test("the cap applies to every element in a tree, not the first", () => {
+    const tree = mathOf(
+      withAttributes("mspace", [["width", "-30em"]]),
+      withAttributes("mspace", [["width", "1em"]]),
+      withAttributes("mspace", [["width", "2em"]]),
+      withAttributes("mspace", [["width", "40em"]]),
+      withAttributes("mpadded", [
+        ["lspace", "-1width"],
+        ["width", "0.1px"],
+      ]),
+    );
+    expect(lengthsIn(fromTree(tree, false)!)).toEqual([
+      "mspace:width=1em",
+      "mspace:width=2em",
+      "mspace:width=4em",
+      "mpadded:width=0.1px",
+      "mpadded:lspace=-1width",
+    ]);
+  });
+
+  test("a real \\rule with a negative width draws no negative width", async () => {
+    const { box } = await render("$a\\rule{-30em}{1em}b$");
+    expect(box.querySelector("math")).not.toBeNull();
+    expect(box.querySelector("math mspace")).not.toBeNull();
+    expect(lengthsIn(box)).toEqual(["mspace:height=1em"]);
+    expect(unsafeIn(box)).toEqual([]);
+  });
+
+  test("a real \\hspace with a negative width draws no negative space", async () => {
+    // Temml writes this one as `margin-left`, which the allowlist already drops.
+    const { box } = await render("$a\\hspace{-20em}b\\hspace*{-1em}c\\mkern-18mu d$");
+    expect(box.querySelector("math")).not.toBeNull();
+    expect(box.querySelector("[style]")).toBeNull();
+    expect(lengthsIn(box).filter((l) => l.includes("=-"))).toEqual([]);
+    expect(unsafeIn(box)).toEqual([]);
+  });
+
+  test("a real huge positive width is capped", async () => {
+    const { box } = await render("$a\\hspace{20em}b\\rule{20em}{20em}c\\rule[20em]{1em}{20em}d$");
+    expect(box.querySelector("math")).not.toBeNull();
+    const widths = [...box.querySelectorAll("math [width]")].map((el) => el.getAttribute("width"));
+    expect(widths).toEqual(["4em", "4em", "1em"]);
+    const heights = [...box.querySelectorAll("math [height], math [depth]")].map(
+      (el) => `${el.getAttribute("height")}/${el.getAttribute("depth")}`,
+    );
+    expect(heights.join(" ")).toContain("4em");
+    expect(heights.join(" ")).not.toMatch(/\d{2}em/);
+  });
+
+  test("a real \\llap keeps the shift that makes it a \\llap", async () => {
+    const { box } = await render("$a\\llap{b}c\\mathllap{d}\\clap{e}$");
+    expect(box.querySelector("math")).not.toBeNull();
+    expect(
+      [...box.querySelectorAll("math [lspace]")].map((el) => el.getAttribute("lspace")),
+    ).toEqual(["-1width", "-1width", "-0.5width"]);
+  });
+
+  test("\\quad and \\qquad still draw their 1 em and 2 em", async () => {
+    const { box } = await render("$a\\quad b\\qquad c\\, d\\; e$");
+    expect(box.querySelector("math")).not.toBeNull();
+    expect([...box.querySelectorAll("math mspace")].map((el) => el.getAttribute("width"))).toEqual([
+      "1em",
+      "2em",
+      "0.1667em",
+      "0.2778em",
+    ]);
+  });
+
+  test("an arrow's own 3.5 em stretch still draws", async () => {
+    const { box } = await render("$a\\xrightarrow{abc}b$");
+    expect(
+      [...box.querySelectorAll("math mspace")].map((el) => el.getAttribute("width")),
+    ).toContain("3.5000em");
   });
 });
 
