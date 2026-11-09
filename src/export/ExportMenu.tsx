@@ -14,9 +14,6 @@ import { m } from "../paraglide/messages.js";
 import { downloadBlob } from "./download";
 import "./export.css";
 import { htmlFileName } from "./filename";
-import { exportHtml } from "./html";
-import { exportPng } from "./png";
-import { printDeck } from "./print";
 import type { ExportOptions } from "./types";
 
 export interface ExportMenuProps {
@@ -74,6 +71,8 @@ export function ExportMenu({
     return () => window.clearTimeout(timer);
   }, [status]);
 
+  // Each exporter loads when its item is picked, so the page builder and
+  // modern-screenshot stay out of the first load (decision 43).
   const run = async (job: Job) => {
     setBusy(true);
     try {
@@ -84,15 +83,18 @@ export function ExportMenu({
         say(m.export_empty(), true);
       } else if (job === "pdf" || job === "pdf-notes") {
         say(m.export_preparing_print());
+        const { printDeck } = await import("./print");
         await printDeck(options);
         say("");
       } else if (job === "html") {
         say(m.export_building_html());
+        const { exportHtml } = await import("./html");
         const name = htmlFileName(options.title);
         downloadBlob(await exportHtml(options), name);
         say(m.export_downloaded({ name }), true);
       } else {
         say(m.export_preparing_images());
+        const { exportPng } = await import("./png");
         const files = await exportPng(options, {
           onSlide: (current, total) => say(m.export_rendering_slide({ current, total })),
         });
