@@ -552,6 +552,8 @@ describe("rectangles and ellipses (decision 110)", () => {
     stroke(host, [40, 150], [360, 220]);
     key("keyup", { key: "Shift", shiftKey: false });
     const [rect, ellipse] = shapeEnds(events);
+    expect(rect).toBeDefined();
+    expect(ellipse).toBeDefined();
     // The shorter side, 70 px, rules both.
     near(rect!.points, [gx(40), gy(30), gx(110), gy(100)]);
     near(ellipse!.points, [gx(40), gy(150), gx(110), gy(220)]);
