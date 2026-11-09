@@ -86,7 +86,8 @@ function PaletteBody({
     run: () => onGoTo(s.address),
   }));
   // Slides whose title matches are in the Slides list already; the rest are
-  // searched by their text. Each keystroke scans the pages' text once.
+  // searched by their text. Each slide's text is folded once per deck, and a
+  // keystroke runs `indexOf` over it (decision 116).
   const text = useMemo(
     () => searchText(slides, query, locale, (s) => contains(slideLabel(s), query)),
     [slides, query, locale, contains],

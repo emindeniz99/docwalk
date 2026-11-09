@@ -122,6 +122,71 @@ describe("findText: hostile text", () => {
   });
 });
 
+/** How many times the code under test reached for a collator's `compare`. */
+function countCompares(run: () => void): number {
+  let count = 0;
+  const descriptor = Object.getOwnPropertyDescriptor(Intl.Collator.prototype, "compare")!;
+  Object.defineProperty(Intl.Collator.prototype, "compare", {
+    ...descriptor,
+    get(this: Intl.Collator) {
+      count++;
+      return descriptor.get!.call(this);
+    },
+  });
+  try {
+    run();
+  } finally {
+    Object.defineProperty(Intl.Collator.prototype, "compare", descriptor);
+  }
+  return count;
+}
+
+describe("findText: a hostile 2 MB document (decision 116)", () => {
+  // The palette searches on every keystroke, on the main thread. A collator
+  // call at every position of a 2 MB page froze the tab for seconds.
+  const BIG = "Lorem ipsum dolor sit amet, café İstanbul ışık. ".repeat(44_000);
+
+  test("the document is the size the finding names", () => {
+    expect(BIG.length).toBeGreaterThan(2_000_000);
+  });
+
+  test("a query that matches nowhere costs a collator call per distinct letter, not per position", () => {
+    const calls = countCompares(() => expect(findText(BIG, "zzqq", EN)).toBeNull());
+    expect(calls).toBeLessThan(200);
+  });
+
+  test("a match at the very end is still found, at the right place, in both locales", () => {
+    const text = `${BIG}the retry budget`;
+    expect(findText(text, "RETRY BUDGET", EN)).toEqual({ start: BIG.length + 4, end: text.length });
+    expect(found(text, "ISTANBUL", EN)).toBe("İstanbul");
+    expect(found(text, "IŞIK", TR)).toBe("ışık");
+  });
+
+  test("searchText folds each slide once: the next keystroke calls no collator at all", () => {
+    const deck = [slide(0, BIG), slide(1, `${BIG} retries`)];
+    searchText(deck, "re", EN, () => false);
+    const calls = countCompares(() => {
+      const { hits } = searchText(deck, "retries", EN, () => false);
+      expect(hits.map((h) => h.slide.n)).toEqual([1]);
+    });
+    expect(calls).toBe(0);
+  });
+});
+
+describe("findText: folding keeps the collator's verdicts", () => {
+  test("a fullwidth letter matches its ASCII form, as the collator says", () => {
+    expect(found("ＡＢＣ report", "abc")).toBe("ＡＢＣ");
+  });
+
+  test("katakana matches hiragana at base sensitivity, as the collator says", () => {
+    expect(found("カタカナ", "かたかな")).toBe("カタカナ");
+  });
+
+  test("a match never ends inside a surrogate pair", () => {
+    expect(findText("\u{1F680}", "\ud83d", EN)).toBeNull();
+  });
+});
+
 describe("snippetAround: the text shown under a hit", () => {
   const WORDS = Array.from({ length: 60 }, (_, i) => `word${i}`).join(" ");
 
