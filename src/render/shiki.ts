@@ -63,11 +63,19 @@ function startShikiWorker(): WorkerLike {
 }
 
 /**
- * A worker that has not answered a request after this long is stopped and
- * the request's blocks stay plain. A regex the engine runs into cannot be
- * interrupted; this keeps one from holding the deck's measurement forever.
+ * A worker that keeps blocks waiting this long without answering any of them
+ * is stopped, and the blocks it had not answered stay plain. A pattern the
+ * regex engine runs into cannot be interrupted; this keeps one from holding
+ * the deck's measurement forever. A worker that answers block after block is
+ * busy, not stuck: the wait starts again with every answer.
  */
-const REPLY_DEADLINE_MS = HIGHLIGHT_TIMEOUT_MS;
+const SILENCE_MS = HIGHLIGHT_TIMEOUT_MS;
+
+/** A timer this far past its due time means the page was busy, not that the worker was silent. */
+const LATE_TIMER_MS = 100;
+
+/** How many blocks that ran over a client remembers, to leave them plain at once on the next build. */
+const REMEMBERED_OVERRUNS = 100;
 
 interface Client {
   request(message: WithoutId<ShikiRequest>): Promise<ShikiReply | null>;
@@ -76,73 +84,154 @@ interface Client {
   languages: Set<string>;
 }
 
-let client: Client | null = null;
+export interface ShikiClientOptions {
+  createWorker?: () => WorkerLike;
+  /** How long a worker may keep blocks waiting without an answer. */
+  silenceMs?: number;
+}
 
-/** Starts the worker. A crash, a refused start or a missed deadline drops it; the next build starts another. */
-function connect(): Client {
-  const worker = startShikiWorker();
-  const waiting = new Map<number, (reply: ShikiReply | null) => void>();
-  let nextId = 0;
-  const api: Client = {
-    grammars: new Map(),
-    languages: new Set(),
-    request: (message) => {
-      const id = ++nextId;
-      return new Promise((resolve) => {
-        const timer = setTimeout(drop, REPLY_DEADLINE_MS);
-        waiting.set(id, (reply) => {
-          clearTimeout(timer);
-          waiting.delete(id);
-          resolve(reply);
-        });
-        // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a Worker has no target origin; the second argument would be a transfer list.
-        worker.postMessage({ ...message, id } as ShikiRequest);
-      });
-    },
-  };
-  function drop(): void {
-    worker.terminate();
-    if (client === api) client = null;
-    for (const settle of waiting.values()) settle(null);
+/** A short key for a block, so remembering one that ran over does not keep a megabyte of text. */
+function blockKey(language: string, text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
   }
-  worker.addEventListener("message", (event) => {
-    const reply = (event as MessageEvent<ShikiReply>).data;
-    waiting.get(reply.id)?.(reply);
-  });
-  worker.addEventListener("error", drop);
-  worker.addEventListener("messageerror", drop);
-  return api;
+  return `${language}:${text.length}:${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}`;
 }
 
 /**
- * Loads the grammars `languages` need into the worker. A grammar that fails
- * to load is left out (its blocks stay plain) and tried again on the next
- * call. Rejects when no worker can be started.
+ * A client owns at most one highlighting worker at a time. A crash, a refused
+ * start or a worker silent for `silenceMs` while blocks wait drops it; the
+ * next build starts another. The worker answers in the order it was asked, so
+ * when it falls silent the oldest block still waiting is the one it is stuck
+ * on: the client remembers it and never sends it again. Tests pass their own
+ * worker and a shorter wait.
  */
-export async function loadTokenizer(languages: CodeLanguage[]): Promise<Tokenize> {
-  const current = (client ??= connect());
-  await Promise.all(
-    languages.map((language) => {
-      let load = current.grammars.get(language);
-      if (!load) {
-        load = GRAMMARS[language]()
-          .then((grammar) => current.request({ kind: "load", grammars: [grammar.default] }))
-          .then((reply) => {
-            if (reply?.kind === "loaded")
-              for (const name of reply.languages) current.languages.add(name);
-            if (!current.languages.has(language)) current.grammars.delete(language);
-          })
-          .catch(() => {
-            current.grammars.delete(language);
-          });
-        current.grammars.set(language, load);
-      }
-      return load;
-    }),
-  );
-  return async (text, language): Promise<CodeToken[][] | null> => {
-    if (!current.languages.has(language)) return null;
-    const reply = await current.request({ kind: "tokenize", text, language });
-    return reply?.kind === "tokens" ? reply.lines : null;
+export function createShikiClient({
+  createWorker = startShikiWorker,
+  silenceMs = SILENCE_MS,
+}: ShikiClientOptions = {}): { loadTokenizer(languages: CodeLanguage[]): Promise<Tokenize> } {
+  let client: Client | null = null;
+  // Insertion order is age: a Set remembers it.
+  const overruns = new Set<string>();
+
+  const remember = (key: string): void => {
+    overruns.delete(key);
+    overruns.add(key);
+    if (overruns.size > REMEMBERED_OVERRUNS) overruns.delete(overruns.values().next().value!);
   };
+
+  function connect(): Client {
+    const worker = createWorker();
+    // Requests in the order they were sent, with the block each one carries.
+    const waiting = new Map<
+      number,
+      { key: string | null; settle: (reply: ShikiReply | null) => void }
+    >();
+    let nextId = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let due = 0;
+    let rearmed = false;
+
+    /** Starts the wait again, or stops it when nothing waits. */
+    const watch = (): void => {
+      clearTimeout(timer);
+      timer = undefined;
+      if (waiting.size === 0) return;
+      due = performance.now() + silenceMs;
+      rearmed = false;
+      timer = setTimeout(onSilence, silenceMs);
+    };
+    const onSilence = (): void => {
+      // The timer fires late when the page was busy; the answer may be queued behind it.
+      if (!rearmed && performance.now() - due > LATE_TIMER_MS) {
+        rearmed = true;
+        due = performance.now() + silenceMs;
+        timer = setTimeout(onSilence, silenceMs);
+        return;
+      }
+      const stuck = waiting.values().next().value;
+      if (stuck?.key) remember(stuck.key);
+      drop();
+    };
+
+    const api: Client = {
+      grammars: new Map(),
+      languages: new Set(),
+      request: (message) => {
+        const id = ++nextId;
+        const key = message.kind === "tokenize" ? blockKey(message.language, message.text) : null;
+        return new Promise((resolve) => {
+          waiting.set(id, {
+            key,
+            settle: (reply) => {
+              waiting.delete(id);
+              resolve(reply);
+            },
+          });
+          if (timer === undefined) watch();
+          // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a Worker has no target origin; the second argument would be a transfer list.
+          worker.postMessage({ ...message, id } as ShikiRequest);
+        });
+      },
+    };
+    function drop(): void {
+      clearTimeout(timer);
+      worker.terminate();
+      if (client === api) client = null;
+      for (const { settle } of waiting.values()) settle(null);
+    }
+    worker.addEventListener("message", (event) => {
+      const reply = (event as MessageEvent<ShikiReply>).data;
+      waiting.get(reply.id)?.settle(reply);
+      watch();
+    });
+    worker.addEventListener("error", drop);
+    worker.addEventListener("messageerror", drop);
+    return api;
+  }
+
+  /**
+   * Loads the grammars `languages` need into the worker. A grammar that fails
+   * to load is left out (its blocks stay plain) and tried again on the next
+   * call. Rejects when no worker can be started.
+   */
+  async function loadTokenizer(languages: CodeLanguage[]): Promise<Tokenize> {
+    const current = (client ??= connect());
+    await Promise.all(
+      languages.map((language) => {
+        let load = current.grammars.get(language);
+        if (!load) {
+          load = GRAMMARS[language]()
+            .then((grammar) => current.request({ kind: "load", grammars: [grammar.default] }))
+            .then((reply) => {
+              if (reply?.kind === "loaded")
+                for (const name of reply.languages) current.languages.add(name);
+              if (!current.languages.has(language)) current.grammars.delete(language);
+            })
+            .catch(() => {
+              current.grammars.delete(language);
+            });
+          current.grammars.set(language, load);
+        }
+        return load;
+      }),
+    );
+    return async (text, language): Promise<CodeToken[][] | null> => {
+      if (!current.languages.has(language) || overruns.has(blockKey(language, text))) return null;
+      const reply = await current.request({ kind: "tokenize", text, language });
+      return reply?.kind === "tokens" ? reply.lines : null;
+    };
+  }
+
+  return { loadTokenizer };
 }
+
+const shared = createShikiClient();
+
+/** The window's highlighting: one worker for every `highlightCode` call. */
+export const loadTokenizer = (languages: CodeLanguage[]): Promise<Tokenize> =>
+  shared.loadTokenizer(languages);
