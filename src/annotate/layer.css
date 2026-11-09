@@ -27,6 +27,8 @@
 
 .docwalk-annotate[data-mode="pen"] .docwalk-annotate-draw,
 .docwalk-annotate[data-mode="arrow"] .docwalk-annotate-draw,
+.docwalk-annotate[data-mode="rect"] .docwalk-annotate-draw,
+.docwalk-annotate[data-mode="ellipse"] .docwalk-annotate-draw,
 .docwalk-annotate[data-mode="eraser"] .docwalk-annotate-draw,
 .docwalk-annotate[data-mode="laser"] .docwalk-annotate-laser {
   pointer-events: auto;

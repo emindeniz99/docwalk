@@ -10,6 +10,7 @@ import {
   type MarkColor,
   type MarkEvent,
   type MarkStroke,
+  type MarkTool,
 } from "./mirrorTypes";
 import { strokeElement } from "./markSvg";
 import { outlinePath } from "./outline";
@@ -23,11 +24,20 @@ export const LASER_TRAIL_MS = 600;
 const PEN_SIZE = 4;
 const LASER_SIZE = 12;
 
-const DRAUU_MODE: Record<"pen" | "arrow" | "eraser", DrawingMode> = {
+/** The modes drauu draws or erases in; the laser and "off" are the layer's own. */
+type DrawMode = MarkTool | "eraser";
+const DRAUU_MODE: Record<DrawMode, DrawingMode> = {
   pen: "stylus",
   arrow: "line",
+  rect: "rectangle",
+  ellipse: "ellipse",
   eraser: "eraseLine",
 };
+
+const attrNum = (el: Element | null, name: string) => Number(el?.getAttribute(name));
+
+const isMarkTool = (mode: AnnotationMode): mode is MarkTool =>
+  mode === "pen" || mode === "arrow" || mode === "rect" || mode === "ellipse";
 
 interface LaserPoint {
   x: number;
@@ -96,7 +106,7 @@ export function createAnnotationLayer(
   let nextStrokeId = 1;
   interface Capture {
     id: number;
-    tool: "pen" | "arrow";
+    tool: MarkTool;
     color: MarkColor;
     points: number[];
     last: { x: number; y: number } | null;
@@ -116,7 +126,7 @@ export function createAnnotationLayer(
   /** Bring a drawing up to the current tool and colour. */
   function applyTool(drawing: Drauu) {
     drawing.brush.color = color;
-    if (mode === "pen" || mode === "arrow" || mode === "eraser") {
+    if (isMarkTool(mode) || mode === "eraser") {
       drawing.brush.arrowEnd = mode === "arrow";
       // Also re-indexes the strokes for drauu's eraser.
       drawing.mode = DRAUU_MODE[mode];
@@ -130,10 +140,9 @@ export function createAnnotationLayer(
     applyTool(drawing);
     drawing.on("start", () => {
       if (drawing !== active) return;
-      capture =
-        mode === "pen" || mode === "arrow"
-          ? { id: nextStrokeId++, tool: mode, color: colorKey, points: [], last: null }
-          : null;
+      capture = isMarkTool(mode)
+        ? { id: nextStrokeId++, tool: mode, color: colorKey, points: [], last: null }
+        : null;
     });
     drawing.on("changed", () => {
       if (drawing !== active) return;
@@ -197,6 +206,35 @@ export function createAnnotationLayer(
     });
   }
 
+  /**
+   * The two corners of a drawn shape (decision 110): an arrow's two ends in
+   * the order it was drawn, or the box of a `<rect>` or `<ellipse>`, top-left
+   * first. Null when the element is none of those or has no size yet.
+   */
+  function cornersOf(node: Element): number[] | null {
+    let box: [number, number, number, number];
+    const line = node.querySelector("line");
+    if (line) {
+      box = [attrNum(line, "x1"), attrNum(line, "y1"), attrNum(line, "x2"), attrNum(line, "y2")];
+    } else if (node.localName === "rect") {
+      const [x, y] = [attrNum(node, "x"), attrNum(node, "y")];
+      box = [x, y, x + attrNum(node, "width"), y + attrNum(node, "height")];
+    } else if (node.localName === "ellipse") {
+      const [cx, cy, rx, ry] = [
+        attrNum(node, "cx"),
+        attrNum(node, "cy"),
+        attrNum(node, "rx"),
+        attrNum(node, "ry"),
+      ];
+      box = [cx - rx, cy - ry, cx + rx, cy + ry];
+    } else {
+      return null;
+    }
+    const from = unitPoint(box[0], box[1]);
+    const to = unitPoint(box[2], box[3]);
+    return from && to ? [quantize(from.x), quantize(from.y), quantize(to.x), quantize(to.y)] : null;
+  }
+
   function commitStroke(drawing: Drauu, node?: Element) {
     const done = capture;
     capture = null;
@@ -211,13 +249,9 @@ export function createAnnotationLayer(
         if (done.points[n - 2] !== x || done.points[n - 1] !== y) done.points.push(x, y);
       }
     } else {
-      // Read the drawn line, since shift and alt move its ends.
-      const line = node.querySelector("line");
-      const from = unitPoint(Number(line?.getAttribute("x1")), Number(line?.getAttribute("y1")));
-      const to = unitPoint(Number(line?.getAttribute("x2")), Number(line?.getAttribute("y2")));
-      if (from && to) {
-        done.points = [quantize(from.x), quantize(from.y), quantize(to.x), quantize(to.y)];
-      }
+      // Every other tool is two corners. Read the drawn element, since Shift and Alt move them.
+      const corners = cornersOf(node);
+      if (corners) done.points = corners;
     }
     if (done.points.length === 0) return;
     strokeOf.set(node, { id: done.id, tool: done.tool, color: done.color, points: done.points });

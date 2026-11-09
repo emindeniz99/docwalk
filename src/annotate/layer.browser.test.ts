@@ -460,3 +460,168 @@ describe("what the layer reports to the mirror (decision 88)", () => {
     expect(heard).toEqual([]);
   });
 });
+
+/** Observes the layer on a slide `a/1` and collects what it reports. */
+function observeShapes(options?: Parameters<typeof createAnnotationLayer>[1]) {
+  const host = document.createElement("div");
+  Object.assign(host.style, { width: "400px", height: "300px", margin: "0" });
+  document.body.append(host);
+  layer = createAnnotationLayer(host, options);
+  const events: MarkEvent[] = [];
+  layer.observe((event) => events.push(event));
+  layer.setKey("a/1#abc", "a/1");
+  events.length = 0;
+  return { host, events };
+}
+const shapeEnds = (events: MarkEvent[]) =>
+  events.flatMap((e) => (e.kind === "stroke" && e.end ? [e] : []));
+const lastShapeMarks = (events: MarkEvent[]) =>
+  events.flatMap((e) => (e.kind === "marks" ? [e] : [])).at(-1);
+const key = (type: "keydown" | "keyup", init: KeyboardEventInit) =>
+  window.dispatchEvent(new KeyboardEvent(type, init));
+/** The grid number of a pixel along the 400 by 300 slide stand-in. */
+const gx = (px: number) => quantize(px / 400);
+const gy = (px: number) => quantize(px / 300);
+const near = (actual: readonly number[], expected: readonly number[]) => {
+  expect(actual).toHaveLength(expected.length);
+  actual.forEach((n, i) => expect(Math.abs(n - expected[i]!)).toBeLessThanOrEqual(2));
+};
+
+describe("rectangles and ellipses (decision 110)", () => {
+  test("a rectangle dragged bottom-right to top-left reports the same four numbers as the opposite drag", () => {
+    // The corners are the box, not the drag: a receiver draws the same rectangle either way.
+    const { host, events } = observeShapes();
+    layer!.setMode("rect");
+    stroke(host, [40, 30], [360, 270]);
+    stroke(host, [360, 270], [40, 30]);
+    const [forward, backward] = shapeEnds(events);
+    expect(forward).toMatchObject({ slide: "a/1", tool: "rect", color: "primary", end: true });
+    near(forward!.points, [gx(40), gy(30), gx(360), gy(270)]);
+    expect(backward).toMatchObject({ tool: "rect" });
+    expect(backward!.points).toEqual(forward!.points);
+    expect(host.querySelectorAll(`${DRAW} rect`)).toHaveLength(2);
+  });
+
+  test("an ellipse is reported as the corners of its box", () => {
+    const { host, events } = observeShapes();
+    layer!.setMode("ellipse");
+    stroke(host, [360, 270], [40, 30]);
+    const [done] = shapeEnds(events);
+    expect(done).toMatchObject({ tool: "ellipse", end: true });
+    near(done!.points, [gx(40), gy(30), gx(360), gy(270)]);
+    const ellipse = host.querySelector(`${DRAW} ellipse`)!;
+    expect(Number(ellipse.getAttribute("rx"))).toBeCloseTo(160, 0);
+    expect(Number(ellipse.getAttribute("ry"))).toBeCloseTo(120, 0);
+  });
+
+  test.each(["rect", "ellipse"] as const)(
+    "the %s tool covers the slide to take the drag, and mode off gives it back",
+    (tool) => {
+      // Without the CSS rule the drag would reach the slide's own elements.
+      const { host } = observeShapes();
+      const target = document.createElement("button");
+      target.textContent = "Under the marks";
+      Object.assign(target.style, { position: "absolute", left: "150px", top: "120px" });
+      host.append(target);
+      expect(document.elementFromPoint(...centre(target))).toBe(target);
+      layer!.setMode(tool);
+      expect(document.elementFromPoint(...centre(target))).toBe(host.querySelector(DRAW));
+      expect(getComputedStyle(host.querySelector(DRAW)!).touchAction).toBe("none");
+      layer!.setMode("off");
+      expect(document.elementFromPoint(...centre(target))).toBe(target);
+    },
+  );
+
+  test("a shape is one stroke on release: nothing goes out while it is dragged", () => {
+    const { host, events } = observeShapes();
+    layer!.setMode("rect");
+    stroke(host, [40, 30], [360, 270]);
+    const strokes = events.flatMap((e) => (e.kind === "stroke" ? [e] : []));
+    expect(strokes).toHaveLength(1);
+    expect(strokes[0]).toMatchObject({ end: true });
+  });
+
+  test("Shift gives equal sides, in both shapes", () => {
+    const { host, events } = observeShapes();
+    key("keydown", { key: "Shift", shiftKey: true });
+    layer!.setMode("rect");
+    stroke(host, [40, 30], [360, 100]);
+    layer!.setMode("ellipse");
+    stroke(host, [40, 150], [360, 220]);
+    key("keyup", { key: "Shift", shiftKey: false });
+    const [rect, ellipse] = shapeEnds(events);
+    // The shorter side, 70 px, rules both.
+    near(rect!.points, [gx(40), gy(30), gx(110), gy(100)]);
+    near(ellipse!.points, [gx(40), gy(150), gx(110), gy(220)]);
+  });
+
+  test("a click without movement reports no shape and leaves no mark", () => {
+    const { host, events } = observeShapes();
+    layer!.setMode("rect");
+    const svg = host.querySelector(DRAW) as SVGSVGElement;
+    pointer("pointerdown", svg, 100, 100);
+    pointer("pointerup", svg, 100, 100);
+    layer!.setMode("ellipse");
+    pointer("pointerdown", svg, 100, 100);
+    pointer("pointerup", svg, 100, 100);
+    expect(shapeEnds(events)).toEqual([]);
+    expect(marks(host)).toBe(0);
+    expect(lastShapeMarks(events)?.strokes ?? []).toEqual([]);
+  });
+
+  test("the eraser across a rectangle's edge removes it and reports what is left", () => {
+    const { host, events } = observeShapes();
+    layer!.setMode("rect");
+    stroke(host, [100, 80], [300, 220]);
+    stroke(host, [40, 250], [120, 290]);
+    expect(lastShapeMarks(events)?.strokes).toHaveLength(2);
+    layer!.setMode("eraser");
+    // A vertical swipe through the first rectangle's top edge, clear of the second.
+    stroke(host, [200, 40], [200, 120]);
+    expect(host.querySelectorAll(`${DRAW} rect`)).toHaveLength(1);
+    expect(lastShapeMarks(events)?.strokes).toHaveLength(1);
+    expect(lastShapeMarks(events)?.strokes[0]).toMatchObject({ tool: "rect" });
+  });
+
+  test("the eraser reaches an ellipse too", () => {
+    const { host, events } = observeShapes();
+    layer!.setMode("ellipse");
+    stroke(host, [100, 80], [300, 220]);
+    layer!.setMode("eraser");
+    stroke(host, [200, 40], [200, 120]);
+    expect(host.querySelectorAll(`${DRAW} ellipse`)).toHaveLength(0);
+    expect(lastShapeMarks(events)?.strokes).toHaveLength(0);
+  });
+
+  test("undo and redo take a shape away and bring back the same stroke", () => {
+    const { host, events } = observeShapes();
+    layer!.setMode("rect");
+    stroke(host, [40, 30], [360, 270]);
+    const before = lastShapeMarks(events)!.strokes[0]!;
+    layer!.undo();
+    expect(host.querySelectorAll(`${DRAW} rect`)).toHaveLength(0);
+    expect(lastShapeMarks(events)?.strokes).toHaveLength(0);
+    layer!.redo();
+    expect(host.querySelectorAll(`${DRAW} rect`)).toHaveLength(1);
+    expect(lastShapeMarks(events)?.strokes[0]).toEqual(before);
+  });
+
+  test("a saved rectangle comes back as a <rect> that the eraser reaches and undo leaves alone", () => {
+    const saved = [{ tool: "rect", color: "ink", points: [1024, 1024, 3072, 3072] }] as const;
+    const { host, events } = observeShapes({ saved: () => saved });
+    const rect = host.querySelector(`${DRAW} rect`)!;
+    expect(rect).not.toBeNull();
+    expect(Number(rect.getAttribute("x"))).toBeCloseTo(100, 0);
+    expect(Number(rect.getAttribute("width"))).toBeCloseTo(200, 0);
+    expect(rect.getAttribute("fill")).toBe("none");
+    expect(rect.getAttribute("stroke")).toBe(
+      getComputedStyle(host).getPropertyValue("--dw-color-ink").trim(),
+    );
+    layer!.undo();
+    expect(host.querySelectorAll(`${DRAW} rect`)).toHaveLength(1);
+    layer!.setMode("eraser");
+    stroke(host, [200, 20], [200, 110]);
+    expect(host.querySelectorAll(`${DRAW} rect`)).toHaveLength(0);
+    expect(lastShapeMarks(events)?.strokes).toHaveLength(0);
+  });
+});

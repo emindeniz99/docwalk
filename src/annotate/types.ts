@@ -8,7 +8,7 @@
 import type { MarkColor, MarkEvent } from "./mirrorTypes";
 import type { SavedStroke } from "./savedMarks";
 
-export type AnnotationMode = "off" | "pen" | "laser" | "arrow" | "eraser";
+export type AnnotationMode = "off" | "pen" | "laser" | "arrow" | "rect" | "ellipse" | "eraser";
 
 export interface AnnotationLayer {
   setMode(mode: AnnotationMode): void;
