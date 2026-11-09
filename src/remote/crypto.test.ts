@@ -54,6 +54,13 @@ const MESSAGES: RemoteMessage[] = [
   { type: "laser", x: 0, y: 1 },
   { type: "laser-off" },
   { type: "hello", role: "follower", id: "AbCdEfGhIjKl" },
+  { type: "countdown", countdown: { targetMs: 20 * 60_000, spentMs: 90_500, running: true } },
+  { type: "countdown", countdown: { targetMs: 60_000, spentMs: 0, running: false } },
+  {
+    type: "countdown",
+    countdown: { targetMs: 600 * 60_000, spentMs: 7 * 24 * 60 * 60_000, running: true },
+  },
+  { type: "countdown", countdown: null },
   { type: "mirror", op: "laser", x: 0.25, y: 0.75 },
   { type: "mirror", op: "laser-off" },
   {
@@ -315,6 +322,86 @@ describe("encrypt and decrypt", () => {
       sealed({ type: "step", direction: 1, html: "<img onerror=x>" }),
     );
     expect((await decrypt(key, frame))?.message).toEqual({ type: "step", direction: 1 });
+  });
+});
+
+describe("the countdown message (decision 112)", () => {
+  const MIN = 60_000;
+  const good = { targetMs: 20 * MIN, spentMs: 5 * MIN, running: true };
+
+  test("passes within 80's limits and as null, and strips what it does not know", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const open = async (countdown: unknown, extra: object = {}) =>
+      (
+        await decrypt(
+          key,
+          await encryptRaw(key, sealed({ type: "countdown", countdown, ...extra })),
+        )
+      )?.message;
+    expect(await open(good)).toEqual({ type: "countdown", countdown: good });
+    expect(await open(null)).toEqual({ type: "countdown", countdown: null });
+    expect(await open({ ...good, note: "<img onerror=x>" }, { html: "x" })).toEqual({
+      type: "countdown",
+      countdown: good,
+    });
+  });
+
+  test("a target under 1 or over 600 minutes, or a fraction of a millisecond, is dropped", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    for (const targetMs of [
+      0,
+      -MIN,
+      MIN - 1,
+      600 * MIN + 1,
+      1.5 * MIN + 0.5,
+      Number.NaN,
+      "60000",
+    ]) {
+      const frame = await encryptRaw(
+        key,
+        sealed({ type: "countdown", countdown: { ...good, targetMs } }),
+      );
+      expect([targetMs, await decrypt(key, frame)]).toEqual([targetMs, null]);
+    }
+  });
+
+  test("time spent below zero, fractional, over 7 days or not a number is dropped", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    for (const spentMs of [-1, 0.5, 7 * 24 * 60 * MIN + 1, Number.NaN, Infinity, "0", null]) {
+      const frame = await encryptRaw(
+        key,
+        sealed({ type: "countdown", countdown: { ...good, spentMs } }),
+      );
+      expect([spentMs, await decrypt(key, frame)]).toEqual([spentMs, null]);
+    }
+  });
+
+  test("a missing or non-boolean running flag, a missing field or a wrong shape is dropped", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const { running: _running, ...withoutRunning } = good;
+    for (const countdown of [
+      withoutRunning,
+      { ...good, running: 1 },
+      { ...good, running: "true" },
+      { targetMs: good.targetMs, running: true },
+      { spentMs: 0, running: true },
+      [],
+      "20:00",
+      7,
+      undefined,
+    ]) {
+      const frame = await encryptRaw(key, sealed({ type: "countdown", countdown }));
+      expect([countdown, await decrypt(key, frame)]).toEqual([countdown, null]);
+    }
+  });
+
+  test("it carries durations only: an instant a peer adds is stripped", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const frame = await encryptRaw(
+      key,
+      sealed({ type: "countdown", countdown: { ...good, startedAt: 1_700_000_000_000 } }),
+    );
+    expect((await decrypt(key, frame))?.message).toEqual({ type: "countdown", countdown: good });
   });
 });
 
