@@ -59,7 +59,8 @@ The first release.
 - Followers see what the presenter points at and draws: the laser (the
   presenter's own and a phone's), pen and arrow strokes with erase, undo,
   redo and clear, each slide's marks, and the diagram focus view with its
-  zoom and pan. They travel in the room's encrypted messages, signed by the
+  zoom and pan, and the code, table and image focus views with their zoom,
+  scroll and marked code lines. They travel in the room's encrypted messages, signed by the
   presenter, so another follower cannot put anything on your screen, and
   marks sit at the same place of the slide on any screen size. A follower
   who joins late or reconnects gets the slide's marks again. The presenter

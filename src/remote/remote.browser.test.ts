@@ -1579,6 +1579,32 @@ describe("mirror messages (decision 88)", () => {
     expect(laser(follower)).toHaveLength(1);
   });
 
+  test("a follower that joins late gets the open code view, its zoom and scroll and its marked lines, signed (decision 106)", async () => {
+    const { relay, feed, follow, remote } = await hostWithFeed();
+    feed.ingest({ kind: "marks", slide: "section-0/1", strokes: [], reset: true });
+    feed.focus({ kind: "open", slide: "section-0/1", block: "code", n: 2 });
+    feed.focus({ kind: "view", scale: 1.5, x: 0, y: 0.25 });
+    feed.focus({ kind: "lines", lines: [2, 7] });
+    const follower = peer(relay, follow, "follower");
+    const phone = peer(relay, remote, "remote");
+    await opened(follower);
+    await opened(phone);
+    const focusOps = () => mirrors(follower).filter((m) => m.op.startsWith("focus"));
+    await vi.waitFor(() => expect(focusOps()).toHaveLength(3), SETTLE);
+    expect(focusOps()).toEqual([
+      { type: "mirror", op: "focus-open", slide: "section-0/1", code: 2 },
+      { type: "mirror", op: "focus-view", scale: 1.5, x: 0, y: 0.25 },
+      { type: "mirror", op: "focus-lines", lines: [2, 7] },
+    ]);
+    // A change of marks goes to followers alone, like every mirror op.
+    feed.focus({ kind: "lines", lines: [7] });
+    await vi.waitFor(() =>
+      expect(mirrors(follower).at(-1)).toEqual({ type: "mirror", op: "focus-lines", lines: [7] }),
+    );
+    await quiet();
+    expect(mirrors(phone)).toEqual([]);
+  });
+
   test("a follower that joins late gets the current slide's marks apart from the state", async () => {
     const { relay, feed, follow } = await hostWithFeed();
     const slide = "section-0/1";
