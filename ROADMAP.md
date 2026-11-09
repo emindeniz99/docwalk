@@ -109,6 +109,9 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   a case-only rename picks a free temporary name; the notes panel says
   notes are not private. Rows 97, 98 and 109 to 115 were accepted by the
   owner with the merge of PR #5.
+- Done 2026-11-09: a `?src=` document's sketches key by origin and path
+  like its comments and marks, and move once from the old key on the next
+  opening of the sketch dialog (decision 122).
 
 Still open in v1:
 
@@ -240,11 +243,10 @@ Later rounds:
   tombstones before its comments; a link's or file's tombstones for
   comments here wait for the user's Delete and are lost if the notice is
   dismissed (decision 119); two `?src=` documents that differ only in
-  their query share comments and marks (decision 120).
-- Canvas: sketches still key by the raw `?src=` URL, query included
-  (`src/canvas/identity.ts`; decision 120 changed comments and marks only);
-  the Library's Publish form remains (Excalidraw has no switch for
-  it); stored sketches are deleted by hand from the Saved sketches panel,
+  their query share comments, marks and sketches (decisions 120 and 122).
+- Canvas: the Library's Publish form remains (Excalidraw has no switch for
+  it); sketches stored under a `?src=` document's old key stay until that
+  document's sketch dialog opens again (decision 122); stored sketches are deleted by hand from the Saved sketches panel,
   never pruned automatically; cylinders convert to rectangles; the Turkish
   strings have not been read by a native speaker.
 - Monaco: its own text keeps the language it loaded with until a reload;

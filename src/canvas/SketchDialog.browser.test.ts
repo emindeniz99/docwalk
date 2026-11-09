@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import type { DocumentSource } from "../inputs/types";
 import { inlineFiles } from "./files";
 import { diagramHash, documentKey, sketchKey } from "./identity";
 import { SketchDialog } from "./SketchDialog";
@@ -113,7 +114,7 @@ function rawGet(): Promise<{ files: Record<string, unknown> } | undefined> {
   });
 }
 
-function mount() {
+function mount(documentSource: DocumentSource = DOC) {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -122,7 +123,7 @@ function mount() {
       h(SketchDialog, {
         source: SOURCE,
         index: 1,
-        documentSource: DOC,
+        documentSource,
         documentTitle: "Deck",
         onClose: () => {},
       }),
@@ -460,5 +461,38 @@ describe("the Saved sketches panel (decision 98)", () => {
     expect(await loadSketch(OTHERS[0]!)).toBeNull();
     expect(await loadSketch(OTHERS[1]!)).toBeNull();
     expect(await loadSketch(key)).not.toBeNull();
+  });
+});
+
+describe("a linked document's sketches (decision 122)", () => {
+  test("a sketch stored under the link's raw URL opens, moves to the origin-and-path key, and the old record goes", async () => {
+    // Decision 54 keyed a `?src=` document by its whole URL, so a token in the query sat in
+    // IndexedDB in the clear and showed in the Saved sketches panel.
+    const linked: DocumentSource = {
+      kind: "url",
+      url: "https://docs.example/plan.md?token=secret",
+      trusted: true,
+    };
+    const hash = await diagramHash(SOURCE);
+    const oldKey = sketchKey("url:https://docs.example/plan.md?token=secret", hash);
+    const newKey = sketchKey("url:https://docs.example/plan.md", hash);
+    try {
+      await rawPut({
+        key: oldKey,
+        appState: {},
+        savedAt: 1,
+        elements: sceneElements(),
+        files: sceneFiles(),
+      });
+      mount(linked);
+      await canvasMounted();
+      // The stored scene opened (its inline image loads), not a fresh conversion of the diagram.
+      await vi.waitFor(() => expect(sources).toContain(INLINE), { timeout: 5000 });
+      expect((await loadSketch(newKey))?.elements).toHaveLength(2);
+      expect(await loadSketch(oldKey)).toBeNull();
+    } finally {
+      await deleteSketch(oldKey);
+      await deleteSketch(newKey);
+    }
   });
 });

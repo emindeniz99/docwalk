@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { deleteSketch, listSketches, loadSketch, saveSketch, type StoredSketch } from "./store";
+import {
+  adoptSketches,
+  deleteSketch,
+  listSketches,
+  loadSketch,
+  saveSketch,
+  type StoredSketch,
+} from "./store";
 
 const sketch = (key: string, text: string): StoredSketch => ({
   key,
@@ -9,7 +16,14 @@ const sketch = (key: string, text: string): StoredSketch => ({
   savedAt: 1,
 });
 
-const KEYS = ["doc-a\nhash-1", "doc-a\nhash-2", "doc-b\nhash-1", "broken"];
+const KEYS = [
+  "doc-a\nhash-1",
+  "doc-a\nhash-2",
+  "doc-b\nhash-1",
+  "doc-b\nhash-2",
+  "doc-c\nhash-1",
+  "broken",
+];
 
 afterEach(async () => {
   for (const key of KEYS) await deleteSketch(key);
@@ -61,5 +75,25 @@ describe("sketch store (decision 54)", () => {
     expect(listed[0]!.bytes).toBeGreaterThan(10_000);
     expect(listed[1]!.bytes).toBeGreaterThan(0);
     expect(listed[1]!.bytes).toBeLessThan(listed[0]!.bytes);
+  });
+
+  test("a document's sketches move to its new key once, and the old records go (decision 122)", async () => {
+    // The old key of a `?src=` document is its raw URL, token included: it must leave the database.
+    await saveSketch(sketch("doc-a\nhash-1", "a1"));
+    await saveSketch(sketch("doc-a\nhash-2", "a2"));
+    await adoptSketches("doc-a", "doc-b");
+    expect((await loadSketch("doc-b\nhash-1"))?.elements).toEqual([{ type: "text", text: "a1" }]);
+    expect((await loadSketch("doc-b\nhash-2"))?.elements).toEqual([{ type: "text", text: "a2" }]);
+    expect(await loadSketch("doc-a\nhash-1")).toBeNull();
+    expect(await loadSketch("doc-a\nhash-2")).toBeNull();
+  });
+
+  test("sketches already under the new key are never overwritten by old ones", async () => {
+    // A sketch drawn since the new key took over is newer work than anything under the old key.
+    await saveSketch(sketch("doc-a\nhash-1", "old"));
+    await saveSketch(sketch("doc-c\nhash-1", "new"));
+    await adoptSketches("doc-a", "doc-c");
+    expect((await loadSketch("doc-c\nhash-1"))?.elements).toEqual([{ type: "text", text: "new" }]);
+    expect((await loadSketch("doc-a\nhash-1"))?.elements).toEqual([{ type: "text", text: "old" }]);
   });
 });
