@@ -574,6 +574,26 @@ describe("whiteboards in exports (decision 110)", () => {
     });
   });
 
+  test("in a print with notes the board page comes after the section's last slide and after its notes page (decisions 110, 114)", async () => {
+    // The notes belong to the section's last slide, so the order is slide, notes, board. A change
+    // of it would reshuffle every handout, so it is pinned here.
+    const slides = sections();
+    slides[1] = { ...slides[1]!, notes: ["Say this."] };
+    let shape: string[] = [];
+    await printDeck(deck(...withBoardPages(slides, boards)), (win) => {
+      const main = win.document.querySelector("main")!;
+      shape = [...main.children].map((c) =>
+        c.classList.contains("docwalk-export-notes")
+          ? "notes"
+          : c.querySelector(".docwalk-export-board")
+            ? "board"
+            : "page",
+      );
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(shape).toEqual(["page", "page", "notes", "board", "page"]);
+  });
+
   test("the HTML file and the PNG files carry the board page too, named by its address", async () => {
     const options = deck(...withBoardPages(sections(), boards));
     const { doc } = await parseExport(options);
