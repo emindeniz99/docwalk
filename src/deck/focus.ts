@@ -473,6 +473,16 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
   });
   let clear: HTMLButtonElement | null = null;
   const anyMarked = () => rows.some((row) => row.getAttribute("aria-pressed") === "true");
+  // Clear is unavailable while nothing is marked. A disabled button cannot keep focus: the
+  // keys would go to <body>, where Escape no longer closes the view. So focus moves first, to
+  // the line that is the tab stop, which is where marking goes on (decision 87).
+  const syncClear = () => {
+    if (!clear) return;
+    const disabled = !anyMarked();
+    if (disabled && document.activeElement === clear)
+      (rows.find((row) => row.tabIndex === 0) ?? rows[0])?.focus({ preventScroll: true });
+    clear.disabled = disabled;
+  };
   // Every change of marks goes to the mirror as the whole list (decision 106).
   const reportLines = () =>
     emitFocus({
@@ -487,7 +497,7 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
   };
   const toggle = (row: HTMLElement) => {
     row.setAttribute("aria-pressed", String(row.getAttribute("aria-pressed") !== "true"));
-    if (clear) clear.disabled = !anyMarked();
+    syncClear();
     reportLines();
   };
   copy.addEventListener("click", (event) => {
@@ -516,7 +526,7 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
     extras(add) {
       clear = add(m.focus_clear(), m.focus_clear_title(), () => {
         for (const row of rows) row.setAttribute("aria-pressed", "false");
-        if (clear) clear.disabled = true;
+        syncClear();
         reportLines();
       });
       clear.disabled = true;
@@ -524,7 +534,7 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
     setLines(lines) {
       const marked = new Set(lines);
       rows.forEach((row, i) => row.setAttribute("aria-pressed", String(marked.has(i + 1))));
-      if (clear) clear.disabled = !anyMarked();
+      syncClear();
     },
   };
 }
