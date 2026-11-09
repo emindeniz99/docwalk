@@ -88,6 +88,18 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   Temml builds each formula in a Web Worker, stopped after 500 ms; the page
   rebuilds its tree from data through an allowlist and holds lengths to
   4 em. `e2e/math.spec.ts` covers it (6 tests on Chromium).
+- Done 2026-11-09: a whiteboard per section, rectangle and ellipse tools,
+  and stylus input (decision 110, proposed): W, the toolbar or the palette
+  opens a blank page with its own marks, mirrored to followers and the
+  presenter window, saved with the document's marks and printed after its
+  section; R and C draw shapes; a pen draws without choosing a tool, and
+  once a pen has touched the screen fingers change slides.
+  `e2e/whiteboard.spec.ts`, `e2e/stylus.spec.ts` and `e2e/shapes.spec.ts`
+  cover it (15 tests on Chromium).
+- Done 2026-11-09: speaker notes in print (decision 114, proposed): Export ›
+  Print with speaker notes puts each chosen section's notes on a page after
+  its last slide; the HTML file and PNG images never carry notes.
+  `e2e/export.spec.ts` covers it.
 
 Still open in v1:
 
@@ -236,10 +248,11 @@ Later rounds:
   budget assumes CI is about twice as slow as a local run; it was not
   measured on CI.
 - Speaker notes (decision 79): a comment-only part after the first slide
-  (between two thematic breaks) still opens a blank slide. Notes are not
-  exported (no
-  handout, no notes in PDF), show Markdown as plain text, and travel in
-  the document text, so a share link or a remote room carries them.
+  (between two thematic breaks) still opens a blank slide. Only Print with
+  speaker notes carries them out of the app (decision 114); they show
+  Markdown as plain text and travel in the document text, so a share link
+  or a remote room carries them. A print started during a rebuild can miss
+  a renamed section's notes.
 - Countdown, pacing bar and wake lock (decision 80): the target cannot change
   while it runs (Reset, then a new value, restarts the clock), and the
   countdown ends when the presenter window closes. The real wake lock is
@@ -316,18 +329,22 @@ Later rounds:
   and links address slides as `<section-id>/<n>`. It needs one shared
   aspect per talk (the presenter's, sent to followers) before it can be
   considered.
+- Whiteboard (decision 110, proposed): one board per section, keyed by the
+  section id, so renaming the heading leaves the board behind and a
+  numbered or positional id (`demo-1`, `slide-N`) can move it to another
+  section; a follower cannot close it; no highlighter or plain line on it;
+  closing it keeps the pen that opening chose; a pen's eraser end does
+  nothing; the first-pen notice shifts the page once. Apple Pencil on a
+  real iPad (Scribble, hover, palm) is untested.
 - Follow screens (decision 113, proposed): no Full screen button, no wake
   lock and no frame switch on the follow page; the frame follows what this
   browser chose in another docwalk tab.
 
 ## Next up
 
-Features from [`docs/feature-gaps.md`](./docs/feature-gaps.md), in this
-order unless the owner picks differently. The first two give the most for
-the least work. Each starts with a decision row, then failing tests, then
-code.
-
-1. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
+for this round is built; the owner picks the next round. Each starts with a
+decision row, then failing tests, then code.
 
 ## Later
 
