@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { createAnnotationLayer, LASER_TRAIL_MS } from "./layer";
 import { quantize, type MarkEvent } from "./mirrorTypes";
+import type { SavedStroke } from "./savedMarks";
 import type { AnnotationLayer } from "./types";
 
 let layer: AnnotationLayer | null = null;
@@ -623,5 +625,252 @@ describe("rectangles and ellipses (decision 110)", () => {
     stroke(host, [200, 20], [200, 110]);
     expect(host.querySelectorAll(`${DRAW} rect`)).toHaveLength(0);
     expect(lastShapeMarks(events)?.strokes).toHaveLength(0);
+  });
+});
+
+/**
+ * The deck's DOM as the layer sees it: a control before the stage, a
+ * `.reveal > .slides` host with two pages that fill it, and a control after.
+ * The first page holds a link and is the current one, as in reveal.js.
+ */
+function deckHost() {
+  const before = document.createElement("button");
+  before.textContent = "before";
+  const reveal = document.createElement("div");
+  reveal.className = "reveal";
+  reveal.tabIndex = 0;
+  const host = document.createElement("div");
+  host.className = "slides";
+  Object.assign(host.style, { width: "400px", height: "300px", margin: "0", position: "relative" });
+  host.innerHTML = `
+    <section class="present" style="position:absolute;inset:0"><a href="#x">page link</a></section>
+    <section inert style="position:absolute;inset:0"><a href="#y">hidden link</a></section>`;
+  reveal.append(host);
+  const after = document.createElement("button");
+  after.textContent = "after";
+  document.body.append(before, reveal, after);
+  const page = host.querySelector("section.present") as HTMLElement;
+  return { before, after, reveal, host, page };
+}
+
+const BOARD = { key: "a/board#0", address: "a/board" } as const;
+
+function openBoardDeck(options?: Parameters<typeof createAnnotationLayer>[1]) {
+  const dom = deckHost();
+  layer = createAnnotationLayer(dom.host, options);
+  const events: MarkEvent[] = [];
+  layer.observe((event) => events.push(event));
+  layer.setKey("a/1#abc", "a/1");
+  events.length = 0;
+  return { ...dom, events };
+}
+const boardPaper = (host: HTMLElement) =>
+  host.querySelector(".docwalk-annotate-board") as HTMLElement;
+/** The kinds heard, without the laser-off a change of slide always sends. */
+const heardKinds = (events: MarkEvent[]) =>
+  events.map((e) => e.kind).filter((kind) => kind !== "laser-off");
+
+describe("the whiteboard (decision 110)", () => {
+  test("with the board open the slide's centre is the paper or a draw surface, never the page", () => {
+    const { host, page } = openBoardDeck();
+    const point = centre(page);
+    expect(document.elementFromPoint(...point)).toBe(page);
+    layer!.setBoard(BOARD);
+    expect(layer!.board()).toBe("a/board");
+    const hit = document.elementFromPoint(...point)!;
+    expect(hit).toBe(boardPaper(host));
+    layer!.setMode("pen");
+    expect(document.elementFromPoint(...point)).toBe(host.querySelector(DRAW));
+    expect(page.contains(document.elementFromPoint(...point))).toBe(false);
+  });
+
+  test("the paper is the slide's colour, and gone once the board closes", () => {
+    const { host, page } = openBoardDeck();
+    layer!.setBoard(BOARD);
+    const probe = document.createElement("span");
+    probe.style.color = "var(--dw-color-slide)";
+    document.body.append(probe);
+    expect(getComputedStyle(boardPaper(host)).backgroundColor).toBe(getComputedStyle(probe).color);
+    layer!.setBoard(null);
+    expect(layer!.board()).toBeNull();
+    expect(document.elementFromPoint(...centre(page))).toBe(page);
+  });
+
+  test("a stroke on the board is gone from view after close and back on reopen", () => {
+    const { host } = openBoardDeck();
+    layer!.setBoard(BOARD);
+    layer!.setMode("pen");
+    stroke(host, [20, 20], [200, 120]);
+    expect(marks(host)).toBe(1);
+    layer!.setBoard(null);
+    expect(marks(host)).toBe(0);
+    layer!.setBoard(BOARD);
+    expect(marks(host)).toBe(1);
+  });
+
+  test("the slide's marks are back after close, and undo on the board leaves the slide's history alone", () => {
+    const { host } = openBoardDeck();
+    layer!.setMode("pen");
+    stroke(host, [20, 20], [200, 120]);
+    expect(marks(host)).toBe(1);
+    layer!.setBoard(BOARD);
+    expect(marks(host)).toBe(0);
+    stroke(host, [30, 200], [300, 200]);
+    layer!.undo();
+    expect(marks(host)).toBe(0);
+    // Nothing left to undo on the board: this must not reach the slide's stroke.
+    layer!.undo();
+    layer!.setBoard(null);
+    expect(marks(host)).toBe(1);
+    layer!.undo();
+    expect(marks(host)).toBe(0);
+  });
+
+  test("opening reports the board over the page, then the board's marks as a reset; closing reports null, then the slide's marks", () => {
+    const { host, events } = openBoardDeck();
+    layer!.setMode("pen");
+    stroke(host, [20, 20], [200, 120]);
+    events.length = 0;
+    layer!.setBoard(BOARD);
+    expect(events).toEqual([
+      { kind: "board", slide: "a/1" },
+      { kind: "marks", slide: "a/board", strokes: [], reset: true },
+    ]);
+    events.length = 0;
+    stroke(host, [30, 200], [300, 200]);
+    const done = events.flatMap((e) => (e.kind === "stroke" && e.end ? [e] : []));
+    expect(done).toHaveLength(1);
+    expect(done[0]).toMatchObject({ slide: "a/board", tool: "pen" });
+    events.length = 0;
+    layer!.setBoard(null);
+    expect(heardKinds(events)).toEqual(["board", "marks"]);
+    expect(events[0]).toEqual({ kind: "board", slide: null });
+    expect(events[1]).toMatchObject({ kind: "marks", slide: "a/1", reset: true });
+    expect((events[1] as Extract<MarkEvent, { kind: "marks" }>).strokes).toHaveLength(1);
+  });
+
+  test("a board's shapes are four numbers under the board's address", () => {
+    const { host, events } = openBoardDeck();
+    layer!.setBoard(BOARD);
+    layer!.setMode("rect");
+    events.length = 0;
+    stroke(host, [40, 30], [360, 270]);
+    const done = events.flatMap((e) => (e.kind === "stroke" && e.end ? [e] : []));
+    expect(done).toHaveLength(1);
+    expect(done[0]).toMatchObject({ slide: "a/board", tool: "rect" });
+    expect(done[0]!.points).toHaveLength(4);
+  });
+
+  test("a setKey to another address closes the board first and reports null", () => {
+    const { host, events, page } = openBoardDeck();
+    layer!.setBoard(BOARD);
+    events.length = 0;
+    layer!.setKey("b/1#def", "b/1");
+    expect(layer!.board()).toBeNull();
+    expect(heardKinds(events)).toEqual(["board", "marks"]);
+    expect(events[0]).toEqual({ kind: "board", slide: null });
+    expect(events.find((e) => e.kind === "marks")).toMatchObject({ slide: "b/1", reset: true });
+    // No reset for the old slide in between: the receiver goes from the board to the new slide.
+    expect(events.filter((e) => e.kind === "marks")).toHaveLength(1);
+    expect(host.querySelector(".docwalk-annotate")?.hasAttribute("data-board")).toBe(false);
+    expect(page.inert).toBe(false);
+  });
+
+  test("a setKey with the same address and a new key leaves the board open and says nothing", () => {
+    // A rebuild while typing in the editor changes the key, not the page.
+    const { host, events } = openBoardDeck();
+    layer!.setBoard(BOARD);
+    layer!.setMode("pen");
+    stroke(host, [20, 20], [200, 120]);
+    events.length = 0;
+    layer!.setKey("a/1#new", "a/1");
+    expect(layer!.board()).toBe("a/board");
+    expect(heardKinds(events)).toEqual([]);
+    expect(marks(host)).toBe(1);
+    // The slide under the board is the new key's, empty.
+    layer!.setBoard(null);
+    expect(marks(host)).toBe(0);
+  });
+
+  test("Tab cannot reach a link on the covered page, and focus inside it goes to .reveal", async () => {
+    const { before, after, page, reveal } = openBoardDeck();
+    page.querySelector("a")!.focus();
+    layer!.setBoard(BOARD);
+    expect(document.activeElement).toBe(reveal);
+    before.focus();
+    const visited: Element[] = [];
+    for (let i = 0; i < 4; i++) {
+      await userEvent.tab();
+      visited.push(document.activeElement!);
+    }
+    expect(visited.some((el) => page.contains(el))).toBe(false);
+    expect(visited).toContain(after);
+    layer!.setBoard(null);
+    expect(page.inert).toBe(false);
+  });
+
+  test("a board's saved marks are asked for by its key and address on the first open only", () => {
+    const saved = vi.fn<(key: string, address: string) => SavedStroke[]>((savedKey) =>
+      savedKey === BOARD.key
+        ? [{ tool: "ellipse", color: "ink", points: [1024, 1024, 3072, 3072] }]
+        : [],
+    );
+    const { host } = openBoardDeck({ saved });
+    expect(saved).toHaveBeenCalledWith("a/1#abc", "a/1");
+    layer!.setBoard(BOARD);
+    expect(saved).toHaveBeenCalledWith(BOARD.key, BOARD.address);
+    expect(host.querySelectorAll(`${DRAW} ellipse`)).toHaveLength(1);
+    layer!.setBoard(null);
+    layer!.setBoard(BOARD);
+    expect(saved.mock.calls.filter(([calledKey]) => calledKey === BOARD.key)).toHaveLength(1);
+    expect(host.querySelectorAll(`${DRAW} ellipse`)).toHaveLength(1);
+  });
+
+  test("retain keeps both the slide's and the open board's marks", () => {
+    const { host } = openBoardDeck();
+    layer!.setMode("pen");
+    stroke(host, [20, 20], [200, 120]);
+    layer!.setBoard(BOARD);
+    stroke(host, [30, 200], [300, 200]);
+    layer!.retain([]);
+    expect(marks(host)).toBe(1);
+    layer!.setBoard(null);
+    expect(marks(host)).toBe(1);
+  });
+
+  test("moveTo covers the new stage's current page and uncovers the old one; destroy uncovers", () => {
+    const { page, host } = openBoardDeck();
+    layer!.setBoard(BOARD);
+    expect(page.inert).toBe(true);
+    document.body.replaceChildren();
+    const next = deckHost();
+    layer!.moveTo(next.host);
+    expect(next.page.inert).toBe(true);
+    expect(page.inert).toBe(false);
+    expect(host.querySelector(".docwalk-annotate")).toBeNull();
+    layer!.destroy();
+    layer = null;
+    expect(next.page.inert).toBe(false);
+  });
+
+  test("a stroke cut short by closing the board is cancelled, not left half drawn on the receivers", () => {
+    const { host, events } = openBoardDeck();
+    layer!.setBoard(BOARD);
+    layer!.setMode("pen");
+    const svg = host.querySelector(DRAW) as SVGSVGElement;
+    pointer("pointerdown", svg, 40, 30);
+    pointer("pointermove", svg, 100, 80);
+    events.length = 0;
+    layer!.setBoard(null);
+    expect(events.some((e) => e.kind === "cancel")).toBe(true);
+    expect(events.some((e) => e.kind === "stroke" && e.end)).toBe(false);
+  });
+
+  test("setBoard before the first key does nothing", () => {
+    const dom = deckHost();
+    layer = createAnnotationLayer(dom.host);
+    layer.setBoard(BOARD);
+    expect(layer.board()).toBeNull();
+    expect(dom.page.inert).toBe(false);
   });
 });

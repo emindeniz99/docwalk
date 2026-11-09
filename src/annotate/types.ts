@@ -27,6 +27,19 @@ export interface AnnotationLayer {
    */
   setKey(key: string, address?: string): void;
   /**
+   * Opens a whiteboard (decision 110) over the current page, or closes the
+   * open one (null). The board is a blank page in the slide's colour with a
+   * drawing of its own, made and restored on its first open under `key` and
+   * `address` (`<section-id>/board`). The slide's key and drawing are kept
+   * aside; closing brings them back. Observers hear `{ kind: "board" }`
+   * first, then the `marks` reset for the board (or for the slide again).
+   * A `setKey` to another page address closes the board; one to the same
+   * address (a rebuild) keeps it open. Does nothing before the first key.
+   */
+  setBoard(board: { key: string; address: string } | null): void;
+  /** The address of the open whiteboard, or null when none is open. */
+  board(): string | null;
+  /**
    * Move the overlay, with every slide's marks and undo history, onto a new
    * host: a deck rebuild replaces the stage element mid-talk.
    */

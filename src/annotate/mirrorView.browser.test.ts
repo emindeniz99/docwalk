@@ -46,6 +46,9 @@ const stroke = (over: Partial<StrokeOp> = {}): MirrorOp => ({
   ...over,
 });
 
+const box = (el: SVGElement) =>
+  ["x", "y", "width", "height"].map((a) => Number(el.getAttribute(a)));
+
 const marks = (host: HTMLElement) => host.querySelectorAll(".docwalk-mirror [data-mark]");
 
 /** The overlay draws on a short timer so changes that arrive together are drawn together. */
@@ -122,8 +125,6 @@ describe("marks on the receiving slide", () => {
     view = attachMirror(host, store, () => "a/1");
     const [first, second] = [...marks(host)] as SVGRectElement[];
     expect(first!.localName).toBe("rect");
-    const box = (el: SVGElement) =>
-      ["x", "y", "width", "height"].map((a) => Number(el.getAttribute(a)));
     expect(box(first!)).toEqual([320, 180, 640, 180]);
     expect(box(second!)).toEqual(box(first!));
   });

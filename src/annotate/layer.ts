@@ -12,6 +12,7 @@ import {
   type MarkStroke,
   type MarkTool,
 } from "./mirrorTypes";
+import { coverPage } from "./boardCover";
 import { strokeElement } from "./markSvg";
 import { outlinePath } from "./outline";
 import type { AnnotationLayer, AnnotationLayerOptions, AnnotationMode } from "./types";
@@ -74,8 +75,12 @@ export function createAnnotationLayer(
 ): AnnotationLayer {
   const root = document.createElement("div");
   root.className = "docwalk-annotate";
+  // The whiteboard's paper (decision 110): hidden unless a board is open, under every draw surface.
+  const paper = document.createElement("div");
+  paper.className = "docwalk-annotate-board";
+  paper.setAttribute("aria-hidden", "true");
   const laser = surface("laser");
-  root.append(laser);
+  root.append(paper, laser);
 
   // The overlay is absolutely positioned, so it needs a containing block.
   let stage = host;
@@ -120,6 +125,8 @@ export function createAnnotationLayer(
 
   let mode: AnnotationMode = "off";
   let key: string | null = null;
+  /** The open whiteboard: its drawing and address, the page it covers and the undo of that cover. */
+  let board: { address: string; page: string; drawing: Drauu; uncover: () => void } | null = null;
   /** One drawing per slide key; `null` holds marks made before the first key. */
   const drawings = new Map<string | null, Drauu>();
 
@@ -307,6 +314,8 @@ export function createAnnotationLayer(
 
   // The handlers createDrawing wires read `active`, but only after this line has run.
   let active = createDrawing();
+  /** The current slide's drawing: `active`, unless a whiteboard is open over it. */
+  let slideDrawing = active;
   slideOf.set(active, null);
   drawings.set(null, active);
   show(active);
@@ -402,6 +411,49 @@ export function createAnnotationLayer(
     else notify({ kind: "laser-off" });
   }
 
+  function openBoard(next: { key: string; address: string }) {
+    const page = slideOf.get(slideDrawing);
+    if (key === null || page == null) return;
+    if (board) {
+      if (board.address === next.address) return;
+      closeBoard(false);
+    }
+    // A stroke still being drawn on the slide belongs to neither page.
+    slideDrawing.cancel();
+    slideDrawing.drawing = false;
+    let drawing = drawings.get(next.key);
+    if (!drawing) {
+      drawing = createDrawing();
+      slideOf.set(drawing, next.address);
+      drawings.set(next.key, drawing);
+      restore(drawing, next.key, next.address);
+    }
+    board = { address: next.address, page, drawing, uncover: coverPage(stage) };
+    active = drawing;
+    root.toggleAttribute("data-board", true);
+    applyTool(active);
+    show(active);
+    notify({ kind: "board", slide: page });
+    reportMarks(true);
+  }
+
+  /** Undoes `openBoard` in reverse. `report` is false when a change of slide reports its own marks next. */
+  function closeBoard(report: boolean) {
+    const open = board;
+    if (!open) return;
+    // A stroke still being drawn on the board is cancelled while the board is still the active drawing.
+    open.drawing.cancel();
+    open.drawing.drawing = false;
+    board = null;
+    open.uncover();
+    root.removeAttribute("data-board");
+    active = slideDrawing;
+    applyTool(active);
+    show(active);
+    notify({ kind: "board", slide: null });
+    if (report) reportMarks(true);
+  }
+
   laser.addEventListener("pointerdown", onLaserDown);
   laser.addEventListener("pointermove", onLaserMove);
   laser.addEventListener("pointerup", onLaserEnd);
@@ -436,17 +488,19 @@ export function createAnnotationLayer(
     },
     setKey(next, address = next) {
       if (next === key) return;
+      // Another page closes the board; the same page under a new key (a rebuild) leaves it open.
+      if (board && board.page !== address) closeBoard(false);
       if (key === null) {
         // Marks made before the first key belong to the first slide.
         drawings.delete(null);
-        drawings.set(next, active);
-        slideOf.set(active, address);
-        restore(active, next, address);
+        drawings.set(next, slideDrawing);
+        slideOf.set(slideDrawing, address);
+        restore(slideDrawing, next, address);
         refreshEraser();
       } else {
         // A stroke still being drawn when the slide changes belongs to no slide.
-        active.cancel();
-        active.drawing = false;
+        slideDrawing.cancel();
+        slideDrawing.drawing = false;
         let drawing = drawings.get(next);
         if (!drawing) {
           drawing = createDrawing();
@@ -454,25 +508,39 @@ export function createAnnotationLayer(
           drawings.set(next, drawing);
           restore(drawing, next, address);
         }
-        active = drawing;
-        applyTool(active);
-        show(active);
+        slideDrawing = drawing;
+        if (!board) {
+          active = drawing;
+          applyTool(active);
+          show(active);
+        }
       }
       key = next;
       clearLaser();
-      reportMarks(true);
+      // Under an open board the receivers keep the board's marks.
+      if (!board) reportMarks(true);
     },
+    setBoard(next) {
+      if (next) openBoard(next);
+      else closeBoard(true);
+    },
+    board: () => board?.address ?? null,
     moveTo(next) {
       if (next === stage) return;
       clearLaser();
       detach();
       attach(next);
+      // The rebuilt deck has a new current page; the board covers that one.
+      if (board) {
+        board.uncover();
+        board.uncover = coverPage(next);
+      }
     },
     retain(keys) {
       const keep = new Set<string | null>(keys);
       const dropped = new Set<string>();
       for (const [k, drawing] of drawings) {
-        if (drawing === active || keep.has(k)) continue;
+        if (drawing === active || drawing === slideDrawing || keep.has(k)) continue;
         const slide = slideOf.get(drawing);
         if (slide != null) dropped.add(slide);
         // drauu forgets its element on unmount, so take it first.
@@ -493,6 +561,8 @@ export function createAnnotationLayer(
       return () => observers.delete(listener);
     },
     destroy() {
+      board?.uncover();
+      board = null;
       clearLaser();
       observers.clear();
       laser.removeEventListener("pointerdown", onLaserDown);
