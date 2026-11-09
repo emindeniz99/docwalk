@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { MirrorMessageSchema } from "../annotate/mirrorSchema";
 import { MAX_DOCUMENT_BYTES } from "../inputs/types";
+import { MAX_SPENT_MS, MAX_TARGET_MINUTES, MIN_TARGET_MINUTES } from "../presenter/pacing";
 import type { EncryptedFrame, RemoteMessage, RoomCredentials } from "./types";
 
 /**
@@ -253,9 +254,27 @@ const StateMessage = v.pipe(
   v.check((m) => m.index < m.total, "index must be inside the deck"),
 );
 
+/** The countdown a phone shows, in 80's limits: 1 to 600 minutes, at most 7 days spent (decision 112). */
+const CountdownMessage = v.object({
+  type: v.literal("countdown"),
+  countdown: v.nullable(
+    v.object({
+      targetMs: v.pipe(
+        v.number(),
+        v.integer(),
+        v.minValue(MIN_TARGET_MINUTES * 60_000),
+        v.maxValue(MAX_TARGET_MINUTES * 60_000),
+      ),
+      spentMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(MAX_SPENT_MS)),
+      running: v.boolean(),
+    }),
+  ),
+});
+
 /** Every plaintext a peer may send; unknown fields are stripped, unknown types fail. */
 export const RemoteMessageSchema = v.variant("type", [
   StateMessage,
+  CountdownMessage,
   v.object({ type: v.literal("step"), direction: v.picklist([1, -1]) }),
   v.object({ type: v.literal("goto"), address: Address }),
   v.object({ type: v.literal("laser"), x: Unit, y: Unit }),

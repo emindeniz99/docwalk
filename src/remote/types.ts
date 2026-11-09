@@ -11,6 +11,9 @@
  * followers load it from the share link (`?src=`, `?repo=` or `#doc=`), which
  * the presenter includes in its `hello`.
  *
+ * The presenter also sends the countdown of its presenter window to remotes
+ * (decision 112), under the control key only.
+ *
  * The presenter also mirrors its laser, pen marks and diagram focus view to
  * followers (decision 88): `mirror` messages, signed like `state`.
  *
@@ -23,6 +26,7 @@
  */
 
 import type { MirrorOp } from "../annotate/mirrorTypes";
+import type { RemoteCountdown } from "../presenter/pacing";
 import type { HeadingDepth } from "../sectioning/sectionize";
 
 /** Plaintext messages, encrypted before sending. */
@@ -41,6 +45,12 @@ export type RemoteMessage =
       /** The presenter's slide level: section ids, and so addresses, depend on it. */
       level: "auto" | HeadingDepth | HeadingDepth[];
     }
+  /**
+   * Presenter -> remotes and agents: the presenter window's countdown, or null
+   * once it is gone (decision 112). Durations only, under the control key: a
+   * follow link never receives it, and a phone counts on from its own clock.
+   */
+  | { type: "countdown"; countdown: RemoteCountdown | null }
   /** Remote -> presenter: next/previous slide. */
   | { type: "step"; direction: 1 | -1 }
   /** Remote -> presenter: jump to an address. */

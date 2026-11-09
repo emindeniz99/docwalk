@@ -75,6 +75,12 @@ export function PresenterView({ channel }: PresenterViewProps) {
     };
   }, [channel, mirror]);
 
+  // The audience tab sends it on to phone remotes (decision 112): on each change, and
+  // again with each heartbeat, so closing this window ends it there as it ends it here.
+  useEffect(() => {
+    connection.current?.setCountdown(countdown);
+  }, [countdown]);
+
   const markdown = state?.markdown;
   const levelKey = state ? JSON.stringify(state.level) : null;
   // Previews carry slide chrome and overflow notes, so a language switch rebuilds them too.

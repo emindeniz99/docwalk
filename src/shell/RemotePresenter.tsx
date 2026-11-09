@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { MirrorFeed } from "../annotate/mirrorFeed";
 import type { DeckController } from "../deck/controller";
 import type { LoadedDocument } from "../inputs/types";
+import type { Countdown } from "../presenter/pacing";
 import type { LevelOption } from "../sectioning/sectionize";
 import { JoinDialog } from "../remote/JoinDialog";
 import { useRemoteHost } from "../remote/host";
@@ -17,6 +18,8 @@ export interface RemotePresenterProps {
   level: LevelOption;
   /** The laser, marks and diagram focus view to mirror to followers (decision 88). */
   mirror: MirrorFeed;
+  /** The presenter window's countdown, which phone remotes show (decision 112); null or absent when there is none. */
+  countdown?: Countdown | null;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   /** Applies an agent's write the way an edit in the editor would (decision 59). */
@@ -40,6 +43,7 @@ export function RemotePresenter({
   doc,
   level,
   mirror,
+  countdown = null,
   isOpen,
   onOpenChange,
   edit,
@@ -93,6 +97,7 @@ export function RemotePresenter({
     onAgentEdit,
     onAgentEditRefused,
     mirror,
+    countdown,
   });
   useStageLaser(controller, remote.laser);
   return <JoinDialog isOpen={isOpen} onOpenChange={onOpenChange} host={remote} />;

@@ -7,10 +7,12 @@ import { MirrorFeed } from "../annotate/mirrorFeed";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import {
   DISCONNECT_AFTER_MS,
+  HEARTBEAT_MS,
   startPresenterBridge,
   type ChannelFactory,
   type PresenterState,
 } from "./bridge";
+import { PACING_STORAGE_KEY, writeCountdown, type Countdown } from "./pacing";
 import { formatElapsed, PresenterView } from "./PresenterView";
 import { openPresenterWindow } from "./window";
 
@@ -574,5 +576,67 @@ describe("the whiteboard in the presenter window (decision 110)", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(shown(paperIn(el, "docwalk-presenter-current"))).toBe(false);
     expect(el.querySelector(".docwalk-presenter-next .docwalk-mirror")).toBeNull();
+  });
+});
+
+/** A channel that records what the window posts; nothing answers it. */
+function recordingCountdownChannel() {
+  const posted: { type?: string; countdown?: Countdown | null }[] = [];
+  const factory: ChannelFactory = () => ({
+    postMessage: (message) => posted.push(message as (typeof posted)[number]),
+    listen: () => {},
+    close: () => {},
+  });
+  const countdowns = () => posted.filter((m) => m.type === "countdown").map((m) => m.countdown);
+  return { factory, countdowns };
+}
+
+const PAUSED: Countdown = { targetMs: 20 * 60_000, spentMs: 5 * 60_000, startedAt: null };
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const pressIn = (el: HTMLElement, name: string) =>
+  [...el.querySelectorAll("button")].find((b) => b.textContent === name)!.click();
+
+describe("the countdown sent to the audience tab (decision 112)", () => {
+  afterEach(() => sessionStorage.removeItem(PACING_STORAGE_KEY));
+
+  test("a window opened with no countdown posts nothing about one, so it cannot wipe another window's clock", async () => {
+    const channel = recordingCountdownChannel();
+    renderView(channel.factory);
+    await pause(HEARTBEAT_MS + 400);
+    expect(channel.countdowns()).toEqual([]);
+  });
+
+  test("a window that reloaded with a countdown posts it at once and with each heartbeat", async () => {
+    sessionStorage.setItem(PACING_STORAGE_KEY, writeCountdown(PAUSED));
+    const channel = recordingCountdownChannel();
+    renderView(channel.factory);
+    await expect.poll(() => channel.countdowns()).toEqual([PAUSED]);
+    await expect.poll(() => channel.countdowns().length, { timeout: HEARTBEAT_MS + 1500 }).toBe(2);
+  });
+
+  test("Start posts the countdown, and Reset posts null once", async () => {
+    const channel = recordingCountdownChannel();
+    const el = renderView(channel.factory);
+    const field = await vi.waitFor(() => {
+      const input = el.querySelector<HTMLInputElement>("input.docwalk-presenter-target-input");
+      if (!input) throw new Error("no target field yet");
+      return input;
+    });
+    // React tracks the input's value; set it through the prototype setter so onChange fires.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, "10");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    pressIn(el, "Start");
+    await expect.poll(() => channel.countdowns().length).toBe(1);
+    const started = channel.countdowns()[0]!;
+    expect(started).toMatchObject({ targetMs: 10 * 60_000, spentMs: 0 });
+    expect(started?.startedAt).toEqual(expect.any(Number));
+
+    pressIn(el, "Reset");
+    await expect.poll(() => channel.countdowns().at(-1)).toBeNull();
+    const afterReset = channel.countdowns().length;
+    // The heartbeat does not repeat the absence of a countdown.
+    await pause(HEARTBEAT_MS + 400);
+    expect(channel.countdowns().length).toBe(afterReset);
+    expect(channel.countdowns().filter((c) => c === null)).toHaveLength(1);
   });
 });

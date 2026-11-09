@@ -14,6 +14,9 @@ export const MAX_TARGET_MINUTES = 600;
 /** How far apart (as a share of the talk) the clock and the slides may drift and still read "on pace". */
 export const PACE_TOLERANCE = 0.05;
 
+/** The most time spent a phone remote is sent: 7 days (decision 112). */
+export const MAX_SPENT_MS = 7 * 24 * 60 * 60_000;
+
 /** Where the presenter window keeps its countdown across a reload. */
 export const PACING_STORAGE_KEY = "docwalk-pacing";
 
@@ -29,6 +32,16 @@ export interface Countdown {
   targetMs: number;
   spentMs: number;
   startedAt: number | null;
+}
+
+/**
+ * A countdown as the phone remote gets it (decision 112): durations only,
+ * because the phone's clock is not the laptop's.
+ */
+export interface RemoteCountdown {
+  targetMs: number;
+  spentMs: number;
+  running: boolean;
 }
 
 /** Whole minutes in range, from what the presenter typed; `null` for anything else. */
@@ -109,6 +122,49 @@ export function formatClock(ms: number): string {
   return h > 0 ? `${h}:${String(min).padStart(2, "0")}:${s}` : `${min}:${s}`;
 }
 
+/** The countdown as durations for the phone remote; the time spent is whole milliseconds, at most `MAX_SPENT_MS`. */
+export function toRemoteCountdown(countdown: Countdown, now: number): RemoteCountdown {
+  return {
+    targetMs: countdown.targetMs,
+    spentMs: Math.min(MAX_SPENT_MS, Math.round(spentMs(countdown, now))),
+    running: countdown.startedAt !== null,
+  };
+}
+
+/** The phone's countdown: a running clock counts on from `now`, the phone's own clock. */
+export function fromRemoteCountdown(remote: RemoteCountdown, now: number): Countdown {
+  return {
+    targetMs: remote.targetMs,
+    spentMs: remote.spentMs,
+    startedAt: remote.running ? now : null,
+  };
+}
+
+/** True when two countdowns hold the same values, so a heartbeat that repeats one changes nothing. */
+export function sameCountdown(a: Countdown | null, b: Countdown | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.targetMs === b.targetMs && a.spentMs === b.spentMs && a.startedAt === b.startedAt;
+}
+
+/**
+ * The share of the talk done from a slide's place and the deck's size, as
+ * `slideShare` computes it from addresses; `null` for an empty deck.
+ */
+export function slideShareOf(index: number, total: number): number | null {
+  return total > 0 ? (index + 0.5) / total : null;
+}
+
+/**
+ * Milliseconds until the face of a clock with `remaining` left next changes, for
+ * a ticker that wakes just after each change: the face counts whole seconds
+ * toward zero (`formatRemaining`), so a plain 1 s timer from the instant the
+ * countdown arrived would skip a number. The 2 ms lands the wake-up after the
+ * change and not on it.
+ */
+export function untilNextSecond(remaining: number): number {
+  return (remaining > 0 ? remaining % 1000 : 1000 + (remaining % 1000)) + 2;
+}
+
 /**
  * The time left as a clock: whole seconds toward zero, so `0:01` shows for
  * the last second, and a real minus sign (U+2212, which screen readers speak)
@@ -122,8 +178,9 @@ export function formatRemaining(ms: number): string {
 
 // A limit on the stored values, as for every other input (decision 46): the
 // presenter window reads this from storage that a page script or an older
-// build also writes.
-const StoredCountdown = v.object({
+// build also writes, and the audience tab reads it from the presenter window's
+// bridge request (decision 112).
+export const CountdownSchema = v.object({
   targetMs: v.pipe(
     v.number(),
     v.integer(),
@@ -142,7 +199,7 @@ export function writeCountdown(countdown: Countdown): string {
 export function readCountdown(raw: string | null): Countdown | null {
   if (raw === null) return null;
   try {
-    const parsed = v.safeParse(StoredCountdown, JSON.parse(raw));
+    const parsed = v.safeParse(CountdownSchema, JSON.parse(raw));
     return parsed.success ? parsed.output : null;
   } catch {
     return null;
