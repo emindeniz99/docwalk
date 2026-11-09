@@ -622,6 +622,11 @@ describe("the allowlist holds against a hostile tree, whatever built it", () => 
   });
 });
 
+/** The `innerHTML` of a `<math>` that holds `child` and then an `<mi>ok</mi>`. */
+const withSibling = (child: unknown): string =>
+  fromTree({ name: "math", attributes: [], children: [child, el("mi", [], ["ok"])] }, false)!
+    .innerHTML;
+
 describe("data that is not a tree builds nothing it does not list", () => {
   test("a root that is not an object gives nothing", () => {
     for (const root of [42, null, undefined, "math", true, [], [el("math")]]) {
@@ -630,20 +635,18 @@ describe("data that is not a tree builds nothing it does not list", () => {
   });
 
   test("a node with the wrong shape drops itself and its subtree, and the rest stays", () => {
-    const math = (...children: unknown[]) => ({ name: "math", attributes: [], children });
-    const build = (child: unknown) => fromTree(math(child, el("mi", [], ["ok"])), false)!.innerHTML;
     const kept = "<mi>ok</mi>";
     // attributes is an object, not a list of pairs
-    expect(build({ name: "mi", attributes: { onclick: "1" }, children: ["x"] })).toBe(kept);
+    expect(withSibling({ name: "mi", attributes: { onclick: "1" }, children: ["x"] })).toBe(kept);
     // children is not a list
-    expect(build({ name: "mi", attributes: [], children: "x" })).toBe(kept);
+    expect(withSibling({ name: "mi", attributes: [], children: "x" })).toBe(kept);
     // a name that is not a string
-    expect(build({ name: 42, attributes: [], children: [] })).toBe(kept);
-    expect(build({ attributes: [], children: [] })).toBe(kept);
+    expect(withSibling({ name: 42, attributes: [], children: [] })).toBe(kept);
+    expect(withSibling({ attributes: [], children: [] })).toBe(kept);
     // children that are neither elements nor text
-    expect(build({ name: "mrow", attributes: [], children: [7, null, undefined, true] })).toBe(
-      `<mrow></mrow>${kept}`,
-    );
+    expect(
+      withSibling({ name: "mrow", attributes: [], children: [7, null, undefined, true] }),
+    ).toBe(`<mrow></mrow>${kept}`);
   });
 
   test("a pair that is not two strings is dropped, the element stays", () => {

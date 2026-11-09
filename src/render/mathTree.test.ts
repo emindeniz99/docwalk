@@ -18,6 +18,10 @@ function elementsOf(tree: MathTree): MathTree[] {
   ];
 }
 
+/** The text below `el`, in order. */
+const textOf = (el: MathTree): string =>
+  el.children.map((child) => (typeof child === "string" ? child : textOf(child))).join("");
+
 const tree = (tex: string, display = true): MathTree => {
   const result = texToTree(tex, display);
   if (result === null) throw new Error(`${tex} gave no tree`);
@@ -56,21 +60,16 @@ describe("what the worker sends is inside the lists", () => {
   ];
 
   test.each(samples)("%s", (tex) => {
-    for (const el of elementsOf(tree(tex))) {
-      expect(MATH_ELEMENTS.has(el.name), `<${el.name}> is on the list`).toBe(true);
-      for (const [name, value] of el.attributes) {
-        expect(name, "no style travels").not.toBe("style");
-        if (name === "class") {
-          const names = value.split(" ");
-          expect(
-            names.every((c) => MATH_CLASSES.has(c)),
-            `class ${value}`,
-          ).toBe(true);
-        } else {
-          expect(mathAttributeAllowed(name, value), `${name}="${value}"`).toBe(true);
-        }
-      }
-    }
+    const els = elementsOf(tree(tex));
+    expect(els.filter((el) => !MATH_ELEMENTS.has(el.name)).map((el) => el.name)).toEqual([]);
+    const all = els.flatMap((el) => el.attributes);
+    expect(all.filter(([name]) => name === "style")).toEqual([]);
+    const classes = all
+      .filter(([name]) => name === "class")
+      .flatMap(([, value]) => value.split(" "));
+    expect(classes.filter((c) => !MATH_CLASSES.has(c))).toEqual([]);
+    const others = all.filter(([name]) => name !== "class");
+    expect(others.filter(([name, value]) => !mathAttributeAllowed(name, value))).toEqual([]);
   });
 
   test("\\color keeps its colour as an attribute", () => {
@@ -85,8 +84,6 @@ describe("what the worker sends is inside the lists", () => {
   test("a fragment inside an element is spliced, in order", () => {
     // \cancelto puts a DocumentFragment below <math>; it has no element of its own.
     const root = tree("\\cancelto{0}{x}");
-    const textOf = (el: MathTree): string =>
-      el.children.map((child) => (typeof child === "string" ? child : textOf(child))).join("");
     // The body twice (content and phantom), then the target.
     expect(textOf(root)).toBe("xx0");
     expect(root.children.every((child) => typeof child !== "string" && child.name === "mrow")).toBe(
@@ -154,6 +151,16 @@ const node = (type: string, children: unknown[] = []) => ({
   style: {},
 });
 
+/** `levels` elements deep below a `math` root, ending in an `mi`. */
+const chain = (levels: number) => {
+  let inner: unknown = node("mi");
+  for (let i = 1; i < levels; i++) inner = node("mrow", [inner]);
+  return node("math", [inner]);
+};
+
+/** A `math` holding one `mtext` of `n` characters. */
+const text = (n: number) => node("math", [node("mtext", [{ text: "x".repeat(n) }])]);
+
 describe("the data has its own caps", () => {
   test("a tree at the element limit passes, one element over does not", () => {
     const at = node(
@@ -169,17 +176,11 @@ describe("the data has its own caps", () => {
   });
 
   test("a tree at the depth limit passes, one level deeper does not", () => {
-    const chain = (levels: number) => {
-      let inner: unknown = node("mi");
-      for (let i = 1; i < levels; i++) inner = node("mrow", [inner]);
-      return node("math", [inner]);
-    };
     expect(toData(chain(MATH_LIMITS.depth - 1))).not.toBeNull();
     expect(toData(chain(MATH_LIMITS.depth))).toBeNull();
   });
 
   test("text over the character cap gives nothing", () => {
-    const text = (n: number) => node("math", [node("mtext", [{ text: "x".repeat(n) }])]);
     expect(toData(text(MAX_TREE_TEXT))).not.toBeNull();
     expect(toData(text(MAX_TREE_TEXT + 1))).toBeNull();
   });
