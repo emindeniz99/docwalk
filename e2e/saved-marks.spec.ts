@@ -118,3 +118,29 @@ test("cancelling the confirmation keeps every saved mark", async ({ page }) => {
   await rendered(page);
   await expect(marks(page)).toHaveCount(1);
 });
+
+test("where the browser cannot hash, the layer is still built and nothing is saved", async ({
+  page,
+}) => {
+  // Plain http outside localhost has no crypto.subtle, so the document has no identity to save under.
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "subtle", { value: undefined, configurable: true });
+  });
+  await ready(page, "/#summary/1");
+  await expect(page.locator(".docwalk-annotate")).toHaveCount(1);
+
+  // The pen works on the page, without a notice and without a saved record.
+  await drawLine(page);
+  await expect(marks(page)).toHaveCount(1);
+  await expect(page.locator(".docwalk-notice")).toHaveCount(0);
+  await page.getByRole("button", { name: "More actions" }).click();
+  await expect(page.getByRole("menuitem", { name: "Delete saved marks…" })).toHaveCount(0);
+
+  await page.reload();
+  await rendered(page);
+  await expect(page.locator(".docwalk-annotate")).toHaveCount(1);
+  await expect(marks(page)).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

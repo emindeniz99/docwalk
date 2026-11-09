@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { m } from "../paraglide/messages.js";
 import type { Notice } from "../shell/useDocument";
 import { openMarksStore } from "./marksStore";
-import { DocumentMarks, loadMarks, memoryMarksStore, type MarksProblem } from "./savedMarks";
+import { DocumentMarks, loadMarks, type MarksProblem } from "./savedMarks";
 
 const PROBLEM: Record<MarksProblem, () => string> = {
   full: m.marks_save_full,
@@ -14,7 +14,8 @@ const noSubscription = () => () => {};
 export interface SavedMarksApi {
   /**
    * The open document's saved marks; null while its identity or its marks
-   * load, so nothing drawn then is saved under another document's key.
+   * load, so nothing drawn then is saved under another document's key. A
+   * document with no identity gets marks that keep nothing, at once.
    */
   marks: DocumentMarks | null;
   /** Slides with saved marks: the export option and the delete command show while it is above 0. */
@@ -24,19 +25,23 @@ export interface SavedMarksApi {
 /**
  * The saved marks of the open document (decision 105), keyed by the
  * identity comments compute (decision 65). A follower screen saves nothing:
- * with `enabled` false the marks live in memory only.
+ * with `enabled` false the marks live in memory only, as they do where the
+ * document has no identity (`unidentified`).
  */
 export function useSavedMarks({
   documentKey,
+  unidentified,
   enabled,
   setNotice,
 }: {
   documentKey: string | null;
+  /** The document cannot get a key (no `crypto.subtle`): marks stay in memory and nothing is saved. */
+  unidentified: boolean;
   enabled: boolean;
   setNotice: (notice: Notice | null) => void;
 }): SavedMarksApi {
   const [store] = useState(() => (enabled ? openMarksStore() : null));
-  const [unsaved] = useState(() => new DocumentMarks("", [], memoryMarksStore(), () => {}));
+  const [unsaved] = useState(() => new DocumentMarks("", [], null, () => {}));
   const [loaded, setLoaded] = useState<DocumentMarks | null>(null);
   const notify = useRef(setNotice);
   useEffect(() => {
@@ -61,7 +66,7 @@ export function useSavedMarks({
     };
   }, [store, documentKey, loaded, onProblem]);
 
-  const marks = !enabled ? unsaved : loaded?.doc === documentKey ? loaded : null;
+  const marks = !enabled || unidentified ? unsaved : loaded?.doc === documentKey ? loaded : null;
   const subscribe = useCallback(
     (onChange: () => void) => (marks ? marks.subscribe(onChange) : noSubscription()),
     [marks],

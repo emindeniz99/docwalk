@@ -33,6 +33,12 @@ export interface CommentsApi {
   ready: boolean;
   /** The document's identity (decision 65), null while it loads; saved marks use it too (105). */
   key: string | null;
+  /**
+   * True when the document has no identity because the browser cannot hash
+   * its text (no `crypto.subtle`: plain http outside localhost). `key` then
+   * stays null for good, and so do the comments and the saved marks.
+   */
+  unidentified: boolean;
   /** False when this browser cannot keep comments (no IndexedDB): they last until the page closes. */
   persistent: boolean;
   /** True when the document's saved comments could not be read: new ones stay in this page until they can be. */
@@ -58,9 +64,17 @@ interface State extends CommentSet {
   key: string | null;
   /** The saved comments could not be read, so nothing is written over them. */
   loadFailed: boolean;
+  /** The document's text could not be hashed, so it has no key. */
+  unidentified: boolean;
 }
 
-const EMPTY: State = { key: null, comments: [], deleted: [], loadFailed: false };
+const EMPTY: State = {
+  key: null,
+  comments: [],
+  deleted: [],
+  loadFailed: false,
+  unidentified: false,
+};
 
 function newId(): string {
   return crypto.randomUUID();
@@ -149,7 +163,13 @@ export function useComments({
     if (cur.key !== key) return;
     const next = mergeSets(cur, stored);
     if (!next || (!next.dirty && !cur.loadFailed)) return;
-    stateRef.current = { key, comments: next.comments, deleted: next.deleted, loadFailed: false };
+    stateRef.current = {
+      key,
+      comments: next.comments,
+      deleted: next.deleted,
+      loadFailed: false,
+      unidentified: false,
+    };
     setState(stateRef.current);
   }, []);
 
@@ -241,7 +261,18 @@ export function useComments({
         next = await store.getAlias(DRAFT_ALIAS).catch(() => null);
         if (next) aliased.current = next;
       }
-      next ??= await contentKey(doc.markdown);
+      if (next === null) {
+        try {
+          next = await contentKey(doc.markdown);
+        } catch {
+          // No crypto.subtle: the document has no identity. Comments need one; the rest of the page does not.
+          if (live) {
+            stateRef.current = { ...EMPTY, unidentified: true };
+            setState(stateRef.current);
+          }
+          return;
+        }
+      }
       // A list that cannot be read stays unread: the document opens empty, saves
       // nothing, and the panel says so, rather than writing over what is there.
       let loaded: CommentSet = { comments: [], deleted: [] };
@@ -254,7 +285,7 @@ export function useComments({
       if (!live) return;
       const kind = doc.source.kind;
       linkDoc.current = kind === "fragment" || kind === "url" || kind === "repo";
-      stateRef.current = { key: next, ...loaded, loadFailed };
+      stateRef.current = { key: next, ...loaded, loadFailed, unidentified: false };
       setState(stateRef.current);
       applyPending.current();
     })();
@@ -269,7 +300,7 @@ export function useComments({
       const { key, comments, deleted, loadFailed } = stateRef.current;
       if (key === null) return;
       const next = fn({ comments, deleted });
-      stateRef.current = { key, ...next, loadFailed };
+      stateRef.current = { key, ...next, loadFailed, unidentified: false };
       setState(stateRef.current);
       persist(key, next);
     },
@@ -373,6 +404,7 @@ export function useComments({
     deleted: state.deleted,
     ready: state.key !== null,
     key: state.key,
+    unidentified: state.unidentified,
     persistent: (store?.persistent ?? true) && !state.loadFailed,
     unreadable: state.loadFailed,
     author,
