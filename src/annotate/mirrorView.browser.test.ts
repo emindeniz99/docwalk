@@ -286,3 +286,211 @@ describe("the laser on the receiving slide", () => {
     expect(store.laser).toEqual({ x: 0.6, y: 0.5 });
   });
 });
+
+const paper = (host: HTMLElement) =>
+  host.querySelector<HTMLElement>(".docwalk-mirror .docwalk-mirror-board");
+const paperShown = (host: HTMLElement) => {
+  const el = paper(host);
+  return el !== null && getComputedStyle(el).display !== "none";
+};
+const ids = (host: HTMLElement) => [...marks(host)].map((el) => el.getAttribute("data-mark"));
+
+/** A slide box shaped like reveal.js's stage: the current page is a `section.present`. */
+function deckBox() {
+  const { host, button } = slideBox(640, 360);
+  const page = document.createElement("section");
+  page.className = "present";
+  page.innerHTML = '<a href="#x">a link under the board</a>';
+  host.append(page);
+  return { host, button, page };
+}
+
+/**
+ * The presenter's whiteboard (decision 110) as a receiver shows it: a blank
+ * page in the slide's colour with the strokes of the section's board address,
+ * for as long as the receiver's own page is the one the board covers.
+ */
+describe("the whiteboard on the receiving slide (decision 110)", () => {
+  test("a board opened over the shown page draws the paper and the board's strokes in place of the page's", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/1", id: 1 }));
+    store.apply(stroke({ slide: "a/board", id: 2 }));
+    view = attachMirror(host, store, () => "a/1");
+    expect(paperShown(host)).toBe(false);
+    expect(ids(host)).toEqual(["1"]);
+    store.apply({ op: "board-open", slide: "a/1" });
+    view.refresh();
+    expect(paperShown(host)).toBe(true);
+    expect(ids(host)).toEqual(["2"]);
+  });
+
+  test("the paper is the slide's colour and sits under the strokes", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/board", id: 2 }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    view = attachMirror(host, store, () => "a/1");
+    const probe = document.createElement("span");
+    document.body.append(probe);
+    probe.style.color = "var(--dw-color-slide)";
+    expect(getComputedStyle(paper(host)!).backgroundColor).toBe(getComputedStyle(probe).color);
+    const root = host.querySelector(".docwalk-mirror")!;
+    const order = [...root.children];
+    expect(order.indexOf(paper(host)!)).toBeLessThan(order.indexOf(root.querySelector("svg")!));
+  });
+
+  test("the paper takes no pointer event either, so the overlay stays out of the way", () => {
+    const { host, button } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply({ op: "board-open", slide: "a/1" });
+    view = attachMirror(host, store, () => "a/1");
+    expect(paperShown(host)).toBe(true);
+    const rect = button.getBoundingClientRect();
+    expect(document.elementFromPoint(rect.left + 5, rect.top + 5)).toBe(button);
+  });
+
+  test("a board over another page draws nothing here: no paper, no board strokes, the page's own marks stay", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/1", id: 1 }));
+    store.apply(stroke({ slide: "b/board", id: 2 }));
+    store.apply({ op: "board-open", slide: "b/1" });
+    view = attachMirror(host, store, () => "a/1");
+    expect(paperShown(host)).toBe(false);
+    expect(ids(host)).toEqual(["1"]);
+  });
+
+  test("another page of the same section shows no paper: the board covers one page", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/2", id: 1 }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    view = attachMirror(host, store, () => "a/2");
+    expect(paperShown(host)).toBe(false);
+    expect(ids(host)).toEqual(["1"]);
+  });
+
+  test("the page's strokes come back on board-close", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/1", id: 1 }));
+    store.apply(stroke({ slide: "a/board", id: 2 }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    view = attachMirror(host, store, () => "a/1");
+    expect(ids(host)).toEqual(["2"]);
+    store.apply({ op: "board-close" });
+    view.refresh();
+    expect(paperShown(host)).toBe(false);
+    expect(ids(host)).toEqual(["1"]);
+  });
+
+  test("a stroke of the board that arrives while it is open is drawn, and the page's late stroke is not", async () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply({ op: "board-open", slide: "a/1" });
+    view = attachMirror(host, store, () => "a/1");
+    store.apply(stroke({ slide: "a/board", id: 3 }));
+    store.apply(stroke({ slide: "a/1", id: 4 }));
+    await drawn();
+    expect(ids(host)).toEqual(["3"]);
+  });
+
+  test("a slide change on the receiver hides the board without any op, so a clicker never leaves a blank page behind", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "b/1", id: 1 }));
+    store.apply(stroke({ slide: "a/board", id: 2 }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    let address = "a/1";
+    view = attachMirror(host, store, () => address);
+    expect(paperShown(host)).toBe(true);
+    address = "b/1";
+    view.refresh();
+    expect(store.board).toBe("a/1");
+    expect(paperShown(host)).toBe(false);
+    expect(ids(host)).toEqual(["1"]);
+  });
+
+  test("the page under the paper is inert while the board shows, so Tab cannot land on a link nobody sees", () => {
+    const { host, page } = deckBox();
+    const store = new MirrorStore();
+    let address = "a/1";
+    view = attachMirror(host, store, () => address);
+    expect(page.inert).toBe(false);
+    store.apply({ op: "board-open", slide: "a/1" });
+    view.refresh();
+    expect(page.inert).toBe(true);
+    store.apply({ op: "board-close" });
+    view.refresh();
+    expect(page.inert).toBe(false);
+    // And a slide change on the receiver gives the page back as well.
+    store.apply({ op: "board-open", slide: "a/1" });
+    view.refresh();
+    expect(page.inert).toBe(true);
+    address = "b/1";
+    view.refresh();
+    expect(page.inert).toBe(false);
+  });
+
+  test("a page that was inert already stays inert after the board closes", () => {
+    const { host, page } = deckBox();
+    page.inert = true;
+    const store = new MirrorStore();
+    view = attachMirror(host, store, () => "a/1");
+    store.apply({ op: "board-open", slide: "a/1" });
+    view.refresh();
+    store.apply({ op: "board-close" });
+    view.refresh();
+    expect(page.inert).toBe(true);
+  });
+
+  test("a refresh that changes nothing does not cover twice, so the first undo still restores the page", () => {
+    const { host, page } = deckBox();
+    const store = new MirrorStore();
+    store.apply({ op: "board-open", slide: "a/1" });
+    view = attachMirror(host, store, () => "a/1");
+    view.refresh();
+    view.refresh();
+    expect(page.inert).toBe(true);
+    store.apply({ op: "board-close" });
+    view.refresh();
+    expect(page.inert).toBe(false);
+  });
+
+  test("destroy gives the covered page back", () => {
+    const { host, page } = deckBox();
+    const store = new MirrorStore();
+    store.apply({ op: "board-open", slide: "a/1" });
+    view = attachMirror(host, store, () => "a/1");
+    expect(page.inert).toBe(true);
+    view.destroy();
+    view = null;
+    expect(page.inert).toBe(false);
+  });
+
+  test("a deck rebuild moves the cover to the new stage's page", () => {
+    const first = deckBox();
+    const second = deckBox();
+    const store = new MirrorStore();
+    store.apply({ op: "board-open", slide: "a/1" });
+    view = attachMirror(first.host, store, () => "a/1");
+    expect(first.page.inert).toBe(true);
+    view.moveTo(second.host);
+    view.refresh();
+    expect(first.page.inert).toBe(false);
+    expect(second.page.inert).toBe(true);
+    expect(second.host.querySelector(".docwalk-mirror-board")).not.toBeNull();
+  });
+
+  test("a hostile board address never becomes markup", () => {
+    const { host } = slideBox(640, 360);
+    const hostile = '<img src=x onerror="window.pwned = 1">';
+    const store = new MirrorStore();
+    store.apply({ op: "board-open", slide: hostile });
+    view = attachMirror(host, store, () => hostile);
+    expect(paperShown(host)).toBe(true);
+    expect(host.querySelector("img")).toBeNull();
+    expect((window as { pwned?: number }).pwned).toBeUndefined();
+  });
+});

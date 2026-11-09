@@ -11,6 +11,20 @@
   pointer-events: none;
 }
 
+/* The whiteboard's paper (decision 110): the slide's colour over the slide box,
+   under the strokes. Like the rest of the overlay it takes no pointer event;
+   the page under it is inert while it shows. */
+.docwalk-mirror-board {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: var(--dw-color-slide);
+}
+
+.docwalk-mirror[data-board] > .docwalk-mirror-board {
+  display: block;
+}
+
 .docwalk-mirror > svg {
   position: absolute;
   inset: 0;
