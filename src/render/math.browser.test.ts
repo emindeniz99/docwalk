@@ -475,6 +475,51 @@ describe("hostile formulas (rule 5)", () => {
   });
 });
 
+/** The largest sum of `voffset` (in em, as the rebuild leaves it), up or down, along any path from `el`. */
+function largestShift(el: Element, above = 0): number {
+  const sum = above + (Number.parseFloat(el.getAttribute("voffset") ?? "0") || 0);
+  return Math.max(Math.abs(sum), ...[...el.children].map((child) => largestShift(child, sum)));
+}
+
+/** `n` raises of `amount` around an `x`. */
+const raised = (n: number, amount = "3em") =>
+  `${`\\raisebox{${amount}}{`.repeat(n)}x${"}".repeat(n)}`;
+
+describe("a raise cannot push text off the slide (rule 3)", () => {
+  // Stacked `\raisebox{3em}` drew text 587 px above the slide body with no note: each
+  // raise is within maxSize 20 em, and nothing added them up.
+  test("a raise inside the limit is kept", () => {
+    expect(
+      buildMath(raised(1, "1em"), false)!.querySelector("mpadded")!.getAttribute("voffset"),
+    ).toBe("1em");
+    expect(
+      buildMath("\\lower{2em}{x}", false)!.querySelector("[voffset]")!.getAttribute("voffset"),
+    ).toBe("-2em");
+  });
+
+  test("a raise over the limit loses its offset and the text stays on the line", () => {
+    const math = buildMath(raised(1, "10em"), false)!;
+    expect(math.querySelector("mpadded")).not.toBeNull();
+    expect(math.querySelector("[voffset]")).toBeNull();
+  });
+
+  test("raises that add up past the limit are dropped from there down", () => {
+    // Ten deep still draws; the element depth limit is 40.
+    const math = buildMath(raised(10), false)!;
+    expect(math.querySelectorAll("[voffset]")).toHaveLength(1);
+    expect(largestShift(math)).toBe(3);
+    const lowered = buildMath(`${"\\lower{3em}{".repeat(10)}x${"}".repeat(10)}`, false)!;
+    expect(lowered.querySelectorAll("[voffset]")).toHaveLength(1);
+    expect(largestShift(lowered)).toBe(3);
+  });
+
+  test("an offset in a unit the rebuild cannot add up is dropped", () => {
+    const tree = document.createElementNS(MATHML_NS, "mpadded");
+    tree.setAttribute("voffset", "2vh");
+    expect(rebuild(tree)!.hasAttribute("voffset")).toBe(false);
+  });
+});
+
 /** Built in a document with no browsing context, so the test's own `<img>` never loads. */
 const inert = document.implementation.createHTMLDocument("");
 const make = (name: string, ns = MATHML_NS) => inert.createElementNS(ns, name);

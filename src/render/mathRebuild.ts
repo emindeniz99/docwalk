@@ -43,6 +43,33 @@ function fromStyle(style: string): { attributes: [string, string][]; classes: st
   return { attributes, classes };
 }
 
+/**
+ * How far a raise may move text off its line, in em, summed down a chain of
+ * `mpadded` elements. Each `\raisebox` is held to `maxSize` 20 em by Temml,
+ * but nothing added them up: stacked, they drew text 587 px above the slide
+ * body with no note (rule 3). A formula's real raises are a fraction of an em.
+ */
+export const MAX_VOFFSET_EM = 3;
+
+/** Em per unit for what Temml writes in `voffset`: `em`, or the CSS absolute units. */
+const EM_PER_UNIT: Readonly<Record<string, number>> = {
+  em: 1,
+  pt: 1 / 12,
+  px: 1 / 16,
+  mm: 96 / 25.4 / 16,
+  cm: 96 / 2.54 / 16,
+  in: 96 / 16,
+};
+
+const LENGTH = /^([+-]?(?:\d+\.?\d*|\.\d+))([a-z]{2})$/;
+
+/** A `voffset` value in em, or null when it is not a length in a unit above. */
+function voffsetEm(value: string): number | null {
+  const match = LENGTH.exec(value.trim());
+  const perUnit = match ? EM_PER_UNIT[match[2]!] : undefined;
+  return match && perUnit !== undefined ? Number(match[1]) * perUnit : null;
+}
+
 /** How big a formula may get once built. */
 export interface MathLimits {
   /** Elements in the result. */
@@ -68,13 +95,26 @@ export class MathTooLarge extends Error {
  */
 export function rebuild(source: Element, limits: MathLimits = MATH_LIMITS): Element | null {
   let nodes = 0;
-  const copy = (from: Element, depth: number): Element | null => {
+  // `shift` is the sum of the `voffset` of the elements above, in em.
+  const copy = (from: Element, depth: number, shift: number): Element | null => {
     if (from.namespaceURI !== MATHML_NS || !MATH_ELEMENTS.has(from.localName)) return null;
     if (depth > limits.depth || ++nodes > limits.nodes) throw new MathTooLarge();
     const to = from.ownerDocument.createElementNS(MATHML_NS, from.localName);
     const classes: string[] = [];
+    let below = shift;
     for (const { name, value } of Array.from(from.attributes)) {
-      if (name === "class") classes.push(...mathClasses(value));
+      if (name === "voffset") {
+        // Kept while the sum along this chain stays in range; dropped from the first raise past it.
+        const em = voffsetEm(value);
+        if (
+          em !== null &&
+          Math.abs(shift + em) <= MAX_VOFFSET_EM &&
+          mathAttributeAllowed(name, value)
+        ) {
+          to.setAttribute(name, value);
+          below = shift + em;
+        }
+      } else if (name === "class") classes.push(...mathClasses(value));
       else if (name === "style") {
         const meant = fromStyle(value);
         classes.push(...meant.classes);
@@ -86,11 +126,11 @@ export function rebuild(source: Element, limits: MathLimits = MATH_LIMITS): Elem
       if (child.nodeType === Node.TEXT_NODE) {
         to.append(from.ownerDocument.createTextNode(child.nodeValue ?? ""));
       } else if (child.nodeType === Node.ELEMENT_NODE) {
-        const kept = copy(child as Element, depth + 1);
+        const kept = copy(child as Element, depth + 1, below);
         if (kept) to.append(kept);
       }
     }
     return to;
   };
-  return copy(source, 1);
+  return copy(source, 1, 0);
 }
