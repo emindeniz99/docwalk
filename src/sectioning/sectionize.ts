@@ -4,6 +4,7 @@ import { toString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import { onlyComments } from "./notes";
 
 export type HeadingDepth = Heading["depth"];
 
@@ -47,6 +48,12 @@ export interface SectionPlan {
    * the definition usually sits in another section (often the last).
    */
   definitions: RootContent[];
+  /**
+   * The comment-only parts that open the document, before its first slide.
+   * They open no slide (decision 107); `speakerNotes` gives their notes to
+   * the first slide.
+   */
+  leadingComments: RootContent[];
 }
 
 /**
@@ -271,9 +278,15 @@ export function sectionize(root: Root, option: LevelOption = "auto"): SectionPla
     appendContent(node);
   }
 
+  // A comment above the first heading (a linter directive, a note for the
+  // cover) shows nothing, so the parts at the start that hold only comments
+  // open no slide (decision 107).
+  let lead = 0;
+  while (sections[lead]?.heading === null && onlyComments(sections[lead]!.nodes)) lead++;
+  const leadingComments = sections.slice(0, lead).flatMap((s) => s.nodes);
   // A title-level heading with no content of its own is a breadcrumb only.
-  const kept = sections.filter((s) => s.kind !== "title" || s.nodes.length > 0);
-  return { levels, titleHeading, sections: kept, headingIds: slugs, definitions };
+  const kept = sections.slice(lead).filter((s) => s.kind !== "title" || s.nodes.length > 0);
+  return { levels, titleHeading, sections: kept, headingIds: slugs, definitions, leadingComments };
 }
 
 function lineOf(node: RootContent): number {

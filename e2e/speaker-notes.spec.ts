@@ -68,7 +68,7 @@ async function openPresenter(page: Page, context: BrowserContext): Promise<Page>
   return presenter;
 }
 
-/** Types the document and waits for the rebuilt deck: 6 sections plus the leading comment's slide. */
+/** Types the document and waits for the rebuilt deck: 6 sections; the comments above the cover open no slide. */
 async function loadDoc(page: Page) {
   await ready(page);
   await replaceSource(page, DOC);
@@ -115,6 +115,26 @@ test("the presenter window shows the current slide's note and changes it with th
   await presenter.getByRole("option", { name: /Notes talk/ }).click();
   await expect(nowTitle(presenter)).toHaveText("Notes talk");
   await expect(notes(presenter)).toHaveText([COVER]);
+});
+
+test("the comments above the title open no slide: the deck and the presenter list start at the cover", async ({
+  page,
+  context,
+}) => {
+  // Decision 107: a markdownlint line above `# Title` used to open a blank
+  // first slide, which the presenter list titled by its address.
+  test.setTimeout(90_000);
+  await loadDoc(page);
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/\b6 slides\b/);
+  await expect(page.locator(".reveal .slides > section").first()).toHaveAttribute(
+    "data-docwalk-id",
+    "notes-talk",
+  );
+  const presenter = await openPresenter(page, context);
+  const list = presenter.locator(".docwalk-presenter-item");
+  await expect(list).toHaveCount(6);
+  await expect(list.first()).toContainText("Notes talk", { timeout: 30_000 });
+  await expect(presenter.getByRole("option", { name: /intro/ })).toHaveCount(0);
 });
 
 test("the audience deck and the document view never show a note, a directive or a comment", async ({

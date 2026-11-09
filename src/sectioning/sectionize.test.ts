@@ -234,6 +234,7 @@ const block = fc.oneof(
   fc.constant("```\ncode\n---\nmore\n```"),
   fc.constant("Setext heading\n---"),
   fc.constantFrom("## 🚀", "### ???", "Text with a note.[^a]", "[^a]: The note.", "[r]: /x"),
+  fc.constantFrom("<!-- A speaker note. -->", "<!-- markdownlint-disable MD041 -->"),
 );
 const doc = fc.array(block, { minLength: 0, maxLength: 25 }).map((blocks) => blocks.join("\n\n"));
 const option = fc.oneof(
@@ -254,15 +255,25 @@ describe("properties", () => {
     const minLevel = Math.min(...p.levels);
     // Only thematic breaks (slide markers) and title-level headings without
     // text of their own (kept as breadcrumbs) may be left out. Definitions
-    // move to `p.definitions`, which every slide can draw from.
+    // move to `p.definitions`, which every slide can draw from, and comments
+    // that open the document move to `p.leadingComments` (decision 107).
     const expected = root.children.filter(
       (n) =>
         n.type !== "thematicBreak" &&
         !isDefinition(n) &&
         (emitted.includes(n) || !(n.type === "heading" && n.depth < minLevel)),
     );
-    expect(emitted).toEqual(expected);
+    expect([...p.leadingComments, ...emitted]).toEqual(expected);
+    expect(p.leadingComments.every((n) => n.type === "html")).toBe(true);
     expect(p.definitions).toEqual(root.children.filter(isDefinition));
+  });
+
+  fcTest.prop([doc, option])("a deck never opens on a blank slide of comments", (md, opt) => {
+    // A part after a title-level heading carries that title, so it is not blank.
+    const first = plan(md, opt).sections[0];
+    if (first && first.heading === null && first.title === "") {
+      expect(first.nodes.some((n) => n.type !== "html" || !n.value.startsWith("<!--"))).toBe(true);
+    }
   });
 
   fcTest.prop([doc])("every top-level heading has a non-empty, linkable anchor", (md) => {
