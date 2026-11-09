@@ -242,6 +242,21 @@ describe("footnotes on split slides (decision 107)", () => {
     expect(notesOn(pages[0] as HTMLElement)).toEqual([]);
   });
 
+  test("a raw HTML section marked as a footnote list above the real one is not taken for it", () => {
+    // The GitHub schema lets `data-footnotes` through on a <section>, so the
+    // author's block can sit above remark-rehype's list. Taking the first match
+    // would drop its content from every page (rule 3); the generated list is
+    // always the last child.
+    const forged =
+      '<section data-footnotes class="footnotes"><ol><li>FORGED CONTENT</li></ol></section>';
+    const md = `## Ledger\n\nOpening.\n\n${forged}\n\n${filler}\n\nA claim.[^a]\n\n[^a]: The real note.\n`;
+    const pages = paginateSlide(slideFor(md), { size: SIZE });
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.some((p) => bodyOf(p).textContent?.includes("FORGED CONTENT"))).toBe(true);
+    const citing = pages.find((p) => bodyOf(p).textContent?.includes("A claim."));
+    expect(notesOn(citing as HTMLElement)).toContain("The real note.");
+  });
+
   test("a slide that fits keeps its footnote list where it was", () => {
     const slide = slideFor("## Short\n\nA claim.[^n]\n\n[^n]: The note.\n");
     expect(paginateSlide(slide, { size: SIZE })).toEqual([slide]);

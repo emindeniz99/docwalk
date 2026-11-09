@@ -40,7 +40,10 @@ export function paginateSlide(slide: HTMLElement, options: PaginateOptions): HTM
     if (fits(body)) return [slide];
 
     // remark-rehype's list (a <div> since slides.ts), rebuilt for every page tried.
-    const notes = body.querySelector<HTMLElement>(":scope > [data-footnotes]");
+    // It is appended after all content, so it is the last match: a raw HTML
+    // section the author marked `data-footnotes` sits above it and stays content.
+    const notes =
+      [...body.querySelectorAll<HTMLElement>(":scope > [data-footnotes]")].at(-1) ?? null;
     notes?.remove();
     const title = sectionTitle(slide);
     const crumbs = breadcrumbOf(slide);
