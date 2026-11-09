@@ -235,6 +235,26 @@ describe("hello again for a new presenter (decision 111)", () => {
     expect(helloesFrom(second, remote.conn.id)).toHaveLength(1);
   });
 
+  test("states that alternate between two senders cost one hello for each, not one for every change", async () => {
+    // A replay of an earlier tab's states, or two presenter sockets that both
+    // answer, interleave senders; the client remembers the last few it saw.
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const a = peer(relay, creds, "presenter");
+    const b = peer(relay, creds, "presenter");
+    await Promise.all([opened(a), opened(b)]);
+    const remote = peer(relay, creds, "remote");
+    await opened(remote);
+    await vi.waitFor(() => expect(helloesFrom(a, remote.conn.id)).toHaveLength(1));
+
+    for (const [i, presenter] of [a, b, a, b, a].entries()) {
+      await presenter.conn.send(stateMessage(`s${i}`));
+      await sleep(HELLO_AGAIN_GAP_MS + 100);
+    }
+    // The hello on open, one for A and one for B.
+    expect(helloesFrom(a, remote.conn.id)).toHaveLength(3);
+  });
+
   test("states from many senders make a remote say hello at most once a second", async () => {
     // Anyone with the control key can forge a state under a fresh sender id.
     const relay = new FakeRelay();

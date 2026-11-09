@@ -123,6 +123,9 @@ export const MAX_RECONNECT_DELAY_MS = 10_000;
  */
 export const HELLO_AGAIN_GAP_MS = 1000;
 
+/** How many presenter sender ids a client remembers, so a replay of an earlier tab's states costs no hello. */
+const STATE_SENDERS_KEPT = 8;
+
 /** Wait before reconnect attempt `attempt` (0-based): 0.5 s doubling, capped at 10 s. */
 export function reconnectDelay(attempt: number): number {
   return Math.min(MAX_RECONNECT_DELAY_MS, 500 * 2 ** attempt);
@@ -236,8 +239,8 @@ export function connectRoom({
   let laserTimer: ReturnType<typeof setTimeout> | undefined;
   let lastLaserAt = Number.NEGATIVE_INFINITY;
   let pendingLaser: RemoteMessage | null = null;
-  // Hello again (decision 111): the sender id of the last presenter state taken.
-  let lastStateSender: string | null = null;
+  // Hello again (decision 111): the sender ids of the last presenter states taken, oldest first.
+  const stateSenders: string[] = [];
   let lastAgainAt = Number.NEGATIVE_INFINITY;
   let againTimer: ReturnType<typeof setTimeout> | undefined;
   // Encryption and decryption are async; chaining keeps both directions in order.
@@ -355,10 +358,11 @@ export function connectRoom({
       : null;
   }
 
-  /** A state from a sender id other than the last one's: say hello again. */
+  /** A state from a sender id not among the last few: say hello again. */
   function noteStateSender(from: string) {
-    if (from === lastStateSender) return;
-    lastStateSender = from;
+    if (stateSenders.includes(from)) return;
+    stateSenders.push(from);
+    if (stateSenders.length > STATE_SENDERS_KEPT) stateSenders.shift();
     const wait = lastAgainAt + HELLO_AGAIN_GAP_MS - Date.now();
     if (wait <= 0) sendHelloAgain();
     else againTimer ??= setTimeout(sendHelloAgain, wait);
