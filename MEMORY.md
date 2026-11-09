@@ -26,11 +26,11 @@ and the nightly Stryker run was fixed. Small safe changes go straight to
 
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
-1 MB gzip (about 987 kB used, decision 43) and times the fixture's open and
-repaginate against decision 43. The 1.5 s open budget still does not hold:
-on 2026-11-08 a Windows desktop (Ryzen 7 7800X3D) took a median of 1774 ms
-over 7 runs (worst 1973 ms), the CI runner 2559 ms; repaginate holds (214 ms
-median). The first load is close to the limit, so check `pnpm size` and
+1 MB gzip (993 kB used on 2026-11-09, decision 43) and times the fixture's
+open and repaginate against decision 43. The 1.5 s open budget still does not
+hold: on 2026-11-08 a Windows desktop (Ryzen 7 7800X3D) took a median of
+1774 ms over 7 runs, the CI runner 2559 ms; after the 2026-11-09 perf pass
+Mermaid's renders are most of what is left (ROADMAP, Still open in v1). The first load is close to the limit, so check `pnpm size` and
 `e2e/perf.spec.ts` after adding a dependency.
 
 Local runs: browser tests take a Chromium binary from
@@ -90,6 +90,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-05: Agent messages over the relay's 16 KB frame travel as deflated, encrypted, addressed parts (decision 67); agent writes take the editor's `onEdit`, so comments and the workspace treat them as typed edits. `docwalk-mcp` bundles `client.ts`.
 - 2026-11-09: Mirror: `s % n` on a 32-bit LCG reads its low bits, which repeat every few steps (the old mirror model check never cut a stroke); draw from the high bits or use xorshift, and keep the arithmetic inside 2^53. A sealed mirror frame costs about 4/3 of its op's UTF-8 JSON plus 258 bytes. In mirror e2e a follower's mark exists from the first 80 ms chunk: wait for its position, not its count. Valibot without `abortEarly` validates every stroke of a refused record and walks each strict object's keys; pass `abortEarly: true` when only pass or fail matters. A join now sends two hellos (decision 111: hello again on the first state from a sender id not among the last 8), so a test that pauses "past 103's window" must wait past two windows (800 ms).
 - 2026-11-09: The presenter window's countdown goes window → bridge → audience tab → a `countdown` message under the control key (`state` is unchanged); `startPresenterBridge` takes `onCountdown` and arms its 5 s expiry at start; the host resends at every hello, null included, and a window with no countdown posts nothing. A follow screen is `data-view=follow` with `data-frame`; `usePresentChrome` hides its bar only while `followUpdate.status === "open"` and the link is complete. `mountView` closes the open focus view before it mounts another.
+- 2026-11-09: Vite's dependency scanner does not follow `new URL("./x.worker.ts", import.meta.url)`: a package only a worker imports is optimized at run time and reloads a vitest browser run on a fresh cache, so list it in `optimizeDeps.include`. Vite builds workers as iife, so a worker cannot code-split (Shiki's grammars stay page chunks posted to it). The CPU profiler overstates tiny hot functions; confirm with interleaved A/B runs or `performance.mark` phases. Pagination measures `cloneNode` copies at once, and Firefox loads a copied image again with no size when its cache will not answer (Playwright routing turns the cache off), so `settled()` pins loaded images until the pages are flagged. Twelve stage controls need 524 px at 38 px; beside the comments panel at 1280 px the head has 354 px.
 
 ## Done
 

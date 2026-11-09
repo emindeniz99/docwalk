@@ -103,20 +103,22 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
 
 Still open in v1:
 
-- Decision 43's 1.5 s open budget does not hold. Re-measured 2026-11-08 on
-  the current build with `e2e/perf.spec.ts` (809-line fixture, 14 diagrams,
-  Chromium 156 as Playwright's full Chrome, AMD Ryzen 7 7800X3D, 31 GB,
-  Windows 11, `--workers=1`): 7 runs gave 1731, 1751, 1773,
-  1774, 1786, 1788 and 1973 ms, median 1774 ms and worst 1973 ms. The CI
-  runner (run 42501338111, single sample) took 2559 ms. Before ELK left the
-  bundle the spec read about 2.5 s, so the build improved and is still
-  about 18 % over on this machine, 70 % over on CI. The other budgets hold:
-  repaginate had a median of 214 ms and a worst of 230 ms against 300 ms (CI
-  325 ms, one sample, over), and the default view's first load is 987 kB
-  gzip against the 1 MB limit (2026-11-09, after math and the diagram tour;
-  the exporters now load on demand). The spec warns above the budget and fails
-  above three times it; the threshold is unchanged. A perf pass on the open
-  path is the next step.
+- Decision 43's 1.5 s open budget does not hold. On 2026-11-08 a Windows
+  desktop (Ryzen 7 7800X3D, Chromium 156, `--workers=1`) gave a median of
+  1774 ms over 7 runs of `e2e/perf.spec.ts` (809-line fixture, 14 diagrams)
+  and the CI runner 2559 ms. A perf pass on 2026-11-09 moved Shiki into a
+  Web Worker (row 76) and made pagination keep the blocks two tries share.
+  On a shared 4-core Linux machine (Chromium 1243, load average 2 to 3), 14
+  interleaved runs each gave a median of 2443 ms against 2645 ms before.
+  Mermaid's renders take about 1150 ms of that (two parses per diagram and
+  DOMPurify, rules 4 and 5), start-up before the document arrives about
+  480 ms, pagination 180 ms and the overflow pass 80 ms. At the same ratio the
+  Windows desktop would read about 1640 ms, still over, and CI more. Reaching
+  1.5 s on CI needs less Mermaid work before measuring, which rule 4 does not
+  allow, or a faster Mermaid. Repaginate read 317 to 379 ms on that machine
+  against 300 ms (214 ms median on the desktop). The first load is 993 kB of
+  1 MB gzip. The spec warns above the budget and fails above three times it;
+  the threshold is unchanged.
 
 ## v2: workspace and agents
 
