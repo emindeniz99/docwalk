@@ -392,8 +392,12 @@ outline becomes a sheet.
 
 Spacing follows a 4px base (`xs` to `3xl`). Controls are `control` (38px)
 high with a mouse, so header buttons, icon buttons and the annotation tools
-in the edit preview share one row height. Interactive targets are at least
-`target` (44px) high on touch screens and on the stage while presenting.
+in the edit preview share one row height. A preview too narrow for the
+annotation tools at that height, such as one beside the comments panel at
+1280px, sets them and the overview button at `2xl` (32px), so they keep one
+row (decision 108); no control goes below 24px (WCAG 2.5.8). Interactive
+targets are at least `target` (44px) high on touch screens and on the stage
+while presenting.
 
 ## Elevation & Depth
 

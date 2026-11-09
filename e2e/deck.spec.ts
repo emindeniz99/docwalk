@@ -86,6 +86,80 @@ test("the open overview passes axe (WCAG 2.2 AA)", async ({ page }) => {
   expect(serious).toEqual([]);
 });
 
+test("the open overview repeats no id of the deck and its diagram thumbnails keep their styles", async ({
+  page,
+}) => {
+  // The thumbnails are copies of the pages, so every heading, footnote and
+  // diagram id appeared twice while the overview was open. Mermaid's <style>
+  // selects by the SVG's id and its arrows reach their markers by id, so the
+  // copies rename their ids instead of dropping them (decision 108).
+  await ready(page);
+  await replaceSource(
+    page,
+    [
+      "## First point",
+      "",
+      "A claim with a source.[^one]",
+      "",
+      "[^one]: The source.",
+      "",
+      "## Flow",
+      "",
+      "```mermaid",
+      "flowchart LR",
+      "  client[Client] --> api[API]",
+      "  api --> store[(Store)]",
+      "```",
+      "",
+      "## Second point",
+      "",
+      "Another claim.[^two]",
+      "",
+      "[^two]: Another source.",
+      "",
+    ].join("\n"),
+  );
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)3 slides/);
+  await expect(page.locator(".reveal .slides .docwalk-diagram svg")).toHaveCount(1);
+  const repeated = () =>
+    page.evaluate(() => {
+      const seen = new Map<string, number>();
+      for (const el of document.querySelectorAll("[id]"))
+        seen.set(el.id, (seen.get(el.id) ?? 0) + 1);
+      return [...seen].filter(([, n]) => n > 1).map(([id]) => id);
+    });
+  expect(await repeated()).toEqual([]);
+
+  await page.getByRole("button", { name: "Slide overview" }).click();
+  await expect(rows(page)).toHaveCount(3);
+  // The copies keep ids (footnotes, headings, the diagram and its markers), none of them repeated.
+  expect(await page.locator(".docwalk-overview-canvas [id]").count()).toBeGreaterThan(10);
+  expect(await repeated()).toEqual([]);
+
+  const thumbnail = await page.evaluate(() => {
+    const slide = document.querySelector(".reveal .slides .docwalk-diagram svg");
+    const copy = document.querySelector(".docwalk-overview-canvas .docwalk-diagram svg");
+    if (!slide || !copy) return null;
+    const [slideFill, copyFill] = [slide, copy].map((svg) => {
+      const shape = svg.querySelector(".node rect, .node path, .node polygon");
+      return shape ? getComputedStyle(shape).fill : null;
+    });
+    // Each arrow's marker must be the copy's own, not the slide's.
+    const markers = [...copy.querySelectorAll("[marker-end], [marker-start]")].flatMap((el) =>
+      ["marker-end", "marker-start"]
+        .map((name) => /url\(#(.+)\)/.exec(el.getAttribute(name) ?? "")?.[1])
+        .filter((id): id is string => id !== undefined)
+        .map((id) => copy.contains(document.getElementById(id))),
+    );
+    return { slide: slideFill, copy: copyFill, markers };
+  });
+  // Mermaid's default theme fills a node lavender; without its style the shape draws black.
+  expect(thumbnail?.slide).not.toBe("rgb(0, 0, 0)");
+  expect(thumbnail?.copy).toBe(thumbnail?.slide);
+  expect(thumbnail?.markers.length).toBeGreaterThan(0);
+  expect(thumbnail?.markers.every(Boolean)).toBe(true);
+});
+
 test("on a phone the overview fills the screen with two thumbnails per row", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await ready(page);
