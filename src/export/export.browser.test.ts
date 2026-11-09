@@ -589,6 +589,19 @@ describe("speaker notes in a printed handout (decision 114)", () => {
     });
   });
 
+  test("a notes page's title prints larger than the note under it", async () => {
+    // The title takes the slide title's size, not the UI heading's, which is smaller than the text.
+    let sizes: { title: number; text: number } | null = null;
+    await printDeck(deck(withNotes(slide("a", "One"), "Note one")), (win) => {
+      const notes = win.document.querySelector<HTMLElement>(".docwalk-export-notes")!;
+      const px = (el: Element) => Number.parseFloat(win.getComputedStyle(el).fontSize);
+      sizes = { title: px(notes.querySelector("h2")!), text: px(notes.querySelector("p")!) };
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    const { title, text } = sizes!;
+    expect(title).toBeGreaterThan(text);
+  });
+
   test("a long note runs onto more printed pages and is not clipped", async () => {
     // Rule 3: the block grows with its text; print breaks it across pages.
     const words = Array.from({ length: 3000 }, (_, i) => `word${i}`);

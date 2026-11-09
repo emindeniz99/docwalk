@@ -51,10 +51,10 @@ body {
 
 .docwalk-export-notes h2 {
   margin: 0 0 var(--dw-space-lg);
-  font-family: var(--dw-type-heading-family);
-  font-size: var(--dw-type-heading-size);
-  font-weight: var(--dw-type-heading-weight);
-  line-height: var(--dw-type-heading-line-height);
+  font-family: var(--dw-type-slide-title-family);
+  font-size: var(--dw-type-slide-title-size);
+  font-weight: var(--dw-type-slide-title-weight);
+  line-height: var(--dw-type-slide-title-line-height);
 }
 
 .docwalk-export-notes p {
