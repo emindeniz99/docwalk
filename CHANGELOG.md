@@ -26,7 +26,9 @@ The first release.
 - An editor view with live preview, outline, command palette and slide
   overview; a GitHub-style document view; presentation mode.
 - A presenter window on the same machine; a phone remote and follow-along
-  links through end-to-end encrypted rooms on the Cloudflare Worker.
+  links through end-to-end encrypted rooms on the Cloudflare Worker. A
+  follow screen fills the screen like the presenter's, with its status in a
+  bar that hides when idle and stays while the connection is down.
 - Export to PDF, a single self-contained HTML file and PNG images.
 - Speaker notes: the HTML comments of a section show under the current
   slide in the presenter window, as plain text, on every page of the

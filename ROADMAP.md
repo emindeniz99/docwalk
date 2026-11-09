@@ -302,9 +302,9 @@ Later rounds:
   and links address slides as `<section-id>/<n>`. It needs one shared
   aspect per talk (the presenter's, sent to followers) before it can be
   considered.
-- Fill frame on follower screens (decision 77): a follow screen still shows
-  the card on the dark stage and keeps its bar; a room's second screen
-  would gain the same room the presenter's did.
+- Follow screens (decision 113, proposed): no Full screen button, no wake
+  lock and no frame switch on the follow page; the frame follows what this
+  browser chose in another docwalk tab.
 
 ## Next up
 
