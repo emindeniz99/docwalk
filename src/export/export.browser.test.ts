@@ -11,6 +11,7 @@ import { ExportMenu } from "./ExportMenu";
 import { EXPORT_CSP, exportHtml } from "./html";
 import { exportPng, refuseForeignImages, type PngFile } from "./png";
 import { printDeck } from "./print";
+import { withBoardPages } from "./boardPages";
 import type { ExportOptions, ExportSlide } from "./types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -513,6 +514,78 @@ describe("saved marks in exports (decision 105)", () => {
       win.dispatchEvent(new Event("afterprint"));
     });
     expect({ width: box.width, height: box.height }).toEqual({ width: 1280, height: 720 });
+  });
+});
+
+/** The same section's second page. */
+const second = (s: ExportSlide): ExportSlide => ({
+  ...s,
+  address: s.address.replace("/1", "/2"),
+});
+
+/** Two pages of section a, one of section b. */
+const sections = () => [slide("a", "One"), second(slide("a", "One")), slide("b", "Two")];
+
+describe("whiteboards in exports (decision 110)", () => {
+  // A section's board is part of what a review produced, so it follows the
+  // section's last page, titled by the section, with its strokes over blank paper.
+  const BOARD: SavedStroke[] = [{ tool: "rect", color: "primary", points: [320, 512, 3776, 3584] }];
+  const boards = (id: string) => (id === "a" ? BOARD : []);
+
+  test("a section whose board has marks gets one more page after its last slide, titled for the section", () => {
+    const slides = withBoardPages(sections(), boards);
+    expect(slides.map((s) => s.address)).toEqual(["a/1", "a/2", "a/board", "b/1"]);
+    expect(slides[2]!.title).toBe("Whiteboard: One");
+    expect(slides[2]!.marks).toEqual(BOARD);
+  });
+
+  test("no page for a section whose board has no marks, and none are added when no board has any", () => {
+    expect(withBoardPages(sections(), () => [])).toEqual(sections());
+    const slides = withBoardPages(sections(), (id) => (id === "b" ? BOARD : []));
+    expect(slides.map((s) => s.address)).toEqual(["a/1", "a/2", "b/1", "b/board"]);
+  });
+
+  test("the print view shows the board as a blank page with its marks, numbered like any page", async () => {
+    let seen: {
+      labels: string[];
+      title: string | null;
+      text: string;
+      marks: number;
+      body: number;
+    } | null = null;
+    await printDeck(deck(...withBoardPages(sections(), boards)), (win) => {
+      const pages = [...win.document.querySelectorAll<HTMLElement>("main > .docwalk-export-page")];
+      const board = pages[2]!;
+      seen = {
+        labels: pages.map((p) => p.getAttribute("aria-label") ?? ""),
+        title: board.querySelector(".docwalk-export-board")?.getAttribute("aria-label") ?? null,
+        text: board.textContent?.trim() ?? "",
+        marks: board.querySelectorAll("svg.docwalk-export-marks rect").length,
+        body: board.querySelectorAll(".docwalk-slide-body").length,
+      };
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(seen).toEqual({
+      labels: ["Slide 1 of 4", "Slide 2 of 4", "Slide 3 of 4", "Slide 4 of 4"],
+      title: "Whiteboard: One",
+      text: "",
+      marks: 1,
+      body: 0,
+    });
+  });
+
+  test("the HTML file and the PNG files carry the board page too, named by its address", async () => {
+    const options = deck(...withBoardPages(sections(), boards));
+    const { doc } = await parseExport(options);
+    expect(doc.querySelectorAll(".docwalk-export-page")).toHaveLength(4);
+    expect(doc.querySelectorAll(".docwalk-export-board")).toHaveLength(1);
+    const files = await exportPng(options, { save: () => undefined });
+    expect(files.map((f) => f.name)).toEqual([
+      "1-a-1.png",
+      "2-a-2.png",
+      "3-a-board.png",
+      "4-b-1.png",
+    ]);
   });
 });
 

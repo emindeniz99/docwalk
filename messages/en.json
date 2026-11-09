@@ -46,6 +46,7 @@
   "app_view_group": "View",
   "board_closed": "Whiteboard closed",
   "board_opened": "Whiteboard open: {title}",
+  "board_page_title": "Whiteboard: {title}",
   "cancel": "Cancel",
   "close": "Close",
   "cm_all": "all",

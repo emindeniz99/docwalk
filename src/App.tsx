@@ -64,6 +64,7 @@ import {
   type Locale,
 } from "./i18n/locale";
 import type { EditorDiagnostic, SourceEditorProps } from "./editor/types";
+import { withBoardPages } from "./export/boardPages";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
 import type { HealthResponse } from "./api/types";
@@ -808,23 +809,30 @@ export function App() {
     (withMarks: boolean, withNotes: boolean): ExportOptions | null => {
       if (!controller) return null;
       const pages = clonePages(controller);
+      const exported = pages.map(({ info, element }, index) => {
+        const marks = withMarks
+          ? (savedMarks?.strokes(info.address, slideFingerprint(element)) ?? [])
+          : [];
+        const isLast = pages[index + 1]?.info.sectionId !== info.sectionId;
+        const sectionNotes = withNotes && isLast ? notes.get(info.sectionId) : undefined;
+        return {
+          address: info.address,
+          title: info.title,
+          element,
+          ...(marks.length > 0 ? { marks } : {}),
+          ...(sectionNotes ? { notes: [...sectionNotes] } : {}),
+        };
+      });
       return {
         title: docTitle,
         size: SLIDE_SIZE,
-        slides: pages.map(({ info, element }, index) => {
-          const marks = withMarks
-            ? (savedMarks?.strokes(info.address, slideFingerprint(element)) ?? [])
-            : [];
-          const isLast = pages[index + 1]?.info.sectionId !== info.sectionId;
-          const sectionNotes = withNotes && isLast ? notes.get(info.sectionId) : undefined;
-          return {
-            address: info.address,
-            title: info.title,
-            element,
-            ...(marks.length > 0 ? { marks } : {}),
-            ...(sectionNotes ? { notes: [...sectionNotes] } : {}),
-          };
-        }),
+        // A section's whiteboard follows its last page when it has marks and marks are wanted (decision 110).
+        slides: withMarks
+          ? withBoardPages(
+              exported,
+              (id) => savedMarks?.strokes(boardAddress(id), BOARD_TEXT) ?? [],
+            )
+          : exported,
       };
     },
     [controller, docTitle, savedMarks, notes],

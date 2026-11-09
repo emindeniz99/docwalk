@@ -146,3 +146,46 @@ test("print with speaker notes prints the chosen sections' notes only (decisions
   await expect(notes).toContainText("COVER NOTE of A");
   await expect(notes).not.toContainText("B NOTE");
 });
+
+test("a whiteboard with marks prints as one more page after its section, and not without Include marks (decision 110)", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.print = () => {};
+  });
+  await ready(page, "/#summary/1");
+  await page.locator(".reveal").focus();
+  await page.keyboard.press("w");
+  await expect(page.locator(".docwalk-annotate[data-board]")).toHaveCount(1);
+  const overlay = await page.locator(".docwalk-annotate").boundingBox();
+  if (!overlay) throw new Error("annotation overlay missing");
+  await page.mouse.move(overlay.x + overlay.width * 0.3, overlay.y + overlay.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(overlay.x + overlay.width * 0.7, overlay.y + overlay.height * 0.7, {
+    steps: 10,
+  });
+  await page.mouse.up();
+  await expect(page.locator(".docwalk-annotate-draw[data-active='true'] > *")).toHaveCount(1);
+
+  const frame = page.frameLocator("iframe[data-docwalk-print]");
+  const boards = frame.locator(".docwalk-export-board");
+  await exportAs(page, "Print or save as PDF");
+  await expect(boards).toHaveCount(1);
+  await expect(boards).toHaveAttribute("aria-label", "Whiteboard: Summary");
+  // Right after the last page of its section, and drawn over, not on, the page.
+  const pages = frame.locator("main > .docwalk-export-page");
+  const index = await pages.evaluateAll((all) =>
+    all.findIndex((p) => p.querySelector(".docwalk-export-board") !== null),
+  );
+  const before = pages.nth(index - 1);
+  await expect(before).toContainText("Summary");
+  await expect(before.locator(".docwalk-export-board")).toHaveCount(0);
+  await expect(pages.nth(index).locator("svg.docwalk-export-marks > *")).toHaveCount(1);
+
+  // "Include marks" off leaves the board out with the slide marks.
+  await page.getByRole("button", { name: "Export" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Include marks" }).click();
+  await page.getByRole("menuitem", { name: "Print or save as PDF" }).click();
+  await expect(page.locator("iframe[data-docwalk-print]")).toHaveCount(1);
+  await expect(boards).toHaveCount(0);
+});

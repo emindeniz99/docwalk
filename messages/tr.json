@@ -46,6 +46,7 @@
   "app_view_group": "Görünüm",
   "board_closed": "Beyaz tahta kapandı",
   "board_opened": "Beyaz tahta açık: {title}",
+  "board_page_title": "Beyaz tahta: {title}",
   "cancel": "Vazgeç",
   "close": "Kapat",
   "cm_all": "tümü",
