@@ -1066,35 +1066,35 @@ describe("stylus input (decision 110)", () => {
   });
 });
 
+/** A finger's down and two moves on the active surface, with no pointerup yet. */
+function fingerDown(host: HTMLElement, id: number) {
+  const svg = host.querySelector(DRAW)!;
+  const rect = svg.getBoundingClientRect();
+  const at = (type: string, x: number, y: number) =>
+    svg.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        pointerId: id,
+        pointerType: "touch",
+        isPrimary: true,
+        pressure: 0.5,
+        clientX: rect.left + x,
+        clientY: rect.top + y,
+      }),
+    );
+  at("pointerdown", 20, 20);
+  at("pointermove", 60, 40);
+  at("pointermove", 100, 60);
+  return () => at("pointerup", 100, 60);
+}
+
+/** A whole stroke by finger `id`, as drawn once the layer is free again. */
+function finger(host: HTMLElement, id: number) {
+  fingerDown(host, id)();
+}
+
 describe("a stroke cut off by a change of drawing (decision 110)", () => {
-  /** A finger's down and two moves on the active surface, with no pointerup yet. */
-  function fingerDown(host: HTMLElement, id: number) {
-    const svg = host.querySelector(DRAW)!;
-    const rect = svg.getBoundingClientRect();
-    const at = (type: string, x: number, y: number) =>
-      svg.dispatchEvent(
-        new PointerEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          pointerId: id,
-          pointerType: "touch",
-          isPrimary: true,
-          pressure: 0.5,
-          clientX: rect.left + x,
-          clientY: rect.top + y,
-        }),
-      );
-    at("pointerdown", 20, 20);
-    at("pointermove", 60, 40);
-    at("pointermove", 100, 60);
-    return () => at("pointerup", 100, 60);
-  }
-
-  /** A whole stroke by finger `id`, as drawn once the layer is free again. */
-  function finger(host: HTMLElement, id: number) {
-    fingerDown(host, id)();
-  }
-
   test("closing the board mid-stroke leaves the board drawing to the next finger", () => {
     const { host } = openBoardDeck();
     layer!.setMode("pen");
