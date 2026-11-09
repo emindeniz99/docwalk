@@ -14,6 +14,8 @@
   "annotate_clear": "İşaretleri temizle",
   "annotate_colour": "Kalem rengi",
   "annotate_label": "İşaretle",
+  "annotate_more": "Diğer araçlar",
+  "annotate_more_active": "Diğer araçlar: {tool}",
   "annotate_tool": "Araç",
   "annotate_undo": "Son işareti geri al",
   "app_breaks_only": "yalnızca ayırıcılar",

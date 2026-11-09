@@ -1030,6 +1030,37 @@ kbd {
       min-height: var(--dw-space-2xl);
     }
   }
+
+  /*
+   * All twelve tools need 524 px at 38 px: nine 4 px gaps and two 16 px gaps.
+   * Twelve need 452 px even at 32 px, more than the 354 px beside the comments
+   * panel at 1280 px, so a narrower head moves Rectangle, Ellipse, Whiteboard
+   * and Clear marks into the More tools menu. That leaves the nine controls
+   * the widths above count (decision 110).
+   */
+  @container docwalk-preview-head (width < 524px) {
+    .docwalk-app:not([data-view="present"]) .docwalk-preview-head .docwalk-annotate-overflow {
+      display: none;
+    }
+
+    .docwalk-app:not([data-view="present"])
+      .docwalk-preview-head
+      .docwalk-annotate-button.docwalk-annotate-more {
+      display: inline-flex;
+    }
+  }
+}
+
+/* The More tools menu button shows only where the head is narrow (above). */
+.docwalk-annotate-button.docwalk-annotate-more {
+  display: none;
+}
+
+/* It takes the active tool's look while that tool's button waits in its menu. */
+.docwalk-annotate-more[data-active] {
+  border: 2px solid var(--fg);
+  background: var(--dw-color-primary);
+  color: var(--dw-color-on-primary);
 }
 
 .docwalk-preview-head[hidden] {
