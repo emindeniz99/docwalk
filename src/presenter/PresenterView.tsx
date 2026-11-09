@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, ListBox, ListBoxItem } from "react-aria-components";
 import { MirrorStore } from "../annotate/mirrorStore";
 import { attachMirror } from "../annotate/mirrorView";
-import { fitDiagrams, settled, slideBodySize } from "../deck/measure";
+import { fitDiagrams, releaseImageSizes, settled, slideBodySize } from "../deck/measure";
 import { renderDiagrams } from "../deck/mermaid";
 import { paginateSlide } from "../deck/paginate";
 import { flagPages, SLIDE_SIZE, slideAddress } from "../deck/pages";
@@ -492,6 +492,7 @@ async function buildPreviews(
     // The presenter must see the same notes the audience deck shows, or a
     // clipped slide or an unreadable diagram looks fine in the preview.
     flagPages(built, SLIDE_SIZE);
+    releaseImageSizes(built);
     for (const page of built) pages.set(slideAddress(page), page);
     // Current and next appear together, then the rest one by one.
     const pending = new Set(wanted().map(sectionOf));
