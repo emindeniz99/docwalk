@@ -55,6 +55,19 @@ function surface(kind: "draw" | "laser"): SVGSVGElement {
   return svg;
 }
 
+/**
+ * Cuts off a stroke still being drawn. drauu keeps the id of the pointer that
+ * began it until that pointer's own pointerup, which it ignores once nothing
+ * is being drawn, so without the reset the drawing would refuse every other
+ * pointer. No public call does it.
+ */
+function abandonStroke(drawing: Drauu) {
+  drawing.cancel();
+  drawing.drawing = false;
+  // oxlint-disable-next-line no-underscore-dangle
+  (drawing as unknown as { _originalPointerId: number | null })._originalPointerId = null;
+}
+
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -451,8 +464,7 @@ export function createAnnotationLayer(
       closeBoard(false);
     }
     // A stroke still being drawn on the slide belongs to neither page.
-    slideDrawing.cancel();
-    slideDrawing.drawing = false;
+    abandonStroke(slideDrawing);
     let drawing = drawings.get(next.key);
     if (!drawing) {
       drawing = createDrawing();
@@ -474,8 +486,7 @@ export function createAnnotationLayer(
     const open = board;
     if (!open) return;
     // A stroke still being drawn on the board is cancelled while the board is still the active drawing.
-    open.drawing.cancel();
-    open.drawing.drawing = false;
+    abandonStroke(open.drawing);
     board = null;
     open.uncover();
     root.removeAttribute("data-board");
@@ -575,8 +586,7 @@ export function createAnnotationLayer(
         refreshEraser();
       } else {
         // A stroke still being drawn when the slide changes belongs to no slide.
-        slideDrawing.cancel();
-        slideDrawing.drawing = false;
+        abandonStroke(slideDrawing);
         let drawing = drawings.get(next);
         if (!drawing) {
           drawing = createDrawing();
