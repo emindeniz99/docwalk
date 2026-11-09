@@ -154,27 +154,68 @@ export function buildPage(
   page.append(prepareSlide(slide.element, policy));
   // Built from numbers (markSvg.ts) and sanitized with the page all the same.
   if (slide.marks?.length) page.append(marksOverlay(inert, slide.marks));
+  return sanitized(doc, page, policy, "a slide");
+}
+
+/** `el` sanitized with DOMPurify under `policy` and imported into `doc`. */
+function sanitized(doc: Document, el: HTMLElement, policy: ResourcePolicy, what: string) {
   activePolicy = policy;
   let clean: DocumentFragment;
   try {
-    clean = purifier.sanitize(page, PURIFY_CONFIG);
+    clean = purifier.sanitize(el, PURIFY_CONFIG);
   } finally {
     activePolicy = offline;
   }
   const result = clean.firstElementChild;
-  if (!(result instanceof Element)) throw new Error("docwalk: a slide was empty after sanitizing");
+  if (!(result instanceof Element)) throw new Error(`docwalk: ${what} was empty after sanitizing`);
   return doc.importNode(result, true) as HTMLElement;
 }
 
-/** Every slide, in order, inside `<main class="docwalk-export">`. */
+/**
+ * A section's speaker notes (decision 114) on a block as wide as a slide:
+ * the slide's title, then one paragraph per comment. The strings are set as
+ * `textContent`, so Markdown and HTML in a note print as typed, and the block
+ * is sanitized like a slide page. Its height grows with its text and print
+ * breaks it across pages (`page.css`), so a long note loses nothing.
+ */
+export function buildNotes(
+  doc: Document,
+  slide: ExportSlide,
+  options: ExportOptions,
+  policy: ResourcePolicy,
+): HTMLElement {
+  const block = inert.createElement("section");
+  block.className = "docwalk-export-notes";
+  block.setAttribute("aria-label", m.export_notes_label({ title: slide.title }));
+  block.style.width = `${options.size.width}px`;
+  const heading = inert.createElement("h2");
+  heading.textContent = slide.title;
+  block.append(heading);
+  for (const note of slide.notes ?? []) {
+    const paragraph = inert.createElement("p");
+    paragraph.textContent = note;
+    block.append(paragraph);
+  }
+  return sanitized(doc, block, policy, "a notes page");
+}
+
+/**
+ * Every slide, in order, inside `<main class="docwalk-export">`. With
+ * `withNotes`, a slide that carries notes is followed by its notes block;
+ * without it, notes are ignored (the HTML file passes false, decision 114).
+ */
 export function buildPages(
   doc: Document,
   options: ExportOptions,
   policy: ResourcePolicy,
+  { withNotes = false }: { withNotes?: boolean } = {},
 ): HTMLElement {
   const main = doc.createElement("main");
   main.className = "docwalk-export";
-  options.slides.forEach((slide, i) => main.append(buildPage(doc, slide, i, options, policy)));
+  options.slides.forEach((slide, i) => {
+    main.append(buildPage(doc, slide, i, options, policy));
+    if (withNotes && slide.notes?.length) main.append(buildNotes(doc, slide, options, policy));
+  });
   return main;
 }
 

@@ -9,6 +9,7 @@
  *   download; otherwise sequential downloads.
  *
  * All three draw a slide's saved marks over it when the slide carries them.
+ * Speaker notes reach one view only: the print view that asks for them.
  */
 
 import type { SavedStroke } from "../annotate/savedMarks";
@@ -20,6 +21,12 @@ export interface ExportSlide {
   element: HTMLElement;
   /** The slide's saved marks (decision 105), drawn over the page. */
   marks?: readonly SavedStroke[];
+  /**
+   * The section's speaker notes (decision 79) as plain strings, set on the
+   * section's last page only. Only the print view with notes prints them
+   * (decision 114); the HTML file and the PNGs never carry them.
+   */
+  notes?: readonly string[];
 }
 
 export interface ExportOptions {
