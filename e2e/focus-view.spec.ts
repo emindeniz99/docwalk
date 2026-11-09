@@ -173,6 +173,10 @@ test("marked code lines stay marked while the view is open and are gone after it
   await shot(page, "code-marked-desktop");
   await view(page).getByRole("button", { name: "Clear all marked lines" }).click();
   await expect(view(page).locator('.docwalk-code-line[aria-pressed="true"]')).toHaveCount(0);
+  // Clear disables itself; focus moved into the view first, so Escape still closes it.
+  await page.keyboard.press("Escape");
+  await expect(view(page)).toHaveCount(0);
+  await present(page).locator("pre").click();
   await lines.nth(1).click();
   await page.keyboard.press("Escape");
   await present(page).locator("pre").click();

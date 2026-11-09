@@ -46,6 +46,11 @@ rendered. docwalk shows one instead of clipping or shrinking (19).
 **Diagram focus**: the mode a click on a Mermaid diagram opens: fit, zoom,
 pan, reset, fullscreen, pen and laser (3, 28, 29).
 
+**Diagram tour**: stepping through a diagram's nodes in the diagram focus
+view. The steps form a path, the last one current; it belongs to the open
+view and is mirrored to followers as node numbers (109). Code:
+`src/deck/diagramTour.ts`, `tourModel.ts`.
+
 **Document mode**: the doc rendered as GitHub would show it, scrolling, no
 slides (3, 10).
 
@@ -228,6 +233,7 @@ Add a row here before introducing a new one.
 | diagram, node               | diyagram, düğüm             |                                            |
 | math, formula, equation     | matematik, formül, denklem  | "denklem" in "N denklem fazla geniş"       |
 | emoji shortcode             | emoji kısa kodu             | the `:name:` text, not the character       |
+| diagram tour, step          | diyagram turu, adım         | "Tur" on the button                        |
 | focus view                  | odak görünümü               | "tam ekran" in the dialog's names          |
 | line mark                   | satır işareti               | the "Temizle" button removes them          |
 | mark, saved marks           | işaret, kayıtlı işaretler   | pen and arrow marks; "Sil" deletes them    |

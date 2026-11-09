@@ -42,6 +42,10 @@ The first release.
   PDF, HTML and PNG exports draw them unless you untick Export › Include
   marks; More actions › Delete saved marks removes them after a
   confirmation.
+- A diagram tour: in a diagram's focus view, press T or Tour to step
+  through a flowchart, class, state or ER diagram node by node along its
+  edges. Nodes and edges off the path fade, and a status line names what the
+  current node links to. Followers see the same path.
 - A countdown in the presenter window: enter a target in minutes, pause and
   reset it, and read the time left, which goes below zero once you run over,
   with a label and an icon as well as colour. A pacing bar sets the share of
