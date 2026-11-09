@@ -255,8 +255,8 @@ describe("hello again for a new presenter (decision 111)", () => {
     expect(helloesFrom(a, remote.conn.id)).toHaveLength(3);
   });
 
-  test("states from many senders make a remote say hello at most once a second", async () => {
-    // Anyone with the control key can forge a state under a fresh sender id.
+  test("signed states from many senders make a remote say hello at most once a second", async () => {
+    // Several presenter tabs of one room (duplicates, reloads) each sign with the room's key.
     const relay = new FakeRelay();
     const creds = await createPresenterCredentials();
     const presenter = peer(relay, creds, "presenter");
@@ -265,14 +265,39 @@ describe("hello again for a new presenter (decision 111)", () => {
     await opened(victim);
     await vi.waitFor(() => expect(helloesFrom(presenter, victim.conn.id)).toHaveLength(1));
 
-    const forgers = Array.from({ length: 5 }, () => peer(relay, creds, "remote"));
-    await Promise.all(forgers.map(opened));
-    for (const [i, forger] of forgers.entries())
-      await forger.conn.send(stateMessage(`forged ${i}`));
+    const tabs = Array.from({ length: 5 }, () => peer(relay, creds, "presenter"));
+    await Promise.all(tabs.map(opened));
+    for (const [i, tab] of tabs.entries()) await tab.conn.send(stateMessage(`tab ${i}`));
     await sleep(1500);
     const extra = helloesFrom(presenter, victim.conn.id).length - 1;
     expect(extra).toBeGreaterThanOrEqual(1);
     expect(extra).toBeLessThanOrEqual(2);
+  });
+
+  test("unsigned states under fresh sender ids make a remote or an agent say no hello (decision 118)", async () => {
+    // Anyone with the control key can seal a state under a new sender id. Before 118
+    // each one cost a hello a second from every remote and agent, for as long as it went on.
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    await opened(presenter);
+    const remote = peer(relay, creds, "remote");
+    const agent = peer(relay, creds, "agent");
+    await Promise.all([opened(remote), opened(agent)]);
+    await vi.waitFor(() => expect(helloesFrom(presenter, remote.conn.id)).toHaveLength(1));
+    await vi.waitFor(() => expect(helloesFrom(presenter, agent.conn.id)).toHaveLength(1));
+
+    const forgers = Array.from({ length: 4 }, () => peer(relay, creds, "remote"));
+    await Promise.all(forgers.map(opened));
+    for (const [i, forger] of forgers.entries()) {
+      await forger.conn.send(stateMessage(`forged ${i}`));
+      await sleep(HELLO_AGAIN_GAP_MS / 2);
+    }
+    await sleep(HELLO_AGAIN_GAP_MS + 200);
+    // The remote still shows the forged states (73 trusts the control key); it only stays quiet.
+    expect(remote.received.filter((m) => m.type === "state").length).toBeGreaterThan(0);
+    expect(helloesFrom(presenter, remote.conn.id)).toHaveLength(1);
+    expect(helloesFrom(presenter, agent.conn.id)).toHaveLength(1);
   });
 
   test("a state another follower sealed does not make a follower say hello", async () => {

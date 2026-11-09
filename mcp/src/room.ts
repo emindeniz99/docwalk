@@ -53,7 +53,7 @@ export class RoomError extends Error {
   }
 }
 
-/** The room in a join link (`…#room=<id>&k=<key>` or `…&v=<key>`) and the origin its relay lives on. */
+/** The room in a join link (`…#room=<id>&k=<key>&p=<state key>` or `…&v=<key>`) and the origin its relay lives on. */
 export function parseJoinLink(link: string): { creds: RoomCredentials; base: string } | null {
   let url: URL;
   try {
@@ -113,7 +113,13 @@ export class RoomAgent {
     this.timeoutMs = timeoutMs;
     this.gotoSettleMs = gotoSettleMs;
     this.conn = connectRoom({
-      creds: { room: parsed.creds.room, key: parsed.creds.key, view: null },
+      // The link's public state key lets the agent tell the presenter's states apart (decision 118).
+      creds: {
+        room: parsed.creds.room,
+        key: parsed.creds.key,
+        view: null,
+        verify: parsed.creds.verify ?? null,
+      },
       role: "agent",
       base: parsed.base,
       ...(socketFactory ? { socketFactory } : {}),
