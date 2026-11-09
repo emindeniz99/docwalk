@@ -1,7 +1,7 @@
 import { act, createElement as h, createRef, Fragment, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { AnnotationToolbar, PEN_COLORS, resolvePenColor, type PenColor } from "./AnnotationToolbar";
@@ -80,7 +80,8 @@ describe("annotation toolbar", () => {
       ...el.querySelectorAll<HTMLElement>(
         ".docwalk-annotate-toolbar button, .docwalk-annotate-swatch",
       ),
-    ];
+    ].filter((c) => c.checkVisibility());
+    // With room for all twelve, the More tools menu stays out of the way (decision 110).
     expect(controls).toHaveLength(6 + 3 + 3);
     for (const c of controls) {
       const name =
@@ -407,6 +408,135 @@ describe("annotation toolbar keyboard (WCAG 2.1.1)", () => {
     expect(text(el, "board")).toBe("true");
     await userEvent.keyboard("{ArrowRight}");
     expect(label()).toBe("Undo mark");
+  });
+});
+
+/** The toolbar in the edit preview's head, as wide as the deck pane beside the comments panel at 1280 px. */
+function NarrowHead() {
+  return h(
+    "div",
+    { className: "docwalk-app", "data-view": "edit" },
+    h(
+      "div",
+      { className: "docwalk-preview-head", style: { width: "402px", boxSizing: "border-box" } },
+      h("div", { className: "docwalk-stage-tools" }, h(Harness)),
+    ),
+  );
+}
+
+const visibleNames = (el: HTMLElement) =>
+  [...el.querySelectorAll<HTMLElement>(".docwalk-annotate-button, .docwalk-annotate-swatch")]
+    .filter((c) => c.checkVisibility())
+    .map(
+      (c) => c.getAttribute("aria-label") ?? c.querySelector("input")?.getAttribute("aria-label"),
+    );
+
+const more = (el: HTMLElement) => el.querySelector<HTMLElement>(".docwalk-annotate-more")!;
+
+/** The open More tools menu's item with this name. */
+const menuItem = (name: string) =>
+  [...document.querySelectorAll<HTMLElement>('[role="menu"] [role^="menuitem"]')].find(
+    (item) => item.querySelector('[slot="label"]')?.textContent === name,
+  );
+
+async function openMore(el: HTMLElement) {
+  await userEvent.click(more(el));
+  await expect.poll(() => menuItem("Rectangle")).toBeDefined();
+}
+
+describe("a stage head too narrow for twelve controls (decision 110)", () => {
+  // Twelve controls need 452 px even at 32 px; beside the comments panel at
+  // 1280 px the head has 354. Nine keep one row, the rest wait one click away.
+  beforeEach(async () => {
+    await page.viewport(1280, 800);
+  });
+  // Vitest's own default, which the other tests in this file run at.
+  afterEach(async () => {
+    await page.viewport(414, 896);
+  });
+
+  test("nine controls keep one row and the More tools menu holds the rest", async () => {
+    const el = render(h(NarrowHead));
+    expect(visibleNames(el)).toEqual([
+      "Pen",
+      "Laser pointer",
+      "Arrow",
+      "Eraser",
+      "Vermilion",
+      "Blue",
+      "Ink",
+      "Undo mark",
+      "More tools",
+    ]);
+    const tops = [
+      ...el.querySelectorAll<HTMLElement>(".docwalk-annotate-button, .docwalk-annotate-swatch"),
+    ]
+      .filter((c) => c.checkVisibility())
+      .map((c) => Math.round(c.getBoundingClientRect().top));
+    expect(new Set(tops).size).toBe(1);
+    expect(more(el).getAttribute("aria-haspopup")).toBe("true");
+    await openMore(el);
+    expect(menuItem("Rectangle")?.getAttribute("role")).toBe("menuitemradio");
+    expect(menuItem("Ellipse")?.getAttribute("role")).toBe("menuitemradio");
+    expect(menuItem("Whiteboard")?.getAttribute("role")).toBe("menuitemcheckbox");
+    expect(menuItem("Clear marks")?.getAttribute("role")).toBe("menuitem");
+    // The menu teaches the keys the toolbar's tooltips taught.
+    expect(menuItem("Rectangle")?.querySelector("kbd")?.textContent).toBe("R");
+    expect(menuItem("Ellipse")?.querySelector("kbd")?.textContent).toBe("C");
+    expect(menuItem("Whiteboard")?.querySelector("kbd")?.textContent).toBe("W");
+  });
+
+  test("a shape picked in the menu shows on its button, and picking it again turns it off", async () => {
+    const el = render(h(NarrowHead));
+    await openMore(el);
+    await userEvent.click(menuItem("Ellipse")!);
+    expect(text(el, "mode")).toBe("ellipse");
+    // With the ellipse button out of sight, the menu button carries the state.
+    await expect.poll(() => more(el).getAttribute("aria-label")).toBe("More tools: Ellipse");
+    expect(more(el).hasAttribute("data-active")).toBe(true);
+    await openMore(el);
+    expect(menuItem("Ellipse")?.getAttribute("aria-checked")).toBe("true");
+    await userEvent.click(menuItem("Ellipse")!);
+    expect(text(el, "mode")).toBe("off");
+    await expect.poll(() => more(el).getAttribute("aria-label")).toBe("More tools");
+    expect(more(el).hasAttribute("data-active")).toBe(false);
+  });
+
+  test("R, C and W work while their buttons wait in the menu", async () => {
+    const el = render(h(NarrowHead));
+    key({ key: "r" });
+    expect(text(el, "mode")).toBe("rect");
+    expect(more(el).getAttribute("aria-label")).toBe("More tools: Rectangle");
+    key({ key: "c" });
+    expect(more(el).getAttribute("aria-label")).toBe("More tools: Ellipse");
+    key({ key: "p" });
+    expect(more(el).getAttribute("aria-label")).toBe("More tools");
+    key({ key: "w" });
+    expect(text(el, "board")).toBe("true");
+    await openMore(el);
+    expect(menuItem("Whiteboard")?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("Whiteboard and Clear marks in the menu call through", async () => {
+    const el = render(h(NarrowHead));
+    await openMore(el);
+    await userEvent.click(menuItem("Whiteboard")!);
+    expect(text(el, "board")).toBe("true");
+    clear.mockClear();
+    await openMore(el);
+    await userEvent.click(menuItem("Clear marks")!);
+    expect(clear).toHaveBeenCalled();
+  });
+
+  test("arrow keys skip the controls in the menu and reach its button (WCAG 2.1.1)", async () => {
+    const el = render(h(NarrowHead));
+    act(() => el.querySelector<HTMLElement>('[aria-label="Pen"]')!.focus());
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
+    expect(label()).toBe("Eraser");
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}");
+    expect(label()).toBe("More tools");
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.activeElement?.closest('[role="menu"]')).not.toBeNull();
   });
 });
 

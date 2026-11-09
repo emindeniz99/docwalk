@@ -14,6 +14,8 @@
   "annotate_clear": "Clear marks",
   "annotate_colour": "Pen colour",
   "annotate_label": "Annotate",
+  "annotate_more": "More tools",
+  "annotate_more_active": "More tools: {tool}",
   "annotate_tool": "Tool",
   "annotate_undo": "Undo mark",
   "app_breaks_only": "breaks only",

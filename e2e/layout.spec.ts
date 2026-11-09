@@ -139,7 +139,9 @@ for (const [width, height, size] of [
           }),
       );
     const tops = controls.filter((c) => c.tool).map((c) => c.top);
-    // Four tools, three colours, undo and clear.
+    // Twelve controls need 452 px even at 32 px, so at these widths Rectangle,
+    // Ellipse, Whiteboard and Clear marks wait in the More tools menu: four
+    // tools, three colours, undo and that menu (decision 110).
     expect(tops).toHaveLength(9);
     expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(2);
     for (const c of controls) {
@@ -152,6 +154,13 @@ for (const [width, height, size] of [
     // The whole head is at most two control rows: counter and address, then the tools.
     const head = await page.locator(".docwalk-preview-head").boundingBox();
     expect(head?.height ?? Infinity).toBeLessThanOrEqual(2 * size + 8 + 12 + 1);
+    // The controls that left the strip stay one click away, none hidden.
+    await page.getByRole("button", { name: "More tools" }).click();
+    const menu = page.getByRole("menu", { name: "More tools" });
+    await expect(menu.getByRole("menuitemradio", { name: /^Rectangle/ })).toBeVisible();
+    await expect(menu.getByRole("menuitemradio", { name: /^Ellipse/ })).toBeVisible();
+    await expect(menu.getByRole("menuitemcheckbox", { name: /^Whiteboard/ })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Clear marks" })).toBeVisible();
   });
 }
 
