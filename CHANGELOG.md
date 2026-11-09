@@ -88,7 +88,9 @@ The first release.
   the deck, outline, palette, overview, presenter list and exports hold the
   chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
-  only for the languages a document uses.
+  only for the languages a document uses. A grammar that loads late colours
+  its blocks in place, and Markdown bold and italic in a code block take the
+  function colour.
 - Monaco as an optional desktop editor beside CodeMirror. A switch of
   editor keeps the cursor line, the command palette offers the other
   editor, a pick in one tab applies in the others, a list item's indented

@@ -1015,6 +1015,25 @@ describe("follower", () => {
     expect(result.current!.status).toBe("open");
   });
 
+  test("tells onSlide the address of every signed state, so a board for another page can be dropped (decision 110)", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const onSlide = vi.fn<(address: string) => void>();
+    mountFollower({
+      creds,
+      controller: fakeController(),
+      socketFactory: relay.factory,
+      base: BASE,
+      onSlide,
+    });
+    await vi.waitFor(() => expect(ofType(presenter, "hello")).toHaveLength(1));
+    await presenter.conn.send(presenterState("section-2/1"));
+    await presenter.conn.send(presenterState("section-3/1"));
+    await vi.waitFor(() => expect(onSlide).toHaveBeenCalledTimes(2));
+    expect(onSlide.mock.calls).toEqual([["section-2/1"], ["section-3/1"]]);
+  });
+
   test("catches up once its deck is ready, since state can arrive before the document loads", async () => {
     const relay = new FakeRelay();
     const creds = await createPresenterCredentials();

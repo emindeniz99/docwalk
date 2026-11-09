@@ -74,7 +74,9 @@ const THEME = "docwalk";
 /**
  * The CSS-variables theme marks Markdown headings with weight alone, which
  * docwalk leaves out (decision 76: colour only), so they get the constant
- * colour, as on GitHub.
+ * colour, as on GitHub. Bold and italic are marked with weight and style
+ * alone too; GitHub shows them in its text colour, so the function colour is
+ * docwalk's own choice (decision 115).
  */
 function docwalkTheme(): ThemeRegistration {
   const theme = createCssVariablesTheme({ name: THEME, variablePrefix: PREFIX, fontStyle: false });
@@ -85,6 +87,10 @@ function docwalkTheme(): ThemeRegistration {
       {
         scope: ["markup.heading", "entity.name.section"],
         settings: { foreground: `var(${PREFIX}token-constant)` },
+      },
+      {
+        scope: ["markup.bold", "markup.italic"],
+        settings: { foreground: `var(${PREFIX}token-function)` },
       },
     ],
   };

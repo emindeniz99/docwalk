@@ -344,7 +344,10 @@ describe("ExportMenu", () => {
     document.body.replaceChildren();
   });
 
-  function render(getOptions: (withMarks: boolean) => ExportOptions | null, hasMarks = false) {
+  function render(
+    getOptions: (withMarks: boolean, withNotes: boolean) => ExportOptions | null,
+    hasMarks = false,
+  ) {
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -353,31 +356,35 @@ describe("ExportMenu", () => {
   }
 
   test("saved marks go into an export unless the viewer leaves them out, and the menu says which (decision 105)", async () => {
-    const asked = vi.fn<(withMarks: boolean) => ExportOptions | null>(() => null);
+    const asked = vi.fn<(withMarks: boolean, withNotes: boolean) => ExportOptions | null>(
+      () => null,
+    );
     const trigger = render(asked, true).querySelector<HTMLElement>(".docwalk-export-trigger")!;
     await userEvent.click(trigger);
     expect(include().textContent).toBe("Include marks");
     expect(include().getAttribute("aria-checked")).toBe("true");
     await userEvent.click(document.querySelector<HTMLElement>('[role="menuitem"]')!);
-    expect(asked).toHaveBeenLastCalledWith(true);
+    expect(asked).toHaveBeenLastCalledWith(true, false);
 
     // The menu stays open on the toggle, so the export comes next from the same menu.
     await userEvent.click(trigger);
     await userEvent.click(include());
     expect(include().getAttribute("aria-checked")).toBe("false");
     await userEvent.click(document.querySelector<HTMLElement>('[role="menuitem"]')!);
-    expect(asked).toHaveBeenLastCalledWith(false);
+    expect(asked).toHaveBeenLastCalledWith(false, false);
     // It stays off for the next export, until the viewer turns it back on.
     await userEvent.click(trigger);
     expect(include().getAttribute("aria-checked")).toBe("false");
   });
 
   test("without saved marks the menu offers no marks option and asks for none", async () => {
-    const asked = vi.fn<(withMarks: boolean) => ExportOptions | null>(() => null);
+    const asked = vi.fn<(withMarks: boolean, withNotes: boolean) => ExportOptions | null>(
+      () => null,
+    );
     await userEvent.click(render(asked).querySelector<HTMLElement>(".docwalk-export-trigger")!);
     expect(document.querySelector('[role="menuitemcheckbox"]')).toBeNull();
     await userEvent.click(document.querySelector<HTMLElement>('[role="menuitem"]')!);
-    expect(asked).toHaveBeenLastCalledWith(false);
+    expect(asked).toHaveBeenLastCalledWith(false, false);
   });
 
   test("the trigger is a named 44px button and the menu offers the three exports by name", async () => {
@@ -506,6 +513,139 @@ describe("saved marks in exports (decision 105)", () => {
       win.dispatchEvent(new Event("afterprint"));
     });
     expect({ width: box.width, height: box.height }).toEqual({ width: 1280, height: 720 });
+  });
+});
+
+const withNotes = (s: ExportSlide, ...notes: string[]): ExportSlide => ({ ...s, notes });
+const SHAPE = (main: Element) =>
+  [...main.children].map((c) => (c.classList.contains("docwalk-export-notes") ? "notes" : "page"));
+
+describe("speaker notes in a printed handout (decision 114)", () => {
+  afterEach(() => document.querySelectorAll("iframe").forEach((f) => f.remove()));
+
+  test("a print with notes puts each section's notes after its last page, as text", async () => {
+    // Section one is split in two pages and prints its notes once, after the second.
+    const options = deck(
+      slide("a", "One"),
+      withNotes(slide("a", "One, continued"), "Open with the <b>ledger</b> story <img src=x>"),
+      withNotes(slide("b", "Two"), "Ask about the cutover.\nSecond line.", "A second comment."),
+    );
+    let seen: {
+      shape: string[];
+      markup: number;
+      text: string;
+      heading: string;
+      label: string | null;
+      paragraphs: string[];
+    } | null = null;
+    await printDeck(options, (win) => {
+      const main = win.document.querySelector("main")!;
+      const blocks = [...main.querySelectorAll<HTMLElement>(".docwalk-export-notes")];
+      seen = {
+        shape: SHAPE(main),
+        markup: blocks[0]!.querySelectorAll("b, img").length,
+        text: blocks[0]!.textContent ?? "",
+        heading: blocks[1]!.querySelector("h2")?.textContent ?? "",
+        label: blocks[1]!.getAttribute("aria-label"),
+        paragraphs: [...blocks[1]!.querySelectorAll("p")].map((p) => p.textContent ?? ""),
+      };
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(seen).toEqual({
+      shape: ["page", "page", "notes", "page", "notes"],
+      markup: 0,
+      text: expect.stringContaining("Open with the <b>ledger</b> story <img src=x>"),
+      heading: "Two",
+      label: "Speaker notes: Two",
+      // One paragraph per comment; the line break stays in the text.
+      paragraphs: ["Ask about the cutover.\nSecond line.", "A second comment."],
+    });
+  });
+
+  test("a notes page starts on a new printed page, and so does the slide after it, and nothing is drawn over it", async () => {
+    const marks: SavedStroke[] = [
+      { tool: "arrow", color: "primary", points: [320, 2048, 3776, 2048] },
+    ];
+    const options = deck({ ...withNotes(slide("a", "One"), "Note one"), marks }, slide("b", "Two"));
+    let seen: { breaks: string[]; overlays: number; notesMarks: number; white: string } | null =
+      null;
+    await printDeck(options, (win) => {
+      const main = win.document.querySelector("main")!;
+      const notes = main.querySelector<HTMLElement>(".docwalk-export-notes")!;
+      seen = {
+        breaks: [...main.children].map((c) => win.getComputedStyle(c).breakBefore),
+        overlays: main.querySelectorAll(".docwalk-export-page .docwalk-export-marks").length,
+        notesMarks: notes.querySelectorAll("svg").length,
+        white: win.getComputedStyle(notes.querySelector("p")!).whiteSpace,
+      };
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(seen).toEqual({
+      // Page, notes and the page after the notes each begin a printed page.
+      breaks: ["auto", "page", "page"],
+      overlays: 1,
+      notesMarks: 0,
+      white: "pre-wrap",
+    });
+  });
+
+  test("a long note runs onto more printed pages and is not clipped", async () => {
+    // Rule 3: the block grows with its text; print breaks it across pages.
+    const words = Array.from({ length: 3000 }, (_, i) => `word${i}`);
+    const long = words.join(" ");
+    let seen: {
+      overflow: string;
+      grows: boolean;
+      clipped: boolean;
+      complete: boolean;
+      wide: string;
+    } | null = null;
+    await printDeck(deck(withNotes(slide("a", "One"), long)), (win) => {
+      const block = win.document.querySelector<HTMLElement>(".docwalk-export-notes")!;
+      seen = {
+        overflow: win.getComputedStyle(block).overflow,
+        grows: block.getBoundingClientRect().height > 2 * 720,
+        clipped: block.scrollHeight !== block.clientHeight,
+        complete: block.textContent?.includes(words.at(-1)!) === true,
+        wide: `${block.offsetWidth}`,
+      };
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(seen).toEqual({
+      overflow: "visible",
+      grows: true,
+      clipped: false,
+      complete: true,
+      wide: "1280",
+    });
+  });
+
+  test("a plain print carries no notes when the options carry none", async () => {
+    let blocks = -1;
+    await printDeck(deck(slide("a", "One"), slide("b", "Two")), (win) => {
+      blocks = win.document.querySelectorAll(".docwalk-export-notes").length;
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(blocks).toBe(0);
+  });
+
+  test("a slide whose notes list is empty gets no notes page", async () => {
+    let shape: string[] = [];
+    await printDeck(deck(withNotes(slide("a", "One")), slide("b", "Two")), (win) => {
+      shape = SHAPE(win.document.querySelector("main")!);
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(shape).toEqual(["page", "page"]);
+  });
+
+  test("the HTML file never carries notes, even from options that hold them", async () => {
+    // People forward the HTML file: the exporter drops notes itself, whatever the menu asks.
+    const { doc, text } = await parseExport(
+      deck(withNotes(slide("a", "One"), "Private remark about pricing"), slide("b", "Two")),
+    );
+    expect(doc.querySelector(".docwalk-export-notes")).toBeNull();
+    expect(text).not.toContain("Private remark about pricing");
+    expect(doc.querySelectorAll(".docwalk-export-page")).toHaveLength(2);
   });
 });
 

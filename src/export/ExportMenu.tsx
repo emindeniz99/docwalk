@@ -1,4 +1,4 @@
-import { Check, Download, FileCode, Images, PenOff, Printer } from "lucide-react";
+import { Check, Download, FileCode, Images, NotebookText, PenOff, Printer } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   Button,
@@ -23,11 +23,14 @@ export interface ExportMenuProps {
   /**
    * Called when the viewer picks an export: fresh clones of the paginated
    * slides (the exporters mutate them), with each slide's saved marks when
-   * `withMarks` is true. `null` while there is no deck.
+   * `withMarks` is true, and each section's speaker notes on its last slide
+   * when `withNotes` is true (decision 114). `null` while there is no deck.
    */
-  getOptions: (withMarks: boolean) => ExportOptions | null;
+  getOptions: (withMarks: boolean, withNotes: boolean) => ExportOptions | null;
   /** The document has saved marks (decision 105): the menu offers to leave them out. */
   hasMarks?: boolean;
+  /** The document has speaker notes (decision 79): the menu offers a print that carries them. */
+  hasNotes?: boolean;
   isDisabled?: boolean;
 }
 
@@ -35,6 +38,7 @@ const INCLUDE_MARKS = "include-marks";
 
 const ITEMS = [
   { id: "pdf", label: m.export_pdf, Icon: Printer },
+  { id: "pdf-notes", label: m.export_pdf_notes, Icon: NotebookText },
   { id: "html", label: m.export_html, Icon: FileCode },
   { id: "png", label: m.export_png, Icon: Images },
 ] as const;
@@ -50,7 +54,12 @@ const isJob = (key: Key): key is Job => ITEMS.some((item) => item.id === key);
 export const STATUS_FADE_MS = 5000;
 
 /** Export the deck (decision 9). Progress and results are announced in a live region next to the button. */
-export function ExportMenu({ getOptions, hasMarks = false, isDisabled = false }: ExportMenuProps) {
+export function ExportMenu({
+  getOptions,
+  hasMarks = false,
+  hasNotes = false,
+  isDisabled = false,
+}: ExportMenuProps) {
   const [busy, setBusy] = useState(false);
   // Saved marks go into exports unless the viewer leaves them out (decision 105); a reload asks again.
   const [withMarks, setWithMarks] = useState(true);
@@ -69,10 +78,11 @@ export function ExportMenu({ getOptions, hasMarks = false, isDisabled = false }:
     setBusy(true);
     try {
       // Inside the try: collecting the slides can throw too, and the viewer must hear about it.
-      const options = getOptions(hasMarks && withMarks);
+      // Notes are a job, not a setting (decision 114): only their own item asks for them.
+      const options = getOptions(hasMarks && withMarks, job === "pdf-notes");
       if (!options || options.slides.length === 0) {
         say(m.export_empty(), true);
-      } else if (job === "pdf") {
+      } else if (job === "pdf" || job === "pdf-notes") {
         say(m.export_preparing_print());
         await printDeck(options);
         say("");
@@ -116,12 +126,14 @@ export function ExportMenu({ getOptions, hasMarks = false, isDisabled = false }:
             }}
           >
             <MenuSection>
-              {ITEMS.map(({ id, label, Icon }) => (
-                <MenuItem key={id} id={id} textValue={label()} className="docwalk-menu-item">
-                  <Icon size={16} aria-hidden="true" />
-                  {label()}
-                </MenuItem>
-              ))}
+              {ITEMS.filter(({ id }) => hasNotes || id !== "pdf-notes").map(
+                ({ id, label, Icon }) => (
+                  <MenuItem key={id} id={id} textValue={label()} className="docwalk-menu-item">
+                    <Icon size={16} aria-hidden="true" />
+                    {label()}
+                  </MenuItem>
+                ),
+              )}
             </MenuSection>
             {hasMarks && <Separator className="docwalk-menu-separator" />}
             {hasMarks && (
