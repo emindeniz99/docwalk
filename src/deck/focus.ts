@@ -18,6 +18,7 @@ import {
   TOUR_MIN_NODES,
   type TourPath,
 } from "./tourModel";
+import "./focusTour.css";
 
 /**
  * Focus view: a full-window view of one diagram, code block, table or image.

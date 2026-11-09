@@ -70,3 +70,32 @@ describe("closing the diagram focus view after the deck was rebuilt under it", (
     await expect.poll(() => controller.current()!.index).toBe(before + 1);
   });
 });
+
+describe("the diagram view's toolbar before any tour starts", () => {
+  async function openDiagramView() {
+    const deck = mountDeck(DOC);
+    await deck.ready(1);
+    const diagram = deck.container.querySelector<HTMLElement>(
+      ".reveal .slides section.present .docwalk-diagram",
+    )!;
+    diagram.focus();
+    await userEvent.keyboard("{Enter}");
+    const view = document.querySelector<HTMLElement>(".docwalk-focus")!;
+    expect(view).not.toBeNull();
+    return view;
+  }
+
+  // The tour's code loads on its first start, and offline it may never load.
+  // The status line must be hidden from the first frame, not once that chunk
+  // arrives: before, it was an unstyled flex item and "Tour ended" could show.
+  test("the status line is visually hidden although the tour's code has not loaded", async () => {
+    const view = await openDiagramView();
+    const status = view.querySelector<HTMLElement>(".docwalk-tour-status")!;
+    expect(status.getAttribute("role")).toBe("status");
+    expect(getComputedStyle(status).position).toBe("absolute");
+    const box = status.getBoundingClientRect();
+    expect([box.width, box.height]).toEqual([1, 1]);
+    // The count is a toolbar item that is hidden until the tour runs.
+    expect(view.querySelector<HTMLElement>(".docwalk-tour-count")!.hidden).toBe(true);
+  });
+});
