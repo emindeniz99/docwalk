@@ -371,17 +371,55 @@ Later rounds:
 
 ## Next up
 
-- Simplification pass, no behaviour change, before any new feature (owner,
-  2026-11-09): split `src/App.tsx` (about 490 lines longer after PR #5) into
-  focused hooks and components; look for helpers duplicated between the
-  mirror modules (`src/annotate/mirror*.ts`, about 1400 lines) and
-  `src/deck/focus.ts` (about 800 lines); remove dead code; win back first-load
-  budget (993 kB of the 1 MB limit, decision 43) so the next feature fits.
-  Tests stay green unchanged; measure size before and after.
+### 1. Simplification pass (owner, 2026-11-09)
+
+Do this before any new feature. Nothing a user sees may change. Estimate:
+half a day for one agent; the code is not hard, but it is fiddly.
+
+Why now: PR #5 added about 11,700 lines of app code. `src/App.tsx` is 1,466
+lines with 88 hooks, and the default view downloads 993 kB of the 1 MB limit
+(decision 43), so the next feature has no room.
+
+Steps, one commit per step, with `pnpm check` green after each:
+
+1. **Measure first** and write the numbers into the branch's first commit
+   body: `pnpm size` (app shell), the first-load total and its eight largest
+   files (`e2e/perf.spec.ts` prints both on Chromium), and line counts of the
+   files below.
+2. **Split `src/App.tsx`** into hooks and components with one job each
+   (presenting state, the remote room, comments wiring, the workspace,
+   keyboard handling). Move code; do not rewrite it.
+3. **Merge duplicated helpers** between the follower-mirror modules
+   (`src/annotate/mirrorFeed.ts`, `mirrorStore.ts`, `mirrorView.ts`,
+   `mirrorTypes.ts`, `mirrorSchema.ts`: about 1,300 lines) and
+   `src/deck/focus.ts` (875 lines). Find what really repeats before merging.
+4. **Delete dead code**: unused exports, branches no test reaches, leftovers
+   from PR #5. Mention anything you are unsure of instead of deleting it.
+5. **Win back first-load budget.** Find what the default view loads that it
+   does not need at once (a mode only some users open, a library used after a
+   click) and load it lazily. Aim for at least 50 kB under the limit, and
+   record the trade-off of anything moved.
+
+Rules:
+
+- One agent, one branch (for example `refactor/simplify`): parallel agents
+  would collide in `App.tsx`.
+- Tests stay green and unchanged. A test that must change because code moved
+  changes its import only, never its assertions. If an assertion seems to need
+  changing, stop: that is a behaviour change.
+- Before merging: `pnpm check`, the full end-to-end suite on Chromium, Firefox
+  and WebKit, and screenshots of the edit view, present mode and a phone view
+  next to the same screenshots taken before the pass. Look at them.
+- Done means: the same tests pass, the screenshots match, and the merge commit
+  body gives the before and after numbers from step 1 (shell size, first load,
+  line counts). Update MEMORY and remove this entry in the same branch.
+
+### 2. The next feature round
 
 Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
-for this round is built; the owner picks the next round after the pass. Each starts with a
-decision row, then failing tests, then code.
+for this round is built. After the pass, re-check the survey as its "Re-check"
+section says and let the owner pick the next round. Each feature starts with
+a decision row, then failing tests, then code.
 
 ## Later
 

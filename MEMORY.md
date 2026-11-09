@@ -8,13 +8,10 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 2026-11-09: v1 and the v2 workspace and agent work are built, and decision
 rows run to 123. The owner accepted rows 97, 98 and 109 to 115 with the merge
-of PR #5; a security review of that merge produced rows 116 to 121 (merged
-from `fix/review-pr5`), and branch `fix/open-gaps` closes the two items it
-left open: sketches keyed by origin and path (122) and a linear slide-title
-filter (123). All ten ranked features in `docs/feature-gaps.md` are built;
-ROADMAP "Next up" starts with a simplification pass the owner asked for
-before any new feature, and open work and owner tasks are in ROADMAP
-"Follow-ups".
+of PR #5; a security review of that merge produced rows 116 to 123, all
+merged. All ten ranked features in `docs/feature-gaps.md` are built. The next
+task is ROADMAP "Next up" 1, a simplification pass with written steps and a
+definition of done; open work and owner tasks are in ROADMAP "Follow-ups".
 
 The project is public at github.com/emindeniz99/docwalk with the static
 build on GitHub Pages (`deploy-pages.yml` runs after CI passes on `main`, or
@@ -29,7 +26,9 @@ repaginate. The 1.5 s open budget still does not hold; the measurements are
 in ROADMAP "Still open in v1". The first load is close to the limit, so check
 `pnpm size` and `e2e/perf.spec.ts` after adding a dependency.
 
-Local runs: browser tests take a Chromium binary from
+Local runs: `mise install` in the repository installs the pinned Node and
+pnpm (see README); with mise's shims on `PATH` they apply inside the
+repository only. Browser tests take a Chromium binary from
 `DOCWALK_CHROMIUM_PATH` (a headless shell is enough); e2e takes a full
 Chromium from `DOCWALK_CHROMIUM_FULL_PATH` (fullscreen and pop-ups), and
 Firefox and WebKit from `PLAYWRIGHT_BROWSERS_PATH`. When Playwright wants a
