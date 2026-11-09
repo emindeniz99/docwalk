@@ -274,6 +274,27 @@ describe("annotation shortcuts", () => {
     expect(text(el, "board")).toBe("true");
   });
 
+  test.each(["dialog", "menu", "listbox"])(
+    "W and the tool keys do nothing inside an open %s, so its own keys (type-to-find) keep working",
+    (role) => {
+      const el = render(harness());
+      const layer = document.createElement("div");
+      layer.setAttribute("role", role);
+      const inside = document.createElement("button");
+      layer.append(inside);
+      el.append(layer);
+      for (const k of ["w", "p", "l", "a", "r", "c", "e"]) {
+        expect(key({ key: k }, inside).defaultPrevented).toBe(false);
+      }
+      expect(key({ key: "z", ctrlKey: true }, inside).defaultPrevented).toBe(false);
+      expect(text(el, "board")).toBe("false");
+      expect(text(el, "mode")).toBe("off");
+      // The same keys work on the page again outside it.
+      key({ key: "w" });
+      expect(text(el, "board")).toBe("true");
+    },
+  );
+
   test("Ctrl+R and Ctrl+C keep reloading and copying", () => {
     const el = render(harness());
     expect(key({ key: "r" }).defaultPrevented).toBe(true);

@@ -38,11 +38,17 @@ export function isTextEntry(target: EventTarget | null): boolean {
   );
 }
 
+/** Open layers whose keys are their own (type-to-find, Escape): the overview, a menu, the palette. */
+const OVERLAY = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+
 /** The shortcut a key press asks for, or null when it is not one of ours. */
 export function annotationShortcut(event: KeyboardEvent): AnnotationShortcut | null {
   if (event.defaultPrevented || event.isComposing || isTextEntry(event.target)) return null;
   // An open focus view (decision 87) is its own layer: P, L, A, R, C, E and Escape are not for the pen.
   if (inFocusView(event.target)) return null;
+  // The same for an open dialog or menu: W must not toggle the board behind the overview, and the
+  // section picker keeps its type-to-find.
+  if (event.target instanceof Element && event.target.closest(OVERLAY)) return null;
   const key = event.key.toLowerCase();
   const command = event.ctrlKey || event.metaKey;
   if (command && !event.altKey && key === "z") {
@@ -69,9 +75,6 @@ export interface AnnotationShortcutHandlers {
   board?: { open: boolean; toggle: () => void };
 }
 
-/** Open layers whose Escape is their own: the overview, a menu, the palette. */
-const OVERLAY = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
-
 /**
  * P pen, L laser, A arrow, R rectangle, C ellipse, E eraser, W whiteboard, Escape off
  * (tool first, then the whiteboard), Ctrl/Cmd+Z undo, Shift+Ctrl/Cmd+Z redo. Ignored while focus is in a text field, and, when
@@ -97,11 +100,8 @@ export function useAnnotationShortcuts(
     } else if (shortcut.mode === "off") {
       if (handlers.mode !== "off") {
         handlers.setMode("off");
-      } else if (
-        handlers.board?.open &&
-        !(event.target instanceof Element && event.target.closest(OVERLAY))
-      ) {
-        // The whiteboard is the next layer to leave; a dialog's own Escape is not ours.
+      } else if (handlers.board?.open) {
+        // The whiteboard is the next layer to leave.
         handlers.board.toggle();
       } else {
         // With nothing to close, Escape still belongs to reveal.js and fullscreen.
