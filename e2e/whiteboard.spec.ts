@@ -168,7 +168,10 @@ test("a board's stroke is saved with the document and comes back after a reload"
   await expect(page.locator(ACTIVE_MARKS)).toHaveCount(1);
 });
 
-test("Escape turns the pen off, then closes the board, then leaves the talk", async ({ page }) => {
+test("Escape turns the pen off, then closes the board, then leaves the talk", async ({
+  page,
+  browserName,
+}) => {
   await ready(page);
   await page.getByRole("button", { name: "Present" }).click();
   await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "present");
@@ -177,6 +180,21 @@ test("Escape turns the pen off, then closes the board, then leaves the talk", as
   await expect(board(page)).toHaveCount(1);
   await expect(page.getByRole("radio", { name: "Pen" })).toBeChecked();
 
+  // Firefox and WebKit really enter fullscreen and keep Escape for leaving it
+  // (decision 110): the page never sees that first key, so the board stays open
+  // with the pen still on and presenting goes on windowed. Chromium delivers
+  // the key to the page, so its first Escape already turns the pen off.
+  const inFullscreen = () => page.evaluate(() => document.fullscreenElement !== null);
+  if (browserName === "firefox" || browserName === "webkit") {
+    await expect.poll(inFullscreen).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect.poll(inFullscreen).toBe(false);
+    await expect(board(page)).toHaveCount(1);
+    await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "present");
+    await expect(page.getByRole("radio", { name: "Pen" })).toBeChecked();
+  }
+
+  // Windowed from here on, on every engine.
   await page.keyboard.press("Escape");
   await expect(page.getByRole("radio", { name: "Pen" })).not.toBeChecked();
   await expect(board(page)).toHaveCount(1);
