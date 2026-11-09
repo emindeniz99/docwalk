@@ -178,8 +178,9 @@ export interface PresenterConnection {
   goTo(address: string): void;
   step(direction: 1 | -1): void;
   /**
-   * Tells the audience tab the window's countdown (null: none) at once and
-   * again after each heartbeat hello, so closing the window ends it (decision 112).
+   * Tells the audience tab the window's countdown at once, and again after each
+   * heartbeat hello while there is one, so closing the window ends it (decision
+   * 112). Null (a Reset) is posted once, and not at all for a window that had none.
    */
   setCountdown(countdown: Countdown | null): void;
   close(): void;
@@ -209,7 +210,7 @@ export function connectPresenter(
   let connected = false;
   let silence: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
-  /** Undefined until the window has set one: an unset window posts nothing about it. */
+  /** The window's countdown, which the heartbeat repeats; null or undefined: nothing to repeat. */
   let countdown: Countdown | null | undefined;
 
   const setConnected = (next: boolean) => {
@@ -237,15 +238,20 @@ export function connectPresenter(
   send({ type: "hello", resync: true });
   const heartbeat = setInterval(() => {
     send({ type: "hello" });
-    if (countdown !== undefined) send({ type: "countdown", countdown });
+    if (countdown) send({ type: "countdown", countdown });
   }, HEARTBEAT_MS);
 
   return {
     goTo: (target) => send({ type: "goto", address: target }),
     step: (direction) => send({ type: "step", direction }),
     setCountdown(next) {
+      // A window opened with none has nothing to take back: posting null would wipe the
+      // clock of another presenter window. A Reset posts null once; the audience tab's 5 s
+      // expiry covers a null that went missing.
+      const hadNone = countdown === undefined || countdown === null;
       countdown = next;
-      if (!closed) send({ type: "countdown", countdown: next });
+      if (closed || (next === null && hadNone)) return;
+      send({ type: "countdown", countdown: next });
     },
     close() {
       closed = true;

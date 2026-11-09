@@ -476,7 +476,7 @@ describe("the presenter window's countdown (decision 112)", () => {
     expect(onCountdown).toHaveBeenCalledTimes(4);
   });
 
-  test("a change goes out at once, including Reset as null", () => {
+  test("a change goes out at once, including Reset as null, which is posted once and not repeated", () => {
     const hub = createHub();
     const onCountdown = vi.fn<(c: Countdown | null) => void>();
     audience(hub, { value: STATE }, onCountdown);
@@ -485,12 +485,29 @@ describe("the presenter window's countdown (decision 112)", () => {
     presenter.setCountdown(PAUSED);
     presenter.setCountdown(null);
     expect(onCountdown.mock.calls).toEqual([[RUNNING], [PAUSED], [null]]);
-    // The heartbeat repeats the last value, null included, and the 5 s timer is gone.
-    vi.advanceTimersByTime(HEARTBEAT_MS);
-    expect(onCountdown.mock.calls.at(-1)).toEqual([null]);
+    // The heartbeat repeats a countdown, not its absence.
     onCountdown.mockClear();
-    vi.advanceTimersByTime(DISCONNECT_AFTER_MS * 2 - HEARTBEAT_MS);
-    expect(onCountdown.mock.calls.filter(([c]) => c !== null)).toEqual([]);
+    vi.advanceTimersByTime(HEARTBEAT_MS * 2);
+    expect(onCountdown).not.toHaveBeenCalled();
+  });
+
+  test("a window opened with no countdown posts nothing, so it cannot wipe the clock of another window", () => {
+    const hub = createHub();
+    const onCountdown = vi.fn<(c: Countdown | null) => void>();
+    audience(hub, { value: STATE }, onCountdown);
+    const counting = connectPresenter(() => {}, { channel: hub.factory });
+    counting.setCountdown(RUNNING);
+    // A second presenter window mounts with the countdown it loaded: none.
+    const idle = connectPresenter(() => {}, { channel: hub.factory });
+    idle.setCountdown(null);
+    vi.advanceTimersByTime(HEARTBEAT_MS * 5);
+    expect(onCountdown.mock.calls.filter(([c]) => c === null)).toEqual([]);
+    expect(onCountdown.mock.calls.length).toBeGreaterThan(1);
+    // Closing the counting window still ends the clock after 5 s.
+    counting.close();
+    onCountdown.mockClear();
+    vi.advanceTimersByTime(DISCONNECT_AFTER_MS);
+    expect(onCountdown.mock.calls).toEqual([[null]]);
   });
 
   test("a heartbeat before any countdown was set posts none: an old audience tab and a new window stay quiet", () => {
