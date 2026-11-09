@@ -291,13 +291,44 @@ test("a follower that joins late gets the open code view, its zoom and its marke
   expect(Math.abs(zoomed / fit - ratio)).toBeLessThan(0.01);
 });
 
+/**
+ * Which listings each page of the Chart section holds on this screen, by page
+ * number from 1, read from the rendered pages: a listing starts "XXX first".
+ */
+const listingsByPage = (page: Page) =>
+  page.evaluate(() =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '.reveal .slides > section[data-docwalk-id="chart"]',
+      ),
+    ]
+      .map((section) => ({
+        page: Number(section.dataset["page"] ?? "1"),
+        names: [...section.querySelectorAll("pre")].flatMap((pre) => {
+          const name = /^(\w{3}) first/.exec(pre.textContent ?? "")?.[1];
+          return name ? [name] : [];
+        }),
+      }))
+      .toSorted((a, b) => a.page - b.page)
+      .map((entry) => entry.names),
+  );
+
+const pageNumber = (page: Page) =>
+  present(page).evaluate((el) => Number(el.dataset["page"] ?? "1"));
+
+const listing = (page: Page, name: string) =>
+  present(page)
+    .locator("pre")
+    .filter({ hasText: `${name} first` });
+
 test("a follower whose pages are cut elsewhere opens the listing the presenter opened, or nothing, never another", async ({
   context,
 }) => {
   // Decision 106: listings never split, so they are numbered across the section.
   // The presenter loads the remote image before pagination and the follower
-  // blocks it, so its placeholder is shorter and the pages are cut differently:
-  // presenter chart/2 holds BBB, CCC, DDD and the follower's holds CCC, DDD, EEE.
+  // blocks it, so its placeholder is shorter and the pages are cut differently.
+  // Where each engine puts the cuts is its own, so the test reads both screens'
+  // pages from the DOM and picks the listings to open from what they hold.
   const listings = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"].flatMap((name) => [
     "```text",
     `${name} first`,
@@ -344,30 +375,53 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
     },
   });
 
-  // Both on the second page of the section.
+  // What each screen's pages hold. If they were cut alike, no follower could open a
+  // listing the wrong way and the case would prove nothing.
+  const theirs = await listingsByPage(follower);
+  const ours = await listingsByPage(presenter);
+  expect(theirs, "the follower's pages hold the listings").not.toEqual([]);
+  expect(
+    JSON.stringify(theirs),
+    `this screen cuts the pages elsewhere, or the case proves nothing (presenter ${JSON.stringify(ours)})`,
+  ).not.toBe(JSON.stringify(ours));
+
+  // Pick a page both screens have where the presenter holds a listing the follower's page
+  // lacks (it must open nothing) and one it has (it must open that very listing).
+  const choices = ours.flatMap((names, i) => {
+    const there = theirs[i] ?? [];
+    const absent = names.find((name) => !there.includes(name));
+    const shared = names.find((name) => there.includes(name));
+    return absent && shared ? [{ n: i + 1, absent, shared }] : [];
+  });
+  expect(
+    choices,
+    `a page where the follower has one of the presenter's listings and lacks another (presenter ${JSON.stringify(ours)}, follower ${JSON.stringify(theirs)})`,
+  ).not.toEqual([]);
+  const { n, absent, shared } = choices[0]!;
+
+  // Both on page n of the section.
   await presenter.getByRole("option", { name: /Chart/ }).click();
   await presenter.locator(".reveal").focus();
-  await presenter.keyboard.press("ArrowRight");
-  const first = (page: Page) => present(page).locator("pre").first();
-  await expect(first(presenter)).toContainText("BBB first");
-  await expect(first(follower)).toBeVisible();
-  const theirs = (await first(follower).textContent()) ?? "";
-  expect(theirs, "this screen cuts the pages elsewhere, or the case proves nothing").not.toMatch(
-    /^BBB/,
-  );
+  for (let i = 1; i < n; i++) await presenter.keyboard.press("ArrowRight");
+  await expect.poll(() => pageNumber(presenter)).toBe(n);
+  await expect.poll(() => pageNumber(follower)).toBe(n);
+  await expect(listing(presenter, absent)).toBeVisible();
+  await expect(listing(presenter, shared)).toBeVisible();
+  await expect(listing(follower, absent), "the follower's page lacks it").toHaveCount(0);
+  await expect(listing(follower, shared), "the follower's page has it").toHaveCount(1);
 
-  // BBB is on the follower's first page: it opens nothing, and above all not the listing
-  // that happens to be first on the page it shows.
-  await openBlock(presenter, first(presenter), "code");
+  // The first is on another of the follower's pages: it opens nothing, and above all not
+  // the listing that happens to be first on the page it shows.
+  await openBlock(presenter, listing(presenter, absent), "code");
   await presenter.keyboard.press("Escape");
   await expect(view(presenter)).toHaveCount(0);
 
-  // CCC is on the follower's page too. When it opens, the earlier ops have been handled.
-  await openBlock(presenter, present(presenter).locator("pre").nth(1), "code");
+  // The second is on the follower's page too. When it opens, the earlier ops have been handled.
+  await openBlock(presenter, listing(presenter, shared), "code");
   await expect(view(follower)).toHaveAttribute("data-kind", "code");
-  await expect(view(follower).locator(".docwalk-focus-stage")).toContainText("CCC first");
+  await expect(view(follower).locator(".docwalk-focus-stage")).toContainText(`${shared} first`);
   const opened = await follower.evaluate(
     () => (window as unknown as { openedFocusViews: string[] }).openedFocusViews,
   );
-  expect(opened.map((text) => text.slice(0, 9))).toEqual(["CCC first"]);
+  expect(opened.map((text) => text.slice(0, 9))).toEqual([`${shared} first`]);
 });
