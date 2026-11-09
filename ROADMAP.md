@@ -57,6 +57,12 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   `mirrorView.browser.test.ts`, `src/remote/remote.browser.test.ts` and
   `e2e/mirror.spec.ts` cover it on Chromium; Firefox and WebKit run in the
   fork's CI.
+- Done 2026-11-09: the code, table and image focus views mirrored to
+  followers with their zoom, scroll and code line marks, inside the signed,
+  sealed mirror messages (decision 106). Code blocks, images and diagrams are
+  numbered across their section, so a follower with other page breaks opens
+  the same block or nothing. `e2e/mirror-focus.spec.ts` covers it (6 tests
+  on Chromium).
 - Done 2026-11-09: choosing the sections to present (decision 100): a
   dialog from the sidebar, the palette or More actions, kept in the link as
   `?sections=`; the deck, outline, palette, overview, presenter list and
@@ -222,8 +228,12 @@ Later rounds:
   marks are not kept between openings; code has no line numbers; a table
   fitted at the 0.75 floor still scrolls sideways; a double-click that
   selects a word in code or a table opens the view on its first click; the
-  view is not in any export, and only the diagram view is mirrored to
-  followers (decision 88).
+  view is not in any export, and the presenter window shows no focus view
+  (decisions 88 and 106). Clear in the code view disables itself while
+  focused, so focus falls to the page and Escape no longer closes the view.
+- Mirrored focus views (decision 106): a table split differently on two
+  screens can open a different part of it on the follower; a follower that
+  has not loaded the image opens nothing.
 - Mirroring (decision 88), known gaps: a follower that paginates a section
   differently shows marks only on a page with the presenter's address; a
   slide with over 200 strokes is mirrored with the newest 200; a relay that
@@ -284,13 +294,10 @@ order unless the owner picks differently. The first two give the most for
 the least work. Each starts with a decision row, then failing tests, then
 code.
 
-1. The code, table and image focus views, with their line marks, mirrored
-   to followers inside the signed, encrypted room messages. The laser,
-   strokes and the diagram view already are (decisions 87, 88).
-2. Saved annotations, included in PDF and PNG exports.
-3. Math and emoji shortcodes, which GitHub renders natively.
-4. A step-through tour of a Mermaid diagram's nodes and paths.
-5. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+1. Saved annotations, included in PDF and PNG exports.
+2. Math and emoji shortcodes, which GitHub renders natively.
+3. A step-through tour of a Mermaid diagram's nodes and paths.
+4. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 
