@@ -54,9 +54,14 @@ protects:
   as signed `mirror` messages under the view key, never to remotes or
   agents. A mirror message holds numbers, a tool, a colour key and a slide
   address only, and names a block by its kind and place on the slide, never
-  by its text. A receiver draws the marks itself, caps what it keeps and
-  opens a view only on its own copy of the block; a follower cannot sign a
-  message. A follower opens an image view only on an image it has loaded
+  by its text. The ops a follower accepts, each only under the presenter's
+  signature, are `laser`, `laser-off`, `stroke`, `drop`, `clear` and `keep`,
+  the focus view's ops, and for the whiteboard (decision 110) `board-open`
+  and `board-close`, with `rect` and `ellipse` as new stroke tools. A
+  shape or arrow arrives as one stroke of exactly four numbers; a longer or
+  shorter one is refused. A receiver draws the marks itself, caps what it keeps and opens a view only
+  on its own copy of the block; a follower cannot sign a message or close
+  the board. A follower opens an image view only on an image it has loaded
   itself, so mirroring never fetches an image the follower blocked. The
   presenter resends a slide's marks to a follower that says hello at most
   every 2 s, and less often the more the last resend cost, and answers
@@ -80,6 +85,11 @@ Known limits, by design:
   it or resends its marks, and a focus view until Escape or the next
   resend. A relay can drop the message that hides a laser or closes a focus
   view. A tab that reloads can receive a frame it saw before the reload.
+- A presenter whose signature a follower accepts can cover that follower's
+  page with a blank whiteboard (`board-open`) until its next slide change
+  or resync, as it can cover the page with marks. A follower from before
+  decision 110 drops the board ops and the new tools at its schema check
+  and keeps showing the slide.
 - The relay sees room ids, frame sizes and timing.
 - Whoever hosts docwalk serves its code. A hostile host, a compromised
   browser or a malicious extension is out of scope.
