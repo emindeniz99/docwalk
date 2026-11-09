@@ -162,6 +162,9 @@ export const MATH_CLASSES: ReadonlySet<string> = new Set([
   "wbk-sml-vec",
 ]);
 
+/** The marker class of a `<math>` element docwalk built; it has no rule of its own, so it is not in `MATH_CLASSES`. */
+export const MATH_ROOT_CLASS = "docwalk-math";
+
 /** Letters, digits, spaces and the few marks a length, a colour or a keyword list needs. */
 const SAFE_VALUE = /^[\w.%+#, -]{0,64}$/;
 
@@ -170,7 +173,12 @@ export function mathAttributeAllowed(name: string, value: string): boolean {
   return MATH_ATTRIBUTES.has(name) && SAFE_VALUE.test(value);
 }
 
-/** The class names of `value` that Temml's stylesheet defines. */
-export function mathClasses(value: string): string[] {
-  return value.split(/\s+/).filter((name) => MATH_CLASSES.has(name));
+/**
+ * The class names of `value` that Temml's stylesheet defines, and the marker
+ * `docwalk-math` when `root` says the element is a `<math>`.
+ */
+export function mathClasses(value: string, root = false): string[] {
+  return value
+    .split(/\s+/)
+    .filter((name) => MATH_CLASSES.has(name) || (root && name === MATH_ROOT_CLASS));
 }

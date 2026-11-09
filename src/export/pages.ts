@@ -47,7 +47,7 @@ purifier.addHook("afterSanitizeAttributes", (node) => {
   if (node.namespaceURI === MATHML_NS) {
     for (const { name, value } of Array.from(node.attributes)) {
       if (name === "class") {
-        const kept = mathClasses(value).join(" ");
+        const kept = mathClasses(value, node.localName === "math").join(" ");
         if (kept) node.setAttribute(name, kept);
         else node.removeAttribute(name);
       } else if (!mathAttributeAllowed(name, value)) node.removeAttribute(name);

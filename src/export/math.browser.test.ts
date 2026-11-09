@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
-import { MATH_CLASSES, mathAttributeAllowed } from "../render/mathAllow";
+import { MATH_CLASSES, MATH_ROOT_CLASS, mathAttributeAllowed } from "../render/mathAllow";
 // Loads Temml's stylesheet into this page, as the first formula does in the app.
 import { buildMath } from "../render/mathBuild";
 import { exportHtml } from "./html";
@@ -58,7 +58,11 @@ function unlisted(doc: Document): string[] {
     [...el.attributes]
       .filter((a) =>
         a.name === "class"
-          ? a.value.split(/\s+/).some((c) => !MATH_CLASSES.has(c))
+          ? a.value
+              .split(/\s+/)
+              .some(
+                (c) => !MATH_CLASSES.has(c) && !(el.localName === "math" && c === MATH_ROOT_CLASS),
+              )
           : !mathAttributeAllowed(a.name, a.value),
       )
       .map((a) => `${a.name}="${a.value}" on <${el.localName}>`),
@@ -74,6 +78,9 @@ describe("formulas in the exports", () => {
     expect(maths).toHaveLength(2);
     expect(maths[0]!.closest("p")?.textContent).toBe("Ratio ab here.");
     expect(maths[0]!.querySelector("mfrac")?.namespaceURI).toBe(MATHML);
+    // The marker class stays on the <math> that docwalk built.
+    expect(maths.map((math) => math.classList.contains(MATH_ROOT_CLASS))).toEqual([true, true]);
+    expect(maths[0]!.querySelector("mfrac")?.classList.contains(MATH_ROOT_CLASS)).toBe(false);
     expect(maths[1]!.getAttribute("display")).toBe("block");
     expect(maths[1]!.parentElement?.className).toBe("docwalk-math-display");
     expect(maths[1]!.querySelector("msqrt msup")).not.toBeNull();
@@ -105,6 +112,7 @@ describe("formulas in the exports", () => {
     const frac = math.querySelector("mfrac")!;
     frac.setAttribute("mathbackground", "url(https://tracker.example/b.png)");
     frac.setAttribute("data-x", "1");
+    frac.setAttribute("class", "docwalk-math");
     const action = make("maction");
     action.setAttribute("actiontype", "statusline");
     action.append(make("mtext"));
@@ -130,6 +138,7 @@ describe("formulas in the exports", () => {
     const ratio = doc.getElementsByTagNameNS(MATHML, "math")[0]!;
     expect(ratio.querySelector("mfrac")).not.toBeNull();
     expect(ratio.getAttribute("class")).toBe("tml-vec");
+    expect(ratio.querySelector("mfrac")?.hasAttribute("class")).toBe(false);
     const left = ratio.querySelectorAll(
       "maction, semantics, annotation-xml, mglyph, a, img, script",
     );

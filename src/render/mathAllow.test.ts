@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { MATH_ATTRIBUTES, MATH_CLASSES, mathAttributeAllowed, mathClasses } from "./mathAllow";
+import {
+  MATH_ATTRIBUTES,
+  MATH_CLASSES,
+  mathAttributeAllowed,
+  mathClasses,
+  MATH_ROOT_CLASS,
+} from "./mathAllow";
 
 /**
  * Decision 101. The class list is the stylesheet's class list: a class with no
@@ -32,6 +38,14 @@ describe("the class allowlist", () => {
       expect(MATH_CLASSES.has(name)).toBe(false);
     }
     expect(mathClasses("tml-vec docwalk-diagram  present chr-sml")).toEqual(["tml-vec", "chr-sml"]);
+  });
+
+  test("keeps the marker class only on a <math> element", () => {
+    expect(mathClasses(`${MATH_ROOT_CLASS} tml-vec present`)).toEqual(["tml-vec"]);
+    expect(mathClasses(`${MATH_ROOT_CLASS} tml-vec present`, true)).toEqual([
+      MATH_ROOT_CLASS,
+      "tml-vec",
+    ]);
   });
 });
 
