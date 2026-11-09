@@ -480,14 +480,15 @@ describe("join links", () => {
   test("the remote link carries only the control key and the follow link only the view key", () => {
     // The follow link goes to an audience: with the control key in it, anyone
     // there could steer the deck, read the document and, with agent edits on,
-    // replace it (decision 68).
+    // replace it (decision 68). Both carry the public state key, so phones and
+    // agents can check the presenter's signature too (decision 117).
     const remote = new URL(formatJoinUrl("https://docwalk.example/", "remote", creds));
     const follow = new URL(formatJoinUrl("https://docwalk.example/", "follow", creds));
     expect(parseJoinFragment(remote.hash)).toEqual({
       room: creds.room,
       key: creds.key,
       view: null,
-      verify: null,
+      verify: creds.verify,
     });
     expect(parseJoinFragment(follow.hash)).toEqual({
       room: creds.room,
@@ -501,11 +502,20 @@ describe("join links", () => {
     expect(follow.href + remote.href).not.toContain(creds.sign);
   });
 
-  test("a follow link stays short enough for a phone camera: a version 10 QR code or smaller", () => {
+  test("both links stay short enough for a phone camera: a version 10 QR code or smaller", () => {
     // Version 10 at error correction M holds 213 bytes; the public state
-    // key adds 89 characters to the follow link.
-    const follow = formatJoinUrl("https://docwalk.example/", "follow", creds);
-    expect(follow.length).toBeLessThanOrEqual(213);
+    // key adds 89 characters to each link.
+    for (const view of ["remote", "follow"] as const) {
+      expect(formatJoinUrl("https://docwalk.example/", view, creds).length).toBeLessThanOrEqual(
+        213,
+      );
+    }
+  });
+
+  test("a remote link from credentials with no state key still works, without one", () => {
+    const plain = createRoomCredentials();
+    const remote = new URL(formatJoinUrl("https://docwalk.example/", "remote", plain));
+    expect(parseJoinFragment(remote.hash)?.verify).toBeNull();
   });
 
   test("a follow link cannot be made without the state key: its followers would trust nothing", () => {

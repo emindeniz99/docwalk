@@ -2,7 +2,7 @@
  * Remote control and followers (decision 8, moved into v1 on 2026-11-05).
  *
  * A presenter opens a room; phones join as remotes, other devices as
- * followers, by QR code or link: `<origin>/?view=remote#room=<id>&k=<key>` or
+ * followers, by QR code or link: `<origin>/?view=remote#room=<id>&k=<key>&p=<state key>` or
  * `?view=follow#room=<id>&v=<key>&p=<state key>`. The keys never reach the server: they live
  * in the URL fragment. The control key (`k`) steers the deck and reads and
  * writes the document; the view key (`v`) only follows (decision 68). Every
@@ -12,7 +12,7 @@
  * the presenter includes in its `hello`.
  *
  * The presenter also sends the countdown of its presenter window to remotes
- * (decision 112), under the control key only.
+ * (decision 112), under the control key only, signed like `state` (decision 117).
  *
  * The presenter also mirrors its laser, pen marks and diagram focus view to
  * followers (decision 88): `mirror` messages, signed like `state`.
@@ -49,6 +49,7 @@ export type RemoteMessage =
    * Presenter -> remotes and agents: the presenter window's countdown, or null
    * once it is gone (decision 112). Durations only, under the control key: a
    * follow link never receives it, and a phone counts on from its own clock.
+   * Signed by the presenter; a remote drops one that does not verify (decision 117).
    */
   | { type: "countdown"; countdown: RemoteCountdown | null }
   /** Remote -> presenter: next/previous slide. */

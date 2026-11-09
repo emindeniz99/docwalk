@@ -21,7 +21,9 @@ import type { EncryptedFrame, RemoteMessage, RoomCredentials } from "./types";
  * therefore signs each state with an ECDSA P-256 key of the room; the
  * public half travels in the follow link (`p=`), and a follower drops any
  * state that does not verify. The presenter's mirror messages (laser, marks,
- * the focus views; decisions 88 and 106) are signed the same way.
+ * the focus views; decisions 88 and 106) are signed the same way, and so is
+ * its countdown, which phones check with the `p=` of the remote link
+ * (decision 117).
  *
  * This file uses no DOM types, so the Node-run unit tests can import it.
  */
@@ -481,8 +483,10 @@ export function parseJoinFragment(hash: string): RoomCredentials | null {
  * server. A remote link carries only the control key, a follow link only the
  * view key, so a follow link handed to an audience cannot steer the deck or
  * read the document (decision 68). A follow link also carries the public
- * state key (`p=`), without which a follower trusts no state (decision 73).
- * About 190 characters: a version 10 QR code. Other query parameters and fragments of
+ * state key (`p=`), without which a follower trusts no state (decision 73);
+ * a remote link carries it when the room has one, so a phone or an agent can
+ * check the presenter's countdown and states (decision 117).
+ * About 200 characters: a version 10 QR code. Other query parameters and fragments of
  * `base` are dropped: a follower gets the document from the presenter's
  * `state`, not from this link.
  */
@@ -499,7 +503,9 @@ export function formatJoinUrl(
   const url = new URL(base);
   url.search = new URLSearchParams({ view }).toString();
   url.hash = new URLSearchParams(
-    view === "remote" ? { room: creds.room, k: key } : { room: creds.room, v: key, p: verify! },
+    view === "remote"
+      ? { room: creds.room, k: key, ...(verify === null ? {} : { p: verify }) }
+      : { room: creds.room, v: key, p: verify! },
   ).toString();
   return url.href;
 }

@@ -31,6 +31,7 @@ import {
   createRoomCredentials,
   decrypt,
   encrypt,
+  formatJoinUrl,
   importKey,
   parseJoinFragment,
 } from "./crypto";
@@ -1241,7 +1242,8 @@ describe("follower", () => {
 /** A room with a minimal presenter that answers the first hello with state, like useRemoteHost. */
 async function setupRemoteView() {
   const relay = new FakeRelay();
-  const creds = createRoomCredentials();
+  // Presenter credentials: the countdown counts only with the presenter's signature (decision 117).
+  const creds = await createPresenterCredentials();
   const presenter = peer(relay, creds, "presenter");
   await opened(presenter);
   // A minimal presenter: answer every hello with state, like useRemoteHost.
@@ -1561,6 +1563,43 @@ describe("the countdown on the phone remote (decision 112)", () => {
     await settle();
     expect(host.current!.status).toBe("open");
     expect(ofType(phone, "state").length).toBe(before);
+  });
+
+  test("a phone takes only the countdown the presenter signed, so another key holder cannot set its clock (decision 117)", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    await opened(presenter);
+    const link = parseJoinFragment(new URL(formatJoinUrl(BASE, "remote", creds)).hash)!;
+    const phone = peer(relay, link, "remote");
+    const forger = peer(relay, link, "remote");
+    await Promise.all([opened(phone), opened(forger)]);
+
+    await sendCountdown(forger, { targetMs: MIN, spentMs: 0, running: true });
+    await settle();
+    expect(countdownsOf(phone)).toEqual([]);
+
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(1));
+    expect(countdownsOf(forger)).toHaveLength(1);
+  });
+
+  test("a remote link without the state key shows no countdown, since it cannot check one", async () => {
+    // A link made before decision 117 carries no `p=`.
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    await opened(presenter);
+    const phone = peer(
+      relay,
+      { room: creds.room, key: creds.key, view: null, verify: null },
+      "remote",
+    );
+    await opened(phone);
+    await sendCountdown(presenter, { targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    await sendCountdown(presenter, null);
+    await settle();
+    expect(countdownsOf(phone)).toEqual([]);
   });
 
   test("RemoteView shows the time left and the verdict in words", async () => {

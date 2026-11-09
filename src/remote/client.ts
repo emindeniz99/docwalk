@@ -39,7 +39,10 @@ import { PRESENTER_ID, SEAT_TAKEN_CLOSE, type RemoteMessage, type RoomCredential
  * Followers share the view key, so it cannot tell them apart from the
  * presenter. The presenter signs every state it sends with the room's
  * private state key, and a follower takes nothing but state that verifies
- * under the public key from its link (decision 73).
+ * under the public key from its link (decision 73). Every remote and agent
+ * holds the control key, so the presenter signs its countdown too, and a
+ * remote or agent takes a countdown only when it verifies under the public
+ * key its own link carries (decision 117).
  *
  * The client runs in Node too (the `docwalk-mcp` agent, decision 59), so it
  * uses no DOM API beyond what Node 22 also has.
@@ -171,7 +174,7 @@ interface RoleKeys {
   view: RoomKey | null;
   /** The presenter's private state key, when it has one: its states are signed with it. */
   sign: StateKey | null;
-  /** A follower's public state key: it takes only state that verifies under it. */
+  /** The public state key: a follower takes only state that verifies under it, a remote or agent only such a countdown. */
   verify: StateKey | null;
 }
 
@@ -180,7 +183,7 @@ async function importRoleKeys(creds: RoomCredentials, role: RemoteRole): Promise
   const control = role === "follower" ? null : creds.key;
   const view = role === "presenter" || role === "follower" ? creds.view : null;
   const sign = role === "presenter" ? (creds.sign ?? null) : null;
-  const verify = role === "follower" ? (creds.verify ?? null) : null;
+  const verify = role === "presenter" ? null : (creds.verify ?? null);
   if (
     (role !== "follower" && control === null) ||
     (role !== "remote" && role !== "agent" && view === null) ||
@@ -326,8 +329,13 @@ export function connectRoom({
     frame: unknown,
   ): Promise<{ message: RemoteMessage; sender: string } | null> {
     if (keys.control) {
-      const sealed = await decrypt(keys.control, frame);
+      const sealed = await decrypt(keys.control, frame, keys.verify ?? undefined);
       if (sealed) {
+        // Any remote or agent could have sealed a countdown: only the presenter's signature
+        // makes it the presenter window's (decision 117).
+        if (sealed.message.type === "countdown" && role !== "presenter" && !sealed.signed) {
+          return null;
+        }
         return guards.control.accept(sealed.sender, sealed.counter)
           ? { message: sealed.message, sender: sealed.sender }
           : null;
@@ -375,9 +383,10 @@ export function connectRoom({
     void transmit({ type: "hello", role, id: helloId });
   }
 
-  /** `message` encrypted under `key` with the next counter, as wire text; a state or mirror message is signed when this role can. */
+  /** `message` encrypted under `key` with the next counter, as wire text; a state, mirror or countdown message is signed when this role can. */
   async function seal(keys: RoleKeys, key: RoomKey, message: RemoteMessage): Promise<string> {
-    const signed = message.type === "state" || message.type === "mirror";
+    const signed =
+      message.type === "state" || message.type === "mirror" || message.type === "countdown";
     const signer = signed ? (keys.sign ?? undefined) : undefined;
     return JSON.stringify(await encrypt(key, message, { sender, counter: ++counter }, signer));
   }

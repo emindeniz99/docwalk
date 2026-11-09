@@ -31,7 +31,8 @@ import type { RemoteMessage } from "./types";
  * The countdown of the presenter window (decision 112) goes to remotes as a
  * message of its own under the control key: on every change, after the state
  * that answers a hello or opens the socket, and as null once it is gone.
- * Followers never get it.
+ * Followers never get it. The client signs it, so a remote takes it only from
+ * this tab (decision 117).
  *
  * The join links stay hidden until the presenter's socket has opened, so
  * the presenter's seat token is the first the relay sees (decision 71).

@@ -30,7 +30,7 @@ one ("Last changed by claude-code at 14:03").
 1. Open docwalk in full mode (a deployment with the Worker; static hosting
    has no rooms).
 2. More actions › **Remote and followers…**
-3. Copy the **Phone remote** link. It ends in `#room=…&k=…`. The
+3. Copy the **Phone remote** link. It ends in `#room=…&k=…&p=…`. The
    **Follow along** link (`#room=…&v=…`) does not work here: it holds only
    the view key, which can watch the deck but not move it or read the
    document.
@@ -66,7 +66,7 @@ in `DOCWALK_JOIN`. Node 22 or newer.
 ### Claude Code
 
 ```sh
-claude mcp add docwalk --env DOCWALK_JOIN='https://docwalk.example/?view=remote#room=…&k=…' \
+claude mcp add docwalk --env DOCWALK_JOIN='https://docwalk.example/?view=remote#room=…&k=…&p=…' \
   -- node /path/to/docwalk/mcp/dist/docwalk-mcp.js
 ```
 
@@ -82,7 +82,7 @@ In `~/.codex/config.toml`:
 [mcp_servers.docwalk]
 command = "node"
 args = ["/path/to/docwalk/mcp/dist/docwalk-mcp.js"]
-env = { DOCWALK_JOIN = "https://docwalk.example/?view=remote#room=…&k=…" }
+env = { DOCWALK_JOIN = "https://docwalk.example/?view=remote#room=…&k=…&p=…" }
 ```
 
 ### Other clients

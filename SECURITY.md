@@ -55,7 +55,10 @@ protects:
   relays ciphertext, caps frame size and room size, and never sees a key or
   a document. A replayed frame is dropped. The control key steers the deck
   and reads and writes the document; the view key in a follow link only
-  receives state, and only state the presenter signed. The presenter's
+  receives state, and only state the presenter signed. The presenter signs
+  the countdown it sends to phone remotes too, and a phone checks it with
+  the public key in its own link, so another holder of the control link
+  cannot set the phones' clocks. The presenter's
   laser, pen marks and focus view (of a diagram, code block, table or image,
   with its zoom, scroll, marked code lines and diagram tour) reach followers
   the same way: as signed `mirror` messages under the view key, never to
