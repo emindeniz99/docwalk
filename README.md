@@ -109,6 +109,11 @@ lists every settled design decision.
   was.
 - Comments on a heading or a single diagram node. They travel in the share
   link and export to a `<name>.comments.json` sidecar.
+- Pen and arrow marks stay with the document in your browser. Reopen it and
+  each slide shows its marks again, as long as its text has not changed.
+  The PDF, HTML and PNG exports draw them over the slides; untick Export ›
+  Include marks for clean slides, or remove them with More actions › Delete
+  saved marks.
 - A workspace of files and folders in the browser's private file system,
   with templates and zip import and export. In Chromium you can open a local
   folder instead: docwalk reloads files that change on disk and writes only

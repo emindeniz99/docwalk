@@ -1,4 +1,5 @@
 import DOMPurify, { type Config } from "dompurify";
+import { marksOverlay } from "../annotate/markSvg";
 import { unmarkFocusTargets } from "../deck/focusTargets";
 import { rewriteCssUrls } from "./cssText";
 import { m } from "../paraglide/messages.js";
@@ -131,7 +132,10 @@ export function prepareSlide(el: HTMLElement, policy: ResourcePolicy): HTMLEleme
   return el;
 }
 
-/** One slide on its own page box, prepared and sanitized again (DOMPurify) for a document `doc`. */
+/**
+ * One slide on its own page box, with its saved marks over it, prepared and
+ * sanitized again (DOMPurify) for a document `doc`.
+ */
 export function buildPage(
   doc: Document,
   slide: ExportSlide,
@@ -148,6 +152,8 @@ export function buildPage(
   page.style.width = `${options.size.width}px`;
   page.style.height = `${options.size.height}px`;
   page.append(prepareSlide(slide.element, policy));
+  // Built from numbers (markSvg.ts) and sanitized with the page all the same.
+  if (slide.marks?.length) page.append(marksOverlay(inert, slide.marks));
   activePolicy = policy;
   let clean: DocumentFragment;
   try {

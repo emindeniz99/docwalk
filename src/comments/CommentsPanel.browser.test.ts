@@ -33,6 +33,8 @@ function Harness({ sheet, unreadable = false }: { sheet: boolean; unreadable?: b
     comments,
     deleted: [],
     ready: true,
+    key: "sha256:test",
+    unidentified: false,
     persistent: !unreadable,
     unreadable,
     author,
