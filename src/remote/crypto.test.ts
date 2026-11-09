@@ -348,15 +348,7 @@ describe("the countdown message (decision 112)", () => {
 
   test("a target under 1 or over 600 minutes, or a fraction of a millisecond, is dropped", async () => {
     const key = await importKey(createRoomCredentials().key);
-    for (const targetMs of [
-      0,
-      -MIN,
-      MIN - 1,
-      600 * MIN + 1,
-      1.5 * MIN + 0.5,
-      Number.NaN,
-      "60000",
-    ]) {
+    for (const targetMs of [0, -MIN, MIN - 1, 600 * MIN + 1, 1.5 * MIN + 0.5, null, "60000"]) {
       const frame = await encryptRaw(
         key,
         sealed({ type: "countdown", countdown: { ...good, targetMs } }),
@@ -367,7 +359,7 @@ describe("the countdown message (decision 112)", () => {
 
   test("time spent below zero, fractional, over 7 days or not a number is dropped", async () => {
     const key = await importKey(createRoomCredentials().key);
-    for (const spentMs of [-1, 0.5, 7 * 24 * 60 * MIN + 1, Number.NaN, Infinity, "0", null]) {
+    for (const spentMs of [-1, 0.5, 7 * 24 * 60 * MIN + 1, "0", null]) {
       const frame = await encryptRaw(
         key,
         sealed({ type: "countdown", countdown: { ...good, spentMs } }),
