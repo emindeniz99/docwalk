@@ -105,6 +105,14 @@ Code: `usePresentChrome`, `data-chrome="hidden"`.
 **Revision**: 16 bytes of the SHA-256 of the document text. An agent's write
 that names an old revision is refused (67). Code: `revisionOf`.
 
+**Saved marks**: the pen and arrow marks on a document's slides, kept in
+this browser's IndexedDB under the document identity comments use and the
+slide address. A slide shows them again only while its text is the text
+they were drawn on. Exports draw them unless the Export menu's Include
+marks is off; Delete saved marks, in More actions or the palette, removes
+them. They never reach the Markdown (105). Code: `src/annotate/savedMarks.ts`,
+`marksStore.ts`.
+
 **Section**: the part of the AST between two slide starts at the base level.
 One section yields one or more **slides**. Its id comes from the heading
 slug and is stable across viewports (21); a heading with an empty slug
@@ -204,6 +212,7 @@ Add a row here before introducing a new one.
 | diagram, node               | diyagram, düğüm             |                                            |
 | focus view                  | odak görünümü               | "tam ekran" in the dialog's names          |
 | line mark                   | satır işareti               | the "Temizle" button removes them          |
+| mark, saved marks           | işaret, kayıtlı işaretler   | pen and arrow marks; "Sil" deletes them    |
 | mirror, mirrored            | yansıtma, yansıtılan        | the presenter's laser and marks on others  |
 | sketch                      | çizim                       |                                            |
 | whiteboard                  | beyaz tahta                 |                                            |

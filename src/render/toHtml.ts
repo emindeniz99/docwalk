@@ -4,7 +4,7 @@ import rehypeGithubAlert from "rehype-github-alert";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
-import remarkRehype from "remark-rehype";
+import remarkRehype, { defaultHandlers, type Options as RehypeOptions } from "remark-rehype";
 import { unified } from "unified";
 import { SKIP, visit } from "unist-util-visit";
 import { m } from "../paraglide/messages.js";
@@ -283,7 +283,6 @@ export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): 
   if (definitions) {
     children = [...nodes.filter((n) => !definitions.includes(n)), ...definitions];
   }
-  if (headingIds) children = children.map((n) => withHeadingId(n, headingIds));
   const root: Root = { type: "root", children };
   let hasRawHtml = false;
   visit(root, "html", () => {
@@ -304,6 +303,7 @@ export function nodesToHtml(nodes: RootContent[], options: RenderContext = {}): 
           m.render_footnote_back({
             reference: `${reference + 1}${rereference > 1 ? `-${rereference}` : ""}`,
           }),
+        ...(headingIds ? { handlers: { heading: withHeadingId(headingIds) } } : {}),
       })
       .use(rehypeMarkTasks(nonce))
       .use(rawHtml)
@@ -373,11 +373,20 @@ function rehypeDropRaw() {
   };
 }
 
-/** A copy of a heading that renders with its anchor as `id`; the parsed tree is shared, so it is never mutated. */
-function withHeadingId(node: RootContent, ids: ReadonlyMap<Heading, string>): RootContent {
-  const id = node.type === "heading" ? ids.get(node) : undefined;
-  if (node.type !== "heading" || id === undefined) return node;
-  return { ...node, data: { ...node.data, hProperties: { ...node.data?.hProperties, id } } };
+type HeadingHandler = NonNullable<NonNullable<RehypeOptions["handlers"]>["heading"]>;
+
+/**
+ * remark-rehype's heading handler, writing each heading's anchor as its `id`.
+ * It sees every heading, also one inside a quote or a list item (decision
+ * 107), and the parsed tree is shared, so it never changes the node.
+ */
+function withHeadingId(ids: ReadonlyMap<Heading, string>): HeadingHandler {
+  return (state, node: Heading) => {
+    const element = defaultHandlers.heading(state, node);
+    const id = ids.get(node);
+    if (id !== undefined) element.properties["id"] = id;
+    return element;
+  };
 }
 
 /**

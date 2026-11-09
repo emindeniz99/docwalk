@@ -1,3 +1,5 @@
+import { markKey } from "./savedMarks";
+
 /**
  * Pen marks belong to what a slide shows, not only to its address. A rebuild
  * (an edit, an agent write, a file reloaded from disk, a language switch)
@@ -13,11 +15,27 @@
  */
 export function markKeys(stage: HTMLElement): Map<string, string> {
   const keys = new Map<string, string>();
-  for (const page of stage.querySelectorAll<HTMLElement>(":scope > section[data-docwalk-id]")) {
-    const address = `${page.dataset["docwalkId"]}/${page.dataset["page"] ?? "1"}`;
-    keys.set(address, `${address}#${hash(contentText(page))}`);
+  for (const [address, fingerprint] of slideFingerprints(stage)) {
+    keys.set(address, markKey(address, fingerprint));
   }
   return keys;
+}
+
+/** Each page's address and the fingerprint of its text; saved marks keep it (decision 105). */
+export function slideFingerprints(stage: HTMLElement): Map<string, string> {
+  const prints = new Map<string, string>();
+  for (const page of stage.querySelectorAll<HTMLElement>(":scope > section[data-docwalk-id]")) {
+    prints.set(
+      `${page.dataset["docwalkId"]}/${page.dataset["page"] ?? "1"}`,
+      slideFingerprint(page),
+    );
+  }
+  return prints;
+}
+
+/** The fingerprint of one page's text, from the page or a copy of it (an export's clone). */
+export function slideFingerprint(page: HTMLElement): string {
+  return hash(contentText(page));
 }
 
 function contentText(page: HTMLElement): string {
