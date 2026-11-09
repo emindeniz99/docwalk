@@ -8,7 +8,14 @@ import "@fontsource-variable/jetbrains-mono";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { BLOCKED_IMAGE_CLASS } from "../render/toHtml";
-import { fitDiagrams, measureBody, measureOffscreen, settled, slideBodySize } from "./measure";
+import {
+  fitDiagrams,
+  measureBody,
+  measureOffscreen,
+  releaseImageSizes,
+  settled,
+  slideBodySize,
+} from "./measure";
 import { prepareDiagramSource, renderDiagrams } from "./mermaid";
 import { paginateSlide } from "./paginate";
 import { flagPages } from "./pages";
@@ -129,12 +136,18 @@ describe("loaded images and their copies", () => {
   // ask for revalidation), and its copy has no size yet. In CI, Firefox put the
   // heading, a 400px image and two listings on one page that overflowed with no
   // note. Here every copy loads again on Chromium too.
+  // Afterwards the pages size their images as the author wrote them: a fixed width and
+  // height would outlive the image, and an HTML export's placeholder took the full size.
   test.each([
-    ["a Markdown image", "![Chart](/chart.png)"],
-    ["an HTML image with only a width", '<img alt="Chart" src="/chart.png" width="150">'],
+    ["a Markdown image", "![Chart](/chart.png)", [null, null]],
+    [
+      "an HTML image with only a width",
+      '<img alt="Chart" src="/chart.png" width="150">',
+      ["150", null],
+    ],
   ])(
     "%s keeps its size in copies that load it again: every page fits or says it does not",
-    async (_, image) => {
+    async (_, image, authored) => {
       const png = await tallPng();
       const body = mountSlide(`## Chart\n\n${image}\n\n${listings}`);
       const section = body.closest("section") as HTMLElement;
@@ -156,6 +169,7 @@ describe("loaded images and their copies", () => {
           }),
         );
         flagPages(pages, SIZE);
+        releaseImageSizes(pages);
       } finally {
         undo();
       }
@@ -164,6 +178,10 @@ describe("loaded images and their copies", () => {
       const shown = [...document.querySelectorAll("img")];
       await Promise.all(shown.map((copy) => copy.decode()));
       expect(shown.map((copy) => copy.naturalHeight)).toEqual([400]);
+      expect(
+        shown.map((copy) => [copy.getAttribute("width"), copy.getAttribute("height")]),
+      ).toEqual([authored]);
+      expect(shown.map((copy) => copy.getAttribute("style"))).toEqual([null]);
       const unreported = pages.flatMap((page, i) => {
         const pageBody = page.querySelector(".docwalk-slide-body") as HTMLElement;
         const note = page.querySelector<HTMLElement>(".docwalk-overflow");

@@ -12,7 +12,13 @@ import type { SectionPlan } from "../sectioning/sectionize";
 import { createDeckController, type DeckController } from "./controller";
 import { closeContentFocus, openBlockFocus, openDiagramFocus } from "./focus";
 import { FOCUS_ATTR, markFocusTarget, markFocusTargets } from "./focusTargets";
-import { fitDiagrams, settled, slideBodySize, type SlideMeasurement } from "./measure";
+import {
+  fitDiagrams,
+  releaseImageSizes,
+  settled,
+  slideBodySize,
+  type SlideMeasurement,
+} from "./measure";
 import { renderDiagrams } from "./mermaid";
 import { paginateSlide } from "./paginate";
 import { flagPages, SLIDE_SIZE, slideAddress } from "./pages";
@@ -257,6 +263,8 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
         if (measured.overflows && slide)
           overflowing.push({ id: slideAddress(slide), measurement: measured });
       });
+      // The last measurement of copies: the pages size their images as the author wrote them.
+      releaseImageSizes(pages);
       const report: DeckReport = {
         slides: pages.length,
         overflowing,
