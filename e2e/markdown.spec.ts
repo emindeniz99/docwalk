@@ -94,6 +94,13 @@ async function openDoc(page: Page) {
   await expect(
     page.locator(".reveal .slides > section[data-docwalk-id='heading-1f680']"),
   ).toHaveCount(1);
+  // The sections above are in the DOM before the deck is paginated and live.
+  // When it goes live, the preview follows the editor's cursor, which the
+  // paste left on the last line, to Settlement, in the same pass that applies
+  // the URL's hash: a hash set before then lands on its slide and is left at
+  // once (on WebKit, `#retry-budget` showed no <details>). Once the preview
+  // shows Settlement, a hash change reaches the live deck and stays.
+  await expect(present(page)).toHaveAttribute("data-docwalk-id", "settlement");
 }
 
 /** Goes to a slide the way a shared link does: through the URL hash. */
