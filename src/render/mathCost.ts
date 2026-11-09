@@ -37,6 +37,14 @@ export class MathTooLarge extends Error {
 }
 
 /**
+ * Most characters of text in one tree the worker sends, and the page accepts.
+ * `buildWork` lets a macro of text near 10,000 characters through
+ * (`\def\a{\text{x x3000}}\a\a\a` is 9,000 units), so this never refuses
+ * a formula it accepted.
+ */
+export const MAX_TREE_TEXT = 16_000;
+
+/**
  * Most units of build work docwalk allows one formula. A unit is a parse
  * node, counted once for every time its parent builds it. Real formulas
  * stay under a few hundred; the largest the source limit lets through, a

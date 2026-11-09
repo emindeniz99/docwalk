@@ -12,7 +12,14 @@
  */
 import temml from "temml";
 import { MATH_ELEMENTS, mathAttributeAllowed, mathClasses } from "./mathAllow";
-import { buildWork, countTree, MATH_LIMITS, MathTooLarge, MAX_BUILD_WORK } from "./mathCost";
+import {
+  buildWork,
+  countTree,
+  MATH_LIMITS,
+  MAX_BUILD_WORK,
+  MAX_TREE_TEXT,
+  MathTooLarge,
+} from "./mathCost";
 
 /** Page to worker: one formula. */
 export interface MathRequest {
@@ -38,13 +45,6 @@ export const MAX_TEX_CHARS = 4000;
 
 /** Deepest nesting of groups, `\left … \right` pairs and environments. Real formulas stay under 10. */
 export const MAX_TEX_NESTING = 24;
-
-/**
- * Most characters of text in one tree. `buildWork` lets a macro of text near
- * 10,000 characters through (`\def\a{\text{x x3000}}\a\a\a` is 9,000 units),
- * so this never refuses a formula it accepted.
- */
-export const MAX_TREE_TEXT = 16_000;
 
 /** Counted tokens: an escaped brace or backslash is a character, not a group. */
 const NESTING_TOKEN = /\\[{}\\]|\\(?:left|begin)(?![A-Za-z])|\\(?:right|end)(?![A-Za-z])|[{}]/g;

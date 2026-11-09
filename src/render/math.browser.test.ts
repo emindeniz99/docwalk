@@ -16,9 +16,9 @@ import {
   MATH_CLASSES,
   MATH_ELEMENTS,
 } from "./mathAllow";
-import { buildMath, MAX_TEX_CHARS, MAX_TEX_NESTING, nestingOf } from "./mathBuild";
 import { MathTooLarge } from "./mathCost";
-import { rebuild } from "./mathRebuild";
+import { fromTree } from "./mathRebuild";
+import { MAX_TEX_CHARS, MAX_TEX_NESTING, nestingOf, texToTree, type MathTree } from "./mathTree";
 import { nodesToHtml } from "./toHtml";
 
 /**
@@ -38,6 +38,13 @@ afterEach(() => {
   document.body.replaceChildren();
   delete window.dwXssRan;
 });
+
+/**
+ * What the worker and the page do between them, in one place. Production never
+ * runs Temml in the page; these tests do, to hold the lists against its output.
+ */
+const buildMath = (tex: string, display: boolean): Element | null =>
+  fromTree(texToTree(tex, display), display);
 
 /** Renders `markdown` through both sanitizers, attaches it, and draws its formulas. */
 async function render(markdown: string): Promise<HTMLElement> {
@@ -463,16 +470,16 @@ describe("hostile formulas (rule 5)", () => {
   });
 
   test("a tree over the node limit is refused", () => {
-    const wide = document.createElementNS(MATHML_NS, "mrow");
-    for (let i = 0; i < 50; i++) wide.append(document.createElementNS(MATHML_NS, "mi"));
-    expect(() => rebuild(wide, { nodes: 10, depth: 40 })).toThrow(MathTooLarge);
-    let deep: Element = document.createElementNS(MATHML_NS, "mi");
-    for (let i = 0; i < 50; i++) {
-      const outer = document.createElementNS(MATHML_NS, "mrow");
-      outer.append(deep);
-      deep = outer;
-    }
-    expect(() => rebuild(deep, { nodes: 3000, depth: 40 })).toThrow(MathTooLarge);
+    const wide: MathTree = {
+      name: "mrow",
+      attributes: [],
+      children: Array.from({ length: 50 }, () => ({ name: "mi", attributes: [], children: [] })),
+    };
+    expect(() => fromTree(wide, false, { nodes: 10, depth: 40 })).toThrow(MathTooLarge);
+    let deep: MathTree = { name: "mi", attributes: [], children: ["x"] };
+    for (let i = 0; i < 50; i++) deep = { name: "mrow", attributes: [], children: [deep] };
+    const math: MathTree = { name: "math", attributes: [], children: [deep] };
+    expect(() => fromTree(math, false, { nodes: 3000, depth: 40 })).toThrow(MathTooLarge);
   });
 });
 
@@ -515,64 +522,75 @@ describe("a raise cannot push text off the slide (rule 3)", () => {
   });
 
   test("an offset in a unit the rebuild cannot add up is dropped", () => {
-    const tree = document.createElementNS(MATHML_NS, "mpadded");
-    tree.setAttribute("voffset", "2vh");
-    expect(rebuild(tree)!.hasAttribute("voffset")).toBe(false);
+    const tree: MathTree = {
+      name: "math",
+      attributes: [],
+      children: [{ name: "mpadded", attributes: [["voffset", "2vh"]], children: [] }],
+    };
+    expect(fromTree(tree, false)!.querySelector("mpadded")!.hasAttribute("voffset")).toBe(false);
   });
 });
 
-/** Built in a document with no browsing context, so the test's own `<img>` never loads. */
-const inert = document.implementation.createHTMLDocument("");
-const make = (name: string, ns = MATHML_NS) => inert.createElementNS(ns, name);
+const el = (
+  name: string,
+  attributes: [string, string][] = [],
+  children: MathTree["children"] = [],
+) => ({ name, attributes, children }) satisfies MathTree;
 
-/** A tree as a trusting or buggy builder might make it. */
-function hostile(): Element {
-  const math = make("math");
-  math.setAttribute("onclick", "window.dwXssRan=1");
-  math.setAttribute("style", "background:url(https://tracker.example/x)");
-  math.setAttribute("href", "https://tracker.example/x");
-  math.setAttribute("id", "user-content-x");
-  math.setAttribute("xlink:href", "javascript:window.dwXssRan=1");
-  math.setAttribute("class", "docwalk-diagram present tml-vec");
-  math.setAttribute("mathcolor", "red;background:url(https://tracker.example/x)");
-  math.setAttribute("width", "1em");
-  const mi = make("mi");
-  mi.textContent = "x";
-  mi.setAttribute("mathvariant", "bold");
-  const maction = make("maction");
-  maction.setAttribute("actiontype", "statusline");
-  const semantics = make("semantics");
-  const annotation = make("annotation-xml");
-  annotation.setAttribute("encoding", "text/html");
-  const html = make("img", "http://www.w3.org/1999/xhtml");
-  html.setAttribute("src", "https://tracker.example/pixel.png");
-  annotation.append(html);
-  const link = make("a", "http://www.w3.org/1999/xhtml");
-  link.setAttribute("href", "https://tracker.example");
-  link.textContent = "link";
-  const script = make("script", "http://www.w3.org/1999/xhtml");
-  script.textContent = "window.dwXssRan=1";
-  const svg = make("svg", "http://www.w3.org/2000/svg");
-  svg.append(make("script", "http://www.w3.org/2000/svg"));
-  semantics.append(annotation);
-  math.append(mi, maction, semantics, link, script, svg, inert.createComment("c"));
-  return math;
+/** A tree as a trusting or buggy worker might send it. */
+function hostile(): MathTree {
+  return el(
+    "math",
+    [
+      ["onclick", "window.dwXssRan=1"],
+      ["style", "background:url(https://tracker.example/x)"],
+      ["href", "https://tracker.example/x"],
+      ["id", "user-content-x"],
+      ["xlink:href", "javascript:window.dwXssRan=1"],
+      ["class", "docwalk-diagram present tml-vec"],
+      ["mathcolor", "red;background:url(https://tracker.example/x)"],
+      ["width", "1em"],
+    ],
+    [
+      el("mi", [["mathvariant", "bold"]], ["x"]),
+      el("maction", [["actiontype", "statusline"]]),
+      el(
+        "semantics",
+        [],
+        [
+          el(
+            "annotation-xml",
+            [["encoding", "text/html"]],
+            [el("img", [["src", "https://tracker.example/pixel.png"]])],
+          ),
+        ],
+      ),
+      el("a", [["href", "https://tracker.example"]], ["link"]),
+      el("script", [], ["window.dwXssRan=1"]),
+      el("svg", [], [el("script")]),
+    ],
+  );
 }
 
 describe("the allowlist holds against a hostile tree, whatever built it", () => {
   test("only listed names, attributes, values and classes survive", () => {
-    const clean = rebuild(hostile())!;
+    const clean = fromTree(hostile(), false)!;
     document.body.append(clean);
+    // `fromTree` marks the root with `docwalk-math`, which the old copy left to its caller.
     expect(clean.outerHTML).toBe(
-      '<math width="1em" class="tml-vec"><mi mathvariant="bold">x</mi></math>',
+      '<math width="1em" class="tml-vec docwalk-math"><mi mathvariant="bold">x</mi></math>',
     );
     expectSafe(document.body);
   });
 
   test("an element outside the list takes its subtree with it", () => {
-    expect(rebuild(document.createElementNS("http://www.w3.org/1999/xhtml", "div"))).toBeNull();
-    const maction = document.createElementNS(MATHML_NS, "maction");
-    expect(rebuild(maction)).toBeNull();
+    expect(fromTree(el("div"), false)).toBeNull();
+    expect(fromTree(el("maction"), false)).toBeNull();
+    const inside = fromTree(
+      el("math", [], [el("div", [], [el("mi", [], ["x"])]), el("mi", [], ["y"])]),
+      false,
+    )!;
+    expect(inside.outerHTML).toBe('<math class="docwalk-math"><mi>y</mi></math>');
   });
 
   test("the lists name no element that carries markup or behaviour", () => {
@@ -583,12 +601,88 @@ describe("the allowlist holds against a hostile tree, whatever built it", () => 
   });
 
   test("text is copied as text, markup characters and all", () => {
-    const mtext = document.createElementNS(MATHML_NS, "mtext");
-    mtext.append(document.createTextNode('<img src=x onerror="1">&amp;'));
-    const copy = rebuild(mtext)!;
-    expect(copy.childNodes).toHaveLength(1);
-    expect(copy.textContent).toBe('<img src=x onerror="1">&amp;');
-    expect(copy.querySelector("*")).toBeNull();
+    const copy = fromTree(
+      el("math", [], [el("mtext", [], ['<img src=x onerror="1">&amp;'])]),
+      false,
+    )!;
+    const mtext = copy.querySelector("mtext")!;
+    expect(mtext.childNodes).toHaveLength(1);
+    expect(mtext.textContent).toBe('<img src=x onerror="1">&amp;');
+    expect(mtext.querySelector("*")).toBeNull();
+  });
+
+  test("a display tree gets display=block, an inline tree none", () => {
+    const tree = el("math", [["display", "block"]], [el("mi", [], ["x"])]);
+    expect(fromTree(tree, true)!.getAttribute("display")).toBe("block");
+    expect(fromTree(tree, false)!.hasAttribute("display")).toBe(false);
+  });
+
+  test("the root must be <math>", () => {
+    expect(fromTree(el("mrow", [], [el("mi", [], ["x"])]), false)).toBeNull();
+  });
+});
+
+describe("data that is not a tree builds nothing it does not list", () => {
+  test("a root that is not an object gives nothing", () => {
+    for (const root of [42, null, undefined, "math", true, [], [el("math")]]) {
+      expect(fromTree(root, false)).toBeNull();
+    }
+  });
+
+  test("a node with the wrong shape drops itself and its subtree, and the rest stays", () => {
+    const math = (...children: unknown[]) => ({ name: "math", attributes: [], children });
+    const build = (child: unknown) => fromTree(math(child, el("mi", [], ["ok"])), false)!.innerHTML;
+    const kept = "<mi>ok</mi>";
+    // attributes is an object, not a list of pairs
+    expect(build({ name: "mi", attributes: { onclick: "1" }, children: ["x"] })).toBe(kept);
+    // children is not a list
+    expect(build({ name: "mi", attributes: [], children: "x" })).toBe(kept);
+    // a name that is not a string
+    expect(build({ name: 42, attributes: [], children: [] })).toBe(kept);
+    expect(build({ attributes: [], children: [] })).toBe(kept);
+    // children that are neither elements nor text
+    expect(build({ name: "mrow", attributes: [], children: [7, null, undefined, true] })).toBe(
+      `<mrow></mrow>${kept}`,
+    );
+  });
+
+  test("a pair that is not two strings is dropped, the element stays", () => {
+    const bad = {
+      name: "math",
+      attributes: [
+        ["width", "1em", "extra"],
+        ["height"],
+        [3, "1em"],
+        ["depth", 4],
+        "mathvariant",
+        null,
+        ["lspace", "2em"],
+      ],
+      children: [],
+    };
+    expect(fromTree(bad, false)!.outerHTML).toBe('<math lspace="2em" class="docwalk-math"></math>');
+  });
+
+  test("a __proto__ pair or key is only a name that is not listed", () => {
+    const tree = JSON.parse(
+      '{"name":"math","attributes":[["__proto__","x"],["constructor","y"]],"__proto__":{"name":"script"},"children":[{"name":"__proto__","attributes":[],"children":[]}]}',
+    ) as unknown;
+    const math = fromTree(tree, false)!;
+    expect(math.outerHTML).toBe('<math class="docwalk-math"></math>');
+    expect(({} as Record<string, unknown>)["name"]).toBeUndefined();
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  });
+
+  test("a tree that is its own child hits the depth limit", () => {
+    const loop: { name: string; attributes: unknown[]; children: unknown[] } = {
+      name: "mrow",
+      attributes: [],
+      children: [],
+    };
+    loop.children.push(loop);
+    expect(() => fromTree({ name: "math", attributes: [], children: [loop] }, false)).toThrow(
+      MathTooLarge,
+    );
   });
 });
 

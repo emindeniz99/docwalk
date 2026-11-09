@@ -1,14 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { MATH_CLASSES, MATH_ELEMENTS, mathAttributeAllowed } from "./mathAllow";
-import { MATH_LIMITS } from "./mathCost";
-import {
-  MAX_TEX_CHARS,
-  MAX_TEX_NESTING,
-  MAX_TREE_TEXT,
-  texToTree,
-  toData,
-  type MathTree,
-} from "./mathTree";
+import { MATH_LIMITS, MAX_TREE_TEXT } from "./mathCost";
+import { MAX_TEX_CHARS, MAX_TEX_NESTING, texToTree, toData, type MathTree } from "./mathTree";
 
 /**
  * Decision 101, rule 5. Temml runs in a worker and the page gets its tree as
