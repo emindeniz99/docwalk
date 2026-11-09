@@ -511,8 +511,10 @@ describe("presenter host", () => {
     });
     const follower = peer(relay, await joinCreds(host, "follow"), "follower");
     await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
-    // Past the window of the follower's own first hello.
-    await new Promise((r) => setTimeout(r, 400));
+    // Past both windows a join opens: a join sends two hellos (decision 111),
+    // one on open and one after the first state, and 103 answers the second at
+    // the end of its 250 ms window, which opens a second window.
+    await new Promise((r) => setTimeout(r, 800));
     const before = ofType(follower, "state").length;
     for (let i = 0; i < 20; i++) {
       const id = `FloodFlood${String(i).padStart(2, "0")}`;
