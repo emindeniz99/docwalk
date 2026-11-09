@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { answerAgent, isAgentRequest, type AgentHostContext } from "../../src/remote/agent.ts";
 import {
   connectRoom,
@@ -260,5 +260,53 @@ describe("room agent", () => {
     const [a, b] = await Promise.all([first.getDocument(), second.listSlides()]);
     expect(a.markdown).toContain("## One");
     expect(b.slides).toHaveLength(1);
+  });
+
+  test("an agent that joined before the presenter is counted when the presenter arrives", async () => {
+    // The agent's hello on open reached nobody: the relay keeps no frames. The
+    // presenter's state, the first the agent takes from that presenter, makes
+    // it say hello again (decision 111).
+    const factory = relay();
+    const creds = await createPresenterCredentials();
+    const link = formatJoinUrl(BASE, "remote", creds);
+    let agentOpen = false;
+    const room = new RoomAgent({
+      link,
+      socketFactory: factory,
+      timeoutMs: 2000,
+      onStatus: (status) => (agentOpen = status === "open"),
+    });
+    open.push(room);
+    await vi.waitFor(() => expect(agentOpen).toBe(true));
+    // The agent's own hello has been sent and lost by now.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const hellos: RemoteMessage[] = [];
+    const conn: RoomConnection = connectRoom({
+      creds,
+      role: "presenter",
+      base: BASE,
+      socketFactory: factory,
+      onStatus: (status) => {
+        if (status !== "open") return;
+        void conn.send({
+          type: "state",
+          current: "s0/1",
+          index: 0,
+          total: 1,
+          title: "One",
+          docLink: null,
+          docLinkTooLong: false,
+          level: "auto",
+        });
+      },
+      onMessage: (message) => {
+        if (message.type === "hello") hellos.push(message);
+      },
+    });
+    open.push(conn);
+    await vi.waitFor(() =>
+      expect(hellos.map((m) => m.type === "hello" && m.role)).toEqual(["agent"]),
+    );
   });
 });
