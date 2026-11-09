@@ -142,7 +142,9 @@ export function readSlides(doc: string, records: unknown): SavedSlide[] {
     // Records that fail late cost as much as those that pass, so the walk is bounded as a whole.
     if (parsed + numbers > MAX_PARSED_NUMBERS) break;
     parsed += numbers;
-    const result = v.safeParse(StoredSlideSchema, item);
+    // Pass or fail is all that is needed: the first refused stroke ends the parse, so a record
+    // of strokes with thousands of unknown keys costs one walk, not one per stroke.
+    const result = v.safeParse(StoredSlideSchema, item, { abortEarly: true });
     if (!result.success) continue;
     const { slide, text, strokes } = result.output;
     if (result.output.doc !== doc || seen.has(slide)) continue;

@@ -175,6 +175,30 @@ describe("reading stored marks back", () => {
       expect(state.reads).toBeGreaterThan(0);
     });
 
+    test("a record with thousands of unknown keys is refused at its first bad stroke", () => {
+      // A strict object walks all of its keys to look for unknown ones; unless the parse stops
+      // at the first refused stroke, 200 such strokes cost 200 walks over 5,000 keys.
+      let walks = 0;
+      const extras = Object.fromEntries(Array.from({ length: 5000 }, (_, i) => [`extra${i}`, i]));
+      const stroke = new Proxy(
+        { ...pen(), ...extras },
+        {
+          ownKeys(target) {
+            walks++;
+            return Reflect.ownKeys(target);
+          },
+        },
+      );
+      const records = Array.from({ length: 20 }, (_, i) =>
+        record({
+          slide: `x${i}/1`,
+          strokes: Array.from({ length: 200 }, () => stroke as SavedStroke),
+        }),
+      );
+      expect(slides(records)).toEqual([]);
+      expect(walks).toBeLessThanOrEqual(records.length);
+    });
+
     test("a smaller record after a skipped one still reads", () => {
       const { strokes } = counted();
       const big = record({ slide: "big/1", strokes: strokes(21, 1500) });
