@@ -29,6 +29,8 @@ import {
 /** Slides with saved marks per document, and points over all of them. */
 export const MAX_SAVED_SLIDES = 500;
 export const MAX_DOCUMENT_POINTS = 100_000;
+/** Numbers one read may hand to the parser, kept or refused: twice what a full document holds. */
+export const MAX_PARSED_NUMBERS = 4 * MAX_DOCUMENT_POINTS;
 /** The longest document key a record may carry (the comments' alias check uses the same). */
 export const MAX_DOCUMENT_KEY_CHARS = 4096;
 
@@ -121,18 +123,25 @@ function numbersIn(item: unknown, limit: number): number {
  * fails the schema or belongs to another document is skipped alone; past
  * `MAX_SAVED_SLIDES` slides or `MAX_DOCUMENT_POINTS` points the rest are
  * skipped too. A record too big for a slide, or for what is left of the
- * document's points, is skipped before its coordinates are parsed: a hostile
- * profile cannot make the reader walk millions of numbers (rule 5).
+ * document's points, is skipped before its coordinates are parsed, and the
+ * reader stops once `MAX_PARSED_NUMBERS` numbers have gone to the parser,
+ * whether their records passed or failed: a hostile profile cannot make it
+ * walk millions of numbers (rule 5).
  */
 export function readSlides(doc: string, records: unknown): SavedSlide[] {
   if (!Array.isArray(records)) return [];
   const kept: SavedSlide[] = [];
   const seen = new Set<string>();
   let points = 0;
+  let parsed = 0;
   for (const item of records.slice(0, MAX_SAVED_SLIDES)) {
     if (points >= MAX_DOCUMENT_POINTS) break;
     const room = 2 * Math.min(MAX_SLIDE_POINTS, MAX_DOCUMENT_POINTS - points);
-    if (numbersIn(item, room) > room) continue;
+    const numbers = numbersIn(item, room);
+    if (numbers > room) continue;
+    // Records that fail late cost as much as those that pass, so the walk is bounded as a whole.
+    if (parsed + numbers > MAX_PARSED_NUMBERS) break;
+    parsed += numbers;
     const result = v.safeParse(StoredSlideSchema, item);
     if (!result.success) continue;
     const { slide, text, strokes } = result.output;
@@ -235,6 +244,11 @@ export class DocumentMarks {
   put(address: string, fingerprint: string, strokes: readonly SavedStroke[]): boolean {
     // The empty key is no document (marks that are never kept): nothing to hold, nothing to say.
     if (this.doc === "") return false;
+    // An address no record can carry is a failed save, not a full one.
+    if (address.length > MAX_SLIDE_ADDRESS_CHARS) {
+      this.tell("failed");
+      return false;
+    }
     const kept = strokes.map(({ tool, color, points }) => ({ tool, color, points: [...points] }));
     const before = this.slides.get(address);
     const points = this.points - (before ? pointsOf(before.strokes) : 0) + pointsOf(kept);

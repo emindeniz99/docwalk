@@ -6,6 +6,7 @@ import {
   markKey,
   marksSaver,
   MAX_DOCUMENT_POINTS,
+  MAX_PARSED_NUMBERS,
   MAX_SAVED_SLIDES,
   memoryMarksStore,
   readSlides,
@@ -154,6 +155,24 @@ describe("reading stored marks back", () => {
       // 4 x 25,000 points is exactly the document's 100,000; the fifth is valid but has no room.
       expect(slides([spent(1), spent(2), spent(3), spent(4), valid])).toHaveLength(4);
       expect(state.reads).toBe(0);
+    });
+
+    test("records that fail on their last coordinate stop costing once the parse budget is spent", () => {
+      // Each record passes the size pre-check (59,000 numbers) and is refused only by its last
+      // coordinate, so a parser that counts only what it keeps would walk all 40 of them.
+      const { state, strokes } = counted();
+      const damaged = (i: number) => {
+        const list = strokes(20, 1475);
+        const last = list[19]!.points as number[];
+        // The Proxy's set trap is not counted: only reads are.
+        last[last.length - 1] = 4097;
+        return record({ slide: `d${i}/1`, strokes: list });
+      };
+      const all = Array.from({ length: 40 }, (_, i) => damaged(i));
+      expect(slides(all)).toEqual([]);
+      expect(state.reads).toBeLessThanOrEqual(MAX_PARSED_NUMBERS);
+      // It did parse some: the budget bounds the walk, it does not skip the reader.
+      expect(state.reads).toBeGreaterThan(0);
     });
 
     test("a smaller record after a skipped one still reads", () => {
@@ -311,6 +330,18 @@ describe("the marks of one document", () => {
   test("marks with no document at all keep nothing and say nothing", async () => {
     const marks = new DocumentMarks("", [], null, () => {});
     expect(marks.put("intro/1", "aa", strokes)).toBe(false);
+    expect(marks.size).toBe(0);
+  });
+
+  test("an address over the limit saves nothing and says the save failed, not that it is full", async () => {
+    const store = memoryMarksStore();
+    const put = vi.spyOn(store, "put");
+    const problem = vi.fn<(kind: "full" | "failed") => void>();
+    const marks = await loadMarks(store, DOC, problem);
+    marks.put("a".repeat(2049), "aa", strokes);
+    await marks.settled();
+    expect(put).not.toHaveBeenCalled();
+    expect(problem.mock.calls).toEqual([["failed"]]);
     expect(marks.size).toBe(0);
   });
 
