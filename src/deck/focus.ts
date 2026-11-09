@@ -1,10 +1,22 @@
 import Panzoom, { type PanzoomObject } from "@panzoom/panzoom";
 import type { FocusViewKind } from "../annotate/mirrorTypes";
 import { requestSketch } from "../canvas/request";
+import { nodesInDiagram } from "../comments/diagramNodes";
 import { m } from "../paraglide/messages.js";
+import type { DiagramTour } from "./diagramTour";
 import { emitFocus } from "./focusEvents";
 import { FOCUS_VIEW_CLASS } from "./focusView";
 import { focusKind, isLoadedImage, locateBlock, unmarkFocusTargets } from "./focusTargets";
+import {
+  firstStep,
+  jumpTo,
+  nextStep,
+  normalizeTour,
+  previousStep,
+  startTour,
+  TOUR_MIN_NODES,
+  type TourPath,
+} from "./tourModel";
 
 /**
  * Focus view: a full-window view of one diagram, code block, table or image.
@@ -19,8 +31,9 @@ import { focusKind, isLoadedImage, locateBlock, unmarkFocusTargets } from "./foc
  * line marks keep working (decision 87).
  *
  * Each view tells `focusEvents.ts` which block it shows, how it is zoomed
- * and scrolled, and which code lines are marked, so the presenter's view
- * can be mirrored to followers (decisions 88 and 106).
+ * and scrolled, which code lines are marked and how far a diagram tour has
+ * gone, so the presenter's view can be mirrored to followers (decisions 88,
+ * 106 and 109).
  */
 
 type ViewKind = FocusViewKind;
@@ -33,8 +46,17 @@ interface Stage {
   wheel(event: WheelEvent): void;
   /** Called once the view is in the page and its toolbar is built. */
   start(): void;
-  /** Extra toolbar buttons, between Fullscreen and Close. */
-  extras?(add: AddButton): void;
+  /** Extra toolbar buttons, between Fullscreen and Close; `toolbar` takes what is not a button. */
+  extras?(add: AddButton, toolbar: HTMLElement): void;
+  /**
+   * Offers a key to the stage before the shell reads it. True when the stage
+   * used the key: the shell then does nothing more with it (decision 109).
+   */
+  key?(event: KeyboardEvent): boolean;
+  /** Sets the diagram tour to a path a presenter sent, as node numbers (decision 109). */
+  setTour?(path: readonly number[]): void;
+  /** Settles after the first Fit of a canvas, or when the stage goes (rule 4). */
+  fitted?: Promise<void>;
   /**
    * Sets zoom and position to a view a presenter sent (decisions 88 and 106): for a
    * canvas the pan as a fraction of the stage, for text the scroll as a fraction of its reach.
@@ -123,7 +145,7 @@ function mountView(
     if (document.fullscreenElement) void document.exitFullscreen();
     else void overlay.requestFullscreen?.();
   });
-  view.extras?.(button);
+  view.extras?.(button, toolbar);
   const closeButton = button("✕", m.close(), () => close(true));
 
   const onWheel = (event: WheelEvent) => {
@@ -132,6 +154,11 @@ function mountView(
     view.wheel(event);
   };
   const onKey = (event: KeyboardEvent) => {
+    // Escape reaches the stage first: a running tour ends and the view stays open.
+    if (view.key?.(event)) {
+      event.stopPropagation();
+      return;
+    }
     if (event.key === "Tab") {
       // Keep focus in the view: past the last stop comes the first, and back.
       const stops = [
@@ -227,6 +254,7 @@ function canvasStage(
   let frame = 0;
   let started = false;
   let wanted: FocusTransform | null = null;
+  const { promise: fitted, resolve: markFitted } = Promise.withResolvers<void>();
   const place = (view: FocusTransform) => {
     panzoom.zoom(view.scale, { animate: false, force: true });
     panzoom.pan(
@@ -250,11 +278,13 @@ function canvasStage(
     zoomOut: () => panzoom.zoomOut(),
     zoomIn: () => panzoom.zoomIn(),
     fit,
+    fitted,
     wheel: (event) => panzoom.zoomWithWheel(event),
     start: () => {
       frame = requestAnimationFrame(() => {
         fit();
         started = true;
+        markFitted();
         // A view that arrived before the first fit is placed once Fit has run.
         if (wanted) place(wanted);
       });
@@ -266,6 +296,7 @@ function canvasStage(
     dispose: () => {
       // A view closed before its first frame never fits a stage that is gone.
       cancelAnimationFrame(frame);
+      markFitted();
       panzoom.destroy();
     },
   };
@@ -286,19 +317,207 @@ function diagramStage(stage: HTMLElement, diagram: HTMLElement, close: () => voi
   );
   // Canvas mode (decision 54): the app opens the sketch dialog, lazily, in place of this view.
   const source = diagram.dataset["source"];
-  if (source === undefined) return base;
+  const count = nodesInDiagram(copy).length;
+  const tour =
+    count >= TOUR_MIN_NODES
+      ? tourControls(stage, copy, source ?? "", count, base.fitted ?? Promise.resolve())
+      : null;
+  if (source === undefined && !tour) return base;
   return {
     ...base,
-    extras(add) {
-      // A short label keeps the toolbar on one row at 390 px; the name says what it does.
-      add(m.focus_sketch(), m.focus_sketch_title(), () => {
-        const hosts = [
-          ...(diagram.closest(".slides") ?? document).querySelectorAll(".docwalk-diagram"),
-        ];
-        const at = hosts.indexOf(diagram);
-        close();
-        requestSketch({ source, index: at >= 0 ? at + 1 : null });
-      });
+    extras(add, toolbar) {
+      if (source !== undefined) {
+        // A short label keeps the toolbar on one row at 390 px; the name says what it does.
+        add(m.focus_sketch(), m.focus_sketch_title(), () => {
+          const hosts = [
+            ...(diagram.closest(".slides") ?? document).querySelectorAll(".docwalk-diagram"),
+          ];
+          const at = hosts.indexOf(diagram);
+          close();
+          requestSketch({ source, index: at >= 0 ? at + 1 : null });
+        });
+      }
+      tour?.mount(add, toolbar);
+    },
+    ...(tour && { key: tour.key, setTour: tour.setTour }),
+    dispose() {
+      tour?.dispose();
+      base.dispose();
+    },
+  };
+}
+
+/** A pointer that moved less than this between press and release tapped; more is a pan. */
+const TAP_SLOP = 6;
+
+/**
+ * The diagram tour in the view (decision 109): a Tour toggle, Back and Next
+ * with the count, the keys, a tap on a node, and a polite status. The state is
+ * a path of node numbers (`tourModel.ts`). `diagramTour.ts` loads on the first
+ * start, so the deck's first download does not grow. Every change the viewer
+ * makes is reported to the mirror; one that came from the mirror is not.
+ */
+function tourControls(
+  stage: HTMLElement,
+  copy: SVGSVGElement,
+  source: string,
+  count: number,
+  fitted: Promise<void>,
+) {
+  let path: TourPath = [];
+  let disposed = false;
+  let status: HTMLElement | null = null;
+  // The status of a start leads with "Tour started." (said once, with the first step).
+  let prefix = "";
+  let tourButton: HTMLButtonElement;
+  let back: HTMLButtonElement;
+  let next: HTMLButtonElement;
+  let counter: HTMLElement;
+  let loaded: Promise<DiagramTour | null> | null = null;
+  let drawn = 0;
+
+  const running = () => path.length > 0;
+  const load = () =>
+    (loaded ??= import("./diagramTour")
+      .then(({ createDiagramTour }) =>
+        createDiagramTour(
+          copy,
+          source,
+          (text) => {
+            if (status) status.textContent = prefix ? `${prefix} ${text}` : text;
+            prefix = "";
+          },
+          { fitted },
+        ),
+      )
+      // Offline with the chunk missing: the view stays as it was, with no marks.
+      .catch(() => null));
+  // Draws what `path` is now. Only the latest request draws: a key held down
+  // asks for many paths while the module loads.
+  const sync = () => {
+    const mine = ++drawn;
+    if (!running() && !loaded) return;
+    void load().then((tour) => {
+      if (!tour || mine !== drawn || disposed) return;
+      if (running()) void tour.show(path);
+      else tour.clear();
+    });
+  };
+  const render = () => {
+    tourButton.setAttribute("aria-pressed", String(running()));
+    for (const el of [back, next, counter]) el.hidden = !running();
+    for (const el of [back, next]) el.disabled = !running();
+    // An end that goes nowhere stays focusable, so focus is not lost with it.
+    back.setAttribute("aria-disabled", String(path.length <= 1));
+    next.setAttribute("aria-disabled", String(nextStep(path, count) === path));
+    counter.textContent = running() ? m.tour_count({ number: path.at(-1) ?? 1, count }) : "";
+  };
+  const sameAsNow = (to: TourPath) =>
+    to.length === path.length && to.every((n, i) => n === path[i]);
+  const set = (to: TourPath, byViewer: boolean) => {
+    if (sameAsNow(to)) return;
+    path = to;
+    render();
+    sync();
+    if (byViewer) emitFocus({ kind: "tour", path });
+  };
+  const start = () => {
+    if (running()) return;
+    prefix = m.tour_started();
+    set(startTour(count), true);
+    next.focus();
+  };
+  const end = (byViewer: boolean) => {
+    if (!running()) return;
+    // Back and Next hide with the tour; focus goes to Tour rather than to <body>.
+    const strands = document.activeElement === back || document.activeElement === next;
+    prefix = "";
+    set([], byViewer);
+    if (status) status.textContent = m.tour_ended();
+    if (byViewer || strands) tourButton.focus();
+  };
+  const step = (to: (from: TourPath) => TourPath) => set(to(path), true);
+
+  let down: { x: number; y: number } | null = null;
+  // Capture: Panzoom stops pointerdown at the canvas, so it never bubbles to the stage.
+  stage.addEventListener(
+    "pointerdown",
+    (event) => {
+      down = { x: event.clientX, y: event.clientY };
+    },
+    { capture: true },
+  );
+  // A drag that pans ends in a click too; it goes nowhere.
+  stage.addEventListener("click", (event) => {
+    const from = down;
+    down = null;
+    if (!running()) return;
+    if (from && Math.hypot(event.clientX - from.x, event.clientY - from.y) >= TAP_SLOP) return;
+    const target = event.target;
+    void load().then((tour) => {
+      const n = tour?.nodeAt(target) ?? null;
+      if (n !== null && !disposed) set(jumpTo(path, n, count), true);
+    });
+  });
+
+  return {
+    mount(add: AddButton, toolbar: HTMLElement) {
+      tourButton = add(m.tour_button(), m.tour_button_title(), () =>
+        running() ? end(true) : start(),
+      );
+      // The name is the visible word; the title carries the hint and the key.
+      tourButton.setAttribute("aria-label", m.tour_button());
+      back = add("←", m.tour_back(), () => step(previousStep));
+      next = add("→", m.tour_next(), () => step((from) => nextStep(from, count)));
+      counter = document.createElement("span");
+      counter.className = "docwalk-tour-count";
+      toolbar.append(counter);
+      // Between the tour's buttons: Tour, Back, count, Next.
+      back.after(counter);
+      counter.after(next);
+      status = document.createElement("div");
+      status.className = "docwalk-tour-status";
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+      toolbar.append(status);
+      render();
+    },
+    key(event: KeyboardEvent): boolean {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+      if (event.key === "Escape") {
+        if (!running()) return false;
+        end(true);
+        return true;
+      }
+      if (event.key === "t" || event.key === "T") {
+        if (running()) end(true);
+        else start();
+        return true;
+      }
+      if (!running()) return false;
+      // On a toolbar button Space is the button's own.
+      const spaceIsNext = event.key === " " && !(event.target instanceof HTMLButtonElement);
+      if (["ArrowRight", "ArrowDown", "PageDown"].includes(event.key) || spaceIsNext) {
+        step((from) => nextStep(from, count));
+      } else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) {
+        step(previousStep);
+      } else if (event.key === "Home") {
+        step(() => firstStep(count));
+      } else {
+        return false;
+      }
+      event.preventDefault();
+      return true;
+    },
+    setTour(to: readonly number[]) {
+      const normal = normalizeTour(to, count);
+      if (normal.length === 0) end(false);
+      else set(normal, false);
+    },
+    dispose() {
+      disposed = true;
+      drawn += 1;
+      void loaded?.then((tour) => tour?.clear());
     },
   };
 }
@@ -592,6 +811,8 @@ export interface MirroredFocus {
   setView(view: FocusTransform | null): void;
   /** The presenter's marked lines of a code view; other kinds ignore it. */
   setLines(lines: readonly number[]): void;
+  /** The presenter's diagram tour, as node numbers; other kinds ignore it (decision 109). */
+  setTour(path: readonly number[]): void;
   close(): void;
 }
 
@@ -617,6 +838,9 @@ export function openMirroredFocus(
     },
     setLines(lines) {
       view.setLines?.(lines);
+    },
+    setTour(path) {
+      view.setTour?.(path);
     },
     close: () => close(),
   };

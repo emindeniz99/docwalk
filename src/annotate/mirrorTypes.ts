@@ -235,4 +235,6 @@ export type FocusEvent =
   | { kind: "view"; scale: number; x: number; y: number }
   /** The lines marked in the open code view now, from 1. */
   | { kind: "lines"; lines: readonly number[] }
+  /** The diagram tour's path now, as node numbers from 1; empty when it ended (decision 109). */
+  | { kind: "tour"; path: readonly number[] }
   | { kind: "close" };

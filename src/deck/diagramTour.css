@@ -53,3 +53,34 @@
     stroke: Highlight !important;
   }
 }
+
+/* The tour's controls in the focus view's toolbar (decision 109). Back and Next
+   at the end of the path stay in the tab order (aria-disabled), so they only dim. */
+.docwalk-focus-toolbar button[aria-pressed="true"] {
+  border-color: var(--dw-color-primary);
+  background: var(--dw-color-primary);
+  color: var(--dw-color-on-primary);
+}
+
+.docwalk-focus-toolbar button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.docwalk-tour-count {
+  align-self: center;
+  min-width: 4.5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The polite status for screen readers: present in the dialog, not on screen. */
+.docwalk-tour-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
