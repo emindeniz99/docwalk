@@ -511,8 +511,10 @@ describe("presenter host", () => {
     });
     const follower = peer(relay, await joinCreds(host, "follow"), "follower");
     await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
-    // Past the window of the follower's own first hello.
-    await new Promise((r) => setTimeout(r, 400));
+    // Past both windows a join opens: a join sends two hellos (decision 111),
+    // one on open and one after the first state, and 103 answers the second at
+    // the end of its 250 ms window, which opens a second window.
+    await new Promise((r) => setTimeout(r, 800));
     const before = ofType(follower, "state").length;
     for (let i = 0; i < 20; i++) {
       const id = `FloodFlood${String(i).padStart(2, "0")}`;
@@ -1013,6 +1015,25 @@ describe("follower", () => {
     });
     await vi.waitFor(() => expect(controller.goTo).toHaveBeenLastCalledWith("section-5/1"));
     expect(result.current!.status).toBe("open");
+  });
+
+  test("tells onSlide the address of every signed state, so a board for another page can be dropped (decision 110)", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const onSlide = vi.fn<(address: string) => void>();
+    mountFollower({
+      creds,
+      controller: fakeController(),
+      socketFactory: relay.factory,
+      base: BASE,
+      onSlide,
+    });
+    await vi.waitFor(() => expect(ofType(presenter, "hello")).toHaveLength(1));
+    await presenter.conn.send(presenterState("section-2/1"));
+    await presenter.conn.send(presenterState("section-3/1"));
+    await vi.waitFor(() => expect(onSlide).toHaveBeenCalledTimes(2));
+    expect(onSlide.mock.calls).toEqual([["section-2/1"], ["section-3/1"]]);
   });
 
   test("catches up once its deck is ready, since state can arrive before the document loads", async () => {

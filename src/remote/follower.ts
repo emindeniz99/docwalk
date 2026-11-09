@@ -29,6 +29,12 @@ export interface RemoteFollowerOptions {
    * arrived with the presenter's signature (decision 88), in order.
    */
   onMirror?: (op: MirrorOp) => void;
+  /**
+   * Called with the slide address of each state the presenter signed, as it
+   * arrives. The whiteboard ends with a change of slide (decision 110), and a
+   * lost `board-close` is only noticed by the state that follows it.
+   */
+  onSlide?: (address: string) => void;
 }
 
 export interface RemoteFollower {
@@ -91,13 +97,16 @@ export function useRemoteFollower({
   socketFactory,
   base,
   onMirror,
+  onSlide,
 }: RemoteFollowerOptions): RemoteFollower {
   const [status, setStatus] = useState<RemoteStatus>("connecting");
   const [state, setState] = useState<FollowState | null>(null);
   // Read through a ref, so a new callback never restarts the connection.
   const mirror = useRef(onMirror);
+  const slide = useRef(onSlide);
   useLayoutEffect(() => {
     mirror.current = onMirror;
+    slide.current = onSlide;
   });
   const room = creds?.room;
   const view = creds?.view;
@@ -121,6 +130,7 @@ export function useRemoteFollower({
         }
         if (message.type !== "state") return;
         const { type: _type, ...rest } = message;
+        slide.current?.(rest.current);
         const docLink = sameOriginLink(rest.docLink, origin);
         // A link to another site is dropped, and the follower is told it has no document.
         const docLinkTooLong = rest.docLinkTooLong || (rest.docLink !== null && docLink === null);

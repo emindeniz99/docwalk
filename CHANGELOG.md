@@ -26,7 +26,9 @@ The first release.
 - An editor view with live preview, outline, command palette and slide
   overview; a GitHub-style document view; presentation mode.
 - A presenter window on the same machine; a phone remote and follow-along
-  links through end-to-end encrypted rooms on the Cloudflare Worker.
+  links through end-to-end encrypted rooms on the Cloudflare Worker. A
+  follow screen fills the screen like the presenter's, with its status in a
+  bar that hides when idle and stays while the connection is down.
 - Export to PDF, a single self-contained HTML file and PNG images.
 - Speaker notes: the HTML comments of a section show under the current
   slide in the presenter window, as plain text, on every page of the
@@ -88,7 +90,9 @@ The first release.
   the deck, outline, palette, overview, presenter list and exports hold the
   chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
-  only for the languages a document uses.
+  only for the languages a document uses. A grammar that loads late colours
+  its blocks in place, and Markdown bold and italic in a code block take the
+  function colour.
 - Monaco as an optional desktop editor beside CodeMirror. A switch of
   editor keeps the cursor line, the command palette offers the other
   editor, a pick in one tab applies in the others, a list item's indented

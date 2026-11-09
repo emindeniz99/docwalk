@@ -276,3 +276,23 @@ describe("colours are in place before the deck measures (rule 4)", () => {
     expect(measure()).toEqual(plain);
   });
 });
+
+describe("Markdown emphasis in a code block (decision 115)", () => {
+  test("bold and italic get the function colour, headings keep the constant colour", async () => {
+    const box = render(fence("md", "# Head\n\n**bold** and *it*"));
+    await highlightCode(box);
+    // The theme marks the asterisks with the word, so each span holds both.
+    const spanWith = (text: string) =>
+      [...box.querySelectorAll("pre > code span")].find((s) => s.textContent?.includes(text));
+    expect(spanWith("bold")?.className).toBe("dw-code-function");
+    expect(spanWith("bold")?.textContent).toBe("**bold**");
+    expect(spanWith("it")?.className).toBe("dw-code-function");
+    expect(spanWith("Head")?.className).toBe("dw-code-constant");
+    // Colour only: emphasis changes no weight or style, so no line moves (76).
+    const bold = spanWith("bold")!;
+    expect(getComputedStyle(bold).fontWeight).toBe(
+      getComputedStyle(bold.parentElement!).fontWeight,
+    );
+    expect(getComputedStyle(spanWith("it")!).fontStyle).toBe("normal");
+  });
+});

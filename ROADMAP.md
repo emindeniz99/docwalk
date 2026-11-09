@@ -183,8 +183,7 @@ Later rounds:
   Worker under Miniflare; `e2e/mcp.spec.ts`, a real-socket session with the
   built bin, passed 3 of 3 on Node 22.23.4 on 2026-11-09 (the MCP unit tests
   20 of 20), but CI runs Node 24 only, so nothing holds `engines` (>=22) in
-  place; an agent or phone remote that joins before the
-  presenter's socket is open is not counted (hello is not resent);
+  place; a device that left is still counted (there is no goodbye), and an agent built before decision 111 stays uncounted after a presenter reload;
   `docwalk-mcp` is not on npm yet.
 - Markdown (decision 107): raw HTML headings (`<h2>…</h2>`) and headings
   inside footnote definitions get no anchor; a heading's slug comes from its
@@ -269,6 +268,10 @@ Later rounds:
   leave out `?sections=` (the owner decides whether the share link should
   carry it); a follower counts every slide; the presenter window still
   builds previews for skipped sections.
+- Links during a rebuild: a link followed while a rebuild is in flight (the
+  250 ms after an edit) is overridden by the editor's cursor-follow in the same
+  pass. Letting the hash win needs a decision row (`useUrlSync` and
+  `followCursor` in `App.tsx`); the owner decides.
 - Shortcut hints: on Apple platforms `ModShortcut` draws the command glyph
   as an `aria-hidden` icon, so the palette button's accessible name ends in
   "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
@@ -284,12 +287,12 @@ Later rounds:
   every control reachable; the diagram focus view copies the SVG with its
   ids, so they repeat while it is open; at 1280 px the app header takes two
   rows (113 px against 63 px at 1440).
-- Code colours (decision 76): a grammar that loads after the 5 s timeout
-  colours nothing until the next rebuild; the default view's first load
-  is 977 kB of the 1 MB limit, and Shiki's precompiled grammars with its
-  raw engine (experimental upstream) would save an estimated 18 kB; a language
-  outside the 24 stays plain, and Markdown bold and italic in a code block
-  get no colour (the theme marks them with weight only).
+- Code colours (decisions 76 and 115): a grammar that lands after the 5 s
+  timeout colours its blocks in place within 60 s, but an open overview or
+  focus view keeps its plain copy until reopened, and the presenter's previews
+  stay plain until their next build; Shiki's precompiled grammars with its raw
+  engine (experimental upstream) would save an estimated 18 kB of the first
+  load; a language outside the 24 stays plain.
 - While presenting in real fullscreen, Escape with a dialog open closes the
   dialog and leaves fullscreen (browsers keep the key); presenting goes on
   windowed until a second Escape.
@@ -302,9 +305,9 @@ Later rounds:
   and links address slides as `<section-id>/<n>`. It needs one shared
   aspect per talk (the presenter's, sent to followers) before it can be
   considered.
-- Fill frame on follower screens (decision 77): a follow screen still shows
-  the card on the dark stage and keeps its bar; a room's second screen
-  would gain the same room the presenter's did.
+- Follow screens (decision 113, proposed): no Full screen button, no wake
+  lock and no frame switch on the follow page; the frame follows what this
+  browser chose in another docwalk tab.
 
 ## Next up
 

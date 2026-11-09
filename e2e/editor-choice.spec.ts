@@ -12,9 +12,12 @@ const MONACO_ASSET = /\/assets\/(MonacoEditor|editor\.worker|codicon)-/;
 const address = (page: Page) => page.locator(".docwalk-preview-head > span");
 const monacoLines = (page: Page) => page.locator(".monaco-editor .view-lines");
 const top = async (line: Locator) => (await line.boundingBox())?.y ?? Number.NaN;
-// Monaco follows the page's user agent; Playwright's ControlOrMeta follows the host OS.
+// Monaco picks its key bindings from the user agent (`userAgent.indexOf("Macintosh") >= 0` in
+// its platform module). Neither Playwright's ControlOrMeta (the host OS) nor `navigator.platform`
+// agrees: the "Desktop Safari" device changes only the user agent, so on a Linux host
+// `navigator.platform` still says Linux while Monaco binds find to Meta+F.
 const findKey = (page: Page) =>
-  page.evaluate(() => (navigator.platform.startsWith("Mac") ? "Meta+f" : "Control+f"));
+  page.evaluate(() => (navigator.userAgent.indexOf("Macintosh") >= 0 ? "Meta+f" : "Control+f"));
 
 async function pickEditor(page: Page, name: "CodeMirror" | "Monaco") {
   await page.getByRole("button", { name: "More actions" }).click();
