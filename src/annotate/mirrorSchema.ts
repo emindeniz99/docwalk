@@ -16,9 +16,10 @@ import {
   MAX_STROKE_POINTS,
   type MirrorOp,
 } from "./mirrorTypes";
+import { MAX_TOUR_NODES, MAX_TOUR_STEPS } from "../deck/tourModel";
 
 /**
- * The schema of every mirror op (decisions 88, 103, 106 and 110), checked where the ops arrive:
+ * The schema of every mirror op (decisions 88, 103, 106, 109 and 110), checked where the ops arrive:
  * in a room message after it decrypts (src/remote/crypto.ts) and on the
  * presenter bridge (src/presenter/bridge.ts). Strict: a field it does not
  * name fails the whole message, so nothing a sender adds can ride along.
@@ -40,6 +41,8 @@ const Pan = v.pipe(
 /** A block's number among the blocks of its kind on its slide (decision 106). */
 const Place = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_FOCUS_BLOCKS));
 const Line = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_CODE_LINES));
+/** A node's number among the nodes of its diagram, in drawing order (decision 109). */
+const TourNode = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_TOUR_NODES));
 const focusOpen = { type: v.literal("mirror"), op: v.literal("focus-open"), slide: Slide };
 
 const Points = v.pipe(
@@ -108,6 +111,11 @@ export const MirrorMessageSchema = v.variant("op", [
       v.maxLength(MAX_MARKED_LINES),
       v.check((list) => list.every((n, i) => i === 0 || n > list[i - 1]!), "lines ascend"),
     ),
+  }),
+  v.strictObject({
+    type: v.literal("mirror"),
+    op: v.literal("focus-tour"),
+    path: v.pipe(v.array(TourNode), v.maxLength(MAX_TOUR_STEPS)),
   }),
   v.strictObject({ type: v.literal("mirror"), op: v.literal("focus-close") }),
 ]) satisfies v.GenericSchema<unknown, { type: "mirror" } & MirrorOp>;

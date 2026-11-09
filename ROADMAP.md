@@ -78,6 +78,16 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   `?sections=`; the deck, outline, palette, overview, presenter list and
   exports hold the chosen sections, and document mode and the editor keep
   the whole file. `e2e/sections.spec.ts` covers it (19 tests on Chromium).
+- Done 2026-11-09: the diagram tour (decision 109, proposed): in the diagram
+  focus view, T or the Tour button steps through a flowchart, class, state
+  or ER diagram node by node along its edges, fading what is not linked and
+  naming what is; followers see the same path. `e2e/diagram-tour.spec.ts`
+  and `e2e/diagram-tour-mirror.spec.ts` cover it (5 tests on Chromium).
+- Done 2026-11-09: math and emoji shortcodes (decision 101): `$…$`,
+  ``$`…`$``, `$$…$$`, ` ```math ` fences and `:rocket:` render as on GitHub.
+  Temml builds each formula in a Web Worker, stopped after 500 ms; the page
+  rebuilds its tree from data through an allowlist and holds lengths to
+  4 em. `e2e/math.spec.ts` covers it (6 tests on Chromium).
 
 Still open in v1:
 
@@ -90,8 +100,9 @@ Still open in v1:
   bundle the spec read about 2.5 s, so the build improved and is still
   about 18 % over on this machine, 70 % over on CI. The other budgets hold:
   repaginate had a median of 214 ms and a worst of 230 ms against 300 ms (CI
-  325 ms, one sample, over), and the default view's first load is 979 kB
-  gzip against the 1 MB limit. The spec warns above the budget and fails
+  325 ms, one sample, over), and the default view's first load is 987 kB
+  gzip against the 1 MB limit (2026-11-09, after math and the diagram tour;
+  the exporters now load on demand). The spec warns above the budget and fails
   above three times it; the threshold is unchanged. A perf pass on the open
   path is the next step.
 
@@ -316,9 +327,7 @@ order unless the owner picks differently. The first two give the most for
 the least work. Each starts with a decision row, then failing tests, then
 code.
 
-1. Math and emoji shortcodes, which GitHub renders natively.
-2. A step-through tour of a Mermaid diagram's nodes and paths.
-3. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+1. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 

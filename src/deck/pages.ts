@@ -24,6 +24,8 @@ export function describeOverflow(m: SlideMeasurement): string {
   if (clipped > 0) parts.push(msg.deck_overflow_clipped({ count: clipped }));
   const wideCode = m.code.filter((c) => c.x > 0 || c.y > 0).length;
   if (wideCode > 0) parts.push(msg.deck_overflow_code({ count: wideCode }));
+  const wideMath = m.math.filter((e) => e.x > 0 || e.y > 0).length;
+  if (wideMath > 0) parts.push(msg.deck_overflow_math({ count: wideMath }));
   const notes: string[] = [];
   if (parts.length > 0) notes.push(msg.deck_overflow_note({ parts: parts.join(", ") }));
   if (m.tooSmall > 0) notes.push(msg.deck_too_small({ count: m.tooSmall }));

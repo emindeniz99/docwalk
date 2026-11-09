@@ -17,8 +17,8 @@ node (nearest heading, diagram number under it, node id from the source).
 Never a slide index or a character offset (55, 65). Code: `Anchor`.
 
 **Atomic block**: a rendered block pagination never splits: a code block, a
-Mermaid diagram, an image. One taller than an empty slide gets a
-**diagnostic** (19).
+Mermaid diagram, an image, a display equation. One taller than an empty
+slide gets a **diagnostic** (19, 101).
 
 **Base level**: the heading level that starts slides. `auto` picks it with
 Pandoc's rule, skipping the **document title** (14); the user can override
@@ -46,8 +46,19 @@ rendered. docwalk shows one instead of clipping or shrinking (19).
 **Diagram focus**: the mode a click on a Mermaid diagram opens: fit, zoom,
 pan, reset, fullscreen, pen and laser (3, 28, 29).
 
+**Diagram tour**: stepping through a diagram's nodes in the diagram focus
+view. The steps form a path, the last one current; it belongs to the open
+view and is mirrored to followers as node numbers (109). Code:
+`src/deck/diagramTour.ts`, `tourModel.ts`.
+
 **Document mode**: the doc rendered as GitHub would show it, scrolling, no
 slides (3, 10).
+
+**Emoji shortcode**: `:name:` in text, shown as gemoji's character, as
+GitHub does (`:rocket:` is 🚀). Only text nodes outside code, keys,
+formulas and diagrams change; an unknown name stays as written, and titles,
+breadcrumbs and the outline keep the shortcode (101). Code:
+`src/render/emoji.ts`, `emojiMap.ts`.
 
 **Focus view**: the full-window view that a click or Enter opens on a
 diagram, a code block, a table or a loaded image. Diagrams and images zoom
@@ -67,6 +78,16 @@ presenter's line marks are mirrored to followers while the view is open
 **Local folder**: a folder on disk the user opened through the File System
 Access API. Its files are saved only on Save or Ctrl/Cmd+S, and reload when
 they change on disk (58). Code: root `"folder"`.
+
+**Math**: a formula in one of GitHub's four forms: inline `$…$` or
+``$`…`$``, and the **display equation**, `$$…$$` on lines of their own or a
+` ```math ` fence. docwalk draws it as MathML built from an allowlist after
+both sanitizers; one it cannot draw keeps its TeX source. Temml runs in
+the **math worker**, a dedicated Web Worker that gives each formula 500 ms.
+A display equation is an **atomic block** that scrolls inside itself, and
+one wider than the slide gets a **diagnostic** (101). Code:
+`src/render/math.ts`, `mathRender.ts`, `math.worker.ts`, `mathTree.ts`,
+`mathRebuild.ts`, `mathAllow.ts`.
 
 **Mirror**: what the presenter shows others as it happens: the laser, pen,
 arrow and shape marks, the whiteboard, and the focus view with its zoom, scroll and line marks.
@@ -212,6 +233,9 @@ Add a row here before introducing a new one.
 | task mark                   | görev işareti               | named "tamamlandı", "tamamlanmadı"         |
 | text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |
 | diagram, node               | diyagram, düğüm             |                                            |
+| math, formula, equation     | matematik, formül, denklem  | "denklem" in "N denklem fazla geniş"       |
+| emoji shortcode             | emoji kısa kodu             | the `:name:` text, not the character       |
+| diagram tour, step          | diyagram turu, adım         | "Tur" on the button                        |
 | focus view                  | odak görünümü               | "tam ekran" in the dialog's names          |
 | line mark                   | satır işareti               | the "Temizle" button removes them          |
 | mark, saved marks           | işaret, kayıtlı işaretler   | pen and arrow marks; "Sil" deletes them    |

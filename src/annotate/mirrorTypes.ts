@@ -10,6 +10,7 @@
  * of the 1280 by 720 slide box, on a grid of `COORD_MAX` steps (0.3 px), so a
  * mark lands on the same spot of the slide on any screen and in any frame.
  */
+import { MAX_TOUR_NODES, MAX_TOUR_STEPS } from "../deck/tourModel";
 
 /** One step more than the grid: 0 is the left or top edge, `COORD_MAX` the right or bottom one. */
 export const COORD_MAX = 4096;
@@ -167,6 +168,15 @@ export function markedLines(lines: readonly number[]): number[] {
   return [...new Set(valid)].toSorted((a, b) => a - b).slice(0, MAX_MARKED_LINES);
 }
 
+/**
+ * A tour path as a `focus-tour` op carries it: whole numbers from 1 to
+ * `MAX_TOUR_NODES`, the last `MAX_TOUR_STEPS` of them (decision 109).
+ */
+export function tourPath(path: readonly number[]): number[] {
+  const valid = path.filter((n) => Number.isInteger(n) && n >= 1 && n <= MAX_TOUR_NODES);
+  return valid.slice(-MAX_TOUR_STEPS);
+}
+
 /** The ops that travel to a receiver. The same shapes go in a room message and over the bridge. */
 export type MirrorOp =
   /** The presenter's laser in slide units (0..1). */
@@ -219,6 +229,13 @@ export type MirrorOp =
   | { op: "focus-view"; scale: number; x: number; y: number }
   /** The marked lines of the open code view, from 1, ascending (decision 106). */
   | { op: "focus-lines"; lines: number[] }
+  /**
+   * The diagram tour's whole path now, as node numbers from 1 in drawing
+   * order (decision 109): at most `MAX_TOUR_STEPS`, each 1 to
+   * `MAX_TOUR_NODES`, the last one current. Empty means no tour. Numbers
+   * travel and node ids do not.
+   */
+  | { op: "focus-tour"; path: number[] }
   | { op: "focus-close" };
 
 /** A mark as the layer reports it (src/annotate/layer.ts) and the feed keeps it. */
@@ -256,4 +273,6 @@ export type FocusEvent =
   | { kind: "view"; scale: number; x: number; y: number }
   /** The lines marked in the open code view now, from 1. */
   | { kind: "lines"; lines: readonly number[] }
+  /** The diagram tour's path now, as node numbers from 1; empty when it ended (decision 109). */
+  | { kind: "tour"; path: readonly number[] }
   | { kind: "close" };

@@ -80,6 +80,9 @@ const MESSAGES: RemoteMessage[] = [
   { type: "mirror", op: "focus-open", slide: "retries/2", image: 3 },
   { type: "mirror", op: "focus-lines", lines: [1, 4, 100_000] },
   { type: "mirror", op: "focus-lines", lines: [] },
+  // The diagram tour (decision 109).
+  { type: "mirror", op: "focus-tour", path: [1, 2, 2, 1000] },
+  { type: "mirror", op: "focus-tour", path: [] },
   // Shapes and the whiteboard (decision 110).
   {
     type: "mirror",
@@ -636,6 +639,68 @@ describe("mirror messages (decision 88)", () => {
         `${JSON.stringify(message)}`,
       ).toBeNull();
     }
+  });
+
+  test("a tour path is at most 64 whole node numbers from 1 to 1000 and nothing else (decision 109)", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const tour = { type: "mirror", op: "focus-tour" };
+    const hostile: unknown[] = [
+      { ...tour, path: Array.from({ length: 65 }, (_, i) => i + 1) },
+      { ...tour, path: [0] },
+      { ...tour, path: [-1] },
+      { ...tour, path: [1001] },
+      { ...tour, path: [2.5] },
+      { ...tour, path: [Number.NaN] },
+      { ...tour, path: [Number.POSITIVE_INFINITY] },
+      { ...tour, path: [1, "2"] },
+      { ...tour, path: ["node-a"] },
+      { ...tour, path: [null] },
+      { ...tour, path: "1,2" },
+      { ...tour, path: 1 },
+      { ...tour, path: null },
+      tour,
+      { ...tour, path: [1], slide: "a/1" },
+      { ...tour, path: [1], ids: ["a"] },
+      { ...tour, path: [1], html: "<b>" },
+      { type: "mirror", op: "focus-tours", path: [1] },
+      { type: "mirror", op: "tour", path: [1] },
+    ];
+    for (const message of hostile) {
+      expect(
+        await decrypt(key, await encryptRaw(key, sealed(message))),
+        `${JSON.stringify(message)}`,
+      ).toBeNull();
+    }
+    // The longest valid path and the shortest are fine.
+    for (const path of [[], [1], Array.from({ length: 64 }, (_, i) => 937 + i)]) {
+      const opened = await decrypt(key, await encryptRaw(key, sealed({ ...tour, path })));
+      expect(opened?.message, `${path.length} entries`).toEqual({ ...tour, path });
+    }
+  });
+
+  test("the longest tour path fits a relay frame and arrives intact, and the host's estimate holds (decision 109)", async () => {
+    // Like every mirror op it cannot be split into parts: 64 of the widest
+    // node numbers must fit one 16 KB frame, signed.
+    const { view, signer, verifier } = await signedRoom();
+    const widest: RemoteMessage = {
+      type: "mirror",
+      op: "focus-tour",
+      path: Array.from({ length: 64 }, (_, i) => 937 + i),
+    };
+    const frame = await encrypt(view, widest, SEAL, signer);
+    const bytes = JSON.stringify(frame).length;
+    expect(bytes).toBeLessThan(1024);
+    expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(widest);
+    const { type: _type, ...op } = widest as { type: "mirror" } & MirrorOp;
+    const estimate = mirrorFrameBytes(op as MirrorOp);
+    expect(estimate, "the estimate never undercounts").toBeGreaterThanOrEqual(bytes);
+    expect(estimate, "and stays close").toBeLessThan(bytes * 1.02);
+    console.info(
+      `mirror focus-tour: 64 nodes, ${JSON.stringify(widest).length} bytes of JSON, ${bytes} as a frame`,
+    );
   });
 
   test("the longest list of marked lines fits a relay frame and arrives intact (decision 106)", async () => {

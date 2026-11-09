@@ -212,13 +212,27 @@ describe("laser and focus", () => {
     store.apply({ op: "focus-view", scale: 2, x: 0, y: 0 });
     expect(store.focus).toBeNull();
     store.apply({ op: "focus-open", slide: "d/1", diagram: 2 });
-    expect(store.focus).toEqual({ slide: "d/1", block: "diagram", n: 2, view: null, lines: [] });
+    expect(store.focus).toEqual({
+      slide: "d/1",
+      block: "diagram",
+      n: 2,
+      view: null,
+      lines: [],
+      tour: [],
+    });
     store.apply({ op: "focus-view", scale: 2.5, x: -0.25, y: 0.1 });
     expect(store.focus?.view).toEqual({ scale: 2.5, x: -0.25, y: 0.1 });
     store.apply({ op: "focus-open", slide: "d/1", diagram: 2 });
     expect(store.focus?.view).toEqual({ scale: 2.5, x: -0.25, y: 0.1 });
     store.apply({ op: "focus-open", slide: "d/1", diagram: 3 });
-    expect(store.focus).toEqual({ slide: "d/1", block: "diagram", n: 3, view: null, lines: [] });
+    expect(store.focus).toEqual({
+      slide: "d/1",
+      block: "diagram",
+      n: 3,
+      view: null,
+      lines: [],
+      tour: [],
+    });
     store.apply({ op: "focus-close" });
     expect(store.focus).toBeNull();
   });
@@ -228,7 +242,14 @@ describe("the code, table and image views (decision 106)", () => {
   test("a block is held by its kind and place, and a new block starts with no view and no marks", () => {
     const store = new MirrorStore();
     store.apply({ op: "focus-open", slide: "c/1", code: 2 });
-    expect(store.focus).toEqual({ slide: "c/1", block: "code", n: 2, view: null, lines: [] });
+    expect(store.focus).toEqual({
+      slide: "c/1",
+      block: "code",
+      n: 2,
+      view: null,
+      lines: [],
+      tour: [],
+    });
     store.apply({ op: "focus-view", scale: 1.5, x: 0, y: 0.5 });
     store.apply({ op: "focus-lines", lines: [1, 3] });
     // The same block again (a resync) keeps what the view holds.
@@ -239,14 +260,36 @@ describe("the code, table and image views (decision 106)", () => {
       n: 2,
       view: { scale: 1.5, x: 0, y: 0.5 },
       lines: [1, 3],
+      tour: [],
     });
     // Another kind at the same place is another block.
     store.apply({ op: "focus-open", slide: "c/1", table: 2 });
-    expect(store.focus).toEqual({ slide: "c/1", block: "table", n: 2, view: null, lines: [] });
+    expect(store.focus).toEqual({
+      slide: "c/1",
+      block: "table",
+      n: 2,
+      view: null,
+      lines: [],
+      tour: [],
+    });
     store.apply({ op: "focus-open", slide: "c/1", image: 1 });
-    expect(store.focus).toEqual({ slide: "c/1", block: "image", n: 1, view: null, lines: [] });
+    expect(store.focus).toEqual({
+      slide: "c/1",
+      block: "image",
+      n: 1,
+      view: null,
+      lines: [],
+      tour: [],
+    });
     store.apply({ op: "focus-open", slide: "c/1", diagram: 1 });
-    expect(store.focus).toEqual({ slide: "c/1", block: "diagram", n: 1, view: null, lines: [] });
+    expect(store.focus).toEqual({
+      slide: "c/1",
+      block: "diagram",
+      n: 1,
+      view: null,
+      lines: [],
+      tour: [],
+    });
   });
 
   test("marked lines are taken only while a code view is open, and each list replaces the last", () => {
@@ -290,6 +333,92 @@ describe("the code, table and image views (decision 106)", () => {
     expect(heard).not.toHaveBeenCalled();
     store.apply({ op: "focus-lines", lines: [4] });
     expect(heard).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the diagram tour (decision 109)", () => {
+  test("a path is taken only while a diagram view is open, and each path replaces the last", () => {
+    const store = new MirrorStore();
+    store.apply({ op: "focus-tour", path: [1] });
+    expect(store.focus).toBeNull();
+    for (const open of [{ code: 1 }, { table: 1 }, { image: 1 }] as const) {
+      store.apply({ op: "focus-open", slide: "c/1", ...open });
+      store.apply({ op: "focus-tour", path: [1, 2] });
+      expect(store.focus?.tour).toEqual([]);
+    }
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 1 });
+    expect(store.focus?.tour).toEqual([]);
+    store.apply({ op: "focus-tour", path: [3, 1, 4] });
+    expect(store.focus?.tour).toEqual([3, 1, 4]);
+    store.apply({ op: "focus-tour", path: [3] });
+    expect(store.focus?.tour).toEqual([3]);
+    store.apply({ op: "focus-tour", path: [] });
+    expect(store.focus?.tour).toEqual([]);
+    store.apply({ op: "focus-close" });
+    store.apply({ op: "focus-tour", path: [1] });
+    expect(store.focus).toBeNull();
+  });
+
+  test("a new block starts with no tour, and the same block again (a resync) keeps it", () => {
+    const store = new MirrorStore();
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 1 });
+    store.apply({ op: "focus-tour", path: [2, 3] });
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 1 });
+    expect(store.focus?.tour).toEqual([2, 3]);
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 2 });
+    expect(store.focus?.tour).toEqual([]);
+    store.apply({ op: "focus-tour", path: [2] });
+    store.apply({ op: "focus-open", slide: "d/2", diagram: 2 });
+    expect(store.focus?.tour).toEqual([]);
+  });
+
+  test("the store keeps its own copy of the path, so the sender's array cannot change it later", () => {
+    const store = new MirrorStore();
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 1 });
+    const path = [1, 2];
+    store.apply({ op: "focus-tour", path });
+    path.push(3);
+    expect(store.focus?.tour).toEqual([1, 2]);
+  });
+
+  test("an equal path, and a path with no diagram view open, tell no listener, so nothing redraws", () => {
+    const store = new MirrorStore();
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    store.apply({ op: "focus-tour", path: [1] });
+    store.apply({ op: "focus-open", slide: "c/1", code: 1 });
+    heard.mockClear();
+    store.apply({ op: "focus-tour", path: [1] });
+    expect(heard).not.toHaveBeenCalled();
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 1 });
+    heard.mockClear();
+    // Empty while empty is nothing either: a resync sends it to a follower that held none.
+    store.apply({ op: "focus-tour", path: [] });
+    expect(heard).not.toHaveBeenCalled();
+    store.apply({ op: "focus-tour", path: [1, 2] });
+    expect(heard).toHaveBeenCalledTimes(1);
+    store.apply({ op: "focus-tour", path: [1, 2] });
+    expect(heard).toHaveBeenCalledTimes(1);
+    // Same numbers in another order, or one more step, are other paths.
+    store.apply({ op: "focus-tour", path: [2, 1] });
+    store.apply({ op: "focus-tour", path: [2, 1, 1] });
+    expect(heard).toHaveBeenCalledTimes(3);
+  });
+
+  test("the zoom and the marked lines do not touch the path", () => {
+    const store = new MirrorStore();
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 1 });
+    store.apply({ op: "focus-tour", path: [4] });
+    store.apply({ op: "focus-view", scale: 2, x: 0, y: 0 });
+    store.apply({ op: "focus-lines", lines: [1] });
+    expect(store.focus).toEqual({
+      slide: "d/1",
+      block: "diagram",
+      n: 1,
+      view: { scale: 2, x: 0, y: 0 },
+      lines: [],
+      tour: [4],
+    });
   });
 });
 

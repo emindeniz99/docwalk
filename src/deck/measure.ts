@@ -1,3 +1,5 @@
+import { MATH_DISPLAY_CLASS } from "../render/math";
+
 /** Pixels of overflow ignored, so sub-pixel rounding never raises a diagnostic. */
 export const OVERFLOW_TOLERANCE_PX = 4;
 
@@ -13,6 +15,8 @@ export interface SlideMeasurement {
   diagrams: Overflow[];
   /** Overflow of each code block, in document order. A slide's `<pre>` scrolls inside itself, so the body check alone misses a line wider than the slide. */
   code: Overflow[];
+  /** Overflow of each display equation, in document order. A block scrolls its own equation (decision 101), so the body check alone misses one wider than the slide. */
+  math: Overflow[];
   /** Diagrams scaled below `READABLE_SCALE` to fit the slide. */
   tooSmall: number;
   overflows: boolean;
@@ -50,9 +54,11 @@ export function measureBody(body: HTMLElement): SlideMeasurement {
   const bodyOverflow = overflowOf(body);
   const diagrams = [...body.querySelectorAll<HTMLElement>(".docwalk-diagram")].map(overflowOf);
   const code = [...body.querySelectorAll<HTMLElement>("pre")].map(overflowOf);
+  const math = [...body.querySelectorAll<HTMLElement>(`.${MATH_DISPLAY_CLASS}`)].map(overflowOf);
   const tooSmall = tooSmallDiagrams(body);
-  const overflows = clipped(bodyOverflow) || diagrams.some(clipped) || code.some(clipped);
-  return { body: bodyOverflow, diagrams, code, tooSmall, overflows };
+  const overflows =
+    clipped(bodyOverflow) || diagrams.some(clipped) || code.some(clipped) || math.some(clipped);
+  return { body: bodyOverflow, diagrams, code, math, tooSmall, overflows };
 }
 
 /** The content box of an empty slide body at `size`, measured off-screen. */

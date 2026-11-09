@@ -307,3 +307,23 @@
   border-width: 0 0.1em 0.1em 0;
   transform: translate(-50%, -50%) rotate(45deg);
 }
+
+/*
+ * Math (decision 101). Formulas are MathML built after the sanitizers
+ * (src/render/math.ts); Temml's own stylesheet loads with the chunk and
+ * styles the elements. A display equation is an atomic block that scrolls
+ * inside itself, and the measure pass checks it on its own, as it does a
+ * code block, so a wide one is reported and never clipped (rule 3).
+ */
+.docwalk-math-display {
+  display: block;
+  margin: 0.5em 0;
+  overflow: auto;
+  text-align: center;
+}
+
+/* A formula that could not be drawn stays as the source it was; the dotted line says it is not rendered. */
+.docwalk-math-error {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
