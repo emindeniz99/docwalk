@@ -105,8 +105,9 @@ interface DragWatch {
  * follows a link or opens a diagram. Once the pen has moved more than
  * {@link PEN_DRAG_PX} while down, `onDrag` gets the `pointerdown` once, and
  * the click that ends the drag is cancelled, so a stroke that finishes over a
- * link does not follow it. The next `pointerdown`, or the end of the click
- * window, disarms that cancel. Returns the disposer.
+ * link does not follow it; only a click on the stage that a pointer made is
+ * cancelled, never one from the keyboard or a script. The next `pointerdown`,
+ * or the end of the click window, disarms that cancel. Returns the disposer.
  */
 export function watchPenDrags(stage: HTMLElement, { enabled, onDrag }: DragWatch): () => void {
   let down: PointerEvent | null = null;
@@ -144,6 +145,13 @@ export function watchPenDrags(stage: HTMLElement, { enabled, onDrag }: DragWatch
   };
   const onClick = (event: MouseEvent) => {
     if (!swallow) return;
+    // Only the pen's own click, which a pointer made (detail 1 or more) on the
+    // stage. iPadOS sends none after a Pencil drag, and the window stays armed
+    // for 500 ms: an Enter or Space press, or a script's `a.click()` such as an
+    // export download, has detail 0 and must get through.
+    if (!(event.target instanceof Node) || !stage.contains(event.target) || event.detail === 0) {
+      return;
+    }
     disarm();
     event.preventDefault();
     event.stopPropagation();

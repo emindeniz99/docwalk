@@ -58,15 +58,18 @@ function pointer(
   return event;
 }
 
-/** Click the link and report whether the click reached it. */
-function clickReaches(): boolean {
+/**
+ * Click the link and report whether the click reached it. `detail` is the
+ * click count: 1 for a click a pointer made, 0 for Enter, Space or a script.
+ */
+function clickReaches(detail = 1): boolean {
   let reached = false;
   const onClick = (event: Event) => {
     reached = true;
     event.preventDefault(); // keep the test page where it is
   };
   link.addEventListener("click", onClick);
-  link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail }));
   link.removeEventListener("click", onClick);
   return reached;
 }
@@ -119,6 +122,32 @@ describe("watchPenDrags", () => {
     expect(clickReaches()).toBe(false);
     // Only that one click: the next is a real tap.
     expect(clickReaches()).toBe(true);
+  });
+
+  test("a click outside the stage still fires after a pen drag, so an export download or a button press is not lost", async () => {
+    // iPadOS sends no click after a Pencil drag, so the armed window stays
+    // open for 500 ms; a programmatic click or a keyboard press in it is not
+    // the pen's click.
+    await watch();
+    const button = document.createElement("button");
+    outside.append(button);
+    const onClick = vi.fn<() => void>();
+    button.addEventListener("click", onClick);
+    pointer("pointerdown", stage, { clientX: 10, clientY: 10 });
+    pointer("pointermove", stage, { clientX: 40, clientY: 10 });
+    pointer("pointerup", stage, { clientX: 40, clientY: 10 });
+    button.click();
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  test("a click with no pointer behind it (detail 0: Enter, Space, a script) on the stage fires after a pen drag", async () => {
+    await watch();
+    pointer("pointerdown", stage, { clientX: 10, clientY: 10 });
+    pointer("pointermove", stage, { clientX: 40, clientY: 10 });
+    pointer("pointerup", stage, { clientX: 40, clientY: 10 });
+    expect(clickReaches(0)).toBe(true);
+    // That click was not the pen's, so the pen's own is still swallowed.
+    expect(clickReaches()).toBe(false);
   });
 
   test("the next pointerdown disarms the swallowed click, so a later tap is not eaten", async () => {
