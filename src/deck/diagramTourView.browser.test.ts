@@ -314,6 +314,85 @@ describe("tapping a node", () => {
     expect(countText()).toBe("3 / 3");
   });
 
+  test("a touch tap that sends no click still moves the tour, as WebKit's does", async () => {
+    await openView();
+    const events = record();
+    await startTour();
+    const gamma = nodes().find((node) => node.textContent?.includes("Gamma"))!;
+    const box = gamma.getBoundingClientRect();
+    const at = {
+      clientX: box.left + box.width / 2,
+      clientY: box.top + box.height / 2,
+      pointerId: 3,
+      pointerType: "touch",
+      isPrimary: true,
+      button: 0,
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    };
+    // Panzoom cancels the pointerdown, and WebKit then sends no mouse events
+    // and no click for the tap: the pointer events are all there is.
+    const down = new PointerEvent("pointerdown", at);
+    gamma.dispatchEvent(down);
+    expect(down.defaultPrevented, "Panzoom no longer cancels the pointerdown").toBe(true);
+    gamma.dispatchEvent(new PointerEvent("pointerup", at));
+    await expect.poll(() => ringed()).toBe("Gamma");
+    expect(tours(events)).toEqual([[1], [1, 3]]);
+  });
+
+  test("a mouse tap moves the tour once, though a click follows its pointerup", async () => {
+    await openView();
+    const events = record();
+    await startTour();
+    const beta = nodes().find((node) => node.textContent?.includes("Beta"))!;
+    await userEvent.click(beta);
+    await expect.poll(() => ringed()).toBe("Beta");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(tours(events)).toEqual([[1], [1, 2]]);
+  });
+
+  test("a click with no pointer behind it, as a screen reader's activate sends, steps once", async () => {
+    await openView();
+    const events = record();
+    await startTour();
+    // VoiceOver's double-tap, Enter in a screen reader's browse mode and element.click()
+    // send a click with detail 0 and no pointerdown or pointerup.
+    const gamma = nodes().find((node) => node.textContent?.includes("Gamma"))!;
+    gamma.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    await expect.poll(() => ringed()).toBe("Gamma");
+    nodes()
+      .find((node) => node.textContent?.includes("Beta"))!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    await expect.poll(() => ringed()).toBe("Beta");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(tours(events)).toEqual([[1], [1, 3], [1, 3, 2]]);
+  });
+
+  test("a second finger makes the press a pinch, not a tap", async () => {
+    await openView();
+    const events = record();
+    await startTour();
+    const gamma = nodes().find((node) => node.textContent?.includes("Gamma"))!;
+    const box = gamma.getBoundingClientRect();
+    const touch = (pointerId: number, isPrimary: boolean) => ({
+      clientX: box.left + box.width / 2,
+      clientY: box.top + box.height / 2,
+      pointerId,
+      pointerType: "touch",
+      isPrimary,
+      bubbles: true,
+      cancelable: true,
+    });
+    gamma.dispatchEvent(new PointerEvent("pointerdown", touch(4, true)));
+    gamma.dispatchEvent(new PointerEvent("pointerdown", touch(5, false)));
+    gamma.dispatchEvent(new PointerEvent("pointerup", touch(5, false)));
+    gamma.dispatchEvent(new PointerEvent("pointerup", touch(4, true)));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(ringed()).toBe("Alpha");
+    expect(tours(events)).toEqual([[1]]);
+  });
+
   test("a tap before the tour starts does not start it", async () => {
     await openView();
     const events = record();
@@ -330,17 +409,15 @@ describe("tapping a node", () => {
     const box = gamma.getBoundingClientRect();
     const x = box.left + box.width / 2;
     const y = box.top + box.height / 2;
-    // A pan ends in a click on the node it started on: the pointer moved, so it is no tap.
+    // A pan ends on the node it started on, in a pointerup and a click: the pointer
+    // moved, so it is no tap. The click of a real pointer counts 1 in `detail`.
+    const drag = { bubbles: true, pointerId: 7, isPrimary: true, clientY: y };
+    gamma.dispatchEvent(new PointerEvent("pointerdown", { ...drag, clientX: x }));
+    gamma.dispatchEvent(new PointerEvent("pointermove", { ...drag, clientX: x + 40 }));
+    gamma.dispatchEvent(new PointerEvent("pointerup", { ...drag, clientX: x + 40 }));
     gamma.dispatchEvent(
-      new PointerEvent("pointerdown", { bubbles: true, clientX: x, clientY: y, pointerId: 7 }),
+      new MouseEvent("click", { bubbles: true, detail: 1, clientX: x + 40, clientY: y }),
     );
-    gamma.dispatchEvent(
-      new PointerEvent("pointermove", { bubbles: true, clientX: x + 40, clientY: y, pointerId: 7 }),
-    );
-    document.dispatchEvent(
-      new PointerEvent("pointerup", { bubbles: true, clientX: x + 40, clientY: y, pointerId: 7 }),
-    );
-    gamma.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: x + 40, clientY: y }));
     // Give a wrong jump the time it would take, then check nothing moved.
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(ringed()).toBe("Alpha");

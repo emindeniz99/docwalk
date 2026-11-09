@@ -98,8 +98,58 @@ test.describe("on a phone", () => {
 
     // The status names the node a tap picked.
     const at = await centreOf(page, "Database");
+    // If the tap misses, say whether the point was off the node or the node got no tap.
+    const hit = await view(page)
+      .locator("svg g.node", { hasText: "Database" })
+      .evaluate((node, { x, y }) => {
+        const el = document.elementFromPoint(x, y);
+        const chain: string[] = [];
+        for (let up = el; up && chain.length < 4; up = up.parentElement) {
+          chain.push(`${up.tagName.toLowerCase()}(${up.getAttribute("class") ?? ""})`);
+        }
+        // Every input event the tap sends, as it reaches the window first. The
+        // event is kept, so a later handler's preventDefault shows when it is read.
+        const log: { text: string; event: Event }[] = [];
+        (window as unknown as { tapLog: typeof log }).tapLog = log;
+        for (const type of [
+          "pointerdown",
+          "pointerup",
+          "touchstart",
+          "touchend",
+          "mousedown",
+          "mouseup",
+          "click",
+        ]) {
+          window.addEventListener(
+            type,
+            (event) => {
+              const kind = event instanceof PointerEvent ? `/${event.pointerType}` : "";
+              const t = event.target;
+              const target =
+                t instanceof Element
+                  ? `${t.tagName.toLowerCase()}(${t.getAttribute("class") ?? ""})`
+                  : "?";
+              log.push({ text: `${type}${kind}@${target}`, event });
+            },
+            { capture: true },
+          );
+        }
+        return { inside: el !== null && node.contains(el), what: chain.join(" < ") || "nothing" };
+      }, at);
+    expect(
+      hit.inside,
+      `elementFromPoint(${at.x}, ${at.y}) is ${hit.what}, outside the Database node`,
+    ).toBe(true);
     await page.touchscreen.tap(at.x, at.y);
-    await expect(status(page)).toContainText("Database. Node 4 of 4.");
+    const sent = await page.evaluate(() =>
+      (window as unknown as { tapLog: { text: string; event: Event }[] }).tapLog.map(
+        ({ text, event }) => `${text}${event.defaultPrevented ? " (prevented)" : ""}`,
+      ),
+    );
+    await expect(
+      status(page),
+      `the tap at (${at.x}, ${at.y}) sent: ${sent.join(", ") || "no event"}`,
+    ).toContainText("Database. Node 4 of 4.");
     await expect(ring(page)).toHaveCount(1);
     await expect(view(page).locator(".docwalk-tour-count")).toHaveText("4 / 4");
 

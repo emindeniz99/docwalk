@@ -2,6 +2,7 @@ import * as v from "valibot";
 import type { MirrorFeed } from "../annotate/mirrorFeed";
 import { MirrorMessageSchema } from "../annotate/mirrorSchema";
 import { RESYNC_MIN_GAP_MS, type MirrorOp } from "../annotate/mirrorTypes";
+import { CountdownSchema, type Countdown } from "./pacing";
 import { PRESENTER_CHANNEL, type PresenterMessage } from "./types";
 
 /**
@@ -76,6 +77,8 @@ const PresenterRequest = v.variant("type", [
   v.object({ type: v.literal("hello"), resync: v.optional(v.boolean()) }),
   v.object({ type: v.literal("goto"), address: v.pipe(address, v.minLength(1)) }),
   v.object({ type: v.literal("step"), direction: v.picklist([1, -1]) }),
+  // The stored schema holds 80's limits; the room's message checks them again (decision 112).
+  v.object({ type: v.literal("countdown"), countdown: v.nullable(CountdownSchema) }),
 ]);
 
 export interface PresenterBridgeOptions {
@@ -93,6 +96,12 @@ export interface PresenterBridgeOptions {
    * window shows scaled, inert copies of the slides.
    */
   mirror?: MirrorFeed;
+  /**
+   * The presenter window's countdown, as it last sent it (decision 112); null
+   * once it is reset, and null again when no request came for
+   * `DISCONNECT_AFTER_MS`, which is how a closed window clears the phone's clock.
+   */
+  onCountdown?: (countdown: Countdown | null) => void;
   channel?: ChannelFactory;
 }
 
@@ -129,6 +138,16 @@ export function startPresenterBridge(options: PresenterBridgeOptions): () => voi
     if (wait > 0) resyncTimer = setTimeout(() => resync(mirror), wait);
     else resync(mirror);
   };
+  // A presenter window repeats its countdown with each heartbeat: one that
+  // stops is gone, and so is its clock. The timer runs from the start too, so
+  // a bridge that restarts (a rebuilt deck) clears a clock whose window closed
+  // meanwhile; a window that is still there speaks again within a heartbeat.
+  let countdownExpiry: ReturnType<typeof setTimeout> | undefined;
+  const armCountdownExpiry = () => {
+    clearTimeout(countdownExpiry);
+    countdownExpiry = setTimeout(() => options.onCountdown?.(null), DISCONNECT_AFTER_MS);
+  };
+  if (options.onCountdown) armCountdownExpiry();
   channel.listen((data) => {
     const parsed = v.safeParse(PresenterRequest, data);
     if (!parsed.success) return;
@@ -137,13 +156,18 @@ export function startPresenterBridge(options: PresenterBridgeOptions): () => voi
       post();
       if (request.resync && options.mirror) askResync(options.mirror);
     } else if (request.type === "goto") options.goTo(request.address);
-    else options.step(request.direction);
+    else if (request.type === "step") options.step(request.direction);
+    else {
+      armCountdownExpiry();
+      options.onCountdown?.(request.countdown);
+    }
   });
   const unsubscribe = options.subscribe(post);
   const stopMirror = options.mirror?.addSink(postOp);
   post();
   return () => {
     clearTimeout(resyncTimer);
+    clearTimeout(countdownExpiry);
     unsubscribe();
     stopMirror?.();
     channel.close();
@@ -153,6 +177,12 @@ export function startPresenterBridge(options: PresenterBridgeOptions): () => voi
 export interface PresenterConnection {
   goTo(address: string): void;
   step(direction: 1 | -1): void;
+  /**
+   * Tells the audience tab the window's countdown at once, and again after each
+   * heartbeat hello while there is one, so closing the window ends it (decision
+   * 112). Null (a Reset) is posted once, and not at all for a window that had none.
+   */
+  setCountdown(countdown: Countdown | null): void;
   close(): void;
 }
 
@@ -179,6 +209,9 @@ export function connectPresenter(
   const send = (message: PresenterMessage) => channel.postMessage(message);
   let connected = false;
   let silence: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+  /** The window's countdown, which the heartbeat repeats; null or undefined: nothing to repeat. */
+  let countdown: Countdown | null | undefined;
 
   const setConnected = (next: boolean) => {
     if (next === connected) return;
@@ -203,12 +236,25 @@ export function connectPresenter(
   });
 
   send({ type: "hello", resync: true });
-  const heartbeat = setInterval(() => send({ type: "hello" }), HEARTBEAT_MS);
+  const heartbeat = setInterval(() => {
+    send({ type: "hello" });
+    if (countdown) send({ type: "countdown", countdown });
+  }, HEARTBEAT_MS);
 
   return {
     goTo: (target) => send({ type: "goto", address: target }),
     step: (direction) => send({ type: "step", direction }),
+    setCountdown(next) {
+      // A window opened with none has nothing to take back: posting null would wipe the
+      // clock of another presenter window. A Reset posts null once; the audience tab's 5 s
+      // expiry covers a null that went missing.
+      const hadNone = countdown === undefined || countdown === null;
+      countdown = next;
+      if (closed || (next === null && hadNone)) return;
+      send({ type: "countdown", countdown: next });
+    },
     close() {
+      closed = true;
       clearInterval(heartbeat);
       clearTimeout(silence);
       channel.close();

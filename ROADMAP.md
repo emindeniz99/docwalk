@@ -257,8 +257,13 @@ Later rounds:
   while it runs (Reset, then a new value, restarts the clock), and the
   countdown ends when the presenter window closes. The real wake lock is
   tested in Chromium only; Firefox and WebKit run the tests for a missing or
-  refusing API. A phone remote or follow link shows neither the clock nor
-  the bar.
+  refusing API. The phone remote shows the presenter window's countdown,
+  read-only (decision 112, proposed); a follow link shows nothing, by
+  design. The phone cannot start, pause or reset it, shows no pacing bar,
+  and with two presenter windows shows whichever spoke last. Chrome's
+  throttling of a window hidden for over five minutes may starve the
+  window's 2 s heartbeat and blank the phone's clock; nobody has checked
+  this by hand yet.
 - Full-text slide search (decision 81): diagram labels are not searched, a
   query is one contiguous phrase (no fuzzy or any-order matching), and in the
   Turkish UI `gec` does not find `geç`, because the collation that the title

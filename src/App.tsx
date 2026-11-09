@@ -79,6 +79,7 @@ import { OpenFileButton } from "./inputs/OpenFileButton";
 import type { HealthResponse } from "./api/types";
 import { SourceBanner } from "./inputs/SourceBanner";
 import { startPresenterBridge } from "./presenter/bridge";
+import { sameCountdown, type Countdown } from "./presenter/pacing";
 import { openPresenterWindow } from "./presenter/window";
 import type { RemoteStatus } from "./remote/client";
 import { speakerNotes } from "./sectioning/notes";
@@ -274,6 +275,14 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [revealLine, setRevealLine] = useState<number | null>(null);
   const [presenterRequested, setPresenterRequested] = useState(false);
+  // The presenter window's countdown, which phone remotes show (decision 112). A repeat of the
+  // same values keeps the old object, so the window's 2 s heartbeat re-renders nothing.
+  const [presenterCountdown, setPresenterCountdown] = useState<Countdown | null>(null);
+  const onCountdown = useCallback(
+    (next: Countdown | null) =>
+      setPresenterCountdown((prev) => (sameCountdown(prev, next) ? prev : next)),
+    [],
+  );
   const [mode, setMode] = useState<AnnotationMode>("off");
   // The page the open whiteboard covers (decision 110), from the layer's events; `told` keeps
   // the status silent until the first open and then says "closed" once it is.
@@ -525,8 +534,9 @@ export function App() {
       step: (d) => (d === 1 ? controller.next() : controller.prev()),
       subscribe: (onChange) => controller.onChange(() => onChange()),
       mirror: mirrorFeed,
+      onCountdown,
     });
-  }, [controller, presenterRequested, mirrorFeed]);
+  }, [controller, presenterRequested, mirrorFeed, onCountdown]);
 
   // Set when the annotation layer is up (below, after the saved marks it draws are known).
   const [layerReady, setLayerReady] = useState(0);
@@ -1418,6 +1428,7 @@ export function App() {
             doc={doc}
             level={level}
             mirror={mirrorFeed}
+            countdown={presenterCountdown}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
             edit={onEdit}
