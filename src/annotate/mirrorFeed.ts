@@ -10,6 +10,7 @@ import {
   STROKE_FLUSH_MS,
   focusOpenOp,
   markedLines,
+  tourPath,
   type FocusEvent,
   type FocusPlace,
   type MarkColor,
@@ -48,6 +49,8 @@ interface Live {
   sent: number;
 }
 
+const sameList = (a: readonly number[], b: readonly number[]) =>
+  a.length === b.length && a.every((n, i) => n === b[i]);
 const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places;
 /** Whole points only, and no more than a stroke may hold. */
 const usable = (points: readonly number[]) =>
@@ -74,6 +77,8 @@ export class MirrorFeed {
   private focusView: { scale: number; x: number; y: number } | null = null;
   /** The marked lines of an open code view, as last sent. */
   private focusLines: number[] = [];
+  /** The tour path of an open diagram view, as last sent (decision 109). */
+  private focusTour: number[] = [];
   private lastViewAt = Number.NEGATIVE_INFINITY;
   private viewTimer: ReturnType<typeof setTimeout> | undefined;
   private viewPending = false;
@@ -139,6 +144,7 @@ export class MirrorFeed {
         this.focusOpen = { slide: event.slide, block: event.block, n: event.n };
         this.focusView = null;
         this.focusLines = [];
+        this.focusTour = [];
         this.cancelView();
         this.emit(focusOpenOp(this.focusOpen));
         break;
@@ -170,10 +176,19 @@ export class MirrorFeed {
         this.emit({ op: "focus-lines", lines });
         break;
       }
+      case "tour": {
+        if (this.focusOpen?.block !== "diagram") break;
+        const path = tourPath(event.path);
+        if (sameList(path, this.focusTour)) break;
+        this.focusTour = path;
+        this.emit({ op: "focus-tour", path });
+        break;
+      }
       case "close":
         this.focusOpen = null;
         this.focusView = null;
         this.focusLines = [];
+        this.focusTour = [];
         this.cancelView();
         this.emit({ op: "focus-close" });
         break;
@@ -218,6 +233,8 @@ export class MirrorFeed {
       if (this.focusView) emit({ op: "focus-view", ...this.focusView });
       // Even an empty list: a receiver that missed a Clear holds marks the presenter dropped.
       if (this.focusOpen.block === "code") emit({ op: "focus-lines", lines: [...this.focusLines] });
+      // Likewise: a follower that missed the end of a tour holds a path the presenter dropped.
+      if (this.focusOpen.block === "diagram") emit({ op: "focus-tour", path: [...this.focusTour] });
     } else {
       emit({ op: "focus-close" });
     }

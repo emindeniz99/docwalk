@@ -34,6 +34,7 @@ function setup() {
 type StrokeOp = Extract<MirrorOp, { op: "stroke" }>;
 const strokeOps = (sent: MirrorOp[]) => sent.filter((o): o is StrokeOp => o.op === "stroke");
 const kinds = (sent: MirrorOp[]) => sent.map((o) => o.op);
+const tours = (sent: MirrorOp[]) => sent.filter((o) => o.op === "focus-tour");
 
 const line = (n: number, seed = 0): number[] =>
   Array.from({ length: n * 2 }, (_, i) => (seed + i * 7) % 4097);
@@ -306,6 +307,7 @@ describe("a receiver that joins late (resync)", () => {
       "stroke",
       "focus-open",
       "focus-view",
+      "focus-tour",
     ]);
     expect(late[1]).toEqual({ op: "keep", slide: "a/1", ids: [1, 2, 3] });
     expect(strokeOps(late).map((s) => [s.id, s.from, s.end])).toEqual([
@@ -573,6 +575,138 @@ describe("the diagram focus view", () => {
   });
 });
 
+describe("the diagram tour (decision 109)", () => {
+  test("the path goes out at once on every change, whole, and a repeated path is not sent again", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 1 });
+    feed.focus({ kind: "tour", path: [] });
+    feed.focus({ kind: "tour", path: [1] });
+    feed.focus({ kind: "tour", path: [1] });
+    feed.focus({ kind: "tour", path: [1, 2] });
+    feed.focus({ kind: "tour", path: [1, 2, 1] });
+    feed.focus({ kind: "tour", path: [] });
+    feed.focus({ kind: "close" });
+    expect(sent).toEqual([
+      { op: "focus-open", slide: "d/1", diagram: 1 },
+      { op: "focus-tour", path: [1] },
+      { op: "focus-tour", path: [1, 2] },
+      { op: "focus-tour", path: [1, 2, 1] },
+      { op: "focus-tour", path: [] },
+      { op: "focus-close" },
+    ]);
+  });
+
+  test("a path is not held back by the zoom and pan throttle, and the order of the two stays", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 1 });
+    feed.focus({ kind: "view", scale: 2, x: 0, y: 0 });
+    feed.focus({ kind: "view", scale: 3, x: 0, y: 0 });
+    feed.focus({ kind: "tour", path: [4] });
+    expect(kinds(sent)).toEqual(["focus-open", "focus-view", "focus-tour"]);
+  });
+
+  test("only a diagram view has a tour: a code view, a table, an image or no view sends none", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "tour", path: [1] });
+    for (const block of ["code", "table", "image"] as const) {
+      feed.focus({ kind: "open", slide: "c/1", block, n: 1 });
+      feed.focus({ kind: "tour", path: [1, 2] });
+      feed.focus({ kind: "close" });
+    }
+    feed.focus({ kind: "tour", path: [1] });
+    expect(tours(sent)).toEqual([]);
+  });
+
+  test("a new view starts with no tour: the path of the last one is not resent for it", () => {
+    const { feed } = setup();
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 1 });
+    feed.focus({ kind: "tour", path: [2, 3] });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 2 });
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(late.filter((o) => o.op.startsWith("focus"))).toEqual([
+      { op: "focus-open", slide: "d/1", diagram: 2 },
+      { op: "focus-tour", path: [] },
+    ]);
+  });
+
+  test("numbers out of range are left out and a path past 64 steps keeps the last 64", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 1 });
+    feed.focus({ kind: "tour", path: [0, -3, 1.5, 1001, Number.NaN, "7" as unknown as number, 5] });
+    const long = Array.from({ length: 100 }, (_, i) => (i % 9) + 1);
+    feed.focus({ kind: "tour", path: long });
+    expect(tours(sent)).toEqual([
+      { op: "focus-tour", path: [5] },
+      { op: "focus-tour", path: long.slice(36) },
+    ]);
+    expect(long.slice(36)).toHaveLength(64);
+    for (const op of tours(sent)) {
+      expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+    }
+  });
+
+  test("the feed keeps its own copy, so the caller's array cannot change what a resync sends", () => {
+    const { feed } = setup();
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 1 });
+    const path = [1, 2];
+    feed.focus({ kind: "tour", path });
+    path.push(3);
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(tours(late)).toEqual([{ op: "focus-tour", path: [1, 2] }]);
+  });
+
+  test("a resync sends the path after the open block and its zoom, empty too, and nothing for another kind", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "d/1", strokes: [mark(1)], reset: true });
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 2 });
+    feed.focus({ kind: "view", scale: 1.25, x: 0, y: 0.75 });
+    feed.focus({ kind: "tour", path: [3, 1, 4] });
+    vi.advanceTimersByTime(500);
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    // The board op leads every resync (decision 110); the tour comes last of the focus ops.
+    expect(kinds(late)).toEqual([
+      "board-close",
+      "keep",
+      "stroke",
+      "focus-open",
+      "focus-view",
+      "focus-tour",
+    ]);
+    expect(late.at(-1)).toEqual({ op: "focus-tour", path: [3, 1, 4] });
+    // A tour the presenter ended: a follower that missed it has to drop its own.
+    feed.focus({ kind: "tour", path: [] });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(late.at(-1)).toEqual({ op: "focus-tour", path: [] });
+    // A code view has no tour to send.
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "d/1", block: "code", n: 1 });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(tours(late)).toEqual([]);
+    // Nor does a resync with no view open.
+    feed.focus({ kind: "close" });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(tours(late)).toEqual([]);
+  });
+
+  test("a resync to one sink reaches that sink alone", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 1 });
+    feed.focus({ kind: "tour", path: [2] });
+    sent.length = 0;
+    const only: MirrorOp[] = [];
+    feed.resync((op) => only.push(op));
+    expect(sent).toEqual([]);
+    expect(tours(only)).toEqual([{ op: "focus-tour", path: [2] }]);
+  });
+});
+
 describe("the code, table and image views (decision 106)", () => {
   test("open names the block by its kind and place on the slide, as the diagram's op does", () => {
     const { feed, sent } = setup();
@@ -710,11 +844,12 @@ describe("the code, table and image views (decision 106)", () => {
       feed.focus({ kind: "open", slide: "c/1", block, n: 1000 });
       feed.focus({ kind: "view", scale: 5.333_333, x: 1, y: 0.123_456 });
       feed.focus({ kind: "lines", lines: [100_000] });
+      feed.focus({ kind: "tour", path: [1000, 1] });
       vi.advanceTimersByTime(200);
       feed.resync();
       feed.focus({ kind: "close" });
     }
-    for (const op of ["focus-open", "focus-view", "focus-lines", "focus-close"]) {
+    for (const op of ["focus-open", "focus-view", "focus-lines", "focus-tour", "focus-close"]) {
       expect(kinds(sent)).toContain(op);
     }
     for (const op of sent) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
