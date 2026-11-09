@@ -876,3 +876,192 @@ describe("the whiteboard (decision 110)", () => {
     expect(dom.page.inert).toBe(false);
   });
 });
+
+/** The two things the layer asks of the stylus module, held by the test. */
+function stylus(initial: { draws?: boolean; pen?: boolean } = {}) {
+  const state = { draws: initial.draws ?? true, pen: initial.pen ?? false };
+  const listeners = new Set<() => void>();
+  return {
+    state,
+    input: {
+      stylusDraws: () => state.draws,
+      penInUse: () => state.pen,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+    /** A change of the setting or of the latch, as the stylus module announces it. */
+    change: (next: Partial<typeof state>) => {
+      Object.assign(state, next);
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+/** One pointer's down, moves and up, aimed at `target` (the slide, or a surface). */
+function drag(
+  target: Element,
+  type: "mouse" | "pen" | "touch",
+  from: [number, number],
+  to: [number, number],
+  { steps = 8, id = 7 }: { steps?: number; id?: number } = {},
+) {
+  const rect = target.getBoundingClientRect();
+  const at = (name: string, x: number, y: number) =>
+    target.dispatchEvent(
+      new PointerEvent(name, {
+        bubbles: true,
+        cancelable: true,
+        pointerId: id,
+        pointerType: type,
+        isPrimary: true,
+        button: 0,
+        buttons: name === "pointerup" ? 0 : 1,
+        pressure: 0.5,
+        clientX: rect.left + x,
+        clientY: rect.top + y,
+      }),
+    );
+  at("pointerdown", ...from);
+  for (let i = 1; i <= steps; i++) {
+    at(
+      "pointermove",
+      from[0] + ((to[0] - from[0]) * i) / steps,
+      from[1] + ((to[1] - from[1]) * i) / steps,
+    );
+  }
+  at("pointerup", ...to);
+}
+
+const strokes = (events: MarkEvent[]) =>
+  events.flatMap((e) => (e.kind === "stroke" && e.end ? [e] : []));
+
+function mountStylus(initial?: { draws?: boolean; pen?: boolean }) {
+  const host = document.createElement("div");
+  Object.assign(host.style, { width: "400px", height: "300px", margin: "0" });
+  document.body.append(host);
+  const held = stylus(initial);
+  layer = createAnnotationLayer(host, { input: held.input });
+  const events: MarkEvent[] = [];
+  layer.observe((event) => events.push(event));
+  layer.setKey("a/1#abc", "a/1");
+  events.length = 0;
+  return { host, events, ...held };
+}
+
+describe("stylus input (decision 110)", () => {
+  test("with no tool a pen drag past 4 px draws a pen stroke from where it went down", () => {
+    const { host, events } = mountStylus();
+    drag(host, "pen", [40, 30], [360, 270]);
+    const [done] = strokes(events);
+    expect(done).toMatchObject({ slide: "a/1", tool: "pen", color: "primary", end: true });
+    // The stroke starts at the pen-down point (a tenth of each way), not 4 px along.
+    expect(Math.abs(done!.points[0]! - quantize(0.1))).toBeLessThanOrEqual(2);
+    expect(Math.abs(done!.points[1]! - quantize(0.1))).toBeLessThanOrEqual(2);
+    expect(marks(host)).toBe(1);
+    expect(layer!.mode()).toBe("off");
+  });
+
+  test("a pen tap, a mouse drag and a touch drag with no tool draw nothing", () => {
+    const { host, events } = mountStylus();
+    drag(host, "pen", [40, 30], [42, 31], { steps: 2 });
+    drag(host, "mouse", [40, 30], [360, 270]);
+    drag(host, "touch", [40, 30], [360, 270]);
+    expect(strokes(events)).toEqual([]);
+    expect(marks(host)).toBe(0);
+  });
+
+  test("a mouse drag right after a pen drag still draws nothing: the pen's stroke is over", () => {
+    const { host, events } = mountStylus();
+    drag(host, "pen", [40, 30], [200, 150]);
+    drag(host, "mouse", [40, 200], [300, 200], { id: 1 });
+    expect(strokes(events)).toHaveLength(1);
+    expect(marks(host)).toBe(1);
+  });
+
+  test("with the setting off a pen acts as a mouse: a drag in mode off draws nothing", () => {
+    const { host, events } = mountStylus({ draws: false });
+    drag(host, "pen", [40, 30], [360, 270]);
+    expect(strokes(events)).toEqual([]);
+    expect(marks(host)).toBe(0);
+  });
+
+  test("turning the setting off while mounted stops the pen drag, and on again brings it back", () => {
+    const { host, events, change } = mountStylus();
+    change({ draws: false });
+    drag(host, "pen", [40, 30], [360, 270]);
+    expect(strokes(events)).toEqual([]);
+    change({ draws: true });
+    drag(host, "pen", [40, 30], [360, 270]);
+    expect(strokes(events)).toHaveLength(1);
+  });
+
+  test("with a tool chosen the pen uses that tool, once", () => {
+    const { host, events } = mountStylus();
+    layer!.setMode("arrow");
+    drag(host.querySelector(DRAW)!, "pen", [40, 30], [360, 270]);
+    const done = strokes(events);
+    expect(done.map((s) => s.tool)).toEqual(["arrow"]);
+    expect(marks(host)).toBe(1);
+  });
+
+  test("once a pen is in use a finger draws nothing with the pen tool, and its touch reaches the page for reveal.js to swipe", () => {
+    const { host, change } = mountStylus();
+    const swipes = vi.fn<(event: Event) => void>();
+    host.addEventListener("pointerdown", swipes);
+    layer!.setMode("pen");
+    // Before any pen, a finger draws as it always did.
+    drag(host.querySelector(DRAW)!, "touch", [20, 20], [200, 120]);
+    expect(marks(host)).toBe(1);
+    swipes.mockClear();
+    change({ pen: true });
+    drag(host.querySelector(DRAW)!, "touch", [20, 200], [300, 200]);
+    expect(marks(host)).toBe(1);
+    expect(swipes).toHaveBeenCalledOnce();
+    // The pen and the mouse still draw.
+    drag(host.querySelector(DRAW)!, "pen", [20, 250], [300, 250]);
+    drag(host.querySelector(DRAW)!, "mouse", [20, 270], [300, 270], { id: 1 });
+    expect(marks(host)).toBe(3);
+  });
+
+  test("with the setting off a finger keeps drawing, whether or not a pen was seen", () => {
+    const { host } = mountStylus({ draws: false, pen: true });
+    layer!.setMode("pen");
+    drag(host.querySelector(DRAW)!, "touch", [20, 20], [200, 120]);
+    expect(marks(host)).toBe(1);
+  });
+
+  test("the laser ignores a finger while a pen is in use, and follows the pen and the mouse", () => {
+    const { host, events, change } = mountStylus({ pen: true });
+    layer!.setMode("laser");
+    const surface = host.querySelector<SVGSVGElement>(".docwalk-annotate-laser")!;
+    const lasers = () => events.filter((e) => e.kind === "laser").length;
+    drag(surface, "touch", [20, 20], [200, 120]);
+    expect(lasers()).toBe(0);
+    drag(surface, "pen", [20, 20], [200, 120]);
+    expect(lasers()).toBeGreaterThan(0);
+    events.length = 0;
+    change({ pen: false });
+    drag(surface, "touch", [20, 20], [200, 120]);
+    expect(lasers()).toBeGreaterThan(0);
+  });
+
+  test("a pen drag that begins on the whiteboard draws on the board", () => {
+    const { host, events } = mountStylus();
+    layer!.setBoard({ key: "a/board#0", address: "a/board" });
+    events.length = 0;
+    drag(host, "pen", [40, 30], [360, 270]);
+    expect(strokes(events).map((s) => s.slide)).toEqual(["a/board"]);
+    expect(marks(host)).toBe(1);
+  });
+
+  test("a layer made without the stylus option keeps every pointer as before", () => {
+    const { host } = mount();
+    drag(host, "pen", [40, 30], [360, 270]);
+    expect(marks(host)).toBe(0);
+    layer!.setMode("pen");
+    drag(host.querySelector(DRAW)!, "touch", [20, 20], [200, 120]);
+    expect(marks(host)).toBe(1);
+  });
+});

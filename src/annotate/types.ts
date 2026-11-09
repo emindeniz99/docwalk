@@ -62,6 +62,19 @@ export interface AnnotationLayerOptions {
    * anything new, and drauu's undo history starts after them.
    */
   saved?: (key: string, address: string) => readonly SavedStroke[];
+  /**
+   * The stylus policy's inputs (decision 110). With it, a pen drag on the bare
+   * slide draws, and once a pen is in use a finger draws nothing and moves no
+   * laser. `subscribe` hears a change of the setting or of the latch. Without
+   * it every pointer works as before.
+   */
+  input?: {
+    /** "Stylus draws, fingers change slides" is on. */
+    stylusDraws(): boolean;
+    /** A pen has touched the stage since the page loaded. */
+    penInUse(): boolean;
+    subscribe?(listener: () => void): () => void;
+  };
 }
 
 /** Implemented in ./layer.ts as `createAnnotationLayer(host, options)`. */

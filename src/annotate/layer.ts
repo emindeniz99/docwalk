@@ -15,6 +15,8 @@ import {
 import { coverPage } from "./boardCover";
 import { strokeElement } from "./markSvg";
 import { outlinePath } from "./outline";
+import { watchPenDrags } from "./stylus";
+import { acceptedInput } from "./stylusPolicy";
 import type { AnnotationLayer, AnnotationLayerOptions, AnnotationMode } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -73,6 +75,7 @@ export function createAnnotationLayer(
   host: HTMLElement,
   options: AnnotationLayerOptions = {},
 ): AnnotationLayer {
+  const { input } = options;
   const root = document.createElement("div");
   root.className = "docwalk-annotate";
   // The whiteboard's paper (decision 110): hidden unless a board is open, under every draw surface.
@@ -130,7 +133,24 @@ export function createAnnotationLayer(
   /** One drawing per slide key; `null` holds marks made before the first key. */
   const drawings = new Map<string | null, Drauu>();
 
-  /** Bring a drawing up to the current tool and colour. */
+  /**
+   * The pointer types a drawing accepts (decision 110). Once a pen is in use,
+   * drauu leaves a finger's touch alone: it bubbles to reveal.js, which swipes.
+   */
+  function applyInput(drawing: Drauu) {
+    const types =
+      input &&
+      acceptedInput({
+        drawingTool: isMarkTool(mode) || mode === "eraser",
+        laser: mode === "laser",
+        stylusDraws: input.stylusDraws(),
+        penInUse: input.penInUse(),
+      });
+    if (types) drawing.options.acceptsInputTypes = [...types] as ("mouse" | "touch" | "pen")[];
+    else delete drawing.options.acceptsInputTypes;
+  }
+
+  /** Bring a drawing up to the current tool, colour and accepted input. */
   function applyTool(drawing: Drauu) {
     drawing.brush.color = color;
     if (isMarkTool(mode) || mode === "eraser") {
@@ -138,7 +158,11 @@ export function createAnnotationLayer(
       // Also re-indexes the strokes for drauu's eraser.
       drawing.mode = DRAUU_MODE[mode];
     }
+    applyInput(drawing);
   }
+
+  /** True while a pen drag is handed to drauu: its own `pointerdown` is not a new drag. */
+  let handingOver = false;
 
   function createDrawing(): Drauu {
     const svg = surface("draw");
@@ -147,9 +171,9 @@ export function createAnnotationLayer(
     applyTool(drawing);
     drawing.on("start", () => {
       if (drawing !== active) return;
-      capture = isMarkTool(mode)
-        ? { id: nextStrokeId++, tool: mode, color: colorKey, points: [], last: null }
-        : null;
+      // A pen drag with no tool chosen is a pen stroke (decision 110).
+      const tool = isMarkTool(mode) ? mode : handingOver ? "pen" : null;
+      capture = tool ? { id: nextStrokeId++, tool, color: colorKey, points: [], last: null } : null;
     });
     drawing.on("changed", () => {
       if (drawing !== active) return;
@@ -374,8 +398,12 @@ export function createAnnotationLayer(
     frame = requestAnimationFrame(renderTrail);
   }
 
+  /** A finger is for swiping once a pen is in use, so it moves no laser either. */
+  const fingerSwipes = (event: PointerEvent) =>
+    event.pointerType === "touch" && !!input?.penInUse() && input.stylusDraws();
+
   function onLaserMove(event: PointerEvent) {
-    if (mode !== "laser") return;
+    if (mode !== "laser" || fingerSwipes(event)) return;
     const { x, y } = toLocal(event);
     const unit = unitPoint(x, y);
     if (unit) {
@@ -399,7 +427,7 @@ export function createAnnotationLayer(
   }
 
   function onLaserDown(event: PointerEvent) {
-    if (mode !== "laser") return;
+    if (mode !== "laser" || fingerSwipes(event)) return;
     // Keep receiving moves while a finger or stylus drags past the overlay edge.
     laser.setPointerCapture?.(event.pointerId);
     onLaserMove(event);
@@ -453,6 +481,50 @@ export function createAnnotationLayer(
     notify({ kind: "board", slide: null });
     if (report) reportMarks(true);
   }
+
+  /**
+   * A pen that has moved past the drag threshold with no tool chosen starts a
+   * pen stroke where it went down: drauu gets the `pointerdown` the page took,
+   * and its own window listeners carry the rest of the stroke. A tap never
+   * gets here, so its click still follows a link or opens a diagram.
+   */
+  function startPenDrag(down: PointerEvent) {
+    const drawing = active;
+    const svg = drawing.el;
+    if (!svg) return;
+    drawing.brush.arrowEnd = false;
+    drawing.brush.color = color;
+    drawing.mode = "stylus";
+    handingOver = true;
+    try {
+      svg.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: down.pointerId,
+          pointerType: "pen",
+          isPrimary: down.isPrimary,
+          button: 0,
+          buttons: 1,
+          pressure: down.pressure,
+          clientX: down.clientX,
+          clientY: down.clientY,
+        }),
+      );
+    } finally {
+      handingOver = false;
+    }
+  }
+  const watchStage = (target: HTMLElement) =>
+    input
+      ? watchPenDrags(target, {
+          enabled: () => !handingOver && mode === "off" && input.stylusDraws(),
+          onDrag: startPenDrag,
+        })
+      : () => {};
+  let stopWatching = watchStage(host);
+  // A setting or latch change reaches the drawing on screen at once.
+  const stopInput = input?.subscribe?.(() => applyInput(active));
 
   laser.addEventListener("pointerdown", onLaserDown);
   laser.addEventListener("pointermove", onLaserMove);
@@ -530,6 +602,8 @@ export function createAnnotationLayer(
       clearLaser();
       detach();
       attach(next);
+      stopWatching();
+      stopWatching = watchStage(next);
       // The rebuilt deck has a new current page; the board covers that one.
       if (board) {
         board.uncover();
@@ -561,6 +635,8 @@ export function createAnnotationLayer(
       return () => observers.delete(listener);
     },
     destroy() {
+      stopWatching();
+      stopInput?.();
       board?.uncover();
       board = null;
       clearLaser();
