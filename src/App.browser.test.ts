@@ -1,3 +1,4 @@
+import { EditorView } from "@codemirror/view";
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -56,6 +57,8 @@ const option = (el: HTMLElement, text: string) =>
     o.textContent?.includes(text),
   )!;
 const address = (el: HTMLElement) => el.querySelector(".docwalk-preview-address")?.textContent;
+const markers = (el: HTMLElement) =>
+  [...el.querySelectorAll(".dw-note-marker")].map((m) => m.getAttribute("title") ?? "");
 
 describe("leaving present mode", () => {
   // Escape keeps focus on the deck; the Exit button must too, or a keyboard
@@ -187,6 +190,38 @@ describe("pen marks across a deck rebuild", () => {
     await userEvent.click(option(el, "First point"));
     await expect.poll(() => address(el)).toBe("first-point/1");
     expect(activeMarks(el)).toBe(1);
+  });
+});
+
+describe("slide notes in the editor gutter", () => {
+  // The code block is taller than a slide, so the Config page (line 7) keeps a note.
+  const code = Array.from({ length: 80 }, (_, i) => `line ${i}`).join("\n");
+  const NOTED = `# Notes doc\n\n## Short\n\nFine.\n\n## Config\n\nBefore.\n\n\`\`\`\n${code}\n\`\`\`\n`;
+
+  // Until the deck rebuilds, the notes come from slides of the text before the
+  // edit. A slide whose section the edit renamed has no line in the new text:
+  // its note once went to line 1, on a heading it says nothing about.
+  test("a note whose section an edit removed waits for the rebuild instead of moving to line 1", async () => {
+    localStorage.setItem(
+      DRAFT_STORAGE_KEY,
+      JSON.stringify({ markdown: NOTED, source: { kind: "paste" } }),
+    );
+    const el = await mountApp();
+    await expect
+      .poll(() => markers(el), { timeout: 20_000 })
+      .toEqual([expect.stringContaining("(config/")]);
+    const view = EditorView.findFromDOM(el.querySelector<HTMLElement>(".cm-editor")!)!;
+    const heading = view.state.doc.line(7);
+    act(() =>
+      view.dispatch({ changes: { from: heading.from, to: heading.to, insert: "## Settings" } }),
+    );
+    // Checked at once, inside the rebuild delay: the deck on screen is still the old one.
+    expect(el.querySelector(".cm-line.dw-note-line")?.textContent ?? null).toBeNull();
+    expect(markers(el)).toEqual([]);
+    await expect
+      .poll(() => markers(el), { timeout: 20_000 })
+      .toEqual([expect.stringContaining("(settings/")]);
+    expect(el.querySelector(".cm-line.dw-note-line")?.textContent).toContain("## Settings");
   });
 });
 

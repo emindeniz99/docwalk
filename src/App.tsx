@@ -501,18 +501,26 @@ export function App() {
   );
 
   // Notes on slides become editor diagnostics at their section's source line.
+  // Until the deck rebuilds, its slides are those of the text before the last
+  // edit: a slide whose section the edit removed has no line, and its note
+  // waits for the rebuild instead of landing on line 1.
   const diagnostics = useMemo<EditorDiagnostic[]>(
     () =>
-      slides
-        .filter((sl) => sl.flagged)
-        .map((sl) => ({
-          line: sectionLines.get(sl.sectionId) ?? 1,
-          message: m.app_slide_diagnostic(
-            { number: sl.index + 1, address: sl.address, note: sl.note ?? m.app_slide_has_note() },
-            { locale },
-          ),
-          severity: "warning" as const,
-        })),
+      slides.flatMap((sl) => {
+        const line = sectionLines.get(sl.sectionId);
+        if (!sl.flagged || line === undefined) return [];
+        const note = sl.note ?? m.app_slide_has_note();
+        return [
+          {
+            line,
+            message: m.app_slide_diagnostic(
+              { number: sl.index + 1, address: sl.address, note },
+              { locale },
+            ),
+            severity: "warning" as const,
+          },
+        ];
+      }),
     [slides, sectionLines, locale],
   );
 
