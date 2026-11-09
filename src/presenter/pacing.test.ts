@@ -1,8 +1,12 @@
 import { describe, expect, test } from "vitest";
+import * as v from "valibot";
 import {
+  CountdownSchema,
   formatClock,
+  fromRemoteCountdown,
   formatRemaining,
   isOver,
+  MAX_SPENT_MS,
   MAX_TARGET_MINUTES,
   PACE_TOLERANCE,
   paceOf,
@@ -12,9 +16,11 @@ import {
   remainingMs,
   resumeCountdown,
   slideShare,
+  slideShareOf,
   spentMs,
   startCountdown,
   timeShare,
+  toRemoteCountdown,
   writeCountdown,
   type Countdown,
 } from "./pacing";
@@ -211,5 +217,59 @@ describe("what survives a reload", () => {
       JSON.stringify({ targetMs: MIN, spentMs: 0 }),
     ];
     for (const raw of bad) expect([raw, readCountdown(raw)]).toEqual([raw, null]);
+  });
+});
+
+describe("what the phone remote gets (decision 112)", () => {
+  test("a running countdown becomes durations, and the phone counts on from its own clock", () => {
+    const running = pauseCountdown(started(20), T0 + 5 * MIN);
+    const resumed = resumeCountdown(running, T0 + 6 * MIN);
+    // The laptop sends what is left of its clock, never the instant it started: the phone's clock differs.
+    const sent = toRemoteCountdown(resumed, T0 + 7 * MIN);
+    expect(sent).toEqual({ targetMs: 20 * MIN, spentMs: 6 * MIN, running: true });
+    expect(Object.keys(sent).toSorted()).toEqual(["running", "spentMs", "targetMs"]);
+    const PHONE_NOW = 42; // far from the laptop's clock
+    const onPhone = fromRemoteCountdown(sent, PHONE_NOW);
+    expect(onPhone).toEqual({ targetMs: 20 * MIN, spentMs: 6 * MIN, startedAt: PHONE_NOW });
+    expect(remainingMs(onPhone, PHONE_NOW + MIN)).toBe(13 * MIN);
+  });
+
+  test("a paused countdown stays paused on the phone", () => {
+    const paused = pauseCountdown(started(20), T0 + 5 * MIN);
+    const sent = toRemoteCountdown(paused, T0 + 99 * MIN);
+    expect(sent).toEqual({ targetMs: 20 * MIN, spentMs: 5 * MIN, running: false });
+    const onPhone = fromRemoteCountdown(sent, 1_000);
+    expect(onPhone.startedAt).toBeNull();
+    expect(remainingMs(onPhone, 1_000_000)).toBe(15 * MIN);
+  });
+
+  test("spent time is a whole number of milliseconds, because the message schema takes no fraction", () => {
+    const fractional: Countdown = { targetMs: 20 * MIN, spentMs: 1000.4, startedAt: T0 };
+    expect(toRemoteCountdown(fractional, T0 + 0.3).spentMs).toBe(1001);
+    expect(Number.isInteger(toRemoteCountdown(fractional, T0 + 0.3).spentMs)).toBe(true);
+  });
+
+  test("time spent is clamped to the message's ceiling, so a stored countdown from last week still sends", () => {
+    const old: Countdown = { targetMs: MIN, spentMs: 0, startedAt: T0 };
+    expect(toRemoteCountdown(old, T0 + 30 * 24 * 60 * MIN).spentMs).toBe(MAX_SPENT_MS);
+  });
+
+  test("the slide share from a count is the address list's (position + 0.5) / total", () => {
+    expect(slideShareOf(0, 10)).toBe(0.05);
+    expect(slideShareOf(9, 10)).toBe(0.95);
+    expect(slideShareOf(0, 1)).toBe(0.5);
+    const addresses = ["a/1", "b/1", "b/2", "c/1"];
+    expect(slideShareOf(2, addresses.length)).toBe(slideShare(addresses, "b/2"));
+  });
+
+  test("an empty deck has no share, so the phone shows no verdict instead of a made-up one", () => {
+    expect(slideShareOf(0, 0)).toBeNull();
+  });
+
+  test("the stored-countdown schema is exported and stays strict about the target's range", () => {
+    expect(v.safeParse(CountdownSchema, started(5)).success).toBe(true);
+    expect(v.safeParse(CountdownSchema, { targetMs: 1, spentMs: 0, startedAt: null }).success).toBe(
+      false,
+    );
   });
 });
