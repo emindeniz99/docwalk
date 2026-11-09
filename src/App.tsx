@@ -752,7 +752,10 @@ export function App() {
   // The exporters work from the paginated pages the audience sees, as copies they may change.
   // Each slide takes the saved marks drawn on its present text (decision 105), unless left out.
   // A section's speaker notes go on its last slide (decision 114), for the print that asks.
-  const notes = useMemo(() => speakerNotes(selection.plan), [selection.plan]);
+  // They come from the whole plan: a choice of sections (decision 100) cuts the pages, and the
+  // comment above the first heading stays with the cover whatever is chosen (decision 107).
+  const notes = useMemo(() => speakerNotes(plan), [plan]);
+  const chosenNotes = [...notes.keys()].some((id) => selection.chosen.has(id));
   const getExportOptions = useCallback(
     (withMarks: boolean, withNotes: boolean): ExportOptions | null => {
       if (!controller) return null;
@@ -965,7 +968,7 @@ export function App() {
               <ExportMenu
                 getOptions={getExportOptions}
                 hasMarks={saved.count > 0}
-                hasNotes={notes.size > 0}
+                hasNotes={chosenNotes}
                 isDisabled={!controller}
               />
             </Suspense>

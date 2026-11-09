@@ -113,3 +113,36 @@ test("print with speaker notes puts each note in the print frame; plain print an
   expect(html).not.toContain("Say hello");
   expect(html).not.toContain(`class="docwalk-export-notes"`);
 });
+
+test("print with speaker notes prints the chosen sections' notes only (decisions 100, 107, 114)", async ({
+  page,
+}) => {
+  // The comment above the first heading belongs to the cover, and `?sections=` drops sections
+  // without moving their notes to the next section that stays.
+  await page.addInitScript(() => {
+    window.print = () => {};
+    localStorage.setItem(
+      "docwalk.draft",
+      JSON.stringify({
+        markdown: "<!-- COVER NOTE of A -->\n\n# A\n\nalpha\n\n# B\n\nbeta\n\n<!-- B NOTE -->\n",
+        source: { kind: "paste" },
+      }),
+    );
+  });
+  await ready(page, "/?sections=b");
+  await expect(page.locator(".docwalk-sections-trigger")).toContainText("1 of 2");
+  const notes = page.frameLocator("iframe[data-docwalk-print]").locator(".docwalk-export-notes");
+
+  await exportAs(page, "Print with speaker notes");
+  await expect(notes).toHaveCount(1);
+  await expect(notes).toContainText("B NOTE");
+  await expect(notes).not.toContainText("COVER NOTE");
+
+  // Only the cover chosen: its own note, and none of B's.
+  await page.goto("/?sections=a");
+  await expect(page.locator(".docwalk-sections-trigger")).toContainText("1 of 2");
+  await exportAs(page, "Print with speaker notes");
+  await expect(notes).toHaveCount(1);
+  await expect(notes).toContainText("COVER NOTE of A");
+  await expect(notes).not.toContainText("B NOTE");
+});
