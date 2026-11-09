@@ -1,11 +1,10 @@
 import GithubSlugger, { slug } from "github-slugger";
 import type { Heading, Root, RootContent } from "mdast";
 import { toString } from "mdast-util-to-string";
-import remarkGfm from "remark-gfm";
-import remarkParse from "remark-parse";
-import { unified } from "unified";
 import { SKIP, visit } from "unist-util-visit";
+import { settleInlineMath } from "./math";
 import { onlyComments } from "./notes";
+import { markdownReader } from "./syntax";
 
 export type HeadingDepth = Heading["depth"];
 
@@ -66,8 +65,11 @@ export function headingText(heading: Heading): string {
   return toString(heading).replace(/\s+/g, " ").trim();
 }
 
+/** The Markdown tree. GitHub's math forms become `math` and `inlineMath` nodes (decision 101). */
 export function parseMarkdown(markdown: string): Root {
-  return unified().use(remarkParse).use(remarkGfm).parse(markdown);
+  const tree = markdownReader(true).parse(markdown);
+  settleInlineMath(tree, markdown);
+  return tree;
 }
 
 /**

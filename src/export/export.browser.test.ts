@@ -11,6 +11,7 @@ import { ExportMenu } from "./ExportMenu";
 import { EXPORT_CSP, exportHtml } from "./html";
 import { exportPng, refuseForeignImages, type PngFile } from "./png";
 import { printDeck } from "./print";
+import { withBoardPages } from "./boardPages";
 import type { ExportOptions, ExportSlide } from "./types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -460,6 +461,40 @@ describe("saved marks in exports (decision 105)", () => {
     expect(text).toContain(".docwalk-export-marks");
   });
 
+  test("a saved ellipse and rectangle are an <ellipse> and a <rect> under the marks overlay (decision 110)", async () => {
+    const shapes: SavedStroke[] = [
+      { tool: "ellipse", color: "ink", points: [3072, 2048, 1024, 1024] },
+      { tool: "rect", color: "focus", points: [1024, 1024, 3072, 2048] },
+    ];
+    const { doc } = await parseExport(deck({ ...slide("a", "Shapes"), marks: shapes }));
+    const overlay = doc.querySelector(".docwalk-export-page .docwalk-export-marks")!;
+    const ellipse = overlay.querySelector('ellipse[data-tool="ellipse"][data-color="ink"]')!;
+    expect(["cx", "cy", "rx", "ry"].map((a) => Number(ellipse.getAttribute(a)))).toEqual([
+      640, 270, 320, 90,
+    ]);
+    const rect = overlay.querySelector('rect[data-tool="rect"][data-color="focus"]')!;
+    expect(["x", "y", "width", "height"].map((a) => Number(rect.getAttribute(a)))).toEqual([
+      320, 180, 640, 180,
+    ]);
+  });
+
+  test("a saved rectangle shows in the PNG as an outline: stroke colour on its edge, slide colour inside", async () => {
+    const rect: SavedStroke[] = [
+      { tool: "rect", color: "primary", points: [320, 512, 3776, 3584] },
+    ];
+    const files = await exportPng(
+      { title: "T", slides: [{ ...slide("a", "Shape"), marks: rect }], size: SIZE },
+      { save: () => undefined },
+    );
+    // The left edge is at x = 100 slide px; the image is at 2x. Inside there is no fill.
+    const [edge, inside] = await Promise.all([
+      pixel(files[0]!.blob, 200, 720),
+      pixel(files[0]!.blob, 1280, 720),
+    ]);
+    expect(near(edge!, token("--dw-color-primary"))).toBe(true);
+    expect(near(inside!, token("--dw-color-slide"))).toBe(true);
+  });
+
   test("a saved stroke shows in the PNG in its colour, where it was drawn", async () => {
     const files = await exportPng(
       { title: "T", slides: [marked(slide("a", "Marked")), slide("b", "Plain")], size: SIZE },
@@ -479,6 +514,98 @@ describe("saved marks in exports (decision 105)", () => {
       win.dispatchEvent(new Event("afterprint"));
     });
     expect({ width: box.width, height: box.height }).toEqual({ width: 1280, height: 720 });
+  });
+});
+
+/** The same section's second page. */
+const second = (s: ExportSlide): ExportSlide => ({
+  ...s,
+  address: s.address.replace("/1", "/2"),
+});
+
+/** Two pages of section a, one of section b. */
+const sections = () => [slide("a", "One"), second(slide("a", "One")), slide("b", "Two")];
+
+describe("whiteboards in exports (decision 110)", () => {
+  // A section's board is part of what a review produced, so it follows the
+  // section's last page, titled by the section, with its strokes over blank paper.
+  const BOARD: SavedStroke[] = [{ tool: "rect", color: "primary", points: [320, 512, 3776, 3584] }];
+  const boards = (id: string) => (id === "a" ? BOARD : []);
+
+  test("a section whose board has marks gets one more page after its last slide, titled for the section", () => {
+    const slides = withBoardPages(sections(), boards);
+    expect(slides.map((s) => s.address)).toEqual(["a/1", "a/2", "a/board", "b/1"]);
+    expect(slides[2]!.title).toBe("Whiteboard: One");
+    expect(slides[2]!.marks).toEqual(BOARD);
+  });
+
+  test("no page for a section whose board has no marks, and none are added when no board has any", () => {
+    expect(withBoardPages(sections(), () => [])).toEqual(sections());
+    const slides = withBoardPages(sections(), (id) => (id === "b" ? BOARD : []));
+    expect(slides.map((s) => s.address)).toEqual(["a/1", "a/2", "b/1", "b/board"]);
+  });
+
+  test("the print view shows the board as a blank page with its marks, numbered like any page", async () => {
+    let seen: {
+      labels: string[];
+      title: string | null;
+      text: string;
+      marks: number;
+      body: number;
+    } | null = null;
+    await printDeck(deck(...withBoardPages(sections(), boards)), (win) => {
+      const pages = [...win.document.querySelectorAll<HTMLElement>("main > .docwalk-export-page")];
+      const board = pages[2]!;
+      seen = {
+        labels: pages.map((p) => p.getAttribute("aria-label") ?? ""),
+        title: board.querySelector(".docwalk-export-board")?.getAttribute("aria-label") ?? null,
+        text: board.textContent?.trim() ?? "",
+        marks: board.querySelectorAll("svg.docwalk-export-marks rect").length,
+        body: board.querySelectorAll(".docwalk-slide-body").length,
+      };
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(seen).toEqual({
+      labels: ["Slide 1 of 4", "Slide 2 of 4", "Slide 3 of 4", "Slide 4 of 4"],
+      title: "Whiteboard: One",
+      text: "",
+      marks: 1,
+      body: 0,
+    });
+  });
+
+  test("in a print with notes the board page comes after the section's last slide and after its notes page (decisions 110, 114)", async () => {
+    // The notes belong to the section's last slide, so the order is slide, notes, board. A change
+    // of it would reshuffle every handout, so it is pinned here.
+    const slides = sections();
+    slides[1] = { ...slides[1]!, notes: ["Say this."] };
+    let shape: string[] = [];
+    await printDeck(deck(...withBoardPages(slides, boards)), (win) => {
+      const main = win.document.querySelector("main")!;
+      shape = [...main.children].map((c) =>
+        c.classList.contains("docwalk-export-notes")
+          ? "notes"
+          : c.querySelector(".docwalk-export-board")
+            ? "board"
+            : "page",
+      );
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    expect(shape).toEqual(["page", "page", "notes", "board", "page"]);
+  });
+
+  test("the HTML file and the PNG files carry the board page too, named by its address", async () => {
+    const options = deck(...withBoardPages(sections(), boards));
+    const { doc } = await parseExport(options);
+    expect(doc.querySelectorAll(".docwalk-export-page")).toHaveLength(4);
+    expect(doc.querySelectorAll(".docwalk-export-board")).toHaveLength(1);
+    const files = await exportPng(options, { save: () => undefined });
+    expect(files.map((f) => f.name)).toEqual([
+      "1-a-1.png",
+      "2-a-2.png",
+      "3-a-board.png",
+      "4-b-1.png",
+    ]);
   });
 });
 
@@ -553,6 +680,19 @@ describe("speaker notes in a printed handout (decision 114)", () => {
       notesMarks: 0,
       white: "pre-wrap",
     });
+  });
+
+  test("a notes page's title prints larger than the note under it", async () => {
+    // The title takes the slide title's size, not the UI heading's, which is smaller than the text.
+    let sizes: { title: number; text: number } | null = null;
+    await printDeck(deck(withNotes(slide("a", "One"), "Note one")), (win) => {
+      const notes = win.document.querySelector<HTMLElement>(".docwalk-export-notes")!;
+      const px = (el: Element) => Number.parseFloat(win.getComputedStyle(el).fontSize);
+      sizes = { title: px(notes.querySelector("h2")!), text: px(notes.querySelector("p")!) };
+      win.dispatchEvent(new Event("afterprint"));
+    });
+    const { title, text } = sizes!;
+    expect(title).toBeGreaterThan(text);
   });
 
   test("a long note runs onto more printed pages and is not clipped", async () => {

@@ -1,4 +1,12 @@
-import { Check, Ellipsis, ImageOff, Maximize, PanelTopDashed, type LucideIcon } from "lucide-react";
+import {
+  Check,
+  Ellipsis,
+  ImageOff,
+  Maximize,
+  PanelTopDashed,
+  PenLine,
+  type LucideIcon,
+} from "lucide-react";
 import {
   Header,
   Menu,
@@ -10,6 +18,7 @@ import {
 } from "react-aria-components";
 import { COARSE_POINTER, setEditorChoice, useStoredEditorChoice } from "../editor/choice";
 import { chooseLocale, localeName, locales, useLocale } from "../i18n/locale";
+import { setStylusDraws, useStylusDraws } from "../annotate/stylus";
 import { m } from "../paraglide/messages.js";
 import { setLoadRemoteImages, useLoadRemoteImages } from "../render/remoteImages";
 import { IconButton } from "./IconButton";
@@ -31,12 +40,14 @@ export interface MoreAction {
 const LOAD_REMOTE_IMAGES = "load-remote-images";
 const KEEP_CONTROLS = "keep-present-controls";
 const FILL_SCREEN = "present-fill-screen";
+const STYLUS_DRAWS = "stylus-draws";
 
 /** Secondary header actions in one React Aria menu, so the header fits a phone. */
 export function MoreMenu({ actions }: { actions: MoreAction[] }) {
   const loadRemoteImages = useLoadRemoteImages();
   const keepControls = useKeepChromeVisible();
   const fillScreen = usePresentFrame() === "fill";
+  const stylusDraws = useStylusDraws();
   const editor = useStoredEditorChoice();
   const coarse = useMediaQuery(COARSE_POINTER);
   const locale = useLocale();
@@ -67,6 +78,7 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
               ...(loadRemoteImages ? [LOAD_REMOTE_IMAGES] : []),
               ...(keepControls ? [KEEP_CONTROLS] : []),
               ...(fillScreen ? [FILL_SCREEN] : []),
+              ...(stylusDraws ? [STYLUS_DRAWS] : []),
             ]}
             onSelectionChange={(keys) => {
               const on = (key: string) => keys === "all" || keys.has(key);
@@ -75,6 +87,7 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
               if (on(KEEP_CONTROLS) !== keepControls) setKeepChromeVisible(on(KEEP_CONTROLS));
               if (on(FILL_SCREEN) !== fillScreen)
                 setPresentFrame(on(FILL_SCREEN) ? "fill" : "card");
+              if (on(STYLUS_DRAWS) !== stylusDraws) setStylusDraws(on(STYLUS_DRAWS));
             }}
           >
             <MenuItem
@@ -122,6 +135,18 @@ export function MoreMenu({ actions }: { actions: MoreAction[] }) {
                     <Maximize size={16} aria-hidden="true" />
                   )}
                   {m.more_fill_screen()}
+                </>
+              )}
+            </MenuItem>
+            <MenuItem id={STYLUS_DRAWS} textValue={m.more_stylus()} className="docwalk-menu-item">
+              {({ isSelected }) => (
+                <>
+                  {isSelected ? (
+                    <Check size={16} aria-hidden="true" />
+                  ) : (
+                    <PenLine size={16} aria-hidden="true" />
+                  )}
+                  {m.more_stylus()}
                 </>
               )}
             </MenuItem>

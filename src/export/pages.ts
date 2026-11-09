@@ -3,6 +3,12 @@ import { marksOverlay } from "../annotate/markSvg";
 import { unmarkFocusTargets } from "../deck/focusTargets";
 import { rewriteCssUrls } from "./cssText";
 import { m } from "../paraglide/messages.js";
+import {
+  FORBIDDEN_MATH_ELEMENTS,
+  MATHML_NS,
+  mathAttributeAllowed,
+  mathClasses,
+} from "../render/mathAllow";
 import rawPageCss from "./page.css?raw";
 import type { ExportOptions, ExportSlide } from "./types";
 
@@ -37,6 +43,18 @@ const purifier = DOMPurify(window);
 let activePolicy: ResourcePolicy = offline;
 
 purifier.addHook("afterSanitizeAttributes", (node) => {
+  // A formula is the app's own MathML (decision 101). The profile below lets MathML through, so
+  // this keeps to the lists the builder used: no `href`, `style`, `id` or handler on any of it.
+  if (node.namespaceURI === MATHML_NS) {
+    for (const { name, value } of Array.from(node.attributes)) {
+      if (name === "class") {
+        const kept = mathClasses(value, node.localName === "math").join(" ");
+        if (kept) node.setAttribute(name, kept);
+        else node.removeAttribute(name);
+      } else if (!mathAttributeAllowed(name, value)) node.removeAttribute(name);
+    }
+    return;
+  }
   // A copy: removing from the live NamedNodeMap while iterating it would skip attributes.
   for (const { name, value } of Array.from(node.attributes)) {
     const lower = name.toLowerCase();
@@ -70,10 +88,11 @@ function resourceAllowed(value: string, policy: ResourcePolicy): boolean {
 
 const PURIFY_CONFIG: Config & { RETURN_DOM_FRAGMENT: true } = {
   RETURN_DOM_FRAGMENT: true,
-  USE_PROFILES: { html: true, svg: true, svgFilters: true },
+  USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
   // Mermaid styles each diagram with one <style> inside its SVG.
   ADD_TAGS: ["style"],
   FORBID_TAGS: [
+    ...FORBIDDEN_MATH_ELEMENTS,
     "script",
     "foreignObject",
     "image",

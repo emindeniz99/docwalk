@@ -10,7 +10,9 @@ import { flagPages, SLIDE_SIZE, slideAddress } from "../deck/pages";
 import { buildSlides } from "../deck/slides";
 import { ariaLocale, useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
+import { renderEmoji } from "../render/emoji";
 import { highlightCode } from "../render/highlight";
+import { renderMath } from "../render/math";
 import { speakerNotes } from "../sectioning/notes";
 import { parseMarkdown, sectionize, type LevelOption } from "../sectioning/sectionize";
 import { useWakeLock } from "../shell/wakeLock";
@@ -478,6 +480,8 @@ async function buildPreviews(
     // colours no more code and renders no more diagrams.
     await Promise.all([
       highlightCode(slide, { stop: stopped }),
+      renderMath(slide, { stop: stopped }),
+      renderEmoji(slide, { stop: stopped }),
       renderDiagrams(slide, stopped, { seen, pause: yieldToEventLoop }),
     ]);
     fitDiagrams(slide, body);

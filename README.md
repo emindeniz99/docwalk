@@ -66,6 +66,14 @@ lists every settled design decision.
   keep them with More actions › Always show presenting controls. Safari on
   iPhone cannot show a web page full screen: tap Share › Add to Home Screen
   and present from the home-screen icon for a full-screen deck.
+- Drawing: a pen (P), an arrow (A), a rectangle (R), an ellipse (C), an
+  eraser (E) and a laser (L). W opens a whiteboard, a blank page over the
+  slide with marks of its own, one per section; changing slide closes it.
+  Marks stay in this browser per document, and an export adds each
+  whiteboard that has marks as a page after its section. With a stylus
+  (Apple Pencil, Surface Pen, S Pen) the pen draws at once, and once it has
+  touched the screen your fingers change slides instead of drawing. More
+  actions › Stylus draws, fingers change slides turns that off.
 - Diagram focus: click a Mermaid diagram to fit, zoom, pan, draw on it with
   a pen or point with a laser.
 - Focus view for code blocks, tables and loaded images: click one, or focus
@@ -99,6 +107,10 @@ lists every settled design decision.
   document mode and in exports: TypeScript, JavaScript, JSON, shell,
   Python, Go, Rust, Java, Kotlin, Swift, C, C++, C#, SQL, YAML, TOML, HTML,
   CSS, diff, Markdown, Dockerfile and GraphQL. Other languages stay plain.
+- Math in GitHub's four forms (`$…$`, ``$`…`$``, `$$…$$` and a `math`
+  fence) drawn as MathML, and emoji shortcodes such as `:rocket:`, on
+  slides, in document mode and in exports. `$5 and $10` stays text, and a
+  formula docwalk cannot draw shows its source.
 
 **Edit and keep**
 

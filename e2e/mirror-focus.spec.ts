@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { crc32, deflateSync } from "node:zlib";
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { fakeRelay, ready, replaceSource } from "./helpers";
 
@@ -14,6 +15,37 @@ const SHOTS = process.env["DOCWALK_SHOTS"];
 const REMOTE = "https://images.invalid/chart.png";
 // The app's own icon, so the stubbed remote image has a real size.
 const PNG = readFileSync(new URL("../public/icons/icon-192.png", import.meta.url));
+
+function pngChunk(type: string, data: Buffer) {
+  const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+  const out = Buffer.alloc(body.length + 8);
+  out.writeUInt32BE(data.length, 0);
+  body.copy(out, 4);
+  out.writeUInt32BE(crc32(body), body.length + 4);
+  return out;
+}
+
+/** A grey, vertically graded PNG of the given size, made here so no fixture file is needed. */
+function tallPng(width: number, height: number) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 0, 0, 0, 0], 8); // 8-bit grey, deflate, no filter, no interlace
+  // Each row: filter byte 0, then the pixels.
+  const rows = Buffer.alloc((width + 1) * height);
+  for (let y = 0; y < height; y++)
+    rows.fill(Math.round((y / height) * 200), y * (width + 1) + 1, (y + 1) * (width + 1));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+// Tall enough that the loaded image beats the placeholder by more than one listing,
+// short enough that a slide still holds it with its heading (a slide body is ~612px).
+const TALL_HEIGHT = 400;
 
 const cell = (i: number) => `${"w".repeat(11)}${i % 10}`;
 const row = (cells: string[]) => `| ${cells.join(" | ")} |`;
@@ -313,6 +345,30 @@ const listingsByPage = (page: Page) =>
       .map((entry) => entry.names),
   );
 
+/**
+ * How tall, in slide CSS pixels, the Chart section's picture is on this screen
+ * (the loaded image or its placeholder, with the paragraph around it) and how
+ * tall its tallest listing is with both margins. Layout sizes, so the scale
+ * reveal.js gives the slides does not enter.
+ */
+const chartHeights = (page: Page) =>
+  page.evaluate(() => {
+    const section = document.querySelector<HTMLElement>(
+      '.reveal .slides > section[data-docwalk-id="chart"]',
+    )!;
+    const picture = section.querySelector<HTMLElement>(".docwalk-blocked-frame, img")!;
+    const flow = picture.closest<HTMLElement>("p") ?? picture;
+    const tallest = Math.max(
+      ...[
+        ...document.querySelectorAll<HTMLElement>('.reveal section[data-docwalk-id="chart"] pre'),
+      ].map((pre) => {
+        const style = getComputedStyle(pre);
+        return pre.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+      }),
+    );
+    return { picture: picture.offsetHeight, flow: flow.offsetHeight, tallest };
+  });
+
 const pageNumber = (page: Page) =>
   present(page).evaluate((el) => Number(el.dataset["page"] ?? "1"));
 
@@ -327,6 +383,8 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
   // Decision 106: listings never split, so they are numbered across the section.
   // The presenter loads the remote image before pagination and the follower
   // blocks it, so its placeholder is shorter and the pages are cut differently.
+  // The image is tall on purpose: with the 192px icon one engine absorbed the
+  // difference in the room each page has left, and both screens cut alike.
   // Where each engine puts the cuts is its own, so the test reads both screens'
   // pages from the DOM and picks the listings to open from what they hold.
   const listings = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"].flatMap((name) => [
@@ -340,6 +398,7 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
     "\n",
   );
   const REMOTE_KEY = "docwalk.loadRemoteImages";
+  const TALL = tallPng(200, TALL_HEIGHT);
   await fakeRelay(context);
   const { presenter, followUrl } = await openPresenterRoom(context, {
     doc,
@@ -347,7 +406,7 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
     before: async (page) => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.addInitScript((key) => localStorage.setItem(key, "true"), REMOTE_KEY);
-      await page.route(REMOTE, (route) => route.fulfill({ body: PNG, contentType: "image/png" }));
+      await page.route(REMOTE, (route) => route.fulfill({ body: TALL, contentType: "image/png" }));
     },
   });
   const follower = await openFollower(context, followUrl, {
@@ -375,10 +434,31 @@ test("a follower whose pages are cut elsewhere opens the listing the presenter o
     },
   });
 
+  // The cuts can only differ if the two pictures differ by more than a page can leave
+  // unused. A page stops short of the next listing, so it leaves less than one listing
+  // and its margins empty; a gap taller than that moves at least one listing from one
+  // page to the next, on every engine, whatever its line heights.
+  const loaded = await chartHeights(presenter);
+  const blocked = await chartHeights(follower);
+  const gap = loaded.picture - blocked.picture;
+  const slack = Math.max(loaded.tallest, blocked.tallest);
+  test.info().annotations.push({
+    type: "heights",
+    description: `loaded image ${loaded.picture}px, placeholder ${blocked.picture}px, gap ${gap}px, tallest listing with margins ${slack}px`,
+  });
+  expect(
+    gap,
+    `the loaded image (${loaded.picture}px) must be taller than the placeholder (${blocked.picture}px) by more than the tallest listing with its margins (${slack}px)`,
+  ).toBeGreaterThan(slack);
+
   // What each screen's pages hold. If they were cut alike, no follower could open a
   // listing the wrong way and the case would prove nothing.
   const theirs = await listingsByPage(follower);
   const ours = await listingsByPage(presenter);
+  test.info().annotations.push({
+    type: "pages",
+    description: `presenter ${JSON.stringify(ours)}, follower ${JSON.stringify(theirs)}`,
+  });
   expect(theirs, "the follower's pages hold the listings").not.toEqual([]);
   expect(
     JSON.stringify(theirs),
