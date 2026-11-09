@@ -36,6 +36,26 @@ const record = (over: Partial<StoredSlide> & Record<string, unknown> = {}): Stor
 });
 const slides = (records: unknown) => readSlides(DOC, records).map((s) => s.slide);
 
+/** Points arrays that count the coordinates read from them. */
+function counted() {
+  const state = { reads: 0 };
+  const strokes = (count: number, per: number) =>
+    Array.from({ length: count }, () =>
+      pen(
+        new Proxy(
+          Array.from({ length: 2 * per }, () => 5),
+          {
+            get(target, key, receiver) {
+              if (typeof key === "string" && /^\d+$/.test(key)) state.reads++;
+              return Reflect.get(target, key, receiver) as unknown;
+            },
+          },
+        ),
+      ),
+    );
+  return { state, strokes };
+}
+
 describe("reading stored marks back", () => {
   test("a well-formed record reads back as it was saved", () => {
     const arrow: SavedStroke = { tool: "arrow", color: "ink", points: [0, 0, 4096, 4096] };
@@ -99,6 +119,47 @@ describe("reading stored marks back", () => {
     });
     expect(slides([record({ strokes: [pen(points)] })])).toEqual([]);
     expect(reads).toBe(0);
+  });
+
+  describe("the cost of reading is bounded before any coordinate is parsed", () => {
+    test("a slide over 30,000 points is skipped without reading one of them", () => {
+      // 21 strokes of 1,500 points: each stroke is within its cap, the slide is not.
+      const { state, strokes } = counted();
+      expect(slides([record({ strokes: strokes(21, 1500) })])).toEqual([]);
+      expect(state.reads).toBe(0);
+    });
+
+    test("a slide that no longer fits the document's budget is skipped without reading", () => {
+      // 3 slides of 30,000 points leave 10,000; a 10,500-point slide cannot fit.
+      const full = (i: number) =>
+        record({
+          slide: `h${i}/1`,
+          strokes: Array.from({ length: 20 }, () => pen(Array(3000).fill(5))),
+        });
+      const { state, strokes } = counted();
+      const late = record({ slide: "late/1", strokes: strokes(7, 1500) });
+      expect(slides([full(1), full(2), full(3), late])).toEqual(["h1/1", "h2/1", "h3/1"]);
+      expect(state.reads).toBe(0);
+    });
+
+    test("once the document's budget is spent, no later record is parsed", () => {
+      const spent = (i: number) =>
+        record({
+          slide: `h${i}/1`,
+          strokes: Array.from({ length: 20 }, () => pen(Array(2500).fill(5))),
+        });
+      const { state, strokes } = counted();
+      const valid = record({ slide: "late/1", strokes: strokes(1, 1) });
+      // 4 x 25,000 points is exactly the document's 100,000; the fifth is valid but has no room.
+      expect(slides([spent(1), spent(2), spent(3), spent(4), valid])).toHaveLength(4);
+      expect(state.reads).toBe(0);
+    });
+
+    test("a smaller record after a skipped one still reads", () => {
+      const { strokes } = counted();
+      const big = record({ slide: "big/1", strokes: strokes(21, 1500) });
+      expect(slides([big, record({ slide: "small/1" })])).toEqual(["small/1"]);
+    });
   });
 
   test("a bad record is skipped alone, so one damaged slide does not hide the rest", () => {

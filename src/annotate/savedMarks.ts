@@ -96,10 +96,33 @@ const StoredSlideSchema = v.pipe(
 );
 
 /**
+ * How many numbers a stored record's strokes hold, counted from the lists'
+ * lengths alone (a walk over the strokes, never over a coordinate), or
+ * `Infinity` when it is not a record with lists of strokes. Stops counting
+ * past `limit`.
+ */
+function numbersIn(item: unknown, limit: number): number {
+  const strokes = (item as { strokes?: unknown } | null)?.strokes;
+  // A long list of strokes fails the schema by its length, before its items are read.
+  if (!Array.isArray(strokes) || strokes.length > MAX_SLIDE_STROKES)
+    return Number.POSITIVE_INFINITY;
+  let sum = 0;
+  for (const stroke of strokes as unknown[]) {
+    const points = (stroke as { points?: unknown } | null)?.points;
+    if (!Array.isArray(points)) return Number.POSITIVE_INFINITY;
+    sum += points.length;
+    if (sum > limit) break;
+  }
+  return sum;
+}
+
+/**
  * The slides of `doc` among stored records, in their order. A record that
  * fails the schema or belongs to another document is skipped alone; past
  * `MAX_SAVED_SLIDES` slides or `MAX_DOCUMENT_POINTS` points the rest are
- * skipped too.
+ * skipped too. A record too big for a slide, or for what is left of the
+ * document's points, is skipped before its coordinates are parsed: a hostile
+ * profile cannot make the reader walk millions of numbers (rule 5).
  */
 export function readSlides(doc: string, records: unknown): SavedSlide[] {
   if (!Array.isArray(records)) return [];
@@ -107,6 +130,9 @@ export function readSlides(doc: string, records: unknown): SavedSlide[] {
   const seen = new Set<string>();
   let points = 0;
   for (const item of records.slice(0, MAX_SAVED_SLIDES)) {
+    if (points >= MAX_DOCUMENT_POINTS) break;
+    const room = 2 * Math.min(MAX_SLIDE_POINTS, MAX_DOCUMENT_POINTS - points);
+    if (numbersIn(item, room) > room) continue;
     const result = v.safeParse(StoredSlideSchema, item);
     if (!result.success) continue;
     const { slide, text, strokes } = result.output;
