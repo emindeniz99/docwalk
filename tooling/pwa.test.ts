@@ -270,18 +270,21 @@ describe("selectPrecache", () => {
     expect(runtime.has("typescript.js")).toBe(true);
   });
 
-  // Decision 101: a formula or a shortcode needs Temml or gemoji, and most
-  // documents have neither, so neither is part of the install. Their
-  // stylesheet goes with the chunk.
-  test("leaves the math engine, its stylesheet and the emoji list to the runtime cache", () => {
+  // Decision 101: a formula or a shortcode needs the math worker or gemoji, and
+  // most documents have neither, so neither is part of the install. Temml runs
+  // in the worker; the page half (`mathRender`) is kept out of the precache by
+  // the Temml stylesheet it imports, whose module id matches the rule, and the
+  // worker file follows it (see `selectAssets` below). The stylesheet goes
+  // with the chunk.
+  test("leaves the math page half, its stylesheet and the emoji list to the runtime cache", () => {
     const { precache, runtime } = selectPrecache([
-      chunk("index.js", { isEntry: true, dynamicImports: ["mathBuild.js", "emojiMap.js"] }),
-      chunk("mathBuild.js", {
+      chunk("index.js", { isEntry: true, dynamicImports: ["mathRender.js", "emojiMap.js"] }),
+      chunk("mathRender.js", {
         moduleIds: [
-          "/app/src/render/mathBuild.ts",
-          "/app/node_modules/.pnpm/temml@0.14.0/node_modules/temml/dist/temml.mjs",
+          "/app/src/render/mathRender.ts",
+          "/app/node_modules/.pnpm/temml@0.14.0/node_modules/temml/dist/Temml-Local.css",
         ],
-        css: ["mathBuild.css"],
+        css: ["mathRender.css"],
       }),
       chunk("emojiMap.js", {
         moduleIds: [
@@ -291,7 +294,7 @@ describe("selectPrecache", () => {
       }),
     ]);
     expect(precache.has("index.js")).toBe(true);
-    const lazy = ["mathBuild.js", "mathBuild.css", "emojiMap.js"];
+    const lazy = ["mathRender.js", "mathRender.css", "emojiMap.js"];
     expect(lazy.filter((name) => precache.has(name))).toEqual([]);
     expect(lazy.filter((name) => runtime.has(name))).toEqual(lazy);
   });
@@ -333,6 +336,16 @@ describe("selectAssets", () => {
       "assets/editor.worker-ghi.js",
       "excalidraw-assets/fonts/Xiaolai/Xiaolai-Regular-1.woff2",
     ]);
+  });
+
+  // Decision 101: the math worker is named only by the runtime-cached
+  // `mathRender` chunk, so it follows that chunk and stays out of the install.
+  test("leaves the math worker to the runtime cache when only the math page half names it", () => {
+    // `code` is the precached code; the page half that names the worker is not part of it.
+    const withWorker = [...assets, { fileName: "assets/math.worker-abc.js", text: null }];
+    const { precache, runtime } = selectAssets(withWorker, precached, code);
+    expect(precache.has("assets/math.worker-abc.js")).toBe(false);
+    expect(runtime.has("assets/math.worker-abc.js")).toBe(true);
   });
 
   test("precaches a worker that precached code names", () => {

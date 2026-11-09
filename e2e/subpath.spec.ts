@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext } from "@playwright/test";
-import { ready } from "./helpers";
+import { ready, replaceSource } from "./helpers";
 
 /**
  * GitHub Pages serves a project site from `/<repo>/`, not from the domain
@@ -41,6 +41,17 @@ test("the editor, deck, diagrams and fonts load from the sub-path", async ({ pag
     return [...document.fonts].filter((f) => f.status === "loaded").map((f) => f.family);
   });
   expect(fonts.join(" ")).toMatch(/Inter/);
+  expect(stray).toEqual([]);
+});
+
+test("a formula draws from the sub-path", async ({ page, context }) => {
+  // The math worker's script is its own file: its URL must carry the base too.
+  const stray = strayRequests(context, origin());
+  await ready(page, BASE);
+  await replaceSource(page, "# Math\n\n## Formula\n\nSquare: $x^2$ here.\n");
+  await expect(page.locator(".reveal .slides p > math")).toHaveCount(1, { timeout: 30_000 });
+  const worker = page.workers().find((w) => /math\.worker-/.test(w.url()));
+  expect(new URL(worker?.url() ?? "http://none/").pathname.startsWith(BASE)).toBe(true);
   expect(stray).toEqual([]);
 });
 

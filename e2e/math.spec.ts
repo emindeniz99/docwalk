@@ -68,22 +68,30 @@ function foreignRequests(page: Page): string[] {
   return seen;
 }
 
+const isMathWorker = (url: string) =>
+  /\/assets\/math\.worker-[^/]*\.js$/.test(new URL(url).pathname);
+
 test("the math engine and the emoji list load only for a document that uses them", async ({
   page,
 }) => {
   const chunks: string[] = [];
   page.on("request", (request) => {
-    // Temml's chunk comes with its stylesheet: mathBuild-….js and mathBuild-….css.
-    const file = /\/assets\/((?:mathBuild|emojiMap)-[^/]*)$/.exec(new URL(request.url()).pathname);
+    // The page half comes with its stylesheet: mathRender-….js and mathRender-….css.
+    const file = /\/assets\/((?:mathRender|emojiMap)-[^/]*)$/.exec(new URL(request.url()).pathname);
     if (file?.[1]) chunks.push(file[1].replace(/-[^.]+\./, "."));
   });
   // The sample document has no formula and no shortcode (a timestamp is not one).
   await ready(page);
   await page.waitForLoadState("networkidle");
   expect(chunks).toEqual([]);
+  expect(page.workers().filter((worker) => isMathWorker(worker.url()))).toEqual([]);
+  // Temml is in the worker's script. Not every engine reports a worker's script request on
+  // the page, so the worker itself is the witness.
+  const worker = page.waitForEvent("worker", { predicate: (w) => isMathWorker(w.url()) });
   await replaceSource(page, DOC);
   await expect(slide(page, "formulas").locator("math").first()).toBeAttached();
-  expect(chunks.toSorted()).toEqual(["emojiMap.js", "mathBuild.css", "mathBuild.js"]);
+  expect(isMathWorker((await worker).url())).toBe(true);
+  expect(chunks.toSorted()).toEqual(["emojiMap.js", "mathRender.css", "mathRender.js"]);
 });
 
 test("formulas and shortcodes are drawn on the slides; dollar amounts stay text", async ({
@@ -125,6 +133,46 @@ test("a hostile formula keeps its source as text and nothing leaves the origin",
   await expect(traps.locator("math, img, [style*='url'], .present")).toHaveCount(0);
   await page.waitForLoadState("networkidle");
   expect(foreign).toEqual([]);
+});
+
+/** The re-review's bomb: a macro pasting its argument `r` times, called through a second `\def` `u` times. */
+const bomb = (r: number, a: number, u: number) =>
+  `\\def\\a#1{${"#1".repeat(r)}}\\def\\b{\\a{${"x".repeat(a)}}}${"\\b".repeat(u)}`;
+
+test("a formula built to run for seconds leaves the deck responsive", async ({ page }) => {
+  // 1,320 characters pasting 8.9 million tokens held the page for about 2 s in Chromium. The first
+  // overflows a worker's stack on some engines and runs out the 500 ms deadline on others; the
+  // second does not overflow in Chromium and runs to the deadline. Either way the page keeps drawing.
+  const doc = [
+    "# Bombs",
+    "",
+    "## Formulas",
+    "",
+    `$${bomb(100, 900, 99)}$`,
+    "",
+    `$${bomb(70, 900, 99)}$`,
+    "",
+    "$x+y$",
+    "",
+  ].join("\n");
+  await ready(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { dwGap: number };
+    w.dwGap = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      w.dwGap = Math.max(w.dwGap, now - last);
+      last = now;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  await replaceSource(page, doc);
+  const formulas = slide(page, "formulas");
+  await expect(formulas.locator("p > math")).toHaveCount(1, { timeout: 15_000 });
+  await expect(formulas.locator("code.docwalk-math-error")).toHaveCount(2);
+  const gap = await page.evaluate(() => (window as unknown as { dwGap: number }).dwGap);
+  expect(gap).toBeLessThan(500);
 });
 
 test("document mode draws the formulas and the shortcode", async ({ page }) => {
