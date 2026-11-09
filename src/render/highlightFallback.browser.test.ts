@@ -82,6 +82,24 @@ describe("when the grammars cannot be had", () => {
   });
 });
 
+describe("a tokenizer that answers nonsense", () => {
+  // The tokens come from a worker, as data. Nonsense must leave the block
+  // plain and let the deck go on to measure (rule 4), never reject.
+  test.each([
+    ["lines that are not arrays", () => ({ lines: 1 })],
+    [
+      "a kind outside the colour classes",
+      (text: string) => [[{ text, kind: "keyword docwalk-diagram" }]],
+    ],
+  ])("%s", async (_name, answer) => {
+    loadTokenizer.mockResolvedValue(answer as unknown as Tokenize);
+    const box = render(MARKDOWN);
+    const before = box.innerHTML;
+    await expect(highlightCode(box)).resolves.toBeUndefined();
+    expect(box.innerHTML).toBe(before);
+  });
+});
+
 /** A tokenizer that marks `const` as a keyword and leaves the rest of each line plain. */
 const markConst: Tokenize = (text) =>
   text.split("\n").map((line) =>

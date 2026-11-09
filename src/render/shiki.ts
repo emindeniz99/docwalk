@@ -12,6 +12,7 @@
 import type { LanguageRegistration } from "@shikijs/primitive";
 import {
   HIGHLIGHT_TIMEOUT_MS,
+  tokenLines,
   type CodeLanguage,
   type CodeToken,
   type Tokenize,
@@ -76,6 +77,17 @@ const LATE_TIMER_MS = 100;
 
 /** How many blocks that ran over a client remembers, to leave them plain at once on the next build. */
 const REMEMBERED_OVERRUNS = 100;
+
+/** A message from the worker that has the shape of an answer; anything else is ignored. */
+function isReply(data: unknown): data is ShikiReply {
+  if (typeof data !== "object" || data === null) return false;
+  const { kind, id, languages } = data as Record<string, unknown>;
+  if (typeof id !== "number") return false;
+  if (kind === "tokens") return true;
+  return (
+    kind === "loaded" && Array.isArray(languages) && languages.every((l) => typeof l === "string")
+  );
+}
 
 interface Client {
   request(message: WithoutId<ShikiRequest>): Promise<ShikiReply | null>;
@@ -185,8 +197,9 @@ export function createShikiClient({
       for (const { settle } of waiting.values()) settle(null);
     }
     worker.addEventListener("message", (event) => {
-      const reply = (event as MessageEvent<ShikiReply>).data;
-      waiting.get(reply.id)?.settle(reply);
+      const { data } = event as MessageEvent<unknown>;
+      if (!isReply(data)) return;
+      waiting.get(data.id)?.settle(data);
       watch();
     });
     worker.addEventListener("error", drop);
@@ -223,7 +236,7 @@ export function createShikiClient({
     return async (text, language): Promise<CodeToken[][] | null> => {
       if (!current.languages.has(language) || overruns.has(blockKey(language, text))) return null;
       const reply = await current.request({ kind: "tokenize", text, language });
-      return reply?.kind === "tokens" ? reply.lines : null;
+      return reply?.kind === "tokens" ? tokenLines(reply.lines) : null;
     };
   }
 

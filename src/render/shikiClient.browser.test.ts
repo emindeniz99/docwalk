@@ -22,6 +22,7 @@ class FakeWorker extends EventTarget {
   constructor(
     private readonly stepMs: number,
     private readonly stuck: string | null,
+    private readonly lines: (text: string) => unknown = (text) => [[{ text, kind: null }]],
   ) {
     super();
     FakeWorker.started.push(this);
@@ -40,14 +41,14 @@ class FakeWorker extends EventTarget {
     const data: ShikiReply =
       message.kind === "load"
         ? { kind: "loaded", id: message.id, languages: ["typescript"] }
-        : { kind: "tokens", id: message.id, lines: [[{ text: message.text, kind: null }]] };
+        : ({ kind: "tokens", id: message.id, lines: this.lines(message.text) } as ShikiReply);
     this.dispatchEvent(new MessageEvent("message", { data }));
   }
 }
 
-function client(stepMs: number, stuck: string | null = null) {
+function client(stepMs: number, stuck: string | null = null, lines?: (text: string) => unknown) {
   return createShikiClient({
-    createWorker: () => new FakeWorker(stepMs, stuck),
+    createWorker: () => new FakeWorker(stepMs, stuck, lines),
     silenceMs: SILENCE_MS,
   });
 }
@@ -87,4 +88,29 @@ test("a block that never returns stops the worker; the next build does not send 
   expect(FakeWorker.started).toHaveLength(2);
   const sent = FakeWorker.started[1]!.messages.filter((m) => m.kind === "tokenize");
   expect(sent.map((m) => (m.kind === "tokenize" ? m.text : ""))).toEqual(["after"]);
+});
+
+test("a reply that is not tokens of the known kinds leaves the block plain", async () => {
+  // The worker's answer is data: a kind outside TOKEN_KINDS would become a class
+  // on the page, and lines that are not arrays would throw while colouring.
+  const replies: unknown[] = [
+    [[{ text: "a", kind: "keyword docwalk-diagram x" }]],
+    [[{ text: 1, kind: null }]],
+    [{ text: "a", kind: null }],
+    "a",
+    null,
+  ];
+  for (const reply of replies) {
+    const tokenize = await client(0, null, () => reply).loadTokenizer(["typescript"]);
+    expect(await tokenize("a", "typescript")).toBeNull();
+  }
+});
+
+test("a message that is not a reply is ignored", async () => {
+  FakeWorker.started = [];
+  const tokenize = await client(10).loadTokenizer(["typescript"]);
+  const pending = tokenize("a", "typescript");
+  for (const data of [null, "x", { id: 2 }, { kind: "tokens" }])
+    FakeWorker.started[0]!.dispatchEvent(new MessageEvent("message", { data }));
+  expect(await pending).toEqual([[{ text: "a", kind: null }]]);
 });

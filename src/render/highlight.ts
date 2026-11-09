@@ -124,6 +124,28 @@ export type Tokenize = (
   language: CodeLanguage,
 ) => CodeToken[][] | null | Promise<CodeToken[][] | null>;
 
+const KIND_NAMES: ReadonlySet<string> = new Set(TOKEN_KINDS);
+
+/**
+ * `value` as lines of tokens, or null when it is anything else. Tokens come
+ * from the highlighting worker as data: only text and one of `TOKEN_KINDS`
+ * (or none) pass, so no other class reaches the page and colouring never
+ * throws on what it got.
+ */
+export function tokenLines(value: unknown): CodeToken[][] | null {
+  if (!Array.isArray(value)) return null;
+  for (const line of value as unknown[]) {
+    if (!Array.isArray(line)) return null;
+    for (const token of line as unknown[]) {
+      if (typeof token !== "object" || token === null) return null;
+      const { text, kind } = token as Record<string, unknown>;
+      if (typeof text !== "string") return null;
+      if (kind !== null && !(typeof kind === "string" && KIND_NAMES.has(kind))) return null;
+    }
+  }
+  return value as CodeToken[][];
+}
+
 /**
  * How long a deck waits for Shiki and the grammars before it measures with
  * plain blocks. A failed load (offline, a never-cached grammar) ends sooner;
@@ -253,7 +275,7 @@ async function colour(
   const text = code.textContent ?? "";
   let lines: CodeToken[][] | null;
   try {
-    lines = await tokenize(text, language);
+    lines = tokenLines(await tokenize(text, language));
   } catch {
     return;
   }
