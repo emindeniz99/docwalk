@@ -66,6 +66,18 @@ describe("reading stored marks back", () => {
     ]);
   });
 
+  test("a rectangle and an ellipse of four numbers read back as they were saved (decision 110)", () => {
+    const rect: SavedStroke = { tool: "rect", color: "primary", points: [400, 300, 3000, 2000] };
+    const ellipse: SavedStroke = {
+      tool: "ellipse",
+      color: "focus",
+      points: [3000, 2000, 400, 300],
+    };
+    expect(readSlides(DOC, [record({ strokes: [rect, ellipse] })])).toEqual([
+      { slide: "intro/1", text: "1a2b3c4d", strokes: [rect, ellipse] },
+    ]);
+  });
+
   test.each([
     ["an unknown field on the record", record({ html: "<img src=x>" })],
     ["an unknown field on a stroke", record({ strokes: [{ ...pen(), d: "M0 0" } as SavedStroke] })],
@@ -83,7 +95,23 @@ describe("reading stored marks back", () => {
     ],
     [
       "a tool docwalk has no drawing for",
-      record({ strokes: [{ ...pen(), tool: "rect" } as never] }),
+      record({ strokes: [{ ...pen(), tool: "highlighter" } as never] }),
+    ],
+    [
+      "a rectangle of two numbers",
+      record({ strokes: [{ tool: "rect", color: "ink", points: [10, 10] }] }),
+    ],
+    [
+      "a rectangle of six numbers",
+      record({ strokes: [{ tool: "rect", color: "ink", points: [10, 10, 20, 20, 30, 30] }] }),
+    ],
+    [
+      "an ellipse of two numbers",
+      record({ strokes: [{ tool: "ellipse", color: "ink", points: [10, 10] }] }),
+    ],
+    [
+      "an ellipse of six numbers",
+      record({ strokes: [{ tool: "ellipse", color: "ink", points: [10, 10, 20, 20, 30, 30] }] }),
     ],
     ["a colour that is not a key", record({ strokes: [{ ...pen(), color: "red" } as never] })],
     ["a colour that is CSS", record({ strokes: [{ ...pen(), color: "url(#x)" } as never] })],

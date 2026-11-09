@@ -79,8 +79,8 @@ const StrokeSchema = v.pipe(
   }),
   v.check(({ tool, points }) => {
     if (points.length % 2 !== 0) return false;
-    // An arrow is its two ends; a pen stroke has at least one point.
-    return tool === "arrow" ? points.length === 4 : points.length >= 2;
+    // Every tool but the pen is two corners (decision 110); a pen stroke has at least one point.
+    return tool === "pen" ? points.length >= 2 : points.length === 4;
   }, "malformed stroke"),
 );
 

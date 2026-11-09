@@ -453,6 +453,40 @@ describe("saved marks in exports (decision 105)", () => {
     expect(text).toContain(".docwalk-export-marks");
   });
 
+  test("a saved ellipse and rectangle are an <ellipse> and a <rect> under the marks overlay (decision 110)", async () => {
+    const shapes: SavedStroke[] = [
+      { tool: "ellipse", color: "ink", points: [3072, 2048, 1024, 1024] },
+      { tool: "rect", color: "focus", points: [1024, 1024, 3072, 2048] },
+    ];
+    const { doc } = await parseExport(deck({ ...slide("a", "Shapes"), marks: shapes }));
+    const overlay = doc.querySelector(".docwalk-export-page .docwalk-export-marks")!;
+    const ellipse = overlay.querySelector('ellipse[data-tool="ellipse"][data-color="ink"]')!;
+    expect(["cx", "cy", "rx", "ry"].map((a) => Number(ellipse.getAttribute(a)))).toEqual([
+      640, 270, 320, 90,
+    ]);
+    const rect = overlay.querySelector('rect[data-tool="rect"][data-color="focus"]')!;
+    expect(["x", "y", "width", "height"].map((a) => Number(rect.getAttribute(a)))).toEqual([
+      320, 180, 640, 180,
+    ]);
+  });
+
+  test("a saved rectangle shows in the PNG as an outline: stroke colour on its edge, slide colour inside", async () => {
+    const rect: SavedStroke[] = [
+      { tool: "rect", color: "primary", points: [320, 512, 3776, 3584] },
+    ];
+    const files = await exportPng(
+      { title: "T", slides: [{ ...slide("a", "Shape"), marks: rect }], size: SIZE },
+      { save: () => undefined },
+    );
+    // The left edge is at x = 100 slide px; the image is at 2x. Inside there is no fill.
+    const [edge, inside] = await Promise.all([
+      pixel(files[0]!.blob, 200, 720),
+      pixel(files[0]!.blob, 1280, 720),
+    ]);
+    expect(near(edge!, token("--dw-color-primary"))).toBe(true);
+    expect(near(inside!, token("--dw-color-slide"))).toBe(true);
+  });
+
   test("a saved stroke shows in the PNG in its colour, where it was drawn", async () => {
     const files = await exportPng(
       { title: "T", slides: [marked(slide("a", "Marked")), slide("b", "Plain")], size: SIZE },

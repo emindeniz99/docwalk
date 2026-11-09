@@ -113,6 +113,55 @@ describe("marks on the receiving slide", () => {
     expect(head).toMatch(/^M [\d. -]+ L [\d. -]+ L [\d. -]+ Z$/);
   });
 
+  test("a rectangle is a <rect> over the box of its two corners, whichever corner comes first (decision 110)", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    // Bottom-right corner first: 3072 and 2048 of 4096 are 960 and 360 slide px across and down.
+    store.apply(stroke({ id: 1, tool: "rect", points: [3072, 2048, 1024, 1024] }));
+    store.apply(stroke({ id: 2, tool: "rect", points: [1024, 1024, 3072, 2048] }));
+    view = attachMirror(host, store, () => "a/1");
+    const [first, second] = [...marks(host)] as SVGRectElement[];
+    expect(first!.localName).toBe("rect");
+    const box = (el: SVGElement) =>
+      ["x", "y", "width", "height"].map((a) => Number(el.getAttribute(a)));
+    expect(box(first!)).toEqual([320, 180, 640, 180]);
+    expect(box(second!)).toEqual(box(first!));
+  });
+
+  test("an ellipse is an <ellipse> with its centre and radii from the box of its corners", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply(stroke({ id: 1, tool: "ellipse", points: [3072, 2048, 1024, 1024] }));
+    view = attachMirror(host, store, () => "a/1");
+    const ellipse = marks(host)[0]!;
+    expect(ellipse.localName).toBe("ellipse");
+    expect(["cx", "cy", "rx", "ry"].map((a) => Number(ellipse.getAttribute(a)))).toEqual([
+      640, 270, 320, 90,
+    ]);
+  });
+
+  test("a shape is stroked in the key's design token and left unfilled", () => {
+    const { host } = slideBox(640, 360);
+    const store = new MirrorStore();
+    store.apply(stroke({ id: 1, tool: "rect", color: "ink", points: [1024, 1024, 3072, 2048] }));
+    store.apply(
+      stroke({ id: 2, tool: "ellipse", color: "focus", points: [1024, 1024, 3072, 2048] }),
+    );
+    view = attachMirror(host, store, () => "a/1");
+    const probe = document.createElement("span");
+    document.body.append(probe);
+    const token = (name: string) => {
+      probe.style.color = `var(--dw-color-${name})`;
+      return getComputedStyle(probe).color;
+    };
+    const [rect, ellipse] = marks(host);
+    expect(getComputedStyle(rect!).stroke).toBe(token("ink"));
+    expect(getComputedStyle(ellipse!).stroke).toBe(token("focus"));
+    expect(getComputedStyle(rect!).fill).toBe("none");
+    expect(getComputedStyle(ellipse!).fill).toBe("none");
+    expect(getComputedStyle(rect!).strokeWidth).toBe("4px");
+  });
+
   test("a mark lands on the same spot of the slide at any size", () => {
     const centres: { x: number; y: number }[] = [];
     for (const [width, height] of [

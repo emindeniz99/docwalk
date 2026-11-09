@@ -3,6 +3,7 @@ import "./mirror.css";
 import type { MirrorStore, StoredStroke } from "./mirrorStore";
 import { COORD_MAX, MIRROR_HEIGHT, MIRROR_LASER_IDLE_MS, MIRROR_WIDTH } from "./mirrorTypes";
 import { outlinePath } from "./outline";
+import { strokeElement } from "./markSvg";
 
 /**
  * Draws a `MirrorStore` over a slide (decision 88): the presenter's pen and
@@ -100,6 +101,10 @@ function draw(stroke: StoredStroke): SVGElement | null {
   if (stroke.tool === "arrow") {
     // An arrow needs both ends; a shorter list is a stroke that is still arriving.
     return stroke.points.length >= 4 ? drawArrow(stroke.points) : null;
+  }
+  if (stroke.tool === "rect" || stroke.tool === "ellipse") {
+    // The saved marks and exports draw shapes the same way (decision 110).
+    return strokeElement(stroke, MIRROR_WIDTH, MIRROR_HEIGHT);
   }
   return stroke.points.length >= 2 ? drawPen(stroke.points) : null;
 }

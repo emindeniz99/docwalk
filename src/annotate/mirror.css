@@ -41,3 +41,10 @@
   stroke-width: 4;
   stroke-linecap: round;
 }
+
+.docwalk-mirror rect[data-mark],
+.docwalk-mirror ellipse[data-mark] {
+  fill: none;
+  stroke: var(--docwalk-mark);
+  stroke-width: 4;
+}

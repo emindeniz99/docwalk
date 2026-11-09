@@ -87,3 +87,10 @@
   stroke-width: 4;
   stroke-linecap: round;
 }
+
+.docwalk-export-marks rect[data-tool="rect"],
+.docwalk-export-marks ellipse[data-tool="ellipse"] {
+  fill: none;
+  stroke: var(--docwalk-mark);
+  stroke-width: 4;
+}
