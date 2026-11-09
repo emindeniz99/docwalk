@@ -155,6 +155,17 @@ export function slideShareOf(index: number, total: number): number | null {
 }
 
 /**
+ * Milliseconds until the face of a clock with `remaining` left next changes, for
+ * a ticker that wakes just after each change: the face counts whole seconds
+ * toward zero (`formatRemaining`), so a plain 1 s timer from the instant the
+ * countdown arrived would skip a number. The 2 ms lands the wake-up after the
+ * change and not on it.
+ */
+export function untilNextSecond(remaining: number): number {
+  return (remaining > 0 ? remaining % 1000 : 1000 + (remaining % 1000)) + 2;
+}
+
+/**
  * The time left as a clock: whole seconds toward zero, so `0:01` shows for
  * the last second, and a real minus sign (U+2212, which screen readers speak)
  * once at least a second below zero.

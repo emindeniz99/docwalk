@@ -24,6 +24,7 @@ import {
   toRemoteCountdown,
   writeCountdown,
   type Countdown,
+  untilNextSecond,
 } from "./pacing";
 
 const MIN = 60_000;
@@ -282,5 +283,38 @@ describe("what the phone remote gets (decision 112)", () => {
     expect(v.safeParse(CountdownSchema, { targetMs: 1, spentMs: 0, startedAt: null }).success).toBe(
       false,
     );
+  });
+});
+
+describe("the phone's ticker (decision 112)", () => {
+  test("a whole number of seconds left waits for the next change, not a second and a bit", () => {
+    // 600 s on screen: the next number is due at once, so the face never shows "600" for 1002 ms and then "598".
+    expect(untilNextSecond(600_000)).toBe(2);
+    expect(untilNextSecond(599_999)).toBe(1001);
+    expect(untilNextSecond(12_500)).toBe(502);
+  });
+
+  test("at zero and below it waits for the next number below zero", () => {
+    expect(untilNextSecond(0)).toBe(1002);
+    expect(untilNextSecond(-500)).toBe(502);
+    expect(untilNextSecond(-1000)).toBe(1002);
+    expect(untilNextSecond(-1500)).toBe(502);
+  });
+
+  test("woken by it from any start, the face skips no number on the way down through zero", () => {
+    for (const start of [600_000, 599_999, 600_001, 12_345, 3_000, 1_001, 500, 0, -1, -500]) {
+      let remaining = start;
+      let previous = Math.trunc(remaining / 1000);
+      for (let tick = 0; tick < 20; tick++) {
+        remaining -= untilNextSecond(remaining);
+        const shown = Math.trunc(remaining / 1000);
+        expect([start, tick, previous - shown <= 1 && previous - shown >= 0]).toEqual([
+          start,
+          tick,
+          true,
+        ]);
+        previous = shown;
+      }
+    }
   });
 });

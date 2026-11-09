@@ -18,6 +18,7 @@ import {
   slideShareOf,
   timeShare,
   type Countdown,
+  untilNextSecond,
 } from "../presenter/pacing";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
 import type { FollowState } from "./follower";
@@ -116,16 +117,6 @@ function useRemoteControl(
     void connection.current?.send(message);
   };
   return { status, state, presenterAway, countdown, send };
-}
-
-/**
- * Milliseconds until the clock's face next changes, for a countdown with
- * `remaining` left: it counts whole seconds toward zero (`formatRemaining`),
- * so a plain 1 s timer from the message's arrival would skip a number.
- */
-function untilNextSecond(remaining: number): number {
-  const into = remaining >= 0 ? remaining % 1000 : 1000 + (remaining % 1000);
-  return (into === 0 ? 1000 : into) + 2;
 }
 
 /**
