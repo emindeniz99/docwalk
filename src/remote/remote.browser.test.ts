@@ -1453,13 +1453,14 @@ describe("the countdown on the phone remote (decision 112)", () => {
     const phone = peer(relay, remote, "remote");
     await vi.waitFor(() => expect(ofType(phone, "state").length).toBeGreaterThan(0));
     await settle();
-    // No countdown yet, so a null at the hello would only be noise.
-    expect(countdownsOf(phone)).toEqual([]);
+    // The hello was answered with "none", which is what the phone should hold; count from here.
+    expect(countdownsOf(phone).every((m) => m.countdown === null)).toBe(true);
+    const base = countdownsOf(phone).length;
 
     const startedAt = Date.now() - 1000;
     change({ targetMs: 20 * MIN, spentMs: 5 * MIN, startedAt });
-    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(1));
-    const running = countdownsOf(phone)[0]!.countdown!;
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(base + 1));
+    const running = countdownsOf(phone)[base]!.countdown!;
     expect(running.running).toBe(true);
     // The time spent so far travels, not the instant it started.
     expect(running.spentMs).toBeGreaterThanOrEqual(5 * MIN + 1000);
@@ -1467,32 +1468,74 @@ describe("the countdown on the phone remote (decision 112)", () => {
     expect(Object.keys(running).toSorted()).toEqual(["running", "spentMs", "targetMs"]);
 
     change(PAUSED);
-    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(2));
-    expect(countdownsOf(phone)[1]!.countdown).toEqual({
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(base + 2));
+    expect(countdownsOf(phone)[base + 1]!.countdown).toEqual({
       targetMs: 20 * MIN,
       spentMs: 5 * MIN,
       running: false,
     });
 
     change(null);
-    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(3));
-    expect(countdownsOf(phone)[2]).toEqual({ type: "countdown", countdown: null });
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(base + 3));
+    expect(countdownsOf(phone)[base + 2]).toEqual({ type: "countdown", countdown: null });
 
     // The same values in a new object say nothing new.
     change(null);
     change({ ...PAUSED });
     change({ ...PAUSED });
-    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(4));
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(base + 4));
     await settle();
-    expect(countdownsOf(phone)).toHaveLength(4);
+    expect(countdownsOf(phone)).toHaveLength(base + 4);
   });
 
-  test("a host with no countdown says nothing about one", async () => {
+  test("a host with no countdown tells each phone so at its hello", async () => {
     const { relay, remote } = await hostWithCountdown();
     const phone = peer(relay, remote, "remote");
-    await vi.waitFor(() => expect(ofType(phone, "state").length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
     await settle();
-    expect(countdownsOf(phone)).toEqual([]);
+    expect(countdownsOf(phone).every((m) => m.countdown === null)).toBe(true);
+  });
+
+  test("a phone that missed the end of the countdown while its socket was down is told at its next hello", async () => {
+    const { relay, remote, change } = await hostWithCountdown(PAUSED);
+    const phone = peer(relay, remote, "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    expect(countdownsOf(phone).at(-1)?.countdown).not.toBeNull();
+    await settle();
+    // Sockets in order: the presenter's, then the phone's.
+    relay.drop(1);
+    change(null);
+    await vi.waitFor(() => expect(phone.statuses).toContain("reconnecting"));
+    await vi.waitFor(() => expect(phone.statuses.at(-1)).toBe("open"), SLOW);
+    await vi.waitFor(() => expect(countdownsOf(phone).at(-1)?.countdown).toBeNull(), SLOW);
+  });
+
+  test("a presenter tab that reloads with no countdown tells the phones that stayed connected", async () => {
+    const relay = new FakeRelay();
+    const first = mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      countdown: PAUSED,
+    });
+    const phone = peer(relay, await joinCreds(first, "remote"), "remote");
+    await vi.waitFor(() => expect(countdownsOf(phone).length).toBeGreaterThan(0));
+    expect(countdownsOf(phone).at(-1)?.countdown).not.toBeNull();
+    // The reload loses the countdown: the new host is built with none (a reloaded tab has not
+    // asked for the presenter window again).
+    act(() => root?.unmount());
+    root = null;
+    mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      countdown: null,
+    });
+    await vi.waitFor(() => expect(countdownsOf(phone).at(-1)?.countdown).toBeNull(), SLOW);
   });
 
   test("when the socket reopens the phone gets the state and the countdown again", async () => {

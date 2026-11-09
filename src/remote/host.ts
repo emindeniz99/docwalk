@@ -3,7 +3,7 @@ import * as v from "valibot";
 import type { MirrorFeed } from "../annotate/mirrorFeed";
 import { mirrorFrameBytes, resyncGapMs, type MirrorOp } from "../annotate/mirrorTypes";
 import type { DeckController } from "../deck/controller";
-import { toRemoteCountdown, type Countdown } from "../presenter/pacing";
+import { sameCountdown, toRemoteCountdown, type Countdown } from "../presenter/pacing";
 import type { LevelOption } from "../sectioning/sectionize";
 import { answerAgent, isAgentRequest, type AgentHostContext } from "./agent";
 import { connectRoom, type RemoteStatus, type RoomConnection, type SocketFactory } from "./client";
@@ -145,11 +145,6 @@ function claimRoom(room: string): Promise<boolean> {
   return claim;
 }
 
-/** What makes two countdowns differ for the phones: the target, the time spent and the instant it started. */
-function countdownKey(countdown: Countdown | null): string | null {
-  return countdown ? `${countdown.targetMs}:${countdown.spentMs}:${countdown.startedAt}` : null;
-}
-
 function storage(): Storage | null {
   try {
     return globalThis.sessionStorage ?? null;
@@ -215,11 +210,8 @@ export function useRemoteHost({
   const deckWaiters = useRef(new Set<() => void>());
   const allowRef = useRef(allowAgentEdits);
   const countdownRef = useRef(countdown);
-  /**
-   * What the phones were last sent, as `countdownKey` writes it: null for
-   * nothing sent or a cleared clock, undefined when a send did not go out.
-   */
-  const sentCountdownRef = useRef<string | null | undefined>(null);
+  /** What the phones were last sent: null for nothing or a cleared clock, undefined when a send did not go out. */
+  const sentCountdownRef = useRef<Countdown | null | undefined>(null);
   const callbacks = useRef({ onAgentEdit, onAgentEditRefused });
   useLayoutEffect(() => {
     if (controller !== controllerRef.current) builtForRef.current = controller ? markdown : null;
@@ -266,25 +258,22 @@ export function useRemoteHost({
 
   /**
    * Sends the countdown to the phones. A change goes out when it differs from
-   * what they were sent; `again` (a hello, a reopened socket) resends a running
-   * or paused countdown they may have missed, and says nothing when there is none.
+   * what they were sent; `again` (a hello, a reopened socket) sends it whatever
+   * was sent, null included, because a phone that missed the end of a countdown
+   * would keep showing it.
    */
   const sendCountdown = useCallback(async (now: Countdown | null, again: boolean) => {
     const conn = connection.current;
     if (!conn) return;
-    const key = countdownKey(now);
-    if (
-      again ? now === null && sentCountdownRef.current === null : key === sentCountdownRef.current
-    ) {
-      return;
-    }
-    sentCountdownRef.current = key;
+    const sent = sentCountdownRef.current;
+    if (!again && sent !== undefined && sameCountdown(now, sent)) return;
+    sentCountdownRef.current = now;
     const result = await conn.send({
       type: "countdown",
       countdown: now ? toRemoteCountdown(now, Date.now()) : null,
     });
     // The socket was not open: the next change or hello sends it again.
-    if (result !== "sent" && sentCountdownRef.current === key) sentCountdownRef.current = undefined;
+    if (result !== "sent" && sentCountdownRef.current === now) sentCountdownRef.current = undefined;
   }, []);
 
   useEffect(() => {
