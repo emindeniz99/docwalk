@@ -35,6 +35,15 @@ async function exportHtml(page: Page): Promise<string> {
   return readFile(await (await download).path(), "utf8");
 }
 
+/**
+ * The slide count the status bar shows once a reload has rendered. `ready()`
+ * gives a first open 30 s; a reload renders the same deck and needs the same,
+ * since under load the 5 s default left the bar at "Rendering…" and failed
+ * these checks twice.
+ */
+const rendered = (page: Page) =>
+  expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slides?/, { timeout: 30_000 });
+
 const overlays = (html: string) => (html.match(/class="docwalk-export-marks"/g) ?? []).length;
 
 test("a mark survives a reload, goes into the HTML export, and is gone for good once deleted", async ({
@@ -46,7 +55,7 @@ test("a mark survives a reload, goes into the HTML export, and is gone for good 
 
   // A reload drops the layer and every drauu surface; the mark comes back from IndexedDB.
   await page.reload();
-  await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slides/);
+  await rendered(page);
   await expect(marks(page)).toHaveCount(1);
   await page.locator(".reveal").focus();
   await page.keyboard.press("ArrowRight");
@@ -87,7 +96,7 @@ test("a mark survives a reload, goes into the HTML export, and is gone for good 
   await expect(page.locator(".docwalk-notice")).toContainText("Saved marks deleted.");
 
   await page.reload();
-  await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slides/);
+  await rendered(page);
   await expect(page.locator(".docwalk-annotate")).toBeAttached();
   await expect(marks(page)).toHaveCount(0);
   await page.getByRole("button", { name: "More actions" }).click();
@@ -106,6 +115,6 @@ test("cancelling the confirmation keeps every saved mark", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(confirm).toBeHidden();
   await page.reload();
-  await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slides/);
+  await rendered(page);
   await expect(marks(page)).toHaveCount(1);
 });
