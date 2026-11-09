@@ -77,9 +77,10 @@ export interface RemoteHostOptions {
   /** An agent tried to write while agent edits are off. */
   onAgentEditRefused?: (name: string) => void;
   /**
-   * What the presenter mirrors to followers (decision 88): the laser, marks
-   * and diagram focus view. The host sends its ops to the room signed, relays
-   * a phone's laser through it, and resyncs a follower that joins late.
+   * What the presenter mirrors to followers (decisions 88 and 106): the
+   * laser, marks and the diagram, code, table and image focus views. The
+   * host sends its ops to the room signed, relays a phone's laser through
+   * it, and resyncs a follower that joins late.
    */
   mirror?: MirrorFeed | null;
 }
