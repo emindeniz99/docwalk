@@ -1,21 +1,22 @@
 /**
- * The lazy half of code highlighting (decision 76): Shiki's tokenizer
- * (`@shikijs/primitive`: no HTML output, which docwalk builds itself) with
- * its JavaScript regex engine (no WebAssembly, so the CSP needs no
- * `wasm-unsafe-eval`) and one dynamically imported chunk per grammar.
- * Imported only by `./highlight.ts`, and only for a document that has a
- * block in a known language.
+ * The lazy half of code highlighting (decision 76), page side. Shiki itself
+ * runs in a Web Worker (`./shiki.worker.ts`, with `./shikiTokens.ts`): the
+ * first block of a grammar compiles its patterns, hundreds of milliseconds
+ * that on this thread would hold up Mermaid's renders before the deck can
+ * measure (decision 43). This file loads each grammar chunk, one per language
+ * from a fixed list, and posts the grammar to the worker, so the grammars
+ * stay chunks of the page that the service worker caches on first use.
+ * Imported only by `./highlight.ts`, and only for a document that has a block
+ * in a known language.
  */
-import { createCssVariablesTheme } from "@shikijs/core";
-import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
+import type { LanguageRegistration } from "@shikijs/primitive";
 import {
-  codeToTokensBase,
-  createShikiPrimitiveAsync,
-  type LanguageRegistration,
-  type ShikiPrimitive,
-  type ThemeRegistration,
-} from "@shikijs/primitive";
-import type { CodeLanguage, CodeToken, TokenKind, Tokenize } from "./highlight";
+  HIGHLIGHT_TIMEOUT_MS,
+  type CodeLanguage,
+  type CodeToken,
+  type Tokenize,
+} from "./highlight";
+import type { ShikiReply, ShikiRequest } from "./shikiTokens";
 
 type Grammar = () => Promise<{ default: LanguageRegistration[] }>;
 
@@ -47,97 +48,101 @@ const GRAMMARS: Record<CodeLanguage, Grammar> = {
   yaml: () => import("@shikijs/langs/yaml"),
 };
 
-const PREFIX = "--dw-code-";
+/** A request as the caller writes it; the client adds the id. */
+type WithoutId<T> = T extends unknown ? Omit<T, "id"> : never;
 
-/**
- * Shiki's CSS-variables theme colours each token `var(--dw-code-<name>)`.
- * Those names are only lookup keys: each maps to one of docwalk's colour
- * classes, and a name not listed here (punctuation, plain text) gets none.
- * No colour value from Shiki reaches the page.
- */
-const KINDS = new Map<string, TokenKind>([
-  [`var(${PREFIX}token-keyword)`, "keyword"],
-  [`var(${PREFIX}token-string)`, "string"],
-  [`var(${PREFIX}token-string-expression)`, "string"],
-  [`var(${PREFIX}token-link)`, "string"],
-  [`var(${PREFIX}token-comment)`, "comment"],
-  [`var(${PREFIX}token-constant)`, "constant"],
-  [`var(${PREFIX}token-changed)`, "constant"],
-  [`var(${PREFIX}token-function)`, "function"],
-  [`var(${PREFIX}token-parameter)`, "parameter"],
-  [`var(${PREFIX}token-inserted)`, "inserted"],
-  [`var(${PREFIX}token-deleted)`, "deleted"],
-]);
+/** The part of `Worker` the client uses. */
+type WorkerLike = Pick<Worker, "postMessage" | "terminate" | "addEventListener">;
 
-const THEME = "docwalk";
-
-/**
- * The CSS-variables theme marks Markdown headings with weight alone, which
- * docwalk leaves out (decision 76: colour only), so they get the constant
- * colour, as on GitHub. Bold and italic are marked with weight and style
- * alone too; GitHub shows them in its text colour, so the function colour is
- * docwalk's own choice (decision 115).
- */
-function docwalkTheme(): ThemeRegistration {
-  const theme = createCssVariablesTheme({ name: THEME, variablePrefix: PREFIX, fontStyle: false });
-  return {
-    ...theme,
-    tokenColors: [
-      ...(theme.tokenColors ?? []),
-      {
-        scope: ["markup.heading", "entity.name.section"],
-        settings: { foreground: `var(${PREFIX}token-constant)` },
-      },
-      {
-        scope: ["markup.bold", "markup.italic"],
-        settings: { foreground: `var(${PREFIX}token-function)` },
-      },
-    ],
-  };
+/** The one `new Worker`; Vite only bundles the worker for this literal form. */
+function startShikiWorker(): WorkerLike {
+  return new Worker(new URL("./shiki.worker.ts", import.meta.url), {
+    type: "module",
+    name: "docwalk-shiki",
+  });
 }
 
-let highlighter: Promise<ShikiPrimitive> | null = null;
-const pending = new Map<CodeLanguage, Promise<void>>();
+/**
+ * A worker that has not answered a request after this long is stopped and
+ * the request's blocks stay plain. A regex the engine runs into cannot be
+ * interrupted; this keeps one from holding the deck's measurement forever.
+ */
+const REPLY_DEADLINE_MS = HIGHLIGHT_TIMEOUT_MS;
+
+interface Client {
+  request(message: WithoutId<ShikiRequest>): Promise<ShikiReply | null>;
+  /** Grammar loads by language, for this worker only: a new worker needs them posted again. */
+  grammars: Map<CodeLanguage, Promise<void>>;
+  languages: Set<string>;
+}
+
+let client: Client | null = null;
+
+/** Starts the worker. A crash, a refused start or a missed deadline drops it; the next build starts another. */
+function connect(): Client {
+  const worker = startShikiWorker();
+  const waiting = new Map<number, (reply: ShikiReply | null) => void>();
+  let nextId = 0;
+  const api: Client = {
+    grammars: new Map(),
+    languages: new Set(),
+    request: (message) => {
+      const id = ++nextId;
+      return new Promise((resolve) => {
+        const timer = setTimeout(drop, REPLY_DEADLINE_MS);
+        waiting.set(id, (reply) => {
+          clearTimeout(timer);
+          waiting.delete(id);
+          resolve(reply);
+        });
+        // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a Worker has no target origin; the second argument would be a transfer list.
+        worker.postMessage({ ...message, id } as ShikiRequest);
+      });
+    },
+  };
+  function drop(): void {
+    worker.terminate();
+    if (client === api) client = null;
+    for (const settle of waiting.values()) settle(null);
+  }
+  worker.addEventListener("message", (event) => {
+    const reply = (event as MessageEvent<ShikiReply>).data;
+    waiting.get(reply.id)?.(reply);
+  });
+  worker.addEventListener("error", drop);
+  worker.addEventListener("messageerror", drop);
+  return api;
+}
 
 /**
- * Loads the grammars `languages` need into one shared highlighter. A grammar
- * that fails to load is left out (its blocks stay plain) and tried again on
- * the next call.
+ * Loads the grammars `languages` need into the worker. A grammar that fails
+ * to load is left out (its blocks stay plain) and tried again on the next
+ * call. Rejects when no worker can be started.
  */
 export async function loadTokenizer(languages: CodeLanguage[]): Promise<Tokenize> {
-  highlighter ??= createShikiPrimitiveAsync({
-    themes: [docwalkTheme()],
-    langs: [],
-    // `forgiving`: a pattern the engine cannot translate is skipped instead of
-    // failing the whole grammar; that block is then a little less coloured.
-    engine: createJavaScriptRegexEngine({ forgiving: true }),
-  }).catch((error: unknown) => {
-    highlighter = null;
-    throw error;
-  });
-  const core = await highlighter;
+  const current = (client ??= connect());
   await Promise.all(
     languages.map((language) => {
-      let load = pending.get(language);
+      let load = current.grammars.get(language);
       if (!load) {
         load = GRAMMARS[language]()
-          .then((grammar) => core.loadLanguage(grammar.default))
+          .then((grammar) => current.request({ kind: "load", grammars: [grammar.default] }))
+          .then((reply) => {
+            if (reply?.kind === "loaded")
+              for (const name of reply.languages) current.languages.add(name);
+            if (!current.languages.has(language)) current.grammars.delete(language);
+          })
           .catch(() => {
-            pending.delete(language);
+            current.grammars.delete(language);
           });
-        pending.set(language, load);
+        current.grammars.set(language, load);
       }
       return load;
     }),
   );
-  const loaded = new Set(core.getLoadedLanguages());
-  return (text, language) => {
-    if (!loaded.has(language)) return null;
-    return codeToTokensBase(core, text, { lang: language, theme: THEME }).map((line) =>
-      line.map((token): CodeToken => ({
-        text: token.content,
-        kind: (token.color && KINDS.get(token.color)) || null,
-      })),
-    );
+  return async (text, language): Promise<CodeToken[][] | null> => {
+    if (!current.languages.has(language)) return null;
+    const reply = await current.request({ kind: "tokenize", text, language });
+    return reply?.kind === "tokens" ? reply.lines : null;
   };
 }

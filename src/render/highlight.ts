@@ -9,7 +9,8 @@
  * metric, so line breaks and heights stay what pagination measured.
  *
  * Shiki and the grammars are a lazy chunk (`./shiki.ts`), loaded only when a
- * document has a block in one of `CODE_LANGUAGES`. A block in any other
+ * document has a block in one of `CODE_LANGUAGES`; Shiki tokenizes in a Web
+ * Worker, so Mermaid renders beside it on this thread. A block in any other
  * language, or one whose grammar fails to load, stays plain. A grammar that
  * lands after the timeout colours its blocks in place (decision 115).
  */
@@ -113,8 +114,15 @@ export const TOKEN_KINDS = [
 
 export type TokenKind = (typeof TOKEN_KINDS)[number];
 
-/** What the lazy chunk hands back: the lines of `text` as tokens, or null when `language` is not loaded. */
-export type Tokenize = (text: string, language: CodeLanguage) => CodeToken[][] | null;
+/**
+ * What the lazy chunk hands back: the lines of `text` as tokens, or null when
+ * `language` is not loaded. The chunk's answers come from its worker, so they
+ * arrive later.
+ */
+export type Tokenize = (
+  text: string,
+  language: CodeLanguage,
+) => CodeToken[][] | null | Promise<CodeToken[][] | null>;
 
 /**
  * How long a deck waits for Shiki and the grammars before it measures with
@@ -187,7 +195,7 @@ export async function highlightCode(
   if (blocks.length === 0) return;
   const { tokenize, late } = await tokenizerFor(new Set(blocks.map((b) => b.language)), timeoutMs);
   if (tokenize) {
-    if (!stop()) for (const { code, language } of blocks) colour(code, language, tokenize);
+    if (!stop()) await colourAll(blocks, tokenize, stop);
     return;
   }
   if (late) void colourLate(root, late, stop);
@@ -221,21 +229,37 @@ async function colourLate(
   try {
     const tokenize = await Promise.race([late, cutoff]);
     if (!tokenize || stop()) return;
-    for (const { code, language } of plainBlocks(root)) colour(code, language, tokenize);
+    await colourAll(plainBlocks(root), tokenize, stop);
   } finally {
     clearTimeout(timer);
   }
 }
 
-function colour(code: HTMLElement, language: CodeLanguage, tokenize: Tokenize): void {
+/** Asks for every block's tokens at once, so the worker never waits on the page between blocks. */
+async function colourAll(
+  blocks: { code: HTMLElement; language: CodeLanguage }[],
+  tokenize: Tokenize,
+  stop: () => boolean,
+): Promise<void> {
+  await Promise.all(blocks.map(({ code, language }) => colour(code, language, tokenize, stop)));
+}
+
+async function colour(
+  code: HTMLElement,
+  language: CodeLanguage,
+  tokenize: Tokenize,
+  stop: () => boolean,
+): Promise<void> {
   const text = code.textContent ?? "";
   let lines: CodeToken[][] | null;
   try {
-    lines = tokenize(text, language);
+    lines = await tokenize(text, language);
   } catch {
     return;
   }
-  if (!lines) return;
+  // A stale build leaves its blocks alone, and a block that changed while
+  // its tokens were on the way (coloured by another pass) is not coloured twice.
+  if (!lines || stop() || code.children.length > 0 || code.textContent !== text) return;
   // The spans must spell the block's text exactly, or copy, search and the
   // measured layout would change; anything else leaves the block plain.
   if (lines.map((line) => line.map((t) => t.text).join("")).join("\n") !== text) return;
