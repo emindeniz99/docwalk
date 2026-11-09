@@ -18,6 +18,7 @@ import {
 } from "./mathAllow";
 import { MathTooLarge } from "./mathCost";
 import { fromTree } from "./mathRebuild";
+import { createMathRenderer, MATH_DEADLINE_MS } from "./mathRender";
 import { MAX_TEX_CHARS, MAX_TEX_NESTING, nestingOf, texToTree, type MathTree } from "./mathTree";
 import { nodesToHtml } from "./toHtml";
 
@@ -93,10 +94,8 @@ function expectSafe(box: Element): void {
 /** The formula's source, kept as text where a formula could not be drawn. */
 const failed = (box: Element) => [...box.querySelectorAll(`code.${MATH_ERROR_CLASS}`)];
 
-/** A builder that throws, as a Temml bug would. */
-const boom: MathBuilder = () => {
-  throw new Error("boom");
-};
+/** A builder that rejects, as a worker that fails to start does. */
+const boom: MathBuilder = () => Promise.reject(new Error("boom"));
 
 describe("the four forms become MathML", () => {
   test("$…$ is an inline <math> in the sentence", async () => {
@@ -184,7 +183,7 @@ describe("dollars and code are not math (rule 2)", () => {
     await renderMath(box, {
       load: async () => {
         loads++;
-        return () => null;
+        return async () => null;
       },
     });
     expect(loads).toBe(0);
@@ -243,11 +242,21 @@ describe("a formula that cannot be drawn shows its source (never a crash)", () =
     expect(box.querySelector("math")).toBeNull();
   });
 
-  test("a builder that throws is a failed formula", async () => {
+  test("a builder that gives null marks the formula", async () => {
     const box = document.createElement("div");
     box.append(purifyHtml(nodesToHtml(parseMarkdown("A $x$ here").children)));
-    await renderMath(box, { load: async () => boom });
+    await renderMath(box, { load: async () => async () => null });
     expect(failed(box)).toHaveLength(1);
+  });
+
+  test("a builder that rejects stops the run and leaves the rest unmarked", async () => {
+    // A rejection means the renderer is gone (no worker); marking each formula would say
+    // it was refused. They stay as plain source, and the next call tries them.
+    const box = document.createElement("div");
+    box.append(purifyHtml(nodesToHtml(parseMarkdown("A $x$ and $y$ here").children)));
+    await renderMath(box, { load: async () => boom });
+    expect(failed(box)).toHaveLength(0);
+    expect(box.querySelectorAll("code.language-math")).toHaveLength(2);
   });
 
   test("a document with more formulas than the limit draws the first ones", async () => {
@@ -268,7 +277,7 @@ function boxOf(count: number, tex: string): HTMLElement {
 /** A builder that holds the thread for `ms`, as a heavy formula does. */
 const slowBuilder =
   (ms: number, built: string[] = []): MathBuilder =>
-  (tex) => {
+  async (tex) => {
     const until = performance.now() + ms;
     while (performance.now() < until) {
       // Busy wait: the point is a task that takes this long.
@@ -325,7 +334,8 @@ describe("many formulas do not hold the page (rule 5)", () => {
     const box = boxOf(20, "x");
     await renderMath(box, {
       load: async () => slowBuilder(20, built),
-      stop: () => built.length >= 3,
+      // Counted on the page: stop() is asked again after a build, before the formula is drawn.
+      stop: () => box.querySelectorAll("math").length >= 3,
     });
     expect(built).toHaveLength(3);
     expect(box.querySelectorAll("math")).toHaveLength(3);
@@ -360,6 +370,83 @@ describe("many formulas do not hold the page (rule 5)", () => {
     const box = boxOf(30, "x");
     await renderMath(box, { load: async () => slowBuilder(1), budgetMs: 5000 });
     expect(box.querySelectorAll("math")).toHaveLength(30);
+  });
+});
+
+/** Renderers a test made, disposed after it so no worker outlives its test. */
+const renderers: ReturnType<typeof createMathRenderer>[] = [];
+afterEach(() => {
+  for (const r of renderers.splice(0)) r.dispose();
+});
+
+/** `\a` pastes its argument `r` times, `\b` calls it with `a` letters, and `u` uses of `\b` follow. */
+const bomb = (r: number, a: number, u: number) =>
+  `\\def\\a#1{${"#1".repeat(r)}}\\def\\b{\\a{${"x".repeat(a)}}}${"\\b".repeat(u)}`;
+
+/** The longest time between two ticks of a 10 ms timer while `run` is awaited. */
+async function longestGap(run: () => Promise<unknown>): Promise<number> {
+  let last = performance.now();
+  let longest = 0;
+  const probe = setInterval(() => {
+    const now = performance.now();
+    longest = Math.max(longest, now - last);
+    last = now;
+  }, 10);
+  await run();
+  clearInterval(probe);
+  return Math.max(longest, performance.now() - last);
+}
+
+describe("one formula cannot hold the page (rule 5)", () => {
+  // The re-review's bomb: a macro that repeats its argument 100 times, called through a
+  // second \def 99 times. maxExpand counts 198 expansions; the parse pastes 8.9 million
+  // tokens and held the page thread for about 1.6 s, with no tick of any timer.
+  test("the re-review's 1,320-character bomb keeps its source and the page keeps its turns", async () => {
+    const tex = bomb(100, 900, 99);
+    expect(tex).toHaveLength(1320);
+    const started = performance.now();
+    let box!: HTMLElement;
+    const gap = await longestGap(async () => {
+      box = await render(`$${tex}$`);
+    });
+    expect(performance.now() - started).toBeLessThan(MATH_DEADLINE_MS + 1000);
+    expect(failed(box)).toHaveLength(1);
+    expect(box.querySelector("math")).toBeNull();
+    expect(gap).toBeLessThan(250);
+  });
+
+  test("a bomb the worker can parse runs out its deadline, and the page keeps its turns", async () => {
+    // 1,260 characters; about 950 ms of parse in a Chromium worker, which the deadline stops.
+    const tex = bomb(70, 900, 99);
+    const started = performance.now();
+    let box!: HTMLElement;
+    const gap = await longestGap(async () => {
+      box = await render(`$${tex}$`);
+    });
+    expect(performance.now() - started).toBeLessThan(MATH_DEADLINE_MS + 1000);
+    expect(failed(box)).toHaveLength(1);
+    expect(gap).toBeLessThan(250);
+  });
+
+  test("a formula after one that overran still draws", async () => {
+    const renderer = createMathRenderer({ deadlineMs: 50 });
+    renderers.push(renderer);
+    const box = document.createElement("div");
+    box.append(
+      purifyHtml(nodesToHtml(parseMarkdown(`$${bomb(100, 200, 99)}$ and $x+y$`).children)),
+    );
+    document.body.append(box);
+    await renderMath(box, { load: () => renderer.ready() });
+    expect(failed(box)).toHaveLength(1);
+    expect(box.querySelectorAll("p > math")).toHaveLength(1);
+  });
+
+  test("nesting just inside the limit draws through the worker", async () => {
+    // A worker's stack is smaller than the page's; 23 levels of \frac must still build there.
+    const depth = MAX_TEX_NESTING - 1;
+    const box = await render(`$$\n${"\\frac{1}{".repeat(depth)}x${"}".repeat(depth)}\n$$`);
+    expect(failed(box)).toHaveLength(0);
+    expect(box.querySelectorAll("math mfrac").length).toBeGreaterThanOrEqual(depth);
   });
 });
 

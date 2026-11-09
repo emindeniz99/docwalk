@@ -4,7 +4,7 @@ import { parseMarkdown } from "../sectioning/sectionize";
 import { renderEmoji } from "./emoji";
 import { MATH_CLASS, MATH_DISPLAY_CLASS, MATH_ERROR_CLASS, renderMath } from "./math";
 import { MATHML_NS, MATH_CLASSES, MATH_ELEMENTS, mathAttributeAllowed } from "./mathAllow";
-import { MAX_TEX_CHARS } from "./mathBuild";
+import { MAX_TEX_CHARS } from "./mathTree";
 import { nodesToHtml } from "./toHtml";
 
 /**
@@ -65,8 +65,8 @@ const URL_NAME = /^(?:src|srcset|href|xlink:href|data|poster|action|formaction|b
 
 /**
  * Starts recording every URL set on an element, by attribute or by property,
- * while a formula is built. Temml's `toNode()` runs in this page, and an
- * `<img>` whose `src` is set starts loading before anything removes it.
+ * while a formula is built. Temml runs in a worker and makes no elements;
+ * this is the second witness that the page's own rebuild makes none that load.
  * A same-page fragment (`#x`, Temml's `\ref`) fetches nothing and is left out.
  */
 function watchUrls(): () => string[] {

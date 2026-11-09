@@ -13,12 +13,9 @@
  * parse, so the parse runs in a worker that this file can terminate.
  */
 import "temml/dist/Temml-Local.css";
-import { MATH_TIMEOUT_MS } from "./math";
+import { MATH_TIMEOUT_MS, type MathBuilder } from "./math";
 import { fromTree } from "./mathRebuild";
 import type { MathReply, MathRequest } from "./mathTree";
-
-/** The builder `renderMath` calls: a formula in, an element or null (show the source) out. */
-export type MathDraw = (tex: string, display: boolean) => Promise<Element | null>;
 
 /** How long one formula may run in the worker before the page stops it. */
 export const MATH_DEADLINE_MS = 500;
@@ -74,7 +71,7 @@ export function createMathRenderer({
   createWorker = startMathWorker,
   deadlineMs = MATH_DEADLINE_MS,
   startMs = MATH_TIMEOUT_MS,
-}: MathRendererOptions = {}): { ready(): Promise<MathDraw>; dispose(): void } {
+}: MathRendererOptions = {}): { ready(): Promise<MathBuilder>; dispose(): void } {
   let live: Live | null = null;
   let flight: InFlight | null = null;
   let tail: Promise<unknown> = Promise.resolve();
@@ -162,7 +159,7 @@ export function createMathRenderer({
     });
   };
 
-  const build: MathDraw = (tex, display) => {
+  const build: MathBuilder = (tex, display) => {
     const source = `${display ? "d" : "i"}${tex}`;
     if (overruns.has(source)) return Promise.resolve(null);
     const task = async (): Promise<Element | null> => {
@@ -195,4 +192,4 @@ export function createMathRenderer({
 const shared = createMathRenderer();
 
 /** The window's builder: one worker for every `renderMath` call. Rejects when no worker starts. */
-export const mathBuilder = (): Promise<MathDraw> => shared.ready();
+export const mathBuilder = (): Promise<MathBuilder> => shared.ready();

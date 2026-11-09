@@ -3,7 +3,9 @@ import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { MATH_CLASSES, MATH_ROOT_CLASS, mathAttributeAllowed } from "../render/mathAllow";
 // Loads Temml's stylesheet into this page, as the first formula does in the app.
-import { buildMath } from "../render/mathBuild";
+import "temml/dist/Temml-Local.css";
+import { fromTree } from "../render/mathRebuild";
+import { texToTree } from "../render/mathTree";
 import { exportHtml } from "./html";
 import type { ExportSlide } from "./types";
 
@@ -41,6 +43,9 @@ function formulaSlide(): ExportSlide {
   section.append(slide);
   return { address: "f/1", title: "Formulas", element: section };
 }
+
+/** The element the deck draws for a formula; the test builds it in the page, the app in a worker. */
+const buildMath = (tex: string, display: boolean) => fromTree(texToTree(tex, display), display);
 
 async function parseExport(slide: ExportSlide): Promise<{ text: string; doc: Document }> {
   const blob = await exportHtml({
