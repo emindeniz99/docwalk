@@ -71,6 +71,7 @@ export function RemoteFollower({
     creds,
     controller,
     onMirror: (op) => store.apply(op),
+    onSlide: (address) => store.followPage(address),
   });
   useMirrorOverlay(controller, store);
   useEffect(() => {

@@ -73,8 +73,8 @@ presenter's line marks are mirrored to followers while the view is open
 Access API. Its files are saved only on Save or Ctrl/Cmd+S, and reload when
 they change on disk (58). Code: root `"folder"`.
 
-**Mirror**: what the presenter shows others as it happens: the laser, pen
-and arrow marks, and the focus view with its zoom, scroll and line marks.
+**Mirror**: what the presenter shows others as it happens: the laser, pen,
+arrow and shape marks, the whiteboard, and the focus view with its zoom, scroll and line marks.
 Followers get it as signed `mirror` messages in slide units, and the
 presenter window gets the laser and marks over the bridge. A focus view
 names its block by kind and place on the slide (106). It goes outward only,
@@ -109,6 +109,14 @@ Code: `usePresentChrome`, `data-chrome="hidden"`.
 
 **Revision**: 16 bytes of the SHA-256 of the document text. An agent's write
 that names an old revision is refused (67). Code: `revisionOf`.
+
+**Saved marks**: the pen and arrow marks on a document's slides, kept in
+this browser's IndexedDB under the document identity comments use and the
+slide address. A slide shows them again only while its text is the text
+they were drawn on. Exports draw them unless the Export menu's Include
+marks is off; Delete saved marks, in More actions or the palette, removes
+them. They never reach the Markdown (105). Code: `src/annotate/savedMarks.ts`,
+`marksStore.ts`.
 
 **Section**: the part of the AST between two slide starts at the base level.
 One section yields one or more **slides**. Its id comes from the heading
@@ -163,6 +171,11 @@ while the presenter window is open, so the screen does not dim. It fails
 without a message when the API is missing or refuses (80). Code:
 `holdScreenAwake`, `useWakeLock`.
 
+**Whiteboard**: a blank page over the slide box, one per section, addressed
+`<section-id>/board`. It has its own marks, which are mirrored and saved
+like a slide's, and a change of slide closes it (110). Code:
+`src/annotate/board.ts`, `layer.setBoard`.
+
 **Workspace**: the files and folders docwalk keeps for the user, either in
 the browser's origin private file system (autosaved) or in a **local
 folder**. The file panel above the outline shows it (57, 66). Several tabs
@@ -205,8 +218,12 @@ Add a row here before introducing a new one.
 | diagram tour, step          | diyagram turu, adım         | "Tur" on the button                        |
 | focus view                  | odak görünümü               | "tam ekran" in the dialog's names          |
 | line mark                   | satır işareti               | the "Temizle" button removes them          |
+| mark, saved marks           | işaret, kayıtlı işaretler   | pen and arrow marks; "Sil" deletes them    |
 | mirror, mirrored            | yansıtma, yansıtılan        | the presenter's laser and marks on others  |
 | sketch                      | çizim                       |                                            |
+| whiteboard                  | beyaz tahta                 |                                            |
+| rectangle, ellipse          | dikdörtgen, elips           | drawing tools                              |
+| stylus                      | dokunmatik kalem            | the pen tool stays "Kalem"                 |
 | comment, resolved, orphaned | yorum, çözüldü, sahipsiz    |                                            |
 | workspace, local folder     | çalışma alanı, yerel klasör |                                            |
 | draft                       | taslak                      |                                            |

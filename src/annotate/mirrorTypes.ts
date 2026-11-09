@@ -1,6 +1,7 @@
 /**
  * What the presenter mirrors to followers and to the presenter window
- * (decision 88): the laser, pen and arrow strokes, and the focus view of a
+ * (decision 88): the laser, pen, arrow, rectangle and ellipse strokes, the
+ * whiteboard that covers a page (decision 110), and the focus view of a
  * diagram, code block, table or image with its line marks (decision 106).
  * This file has no DOM types and no schema library, so the first-load bundle,
  * the Node-run unit tests and the `docwalk-mcp` agent can all import it.
@@ -90,7 +91,11 @@ export function resyncGapMs(bytes: number): number {
  */
 export const MARK_COLORS = ["primary", "focus", "ink"] as const;
 export type MarkColor = (typeof MARK_COLORS)[number];
-export const MARK_TOOLS = ["pen", "arrow"] as const;
+/**
+ * Every tool but the pen is a shape of two corners: one chunk, four numbers
+ * (decision 110). The schema holds a sender to it.
+ */
+export const MARK_TOOLS = ["pen", "arrow", "rect", "ellipse"] as const;
 export type MarkTool = (typeof MARK_TOOLS)[number];
 
 /** One of the three pen colours' token names (`--dw-color-primary`), as a key; null for anything else. */
@@ -168,10 +173,11 @@ export type MirrorOp =
   | { op: "laser"; x: number; y: number }
   | { op: "laser-off" }
   /**
-   * A pen or arrow stroke, or a chunk of one. `points` is flat (x0, y0, x1,
-   * y1, ...) on the grid; `from` is how many numbers the receiver must hold
-   * already (0 starts the stroke, or replaces one with the same id); `end`
-   * marks the last chunk.
+   * A stroke, or a chunk of one. `points` is flat (x0, y0, x1, y1, ...) on
+   * the grid; `from` is how many numbers the receiver must hold already (0
+   * starts the stroke, or replaces one with the same id); `end` marks the
+   * last chunk. Only a pen stroke comes in chunks: an arrow, rectangle or
+   * ellipse is one chunk of four numbers, its two corners (decision 110).
    */
   | {
       op: "stroke";
@@ -193,6 +199,15 @@ export type MirrorOp =
    * receiver that has them never shows the slide empty.
    */
   | { op: "keep"; slide: string; ids: number[] }
+  /**
+   * The presenter opened the whiteboard over the page `slide`. Its marks
+   * travel as strokes of the section's board address, `<section>/board`
+   * (decision 110); a receiver shows the board while its own page has the
+   * address `slide`.
+   */
+  | { op: "board-open"; slide: string }
+  /** The whiteboard is closed. */
+  | { op: "board-close" }
   /** The presenter opened the focus view on the `n`-th diagram, code block, table or image (from 1) of a slide. */
   | FocusOpenOp
   /**
@@ -223,6 +238,12 @@ export type MarkEvent =
   | ({ kind: "stroke"; slide: string; end: boolean } & MarkStroke)
   /** The stroke in progress was abandoned (a slide change, a too-short arrow). */
   | { kind: "cancel"; id: number }
+  /**
+   * The whiteboard opened over the page `slide`, or closed (null). It comes
+   * before the `marks` reset for the board's address, or for the slide it
+   * returns to (decision 110).
+   */
+  | { kind: "board"; slide: string | null }
   /**
    * The strokes that are visible on a slide now. `reset` marks a change of
    * slide: the receiver may hold anything for it, so it is sent in full.

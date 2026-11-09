@@ -33,6 +33,13 @@ The first release.
   section. Comments that address a tool (`prettier-ignore`,
   `markdownlint-…`, `eslint-…`, `textlint-…`, `cspell:…`, `toc`) are
   skipped. GitHub hides comments, so the file reads the same there.
+  Comments above the first heading open no slide; their notes go to the
+  first one.
+- Saved marks: pen and arrow marks stay in this browser per document and
+  come back when you reopen it, on slides whose text has not changed. The
+  PDF, HTML and PNG exports draw them unless you untick Export › Include
+  marks; More actions › Delete saved marks removes them after a
+  confirmation.
 - A countdown in the presenter window: enter a target in minutes, pause and
   reset it, and read the time left, which goes below zero once you run over,
   with a label and an icon as well as colour. A pacing bar sets the share of
@@ -48,7 +55,9 @@ The first release.
   fine-grained tokens and GitHub App sign-in.
 - Share links with the document compressed into the URL fragment.
 - GitHub alerts, footnotes, raw HTML under GitHub's sanitizer schema and
-  GitHub-compatible heading anchors.
+  GitHub-compatible heading anchors, including headings inside quotes,
+  alerts and list items. A split slide shows each footnote on the page that
+  cites it.
 - A focus view for code blocks, tables and images, reusing the diagram's:
   a click or Enter opens it, Escape closes it, and focus returns to the
   block. Code and tables scroll and zoom their type, so a table wider than
@@ -65,7 +74,7 @@ The first release.
   marks sit at the same place of the slide on any screen size. A follower
   who joins late or reconnects gets the slide's marks again. The presenter
   window shows the laser and marks over its current slide, with or without
-  the Worker. Marks stay in memory and are not saved. A resync no longer
+  the Worker. A resync no longer
   clears a follower's marks first, a follower who joins during a stroke no
   longer cuts it, and resyncs slow down when they cost more, so a burst of
   followers cannot flood the presenter's connection.
@@ -79,7 +88,9 @@ The first release.
   the deck, outline, palette, overview, presenter list and exports hold the
   chosen sections only; document mode and the editor keep the whole file.
 - Code blocks coloured by language in 24 grammars, light and dark, loaded
-  only for the languages a document uses.
+  only for the languages a document uses. A grammar that loads late colours
+  its blocks in place, and Markdown bold and italic in a code block take the
+  function colour.
 - Monaco as an optional desktop editor beside CodeMirror. A switch of
   editor keeps the cursor line, the command palette offers the other
   editor, a pick in one tab applies in the others, a list item's indented

@@ -80,6 +80,13 @@ describe("anchor index", () => {
     ]);
   });
 
+  test("duplicates count headings inside quotes too, so a slug is the id its slide shows (decision 107)", () => {
+    // GitHub numbers every heading; the quoted one is `goals`, the section `goals-1`.
+    // Comments still attach to top-level headings only.
+    const index = indexFor("> ## Goals\n\n## Goals\n\nText.\n");
+    expect(index.headings.map((h) => [h.slug, h.sectionId])).toEqual([["goals-1", "goals-1"]]);
+  });
+
   test("a sub-heading belongs to the slide section that shows it, at any slide level", () => {
     expect(indexFor(DOC).bySlug.get("detail")?.sectionId).toBe("goals-1");
     expect(indexFor(DOC, 3).bySlug.get("detail")?.sectionId).toBe("detail");

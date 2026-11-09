@@ -12,7 +12,8 @@ import {
 
 /**
  * What a receiver has been told (decision 88): the presenter's laser, the
- * marks of the slides it has heard about, and the focus view. Followers and
+ * marks of the slides it has heard about, the whiteboard (decision 110) and
+ * the focus view. Followers and
  * the presenter window apply every validated op here and draw from it
  * (mirrorView.ts). The ops passed schema checks already; this file adds the
  * limits that keep a signed but hostile or buggy sender from growing it
@@ -49,6 +50,8 @@ const sameList = (a: readonly number[], b: readonly number[]) =>
 
 export class MirrorStore {
   laser: { x: number; y: number } | null = null;
+  /** The page the open whiteboard covers (decision 110); its marks are the strokes of the board address. */
+  board: string | null = null;
   focus: FocusMirror | null = null;
   /** Least recently touched first, so the first key is the one to forget. */
   private readonly slides = new Map<string, Map<number, StoredStroke>>();
@@ -68,6 +71,20 @@ export class MirrorStore {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * The presenter's signed state names the page it is on. A board covers one
+   * page, and a change of slide closes it (decision 110), so a state for
+   * another page drops the board: the `board-close` may have been lost, or a
+   * replayed `board-open` from an earlier presenter tab may be what is held.
+   * Without this the follower would show a blank board each time it returned
+   * to that page. The board's marks stay.
+   */
+  followPage(address: string): void {
+    if (this.board === null || this.board === address) return;
+    this.board = null;
+    for (const listener of this.listeners) listener();
   }
 
   apply(op: MirrorOp): void {
@@ -106,6 +123,14 @@ export class MirrorStore {
         if (strokes.size === 0) this.slides.delete(op.slide);
         break;
       }
+      case "board-open":
+        changed = this.board !== op.slide;
+        this.board = op.slide;
+        break;
+      case "board-close":
+        changed = this.board !== null;
+        this.board = null;
+        break;
       case "focus-open": {
         const open = this.focus;
         const place = focusPlaceOf(op);

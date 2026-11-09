@@ -293,6 +293,92 @@ describe("the code, table and image views (decision 106)", () => {
   });
 });
 
+describe("the whiteboard (decision 110)", () => {
+  test("board-open holds the page the board covers, board-close clears it, and a store starts with none", () => {
+    const store = new MirrorStore();
+    expect(store.board).toBeNull();
+    store.apply({ op: "board-open", slide: "a/2" });
+    expect(store.board).toBe("a/2");
+    store.apply({ op: "board-close" });
+    expect(store.board).toBeNull();
+  });
+
+  test("a board opened over another page replaces the first one, and the first's marks stay", () => {
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/board", end: true }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    store.apply({ op: "board-open", slide: "a/2" });
+    expect(store.board).toBe("a/2");
+    expect(ids(store, "a/board")).toEqual([1]);
+  });
+
+  test("a repeated open, and a close with no board open, tell nobody: a resync redraws nothing", () => {
+    const store = new MirrorStore();
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    store.apply({ op: "board-close" });
+    expect(heard).not.toHaveBeenCalled();
+    store.apply({ op: "board-open", slide: "a/1" });
+    expect(heard).toHaveBeenCalledTimes(1);
+    store.apply({ op: "board-open", slide: "a/1" });
+    expect(heard).toHaveBeenCalledTimes(1);
+    store.apply({ op: "board-open", slide: "a/2" });
+    expect(heard).toHaveBeenCalledTimes(2);
+    store.apply({ op: "board-close" });
+    store.apply({ op: "board-close" });
+    expect(heard).toHaveBeenCalledTimes(3);
+  });
+
+  test("the board's marks are held under its own address, beside the page's, and closing keeps them", () => {
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/1", id: 1 }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    store.apply(stroke({ slide: "a/board", id: 2, end: true }));
+    store.apply({ op: "board-close" });
+    expect(ids(store, "a/1")).toEqual([1]);
+    expect(ids(store, "a/board")).toEqual([2]);
+  });
+
+  test("a state for another page drops the board, so a close the relay lost cannot leave a blank board on the page", () => {
+    const store = new MirrorStore();
+    const heard = vi.fn<() => void>();
+    store.apply({ op: "board-open", slide: "a/1" });
+    store.subscribe(heard);
+    store.followPage("a/1");
+    expect(store.board).toBe("a/1");
+    expect(heard).not.toHaveBeenCalled();
+    store.followPage("b/1");
+    expect(store.board).toBeNull();
+    expect(heard).toHaveBeenCalledTimes(1);
+    // Back on the first page the board stays gone until the presenter opens one again.
+    store.followPage("a/1");
+    expect(store.board).toBeNull();
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
+  test("a state with no board open tells nobody, and the board's marks stay when it is dropped", () => {
+    const store = new MirrorStore();
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    store.followPage("a/1");
+    expect(heard).not.toHaveBeenCalled();
+    store.apply(stroke({ slide: "a/board", id: 2, end: true }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    store.followPage("a/2");
+    expect(ids(store, "a/board")).toEqual([2]);
+  });
+
+  test("a rectangle and an ellipse are held like an arrow, whole", () => {
+    const store = new MirrorStore();
+    store.apply(stroke({ id: 1, tool: "rect", points: [10, 20, 300, 400], end: true }));
+    store.apply(stroke({ id: 2, tool: "ellipse", points: [30, 40, 500, 600], end: true }));
+    expect(store.strokes("a/1").map((s) => [s.tool, s.points])).toEqual([
+      ["rect", [10, 20, 300, 400]],
+      ["ellipse", [30, 40, 500, 600]],
+    ]);
+  });
+});
+
 describe("change notices", () => {
   test("listeners hear every change once and nothing for an op that changed nothing", () => {
     const store = new MirrorStore();
