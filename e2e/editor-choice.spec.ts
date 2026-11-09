@@ -12,6 +12,9 @@ const MONACO_ASSET = /\/assets\/(MonacoEditor|editor\.worker|codicon)-/;
 const address = (page: Page) => page.locator(".docwalk-preview-head > span");
 const monacoLines = (page: Page) => page.locator(".monaco-editor .view-lines");
 const top = async (line: Locator) => (await line.boundingBox())?.y ?? Number.NaN;
+// Monaco follows the page's user agent; Playwright's ControlOrMeta follows the host OS.
+const findKey = (page: Page) =>
+  page.evaluate(() => (navigator.platform.startsWith("Mac") ? "Meta+f" : "Control+f"));
 
 async function pickEditor(page: Page, name: "CodeMirror" | "Monaco") {
   await page.getByRole("button", { name: "More actions" }).click();
@@ -209,7 +212,7 @@ test("Monaco's own panels speak English to an English viewer", async ({ page }) 
   await ready(page);
   await pickEditor(page, "Monaco");
   await page.locator(".monaco-editor .view-line").first().click();
-  await page.keyboard.press("ControlOrMeta+f");
+  await page.keyboard.press(await findKey(page));
   await expect(
     page.locator(".monaco-editor .find-widget").getByRole("textbox", { name: "Find" }),
   ).toBeVisible();
@@ -231,7 +234,7 @@ test.describe("a browser that prefers Turkish", () => {
     await page.getByRole("menuitemradio", { name: "Monaco" }).click();
     await expect(monacoLines(page)).toBeVisible({ timeout: 30_000 });
     await page.locator(".monaco-editor .view-line").first().click();
-    await page.keyboard.press("ControlOrMeta+f");
+    await page.keyboard.press(await findKey(page));
     await expect(
       page.locator(".monaco-editor .find-widget").getByRole("textbox", { name: "Bul" }),
     ).toBeVisible();
