@@ -456,17 +456,24 @@ function tourControls(
     },
     { capture: true },
   );
+  const goTo = (target: EventTarget | null) => {
+    void load().then((tour) => {
+      const n = tour?.nodeAt(target) ?? null;
+      if (n !== null && !disposed) set(jumpTo(path, n, count), true);
+    });
+  };
   // A drag that pans goes nowhere.
   stage.addEventListener("pointerup", (event) => {
     const from = down;
     down = null;
     if (!running() || from?.id !== event.pointerId) return;
     if (Math.hypot(event.clientX - from.x, event.clientY - from.y) >= TAP_SLOP) return;
-    const target = event.target;
-    void load().then((tour) => {
-      const n = tour?.nodeAt(target) ?? null;
-      if (n !== null && !disposed) set(jumpTo(path, n, count), true);
-    });
+    goTo(event.target);
+  });
+  // A screen reader's activate and element.click() send a click with detail 0 and no
+  // pointer events. A real pointer's click counts 1 or more and was a pointerup above.
+  stage.addEventListener("click", (event) => {
+    if (running() && event.detail === 0) goTo(event.target);
   });
 
   return {

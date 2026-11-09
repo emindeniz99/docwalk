@@ -352,6 +352,23 @@ describe("tapping a node", () => {
     expect(tours(events)).toEqual([[1], [1, 2]]);
   });
 
+  test("a click with no pointer behind it, as a screen reader's activate sends, steps once", async () => {
+    await openView();
+    const events = record();
+    await startTour();
+    // VoiceOver's double-tap, Enter in a screen reader's browse mode and element.click()
+    // send a click with detail 0 and no pointerdown or pointerup.
+    const gamma = nodes().find((node) => node.textContent?.includes("Gamma"))!;
+    gamma.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    await expect.poll(() => ringed()).toBe("Gamma");
+    nodes()
+      .find((node) => node.textContent?.includes("Beta"))!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    await expect.poll(() => ringed()).toBe("Beta");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(tours(events)).toEqual([[1], [1, 3], [1, 3, 2]]);
+  });
+
   test("a second finger makes the press a pinch, not a tap", async () => {
     await openView();
     const events = record();
@@ -393,12 +410,14 @@ describe("tapping a node", () => {
     const x = box.left + box.width / 2;
     const y = box.top + box.height / 2;
     // A pan ends on the node it started on, in a pointerup and a click: the pointer
-    // moved, so it is no tap.
+    // moved, so it is no tap. The click of a real pointer counts 1 in `detail`.
     const drag = { bubbles: true, pointerId: 7, isPrimary: true, clientY: y };
     gamma.dispatchEvent(new PointerEvent("pointerdown", { ...drag, clientX: x }));
     gamma.dispatchEvent(new PointerEvent("pointermove", { ...drag, clientX: x + 40 }));
     gamma.dispatchEvent(new PointerEvent("pointerup", { ...drag, clientX: x + 40 }));
-    gamma.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: x + 40, clientY: y }));
+    gamma.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, detail: 1, clientX: x + 40, clientY: y }),
+    );
     // Give a wrong jump the time it would take, then check nothing moved.
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(ringed()).toBe("Alpha");
