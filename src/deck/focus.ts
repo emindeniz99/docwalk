@@ -441,21 +441,27 @@ function tourControls(
   };
   const step = (to: (from: TourPath) => TourPath) => set(to(path), true);
 
-  let down: { x: number; y: number } | null = null;
+  // The tap is read from pointerdown and pointerup. Panzoom cancels the
+  // pointerdown, and an engine may then send no click for a touch tap (CI's WebKit sent none).
+  let down: { id: number; x: number; y: number } | null = null;
   // Capture: Panzoom stops pointerdown at the canvas, so it never bubbles to the stage.
   stage.addEventListener(
     "pointerdown",
     (event) => {
-      down = { x: event.clientX, y: event.clientY };
+      // A second finger makes it a pinch; a button other than the main one is no tap.
+      down =
+        event.isPrimary && event.button === 0
+          ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+          : null;
     },
     { capture: true },
   );
-  // A drag that pans ends in a click too; it goes nowhere.
-  stage.addEventListener("click", (event) => {
+  // A drag that pans goes nowhere.
+  stage.addEventListener("pointerup", (event) => {
     const from = down;
     down = null;
-    if (!running()) return;
-    if (from && Math.hypot(event.clientX - from.x, event.clientY - from.y) >= TAP_SLOP) return;
+    if (!running() || from?.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX - from.x, event.clientY - from.y) >= TAP_SLOP) return;
     const target = event.target;
     void load().then((tour) => {
       const n = tour?.nodeAt(target) ?? null;
