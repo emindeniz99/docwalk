@@ -78,7 +78,7 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   `?sections=`; the deck, outline, palette, overview, presenter list and
   exports hold the chosen sections, and document mode and the editor keep
   the whole file. `e2e/sections.spec.ts` covers it (19 tests on Chromium).
-- Done 2026-11-09: the diagram tour (decision 109, proposed): in the diagram
+- Done 2026-11-09: the diagram tour (decision 109): in the diagram
   focus view, T or the Tour button steps through a flowchart, class, state
   or ER diagram node by node along its edges, fading what is not linked and
   naming what is; followers see the same path. `e2e/diagram-tour.spec.ts`
@@ -89,17 +89,26 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   rebuilds its tree from data through an allowlist and holds lengths to
   4 em. `e2e/math.spec.ts` covers it (6 tests on Chromium).
 - Done 2026-11-09: a whiteboard per section, rectangle and ellipse tools,
-  and stylus input (decision 110, proposed): W, the toolbar or the palette
+  and stylus input (decision 110): W, the toolbar or the palette
   opens a blank page with its own marks, mirrored to followers and the
   presenter window, saved with the document's marks and printed after its
   section; R and C draw shapes; a pen draws without choosing a tool, and
   once a pen has touched the screen fingers change slides.
   `e2e/whiteboard.spec.ts`, `e2e/stylus.spec.ts` and `e2e/shapes.spec.ts`
   cover it (15 tests on Chromium).
-- Done 2026-11-09: speaker notes in print (decision 114, proposed): Export ›
+- Done 2026-11-09: speaker notes in print (decision 114): Export ›
   Print with speaker notes puts each chosen section's notes on a page after
   its last slide; the HTML file and PNG images never carry notes.
   `e2e/export.spec.ts` covers it.
+- Done 2026-11-09: the security review of PR #5 (decisions 116 to 121):
+  palette text search folds each slide once and runs `indexOf` per
+  keystroke; the countdown is signed and the remote link carries the
+  public state key; only a signed state makes a client say hello again; a
+  link or file asks before it deletes comments here; a `?src=` document's
+  comments and marks key by origin and path, moved once from the old key;
+  a case-only rename picks a free temporary name; the notes panel says
+  notes are not private. Rows 97, 98 and 109 to 115 were accepted by the
+  owner with the merge of PR #5.
 
 Still open in v1:
 
@@ -209,6 +218,8 @@ Later rounds:
   built bin, passed 3 of 3 on Node 22.23.4 on 2026-11-09 (the MCP unit tests
   20 of 20), but CI runs Node 24 only, so nothing holds `engines` (>=22) in
   place; a device that left is still counted (there is no goodbye), and an agent built before decision 111 stays uncounted after a presenter reload;
+  a remote link made before decision 117 has no state key, so its phone
+  shows no countdown and never says hello again (decision 118);
   `docwalk-mcp` is not on npm yet.
 - Markdown (decision 107): raw HTML headings (`<h2>…</h2>`) and headings
   inside footnote definitions get no anchor; a heading's slug comes from its
@@ -225,10 +236,14 @@ Later rounds:
   old file can bring back a deletion older than the 500 newest; a node
   comment's `sig` describes the diagram when the comment was written, so
   after an edit a later swap is judged by position; the display name is
-  not an identity (anyone can type any name) and needs the owner's
-  approval (row 97); a long share link drops its tombstones before its
-  comments.
-- Canvas: the Library's Publish form remains (Excalidraw has no switch for
+  not an identity (anyone can type any name); a long share link drops its
+  tombstones before its comments; a link's or file's tombstones for
+  comments here wait for the user's Delete and are lost if the notice is
+  dismissed (decision 119); two `?src=` documents that differ only in
+  their query share comments and marks (decision 120).
+- Canvas: sketches still key by the raw `?src=` URL, query included
+  (`src/canvas/identity.ts`; decision 120 changed comments and marks only);
+  the Library's Publish form remains (Excalidraw has no switch for
   it); stored sketches are deleted by hand from the Saved sketches panel,
   never pruned automatically; cylinders convert to rectangles; the Turkish
   strings have not been read by a native speaker.
@@ -252,15 +267,16 @@ Later rounds:
 - Speaker notes (decision 79): a comment-only part after the first slide
   (between two thematic breaks) still opens a blank slide. Only Print with
   speaker notes carries them out of the app (decision 114); they show
-  Markdown as plain text and travel in the document text, so a share link
-  or a remote room carries them. A print started during a rebuild can miss
+  Markdown as plain text and are not private: the document text carries
+  them in every share link and room (decision 121). A print started during a rebuild can miss
   a renamed section's notes.
 - Countdown, pacing bar and wake lock (decision 80): the target cannot change
   while it runs (Reset, then a new value, restarts the clock), and the
   countdown ends when the presenter window closes. The real wake lock is
   tested in Chromium only; Firefox and WebKit run the tests for a missing or
   refusing API. The phone remote shows the presenter window's countdown,
-  read-only (decision 112, proposed); a follow link shows nothing, by
+  read-only (decision 112), and only when the presenter signed it
+  (decision 117); a follow link shows nothing, by
   design. The phone cannot start, pause or reset it, shows no pacing bar,
   and with two presenter windows shows whichever spoke last. Chrome's
   throttling of a window hidden for over five minutes may starve the
@@ -270,7 +286,9 @@ Later rounds:
   query is one contiguous phrase (no fuzzy or any-order matching), and in the
   Turkish UI `gec` does not find `geç`, because the collation that the title
   filter always used treats ç, ğ, ö, ş and ü as letters of their own. Ten
-  text hits show at most.
+  text hits show at most. Slide titles still go through React Aria's
+  filter, which slides a collator window, so a hostile 2 MB heading is slow
+  in the Slides list (decision 116).
 - Focus view (decision 87): checked on Chromium only; Firefox and WebKit run
   in the fork's CI. The diagram view still stays open over a rebuild and a
   slide change while the other three close (its own test says so); line
@@ -336,21 +354,29 @@ Later rounds:
   and links address slides as `<section-id>/<n>`. It needs one shared
   aspect per talk (the presenter's, sent to followers) before it can be
   considered.
-- Whiteboard (decision 110, proposed): one board per section, keyed by the
+- Whiteboard (decision 110): one board per section, keyed by the
   section id, so renaming the heading leaves the board behind and a
   numbered or positional id (`demo-1`, `slide-N`) can move it to another
   section; a follower cannot close it; no highlighter or plain line on it;
   closing it keeps the pen that opening chose; a pen's eraser end does
   nothing; the first-pen notice shifts the page once. Apple Pencil on a
   real iPad (Scribble, hover, palm) is untested.
-- Follow screens (decision 113, proposed): no Full screen button, no wake
+- Follow screens (decision 113): no Full screen button, no wake
   lock and no frame switch on the follow page; the frame follows what this
   browser chose in another docwalk tab.
 
 ## Next up
 
+- Simplification pass, no behaviour change, before any new feature (owner,
+  2026-11-09): split `src/App.tsx` (about 490 lines longer after PR #5) into
+  focused hooks and components; look for helpers duplicated between the
+  mirror modules (`src/annotate/mirror*.ts`, about 1400 lines) and
+  `src/deck/focus.ts` (about 800 lines); remove dead code; win back first-load
+  budget (993 kB of the 1 MB limit, decision 43) so the next feature fits.
+  Tests stay green unchanged; measure size before and after.
+
 Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
-for this round is built; the owner picks the next round. Each starts with a
+for this round is built; the owner picks the next round after the pass. Each starts with a
 decision row, then failing tests, then code.
 
 ## Later
