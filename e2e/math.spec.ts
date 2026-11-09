@@ -109,11 +109,30 @@ test("formulas and shortcodes are drawn on the slides; dollar amounts stay text"
   await expect(text).toContainText("It costs $5 and $10.");
   await expect(slide(page, "fence").locator(".docwalk-math-display munderover")).toHaveCount(1);
   await expect(page.locator(".reveal .slides code.language-math")).toHaveCount(0);
-  // Each engine lays MathML out itself: a fraction is taller than its line of text.
-  const height = await formulas
-    .locator("mfrac")
-    .evaluate((el) => el.getBoundingClientRect().height);
-  expect(height).toBeGreaterThan(20);
+  // Each engine lays MathML out itself, so a pixel height would depend on its fonts and on
+  // reveal.js's scale of the slide. A fraction has its numerator stacked above its denominator:
+  // read all three boxes in one call (the scale cancels) and compare them with each other.
+  const { fraction, numerator, denominator } = await formulas.locator("mfrac").evaluate((el) => {
+    const box = (node: Element | undefined) => {
+      const { top, bottom, height } = (node ?? el).getBoundingClientRect();
+      return { top, bottom, height };
+    };
+    return {
+      fraction: box(el),
+      numerator: box(el.children[0]),
+      denominator: box(el.children[1]),
+    };
+  });
+  const message = JSON.stringify({ fraction, numerator, denominator });
+  expect(numerator.height, message).toBeGreaterThan(0);
+  expect(denominator.height, message).toBeGreaterThan(0);
+  // The numerator ends where the denominator starts, give or take a pixel; drawn inline, the
+  // two would sit side by side and overlap in height.
+  expect(numerator.bottom, message).toBeLessThanOrEqual(denominator.top + 1);
+  // The fraction holds both, one above the other (the bar and the gaps add to the sum).
+  expect(fraction.height, message).toBeGreaterThanOrEqual(
+    (numerator.height + denominator.height) * 0.9,
+  );
 });
 
 test("a hostile formula keeps its source as text and nothing leaves the origin", async ({
