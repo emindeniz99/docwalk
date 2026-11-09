@@ -30,7 +30,12 @@ protects:
   `strict` mode after a pre-pass that strips `%%{init}%%` overrides and CSS
   `url()`; docwalk refuses a diagram that names a remote image, and passes
   Mermaid's SVG through DOMPurify too. Code colours are added after both
-  sanitizers, as text and class names only. The deployed site sends
+  sanitizers, as text and class names only. Formulas are drawn after both
+  too: Temml runs with `trust` off and limits on length, nesting and size,
+  and docwalk copies its MathML into fresh elements, keeping only listed
+  element names, attributes, values and classes; the exports hold MathML to
+  the same lists. Emoji shortcodes change the text of text nodes and nothing
+  else. The deployed site sends
   a content security policy with `script-src 'self'` (plus, by its hash,
   the one inline script: the check for browsers too old to run docwalk)
   and `frame-ancestors 'none'`. A static host gets the same policy from a

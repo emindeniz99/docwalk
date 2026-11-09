@@ -99,6 +99,10 @@ lists every settled design decision.
   document mode and in exports: TypeScript, JavaScript, JSON, shell,
   Python, Go, Rust, Java, Kotlin, Swift, C, C++, C#, SQL, YAML, TOML, HTML,
   CSS, diff, Markdown, Dockerfile and GraphQL. Other languages stay plain.
+- Math in GitHub's four forms (`$…$`, ``$`…`$``, `$$…$$` and a `math`
+  fence) drawn as MathML, and emoji shortcodes such as `:rocket:`, on
+  slides, in document mode and in exports. `$5 and $10` stays text, and a
+  formula docwalk cannot draw shows its source.
 
 **Edit and keep**
 

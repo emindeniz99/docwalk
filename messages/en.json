@@ -151,6 +151,7 @@
   "deck_label": "Slides",
   "deck_overflow_clipped": "{count, plural, one {# diagram clipped} other {# diagrams clipped}}",
   "deck_overflow_code": "{count, plural, one {# code block too wide} other {# code blocks too wide}}",
+  "deck_overflow_math": "{count, plural, one {# equation too wide} other {# equations too wide}}",
   "deck_overflow_note": "Does not fit: {parts}. Scroll inside the slide.",
   "deck_overflow_tall": "{px} px too tall",
   "deck_overflow_wide": "{px} px too wide",

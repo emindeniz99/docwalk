@@ -4,7 +4,9 @@ import { purifyHtml } from "../deck/purify";
 import { renderDiagrams } from "../deck/mermaid";
 import "../render/content.css";
 import { anchorTarget, focusTarget, fragmentTarget } from "../render/fragments";
+import { renderEmoji } from "../render/emoji";
 import { highlightCode } from "../render/highlight";
+import { renderMath } from "../render/math";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { enableClickToLoad, useLoadRemoteImages } from "../render/remoteImages";
@@ -100,22 +102,15 @@ export function DocumentView({
     el.addEventListener("click", onClick);
     let live = true;
     // Beside the diagrams, not before them: colours change no height, so a
-    // pending scroll target needs no second pass for them.
+    // pending scroll target needs no second pass for them. Formulas do, so
+    // they are part of what the scroll target waits for.
     void highlightCode(el, { stop: () => !live });
-    drawn.current = false;
-    void renderDiagrams(el).then(() => {
-      if (!live) return;
-      drawn.current = true;
-      const kept = pending.current;
-      pending.current = null;
-      if (kept && el.getBoundingClientRect().top === kept.top) bringIntoView(el, kept.target);
-      rendered.current?.(el);
-    });
-    // Wide tables and code blocks scroll on their own; a keyboard user can
+    // Wide tables, code blocks and equations scroll on their own; a keyboard user can
     // only scroll one that takes focus (WCAG 2.1.1). Only those that scroll
-    // get a tab stop, rechecked when the page width changes.
+    // get a tab stop, rechecked when the page width changes and once
+    // formulas are drawn (an equation replaces its source block).
     const markScrollable = () => {
-      for (const box of el.querySelectorAll<HTMLElement>("table, pre")) {
+      for (const box of el.querySelectorAll<HTMLElement>("table, pre, .docwalk-math-display")) {
         if (box.scrollWidth > box.clientWidth || box.scrollHeight > box.clientHeight) {
           box.tabIndex = 0;
         } else {
@@ -123,6 +118,20 @@ export function DocumentView({
         }
       }
     };
+    drawn.current = false;
+    void Promise.all([
+      renderDiagrams(el),
+      renderMath(el, { stop: () => !live }),
+      renderEmoji(el, { stop: () => !live }),
+    ]).then(() => {
+      if (!live) return;
+      drawn.current = true;
+      markScrollable();
+      const kept = pending.current;
+      pending.current = null;
+      if (kept && el.getBoundingClientRect().top === kept.top) bringIntoView(el, kept.target);
+      rendered.current?.(el);
+    });
     markScrollable();
     const observer = new ResizeObserver(markScrollable);
     observer.observe(el);
