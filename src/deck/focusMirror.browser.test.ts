@@ -73,6 +73,22 @@ const DOC = [
   "",
 ].join("\n");
 
+/** Six listings of ten lines each: too tall for one slide, so the section paginates (never inside a listing). */
+const MANY = [
+  "## Many",
+  "",
+  ...Array.from({ length: 6 }, (_k, k) => [
+    "```text",
+    ...Array.from({ length: 10 }, (_i, i) => `listing ${"ABCDEF"[k]} line ${i + 1}`),
+    "```",
+    "",
+  ]).flat(),
+  "## After",
+  "",
+  "Text.",
+  "",
+].join("\n");
+
 async function mountDeck(markdown = DOC) {
   const container = document.createElement("div");
   Object.assign(container.style, { display: "grid", width: "1280px", height: "800px" });
@@ -324,5 +340,39 @@ describe("a follower opens the presenter's view on its own copy (decision 106)",
     expect(pressed()).toEqual([1, 4]);
     send({ op: "focus-lines", lines: [2] });
     expect(pressed()).toEqual([2]);
+  });
+});
+
+const named = (page: string, n: number) => ({
+  op: "focus-open" as const,
+  slide: page,
+  code: n,
+});
+
+describe("which listing a follower opens when its pages are cut elsewhere (decision 106)", () => {
+  test("a listing is numbered across the section: the follower opens it from its own page, and nothing else", async () => {
+    const { controller } = await mountDeck(MANY);
+    const pages = controller
+      .slides()
+      .filter((s) => s.address.startsWith("many/"))
+      .map((s) => s.address);
+    expect(pages.length, "the section paginates").toBeGreaterThan(1);
+    const { send } = follow(controller);
+
+    // The last listing sits on the last page here; the presenter named it from its first page.
+    const last = pages.at(-1)!;
+    controller.goTo(pages[0]!);
+    send(named(pages[0]!, 6));
+    expect(view(), "that listing is not on the page this follower shows").toBeNull();
+    controller.goTo(last);
+    await expect.poll(() => view()?.dataset["kind"]).toBe("code");
+    expect(lines()[0]!.textContent).toContain("listing F line 1");
+    send({ op: "focus-close" });
+
+    // Named from the last page, it is still the same listing; the first page holds listing A.
+    controller.goTo(pages[0]!);
+    send(named(last, 1));
+    expect(view()?.dataset["kind"]).toBe("code");
+    expect(lines()[0]!.textContent).toContain("listing A line 1");
   });
 });

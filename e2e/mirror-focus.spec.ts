@@ -86,11 +86,15 @@ const marked = (page: Page) =>
     all.flatMap((line, i) => (line.getAttribute("aria-pressed") === "true" ? [i + 1] : [])),
   );
 
-async function openPresenterRoom(context: BrowserContext) {
+async function openPresenterRoom(
+  context: BrowserContext,
+  options: { doc?: string; slides?: number; before?: (page: Page) => Promise<void> } = {},
+) {
   const presenter = await context.newPage();
+  await options.before?.(presenter);
   await ready(presenter);
-  await replaceSource(presenter, DOC);
-  await expect(presenter.locator(".docwalk-outline-item")).toHaveCount(SLIDES);
+  await replaceSource(presenter, options.doc ?? DOC);
+  await expect(presenter.locator(".docwalk-outline-item")).toHaveCount(options.slides ?? SLIDES);
   await presenter.getByRole("button", { name: "More actions" }).click();
   await presenter.getByRole("menuitem", { name: "Remote and followers…" }).click();
   const dialog = presenter.getByRole("dialog", { name: "Remote control" });
@@ -105,6 +109,8 @@ async function openFollower(
   url: string,
   options: {
     size?: { width: number; height: number };
+    /** Pages differ between screens that paginate differently; null accepts any count. */
+    slides?: number | null;
     before?: (page: Page) => Promise<void>;
   } = {},
 ) {
@@ -113,7 +119,7 @@ async function openFollower(
   await options.before?.(follower);
   await ready(follower, url);
   await expect(follower.locator(".docwalk-preview-head strong")).toHaveText(
-    new RegExp(`/ ${SLIDES}$`),
+    options.slides === null ? /\/ \d+$/ : new RegExp(`/ ${options.slides ?? SLIDES}$`),
   );
   return follower;
 }
@@ -283,4 +289,85 @@ test("a follower that joins late gets the open code view, its zoom and its marke
   await late.getByRole("button", { name: "Fit to screen" }).click();
   const fit = await typeScale(late);
   expect(Math.abs(zoomed / fit - ratio)).toBeLessThan(0.01);
+});
+
+test("a follower whose pages are cut elsewhere opens the listing the presenter opened, or nothing, never another", async ({
+  context,
+}) => {
+  // Decision 106: listings never split, so they are numbered across the section.
+  // The presenter loads the remote image before pagination and the follower
+  // blocks it, so its placeholder is shorter and the pages are cut differently:
+  // presenter chart/2 holds BBB, CCC, DDD and the follower's holds CCC, DDD, EEE.
+  const listings = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"].flatMap((name) => [
+    "```text",
+    `${name} first`,
+    ...[2, 3, 4, 5].map((i) => `${name} line ${i}`),
+    "```",
+    "",
+  ]);
+  const doc = ["# Pages talk", "", "## Chart", "", `![Chart](${REMOTE})`, "", ...listings].join(
+    "\n",
+  );
+  const REMOTE_KEY = "docwalk.loadRemoteImages";
+  await fakeRelay(context);
+  const { presenter, followUrl } = await openPresenterRoom(context, {
+    doc,
+    slides: 2,
+    before: async (page) => {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.addInitScript((key) => localStorage.setItem(key, "true"), REMOTE_KEY);
+      await page.route(REMOTE, (route) => route.fulfill({ body: PNG, contentType: "image/png" }));
+    },
+  });
+  const follower = await openFollower(context, followUrl, {
+    size: { width: 1280, height: 720 },
+    slides: null,
+    before: async (page) => {
+      // The storage is shared with the presenter's page: this one starts without the setting,
+      // and records the text of every focus view that opens on it.
+      await page.addInitScript((key) => {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // No storage, no setting.
+        }
+        const opened: string[] = [];
+        (window as unknown as { openedFocusViews: string[] }).openedFocusViews = opened;
+        new MutationObserver((records) => {
+          for (const node of records.flatMap((r) => [...r.addedNodes])) {
+            if (node instanceof HTMLElement && node.classList.contains("docwalk-focus"))
+              opened.push(node.querySelector(".docwalk-focus-stage")?.textContent ?? "");
+          }
+        }).observe(document, { childList: true, subtree: true });
+      }, REMOTE_KEY);
+      await page.route("https://images.invalid/**", (route) => route.abort());
+    },
+  });
+
+  // Both on the second page of the section.
+  await presenter.getByRole("option", { name: /Chart/ }).click();
+  await presenter.locator(".reveal").focus();
+  await presenter.keyboard.press("ArrowRight");
+  const first = (page: Page) => present(page).locator("pre").first();
+  await expect(first(presenter)).toContainText("BBB first");
+  await expect(first(follower)).toBeVisible();
+  const theirs = (await first(follower).textContent()) ?? "";
+  expect(theirs, "this screen cuts the pages elsewhere, or the case proves nothing").not.toMatch(
+    /^BBB/,
+  );
+
+  // BBB is on the follower's first page: it opens nothing, and above all not the listing
+  // that happens to be first on the page it shows.
+  await openBlock(presenter, first(presenter), "code");
+  await presenter.keyboard.press("Escape");
+  await expect(view(presenter)).toHaveCount(0);
+
+  // CCC is on the follower's page too. When it opens, the earlier ops have been handled.
+  await openBlock(presenter, present(presenter).locator("pre").nth(1), "code");
+  await expect(view(follower)).toHaveAttribute("data-kind", "code");
+  await expect(view(follower).locator(".docwalk-focus-stage")).toContainText("CCC first");
+  const opened = await follower.evaluate(
+    () => (window as unknown as { openedFocusViews: string[] }).openedFocusViews,
+  );
+  expect(opened.map((text) => text.slice(0, 9))).toEqual(["CCC first"]);
 });

@@ -65,20 +65,56 @@ function blocksOf(page: Element, kind: FocusViewKind): HTMLElement[] {
   );
 }
 
-/** Where a block sits: its page's address, its kind and its number among that kind on the page. */
+/** The id of the section a page address belongs to: the address without its page number. */
+function sectionOf(address: string): string {
+  return address.slice(0, Math.max(0, address.lastIndexOf("/")));
+}
+
+/**
+ * The blocks a number counts among: for a table, the page it is on, because
+ * a table can split and two screens may cut it differently. A code block,
+ * an image or a diagram never splits (rule 3), so the number counts across
+ * every page of the section and does not depend on where either screen
+ * paginated (decision 106).
+ */
+function numbered(pages: readonly Element[], kind: FocusViewKind): HTMLElement[] {
+  return pages.flatMap((page) => blocksOf(page, kind));
+}
+
+function pagesOfSection(stage: ParentNode, id: string): HTMLElement[] {
+  return [...stage.querySelectorAll<HTMLElement>(":scope > section[data-docwalk-id]")].filter(
+    (page) => page.dataset["docwalkId"] === id,
+  );
+}
+
+/**
+ * Where a block sits: its page's address, its kind and its number among that
+ * kind on the page for a table, in the whole section for the others.
+ */
 export function locateBlock(el: HTMLElement, kind: FocusViewKind): FocusPlace | null {
   const page = el.closest<HTMLElement>("section[data-docwalk-id]");
   if (!page) return null;
-  const at = blocksOf(page, kind).indexOf(el);
+  const pages =
+    kind === "table" || !page.parentElement
+      ? [page]
+      : pagesOfSection(page.parentElement, page.dataset["docwalkId"] ?? "");
+  const at = numbered(pages, kind).indexOf(el);
   return at < 0 ? null : { slide: slideAddress(page), block: kind, n: at + 1 };
 }
 
-/** The block `place` names among the pages of `stage`, if this deck has it. */
+/**
+ * The block `place` names among the pages of `stage`, if this deck has it.
+ * A table is looked up on the page with the presenter's address; any other
+ * kind in the section the address names, wherever this deck paginated it.
+ */
 export function findBlock(stage: ParentNode, place: FocusPlace): HTMLElement | null {
-  for (const page of stage.querySelectorAll<HTMLElement>(":scope > section[data-docwalk-id]")) {
-    if (slideAddress(page) === place.slide) return blocksOf(page, place.block)[place.n - 1] ?? null;
-  }
-  return null;
+  const pages =
+    place.block === "table"
+      ? pagesOfSection(stage, sectionOf(place.slide)).filter(
+          (page) => slideAddress(page) === place.slide,
+        )
+      : pagesOfSection(stage, sectionOf(place.slide));
+  return numbered(pages, place.block)[place.n - 1] ?? null;
 }
 
 function kindOf(el: Element): FocusKind | null {
