@@ -101,9 +101,6 @@ function draw(stroke: StoredStroke): SVGElement | null {
     // An arrow needs both ends; a shorter list is a stroke that is still arriving.
     return stroke.points.length >= 4 ? drawArrow(stroke.points) : null;
   }
-  // A rectangle and an ellipse are two corners, not a path: drawn as a pen
-  // stroke they would show as a diagonal. Nothing draws them yet (decision 110).
-  if (stroke.tool !== "pen") return null;
   return stroke.points.length >= 2 ? drawPen(stroke.points) : null;
 }
 

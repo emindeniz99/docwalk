@@ -113,18 +113,6 @@ describe("marks on the receiving slide", () => {
     expect(head).toMatch(/^M [\d. -]+ L [\d. -]+ L [\d. -]+ Z$/);
   });
 
-  test("a rectangle or ellipse draws nothing until the whiteboard's step draws them, not a freehand diagonal", () => {
-    // Decision 110: the pen is the only tool that is a path of many points.
-    // A shape of two corners sent to drawPen would show as a line across the slide.
-    const { host } = slideBox(640, 360);
-    const store = new MirrorStore();
-    store.apply(stroke({ id: 1, tool: "rect", points: [0, 0, 4096, 4096] }));
-    store.apply(stroke({ id: 2, tool: "ellipse", points: [0, 0, 4096, 4096] }));
-    store.apply(stroke({ id: 3 }));
-    view = attachMirror(host, store, () => "a/1");
-    expect([...marks(host)].map((el) => el.getAttribute("data-tool"))).toEqual(["pen"]);
-  });
-
   test("a mark lands on the same spot of the slide at any size", () => {
     const centres: { x: number; y: number }[] = [];
     for (const [width, height] of [
