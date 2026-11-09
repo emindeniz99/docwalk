@@ -77,10 +77,12 @@ they change on disk (58). Code: root `"folder"`.
 **Math**: a formula in one of GitHub's four forms: inline `$…$` or
 ``$`…`$``, and the **display equation**, `$$…$$` on lines of their own or a
 ` ```math ` fence. docwalk draws it as MathML built from an allowlist after
-both sanitizers; one it cannot draw keeps its TeX source. A display
-equation is an **atomic block** that scrolls inside itself, and one wider
-than the slide gets a **diagnostic** (101). Code: `src/render/math.ts`,
-`mathBuild.ts`, `mathRebuild.ts`, `mathAllow.ts`.
+both sanitizers; one it cannot draw keeps its TeX source. Temml runs in
+the **math worker**, a dedicated Web Worker that gives each formula 500 ms.
+A display equation is an **atomic block** that scrolls inside itself, and
+one wider than the slide gets a **diagnostic** (101). Code:
+`src/render/math.ts`, `mathRender.ts`, `math.worker.ts`, `mathTree.ts`,
+`mathRebuild.ts`, `mathAllow.ts`.
 
 **Mirror**: what the presenter shows others as it happens: the laser, pen,
 arrow and shape marks, the whiteboard, and the focus view with its zoom, scroll and line marks.
