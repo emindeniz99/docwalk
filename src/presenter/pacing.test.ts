@@ -15,6 +15,7 @@ import {
   readCountdown,
   remainingMs,
   resumeCountdown,
+  sameCountdown,
   slideShare,
   slideShareOf,
   spentMs,
@@ -264,6 +265,16 @@ describe("what the phone remote gets (decision 112)", () => {
 
   test("an empty deck has no share, so the phone shows no verdict instead of a made-up one", () => {
     expect(slideShareOf(0, 0)).toBeNull();
+  });
+
+  test("two countdowns with the same values are the same, so a repeated heartbeat re-renders nothing", () => {
+    expect(sameCountdown(null, null)).toBe(true);
+    expect(sameCountdown(started(5), { ...started(5) })).toBe(true);
+    expect(sameCountdown(started(5), null)).toBe(false);
+    expect(sameCountdown(null, started(5))).toBe(false);
+    expect(sameCountdown(started(5), started(6))).toBe(false);
+    expect(sameCountdown(started(5), pauseCountdown(started(5), T0 + MIN))).toBe(false);
+    expect(sameCountdown(started(5), { ...started(5), startedAt: T0 + 1 })).toBe(false);
   });
 
   test("the stored-countdown schema is exported and stays strict about the target's range", () => {

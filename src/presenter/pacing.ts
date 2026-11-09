@@ -140,6 +140,12 @@ export function fromRemoteCountdown(remote: RemoteCountdown, now: number): Count
   };
 }
 
+/** True when two countdowns hold the same values, so a heartbeat that repeats one changes nothing. */
+export function sameCountdown(a: Countdown | null, b: Countdown | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.targetMs === b.targetMs && a.spentMs === b.spentMs && a.startedAt === b.startedAt;
+}
+
 /**
  * The share of the talk done from a slide's place and the deck's size, as
  * `slideShare` computes it from addresses; `null` for an empty deck.
