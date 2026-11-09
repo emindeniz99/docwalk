@@ -27,6 +27,15 @@ import { markKeys, slideFingerprint, slideFingerprints } from "./annotate/markKe
 import { MirrorFeed } from "./annotate/mirrorFeed";
 import { markColorOf } from "./annotate/mirrorTypes";
 import { marksSaver } from "./annotate/savedMarks";
+import {
+  notePenOn,
+  penInUse,
+  stylusDraws,
+  subscribePenInUse,
+  subscribeStylusDraws,
+  useStylusDraws,
+} from "./annotate/stylus";
+import { slideOwner, type PointerKind } from "./annotate/stylusPolicy";
 import type { AnnotationLayer, AnnotationMode } from "./annotate/types";
 import { useAnnotationShortcuts } from "./annotate/useAnnotationShortcuts";
 import { useSavedMarks } from "./annotate/useSavedMarks";
@@ -162,6 +171,26 @@ const NEXT_THEME: Record<ThemeChoice, ThemeChoice> = {
   light: "dark",
   dark: "system",
 };
+
+/** What the layer asks of the stylus setting and latch (decision 110). */
+const STYLUS_INPUT = {
+  stylusDraws,
+  penInUse,
+  subscribe: (listener: () => void) => {
+    const stopSetting = subscribeStylusDraws(listener);
+    const stopLatch = subscribePenInUse(listener);
+    return () => {
+      stopSetting();
+      stopLatch();
+    };
+  },
+};
+
+/** Set once the first pen has been told that fingers now change slides. */
+const STYLUS_NOTICE_KEY = "docwalk.stylusNoticeSeen";
+
+const pointerKind = (type: string): PointerKind =>
+  type === "pen" || type === "touch" ? type : "mouse";
 
 const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
   connecting: m.follow_connecting,
@@ -444,6 +473,42 @@ export function App() {
     },
   });
 
+  // The first pen on the stage (decision 110): fingers now change slides, and the viewer is told
+  // once per browser, and where to change it.
+  useEffect(() => {
+    if (follow || !controller) return;
+    return notePenOn(controller.stage());
+  }, [follow, controller]);
+  useEffect(() => {
+    if (follow) return;
+    let stop: (() => void) | undefined;
+    const unsubscribe = subscribePenInUse(() => {
+      if (!stylusDraws()) return;
+      try {
+        if (localStorage.getItem(STYLUS_NOTICE_KEY) === "true") return;
+        localStorage.setItem(STYLUS_NOTICE_KEY, "true");
+      } catch {
+        // Without storage the notice shows once per visit, since the latch sets once.
+      }
+      // Not while the pen is down: the notice moves the page, and a tap that began on a link
+      // would end on something else. The click of this touch comes before the timeout.
+      const lifted = () => {
+        stop?.();
+        window.setTimeout(() => setNotice({ message: m.stylus_notice(), tone: "info" }), 0);
+      };
+      window.addEventListener("pointerup", lifted, true);
+      window.addEventListener("pointercancel", lifted, true);
+      stop = () => {
+        window.removeEventListener("pointerup", lifted, true);
+        window.removeEventListener("pointercancel", lifted, true);
+      };
+    });
+    return () => {
+      unsubscribe();
+      stop?.();
+    };
+  }, [follow, setNotice]);
+
   // Presenter bridge: only in the tab that opened the presenter window, so two
   // open docwalk tabs never both answer it.
   useEffect(() => {
@@ -531,10 +596,18 @@ export function App() {
   useWakeLock(view === "present");
   // Presenting, the bar and tools step aside after a few idle seconds so the
   // slide can take the whole stage (decision 75); usePresentChrome has the rules.
+  const stylusOn = useStylusDraws();
   const chrome = usePresentChrome({
     active: presenting || followOpen,
     pane: deckRef,
-    toolActive: mode !== "off",
+    slideOwner: (type) =>
+      slideOwner({
+        pointerType: pointerKind(type),
+        drawingTool: mode !== "off" && mode !== "laser",
+        laser: mode === "laser",
+        stylusDraws: stylusOn,
+        penInUse: penInUse(),
+      }),
     barIsStage: fill,
   });
 
@@ -745,6 +818,7 @@ export function App() {
       if (!layer) {
         layer = createAnnotationLayer(controller.stage(), {
           saved: (key, address) => savedMarks.forKey(key, address),
+          input: STYLUS_INPUT,
         });
         // What it draws goes to the mirror (decision 88) and into the saved marks (decision
         // 105). It keeps its observers across rebuilds, so this runs once per document.
