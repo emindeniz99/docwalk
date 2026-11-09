@@ -1,7 +1,7 @@
 /**
  * What a formula will cost to build, read before the work is done (decision
- * 101, rule 5). Two checks sit between the source limits and `rebuild`'s
- * limits on the output:
+ * 101, rule 5). Two checks sit between the source limits and the limits on
+ * the data the worker sends:
  *
  * - `buildWork` reads Temml's parse tree and estimates how many nodes its
  *   builders will make, counting a body once for every time a builder builds
@@ -9,16 +9,32 @@
  *   nest of `\cancelto` builds its body three times at each level, so twelve
  *   levels (170 characters) made 6.6 million nodes and took 4.5 s.
  * - `countTree` counts Temml's build tree, a few milliseconds of walking,
- *   before `toNode()` turns it into DOM elements. That call is quadratic in
- *   Chromium for a wide row: a `\def` of a run of `x` used 199 times (under
- *   `maxExpand`) took 18 s.
+ *   before it becomes data. Temml's `toNode()`, which docwalk used to call on
+ *   it, is quadratic in Chromium for a wide row: a `\def` of a run of `x`
+ *   used 199 times (under `maxExpand`) took 18 s.
  *
  * Temml's parse tree is private ("very likely to change"). The walk is
  * generic over it, so a new node type counts as one unit and its children
  * count as they are; only the builders in `REUSED` are known by name.
  * `mathCost.test.ts` parses real TeX against each.
  */
-import { MathTooLarge, type MathLimits } from "./mathRebuild";
+
+/** How big a formula may get once built. */
+export interface MathLimits {
+  /** Elements in the result. */
+  nodes: number;
+  /** Depth of the result's element tree. */
+  depth: number;
+}
+
+export const MATH_LIMITS: MathLimits = { nodes: 3000, depth: 40 };
+
+/** Thrown when the tree is larger than the limits allow; the formula is then shown as its source. */
+export class MathTooLarge extends Error {
+  constructor() {
+    super("The formula builds a larger tree than docwalk allows");
+  }
+}
 
 /**
  * Most units of build work docwalk allows one formula. A unit is a parse
@@ -110,7 +126,7 @@ export function buildWork(tree: unknown, limit: number = MAX_BUILD_WORK): number
  * The number of elements in Temml's build tree (`MathNode`, `Span` and
  * their kind: anything with a `children` list; text nodes have none),
  * counted without making any. Throws `MathTooLarge` over `limits`, which
- * `rebuild` applies again to what survives the allowlist.
+ * `fromTree` applies again to what the worker sends.
  */
 export function countTree(tree: unknown, limits: MathLimits): number {
   let count = 0;

@@ -1,4 +1,5 @@
 import { MATHML_NS, MATH_ELEMENTS, mathAttributeAllowed, mathClasses } from "./mathAllow";
+import { MATH_LIMITS, MathTooLarge, type MathLimits } from "./mathCost";
 
 /**
  * The rebuild half of the allowlist (decision 101): a fresh copy of a MathML
@@ -68,23 +69,6 @@ function voffsetEm(value: string): number | null {
   const match = LENGTH.exec(value.trim());
   const perUnit = match ? EM_PER_UNIT[match[2]!] : undefined;
   return match && perUnit !== undefined ? Number(match[1]) * perUnit : null;
-}
-
-/** How big a formula may get once built. */
-export interface MathLimits {
-  /** Elements in the result. */
-  nodes: number;
-  /** Depth of the result's element tree. */
-  depth: number;
-}
-
-export const MATH_LIMITS: MathLimits = { nodes: 3000, depth: 40 };
-
-/** Thrown when the tree is larger than the limits allow; the formula is then shown as its source. */
-export class MathTooLarge extends Error {
-  constructor() {
-    super("The formula builds a larger tree than docwalk allows");
-  }
 }
 
 /**

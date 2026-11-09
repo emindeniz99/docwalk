@@ -1,7 +1,6 @@
 import temml from "temml";
 import { describe, expect, test } from "vitest";
-import { buildWork, countTree, MAX_BUILD_WORK } from "./mathCost";
-import { MathTooLarge } from "./mathRebuild";
+import { buildWork, countTree, MAX_BUILD_WORK, MathTooLarge } from "./mathCost";
 
 /**
  * Decision 101, rule 5: what Temml would do is read off its parse tree and

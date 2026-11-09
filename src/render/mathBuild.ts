@@ -9,8 +9,8 @@
  */
 import temml from "temml";
 import "temml/dist/Temml-Local.css";
-import { buildWork, countTree, MAX_BUILD_WORK } from "./mathCost";
-import { MATH_LIMITS, rebuild } from "./mathRebuild";
+import { buildWork, countTree, MATH_LIMITS, MAX_BUILD_WORK } from "./mathCost";
+import { rebuild } from "./mathRebuild";
 
 /** Longest formula docwalk renders, in characters. A page of TeX is a few hundred. */
 export const MAX_TEX_CHARS = 4000;

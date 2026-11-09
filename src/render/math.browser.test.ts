@@ -17,7 +17,8 @@ import {
   MATH_ELEMENTS,
 } from "./mathAllow";
 import { buildMath, MAX_TEX_CHARS, MAX_TEX_NESTING, nestingOf } from "./mathBuild";
-import { MathTooLarge, rebuild } from "./mathRebuild";
+import { MathTooLarge } from "./mathCost";
+import { rebuild } from "./mathRebuild";
 import { nodesToHtml } from "./toHtml";
 
 /**
