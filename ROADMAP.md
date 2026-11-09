@@ -268,6 +268,10 @@ Later rounds:
   leave out `?sections=` (the owner decides whether the share link should
   carry it); a follower counts every slide; the presenter window still
   builds previews for skipped sections.
+- Links during a rebuild: a link followed while a rebuild is in flight (the
+  250 ms after an edit) is overridden by the editor's cursor-follow in the same
+  pass. Letting the hash win needs a decision row (`useUrlSync` and
+  `followCursor` in `App.tsx`); the owner decides.
 - Shortcut hints: on Apple platforms `ModShortcut` draws the command glyph
   as an `aria-hidden` icon, so the palette button's accessible name ends in
   "K" with no modifier (the ARIA snapshot on WebKit shows it). A screen
