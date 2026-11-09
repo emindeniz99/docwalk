@@ -8,7 +8,7 @@
 import type { MarkColor, MarkEvent } from "./mirrorTypes";
 import type { SavedStroke } from "./savedMarks";
 
-export type AnnotationMode = "off" | "pen" | "laser" | "arrow" | "eraser";
+export type AnnotationMode = "off" | "pen" | "laser" | "arrow" | "rect" | "ellipse" | "eraser";
 
 export interface AnnotationLayer {
   setMode(mode: AnnotationMode): void;
@@ -26,6 +26,19 @@ export interface AnnotationLayer {
    * drawing and shows the one saved for the new key (empty when none).
    */
   setKey(key: string, address?: string): void;
+  /**
+   * Opens a whiteboard (decision 110) over the current page, or closes the
+   * open one (null). The board is a blank page in the slide's colour with a
+   * drawing of its own, made and restored on its first open under `key` and
+   * `address` (`<section-id>/board`). The slide's key and drawing are kept
+   * aside; closing brings them back. Observers hear `{ kind: "board" }`
+   * first, then the `marks` reset for the board (or for the slide again).
+   * A `setKey` to another page address closes the board; one to the same
+   * address (a rebuild) keeps it open. Does nothing before the first key.
+   */
+  setBoard(board: { key: string; address: string } | null): void;
+  /** The address of the open whiteboard, or null when none is open. */
+  board(): string | null;
   /**
    * Move the overlay, with every slide's marks and undo history, onto a new
    * host: a deck rebuild replaces the stage element mid-talk.
@@ -49,6 +62,19 @@ export interface AnnotationLayerOptions {
    * anything new, and drauu's undo history starts after them.
    */
   saved?: (key: string, address: string) => readonly SavedStroke[];
+  /**
+   * The stylus policy's inputs (decision 110). With it, a pen drag on the bare
+   * slide draws, and once a pen is in use a finger draws nothing and moves no
+   * laser. `subscribe` hears a change of the setting or of the latch. Without
+   * it every pointer works as before.
+   */
+  input?: {
+    /** "Stylus draws, fingers change slides" is on. */
+    stylusDraws(): boolean;
+    /** A pen has touched the stage since the page loaded. */
+    penInUse(): boolean;
+    subscribe?(listener: () => void): () => void;
+  };
 }
 
 /** Implemented in ./layer.ts as `createAnnotationLayer(host, options)`. */

@@ -22,10 +22,20 @@ import {
   resolvePenColor,
   type PenColor,
 } from "./annotate/AnnotationToolbar";
+import { BOARD_TEXT, boardAddress, boardKey, isBoardAddress, sectionOf } from "./annotate/board";
 import { markKeys, slideFingerprint, slideFingerprints } from "./annotate/markKeys";
 import { MirrorFeed } from "./annotate/mirrorFeed";
 import { markColorOf } from "./annotate/mirrorTypes";
 import { marksSaver } from "./annotate/savedMarks";
+import {
+  notePenOn,
+  penInUse,
+  stylusDraws,
+  subscribePenInUse,
+  subscribeStylusDraws,
+  useStylusDraws,
+} from "./annotate/stylus";
+import { slideOwner, type PointerKind } from "./annotate/stylusPolicy";
 import type { AnnotationLayer, AnnotationMode } from "./annotate/types";
 import { useAnnotationShortcuts } from "./annotate/useAnnotationShortcuts";
 import { useSavedMarks } from "./annotate/useSavedMarks";
@@ -63,6 +73,7 @@ import {
   type Locale,
 } from "./i18n/locale";
 import type { EditorDiagnostic, SourceEditorProps } from "./editor/types";
+import { withBoardPages } from "./export/boardPages";
 import type { ExportOptions } from "./export/types";
 import { OpenFileButton } from "./inputs/OpenFileButton";
 import type { HealthResponse } from "./api/types";
@@ -70,6 +81,7 @@ import { SourceBanner } from "./inputs/SourceBanner";
 import { startPresenterBridge } from "./presenter/bridge";
 import { openPresenterWindow } from "./presenter/window";
 import type { RemoteStatus } from "./remote/client";
+import { speakerNotes } from "./sectioning/notes";
 import { applySelection } from "./sectioning/selection";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { useDraftAutosave } from "./share/draft";
@@ -160,6 +172,26 @@ const NEXT_THEME: Record<ThemeChoice, ThemeChoice> = {
   dark: "system",
 };
 
+/** What the layer asks of the stylus setting and latch (decision 110). */
+const STYLUS_INPUT = {
+  stylusDraws,
+  penInUse,
+  subscribe: (listener: () => void) => {
+    const stopSetting = subscribeStylusDraws(listener);
+    const stopLatch = subscribePenInUse(listener);
+    return () => {
+      stopSetting();
+      stopLatch();
+    };
+  },
+};
+
+/** Set once the first pen has been told that fingers now change slides. */
+const STYLUS_NOTICE_KEY = "docwalk.stylusNoticeSeen";
+
+const pointerKind = (type: string): PointerKind =>
+  type === "pen" || type === "touch" ? type : "mouse";
+
 const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
   connecting: m.follow_connecting,
   open: m.follow_open,
@@ -243,6 +275,13 @@ export function App() {
   const [revealLine, setRevealLine] = useState<number | null>(null);
   const [presenterRequested, setPresenterRequested] = useState(false);
   const [mode, setMode] = useState<AnnotationMode>("off");
+  // The page the open whiteboard covers (decision 110), from the layer's events; `told` keeps
+  // the status silent until the first open and then says "closed" once it is.
+  const [boardState, setBoardState] = useState<{ page: string | null; told: boolean }>({
+    page: null,
+    told: false,
+  });
+  const boardPage = boardState.page;
   const [penColor, setPenColor] = useState<PenColor>(PEN_COLORS[0].variable);
   const share = useLazyDialog();
   const join = useLazyDialog();
@@ -338,6 +377,15 @@ export function App() {
   const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : m.app_breaks_only();
   const docTitle = !doc ? m.app_loading_document() : documentTitle(root, plan) || m.app_untitled();
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
+  // Said in a polite status in the deck pane when the whiteboard opens or closes (decision 110).
+  const boardTitle = boardPage
+    ? (slides.find((sl) => sl.sectionId === sectionOf(boardPage))?.title ?? sectionOf(boardPage))
+    : "";
+  const boardStatus = boardPage
+    ? m.board_opened({ title: boardTitle })
+    : boardState.told
+      ? m.board_closed()
+      : "";
 
   // Document mode reads the whole file: the outline scrolls it to a section,
   // and entering it opens at the section the outline marks as current. A
@@ -425,6 +473,42 @@ export function App() {
     },
   });
 
+  // The first pen on the stage (decision 110): fingers now change slides, and the viewer is told
+  // once per browser, and where to change it.
+  useEffect(() => {
+    if (follow || !controller) return;
+    return notePenOn(controller.stage());
+  }, [follow, controller]);
+  useEffect(() => {
+    if (follow) return;
+    let stop: (() => void) | undefined;
+    const unsubscribe = subscribePenInUse(() => {
+      if (!stylusDraws()) return;
+      try {
+        if (localStorage.getItem(STYLUS_NOTICE_KEY) === "true") return;
+        localStorage.setItem(STYLUS_NOTICE_KEY, "true");
+      } catch {
+        // Without storage the notice shows once per visit, since the latch sets once.
+      }
+      // Not while the pen is down: the notice moves the page, and a tap that began on a link
+      // would end on something else. The click of this touch comes before the timeout.
+      const lifted = () => {
+        stop?.();
+        window.setTimeout(() => setNotice({ message: m.stylus_notice(), tone: "info" }), 0);
+      };
+      window.addEventListener("pointerup", lifted, true);
+      window.addEventListener("pointercancel", lifted, true);
+      stop = () => {
+        window.removeEventListener("pointerup", lifted, true);
+        window.removeEventListener("pointercancel", lifted, true);
+      };
+    });
+    return () => {
+      unsubscribe();
+      stop?.();
+    };
+  }, [follow, setNotice]);
+
   // Presenter bridge: only in the tab that opened the presenter window, so two
   // open docwalk tabs never both answer it.
   useEffect(() => {
@@ -464,12 +548,32 @@ export function App() {
     }
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [penColor, theme, layerReady]);
+  // The whiteboard of the section on screen (decision 110). The layer is the source of truth:
+  // it opens and closes, and the `board` events it sends set `boardState`.
+  const toggleBoard = useCallback(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    if (layer.board()) {
+      layer.setBoard(null);
+      return;
+    }
+    const section = controller?.current()?.sectionId;
+    if (!section) return;
+    layer.setBoard({ key: boardKey(section), address: boardAddress(section) });
+    // The first touch should draw: with no drawing tool chosen, the pen is.
+    if (layer.board()) setMode((chosen) => (chosen === "off" ? "pen" : chosen));
+  }, [controller]);
+  // The deck pane is hidden in the document view; a board there would be open on nothing.
+  useEffect(() => {
+    if (view === "document") layerRef.current?.setBoard(null);
+  }, [view]);
   useAnnotationShortcuts(
     {
       mode,
       setMode,
       undo: () => layerRef.current?.undo(),
       redo: () => layerRef.current?.redo(),
+      board: { open: boardPage !== null, toggle: toggleBoard },
     },
     // Presenting, the keys work anywhere. In the edit view the toolbar is on screen
     // too, so they work while focus is in the deck pane (the slide or the toolbar).
@@ -492,10 +596,18 @@ export function App() {
   useWakeLock(view === "present");
   // Presenting, the bar and tools step aside after a few idle seconds so the
   // slide can take the whole stage (decision 75); usePresentChrome has the rules.
+  const stylusOn = useStylusDraws();
   const chrome = usePresentChrome({
     active: presenting || followOpen,
     pane: deckRef,
-    toolActive: mode !== "off",
+    slideOwner: (type) =>
+      slideOwner({
+        pointerType: pointerKind(type),
+        drawingTool: mode !== "off" && mode !== "laser",
+        laser: mode === "laser",
+        stylusDraws: stylusOn,
+        penInUse: penInUse(),
+      }),
     barIsStage: fill,
   });
 
@@ -610,6 +722,9 @@ export function App() {
         );
         return;
       }
+      // Likewise an open whiteboard (decision 110): that Escape was meant for it, so presenting
+      // goes on windowed with the board up; Escape again closes it, and once more leaves.
+      if (layerRef.current?.board()) return;
       show((v) => (v === "present" ? "edit" : v));
     };
     document.addEventListener("fullscreenchange", onFullscreen);
@@ -694,6 +809,8 @@ export function App() {
     void import("./annotate/layer").then(({ createAnnotationLayer }) => {
       if (cancelled) return;
       if (layerRef.current && layerMarks.current !== savedMarks) {
+        // Receivers hear the board close before the layer goes.
+        layerRef.current.setBoard(null);
         layerRef.current.destroy();
         layerRef.current = null;
       }
@@ -701,14 +818,19 @@ export function App() {
       if (!layer) {
         layer = createAnnotationLayer(controller.stage(), {
           saved: (key, address) => savedMarks.forKey(key, address),
+          input: STYLUS_INPUT,
         });
         // What it draws goes to the mirror (decision 88) and into the saved marks (decision
         // 105). It keeps its observers across rebuilds, so this runs once per document.
         layer.observe((event) => mirrorFeed.ingest(event));
+        layer.observe((event) => {
+          if (event.kind === "board") setBoardState({ page: event.slide, told: true });
+        });
         layer.observe(
           marksSaver(
             () => savedMarks,
-            (address) => fingerprints.current.get(address),
+            // A board's text is "no text", so it outlives edits to its section (decision 110).
+            (address) => (isBoardAddress(address) ? BOARD_TEXT : fingerprints.current.get(address)),
           ),
         );
         layerMarks.current = savedMarks;
@@ -721,7 +843,9 @@ export function App() {
       stop = controller.onChange((sl) =>
         shown.setKey(keys.get(sl.address) ?? sl.address, sl.address),
       );
-      shown.retain(keys.values());
+      // Every present section's whiteboard stays too, though no slide key names it.
+      const boardSections = new Set([...keys.keys()].map(sectionOf));
+      shown.retain([...keys.values(), ...[...boardSections].map(boardKey)]);
       setLayerReady((n) => n + 1);
     });
     return () => {
@@ -750,26 +874,42 @@ export function App() {
 
   // The exporters work from the paginated pages the audience sees, as copies they may change.
   // Each slide takes the saved marks drawn on its present text (decision 105), unless left out.
+  // A section's speaker notes go on its last slide (decision 114), for the print that asks.
+  // They come from the whole plan: a choice of sections (decision 100) cuts the pages, and the
+  // comment above the first heading stays with the cover whatever is chosen (decision 107).
+  const notes = useMemo(() => speakerNotes(plan), [plan]);
+  const chosenNotes = [...notes.keys()].some((id) => selection.chosen.has(id));
   const getExportOptions = useCallback(
-    (withMarks: boolean): ExportOptions | null => {
+    (withMarks: boolean, withNotes: boolean): ExportOptions | null => {
       if (!controller) return null;
+      const pages = clonePages(controller);
+      const exported = pages.map(({ info, element }, index) => {
+        const marks = withMarks
+          ? (savedMarks?.strokes(info.address, slideFingerprint(element)) ?? [])
+          : [];
+        const isLast = pages[index + 1]?.info.sectionId !== info.sectionId;
+        const sectionNotes = withNotes && isLast ? notes.get(info.sectionId) : undefined;
+        return {
+          address: info.address,
+          title: info.title,
+          element,
+          ...(marks.length > 0 ? { marks } : {}),
+          ...(sectionNotes ? { notes: [...sectionNotes] } : {}),
+        };
+      });
       return {
         title: docTitle,
         size: SLIDE_SIZE,
-        slides: clonePages(controller).map(({ info, element }) => {
-          const marks = withMarks
-            ? (savedMarks?.strokes(info.address, slideFingerprint(element)) ?? [])
-            : [];
-          return {
-            address: info.address,
-            title: info.title,
-            element,
-            ...(marks.length > 0 ? { marks } : {}),
-          };
-        }),
+        // A section's whiteboard follows its last page when it has marks and marks are wanted (decision 110).
+        slides: withMarks
+          ? withBoardPages(
+              exported,
+              (id) => savedMarks?.strokes(boardAddress(id), BOARD_TEXT) ?? [],
+            )
+          : exported,
       };
     },
-    [controller, docTitle, savedMarks],
+    [controller, docTitle, savedMarks, notes],
   );
 
   const oauthClientId = health?.features.includes("oauth") ? health.githubClientId : undefined;
@@ -789,6 +929,13 @@ export function App() {
     { id: "presenter", label: m.cmd_presenter(), run: openPresenter },
     { id: "overview", label: m.cmd_overview(), hint: "O", run: overview.open },
     { id: "sections", label: m.cmd_sections(), run: sectionPicker.open },
+    ...(layerReady > 0 && view !== "document"
+      ? [
+          boardPage !== null
+            ? { id: "board-close", label: m.cmd_board_close(), hint: "W", run: toggleBoard }
+            : { id: "board-open", label: m.cmd_board_open(), hint: "W", run: toggleBoard },
+        ]
+      : []),
     { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
     { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
     // Touch screens keep CodeMirror and are not offered Monaco.
@@ -958,6 +1105,7 @@ export function App() {
               <ExportMenu
                 getOptions={getExportOptions}
                 hasMarks={saved.count > 0}
+                hasNotes={chosenNotes}
                 isDisabled={!controller}
               />
             </Suspense>
@@ -1151,6 +1299,8 @@ export function App() {
                 onPress={() => {
                   // This button unmounts on exit; keep focus on the deck, as Escape does.
                   deckRef.current?.querySelector<HTMLElement>(".reveal")?.focus();
+                  // Exit leaves the talk, board and all.
+                  layerRef.current?.setBoard(null);
                   if (document.fullscreenElement) void document.exitFullscreen();
                   else show("edit");
                 }}
@@ -1165,6 +1315,8 @@ export function App() {
                   onModeChange={setMode}
                   color={penColor}
                   onColorChange={setPenColor}
+                  board={boardPage !== null}
+                  onBoardToggle={toggleBoard}
                   onUndo={() => layerRef.current?.undo()}
                   onClear={() => layerRef.current?.clear()}
                 />
@@ -1185,6 +1337,12 @@ export function App() {
             </p>
           )}
           {report?.slides === 0 && <p className="docwalk-stage-empty">{m.app_stage_empty()}</p>}
+          {/* Mounted for the whole session, so the board opening and closing is announced (WCAG 4.1.3). */}
+          {!follow && (
+            <p role="status" className="docwalk-board-status">
+              {boardStatus}
+            </p>
+          )}
           {/* Mounted for the whole talk, so the first-time hint is announced (WCAG 4.1.3). */}
           {staged && (
             <p role="status" className="docwalk-chrome-hint" data-shown={chrome.hint || undefined}>

@@ -1,4 +1,15 @@
-import { Eraser, LocateFixed, MoveUpRight, Pen, Trash, Undo2, type LucideIcon } from "lucide-react";
+import {
+  Circle,
+  Eraser,
+  LocateFixed,
+  MoveUpRight,
+  Pen,
+  Presentation,
+  Square,
+  Trash,
+  Undo2,
+  type LucideIcon,
+} from "lucide-react";
 import { useContext, useRef, type ReactNode, type RefObject } from "react";
 import {
   Button,
@@ -38,13 +49,23 @@ export function resolvePenColor(
 
 type ToolMode = Exclude<AnnotationMode, "off">;
 
-// Shortcut keys stay the same in every language (P, L, A, E).
+// Shortcut keys stay the same in every language (P, L, A, R, C, E).
 const TOOLS: { mode: ToolMode; label: () => string; shortcut: string; Icon: LucideIcon }[] = [
   { mode: "pen", label: m.tool_pen, shortcut: "P", Icon: Pen },
   { mode: "laser", label: m.tool_laser, shortcut: "L", Icon: LocateFixed },
   { mode: "arrow", label: m.tool_arrow, shortcut: "A", Icon: MoveUpRight },
+  { mode: "rect", label: m.tool_rect, shortcut: "R", Icon: Square },
+  { mode: "ellipse", label: m.tool_ellipse, shortcut: "C", Icon: Circle },
   { mode: "eraser", label: m.tool_eraser, shortcut: "E", Icon: Eraser },
 ];
+
+/**
+ * React Aria's ToggleButton filters out `aria-keyshortcuts`, so the key is set
+ * on the element itself. Assistive technology reads it (WCAG 4.1.2 in spirit,
+ * and decision 110 asks every tool to carry it).
+ */
+const keyShortcut = (shortcut: string) => (el: HTMLElement | null) =>
+  el?.setAttribute("aria-keyshortcuts", shortcut);
 
 const isTool = (key: unknown): key is ToolMode => TOOLS.some((t) => t.mode === key);
 
@@ -115,12 +136,15 @@ export interface AnnotationToolbarProps {
   onModeChange: (mode: AnnotationMode) => void;
   color: PenColor;
   onColorChange: (color: PenColor) => void;
+  /** The whiteboard (decision 110) is open. */
+  board: boolean;
+  onBoardToggle: () => void;
   onUndo: () => void;
   onClear: () => void;
 }
 
 export function AnnotationToolbar(props: AnnotationToolbarProps) {
-  const { mode, onModeChange, color, onColorChange, onUndo, onClear } = props;
+  const { mode, onModeChange, color, onColorChange, board, onBoardToggle, onUndo, onClear } = props;
   return (
     <Toolbar aria-label={m.annotate_label()} className="docwalk-annotate-toolbar">
       <ToggleButtonGroup
@@ -139,7 +163,7 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
             <ToggleButton
               id={id}
               aria-label={label()}
-              aria-keyshortcuts={shortcut}
+              ref={keyShortcut(shortcut)}
               className="docwalk-annotate-button"
             >
               <Icon size={18} aria-hidden="true" />
@@ -162,6 +186,17 @@ export function AnnotationToolbar(props: AnnotationToolbarProps) {
         ))}
       </RadioGroup>
       <div className="docwalk-annotate-group">
+        <Tip label={m.annotate_board()} shortcut="W">
+          <ToggleButton
+            aria-label={m.annotate_board()}
+            ref={keyShortcut("W")}
+            className="docwalk-annotate-button"
+            isSelected={board}
+            onChange={onBoardToggle}
+          >
+            <Presentation size={18} aria-hidden="true" />
+          </ToggleButton>
+        </Tip>
         <Tip label={m.annotate_undo()} shortcut={<ModShortcut keyName="Z" />}>
           <Button
             aria-label={m.annotate_undo()}

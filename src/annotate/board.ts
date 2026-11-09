@@ -8,6 +8,8 @@
  * a board. The module has no DOM, so the mirror and the export can use it.
  */
 
+import { markKey } from "./savedMarks";
+
 /**
  * The text fingerprint of a board. A slide's key carries a hash of its text,
  * so an edit to the text drops the marks; `0` means "no text", so a board
@@ -38,10 +40,9 @@ export function sectionOf(pageAddress: string): string {
 }
 
 /**
- * The mark key of a section's board, in the shape `markKeys` gives a slide:
- * the address, `#`, then the text fingerprint. The saved-marks work replaces
- * this with its own `markKey` (decision 105).
+ * The layer's key for a section's board: the saved-marks key of its address
+ * with the fingerprint {@link BOARD_TEXT} (decision 105).
  */
 export function boardKey(sectionId: string): string {
-  return `${boardAddress(sectionId)}#${BOARD_TEXT}`;
+  return markKey(boardAddress(sectionId), BOARD_TEXT);
 }

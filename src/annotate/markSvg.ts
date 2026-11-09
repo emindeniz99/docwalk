@@ -37,6 +37,10 @@ export function strokeElement(
   if (stroke.tool === "arrow") {
     if (points.length < 4) return null;
     element = arrow(doc, x(0), y(1), x(2), y(3), paint);
+  } else if (stroke.tool === "rect" || stroke.tool === "ellipse") {
+    // Two opposite corners in either order (decision 110).
+    if (points.length < 4) return null;
+    element = shape(doc, stroke.tool, x(0), y(1), x(2), y(3), paint);
   } else {
     if (points.length < 2) return null;
     const pairs: number[][] = [];
@@ -55,6 +59,41 @@ export function strokeElement(
   }
   element.dataset["tool"] = stroke.tool;
   element.dataset["color"] = stroke.color;
+  return element;
+}
+
+/** A rectangle, or the ellipse inscribed in the box of the same two corners; outline only. */
+function shape(
+  doc: Document,
+  tool: "rect" | "ellipse",
+  xa: number,
+  ya: number,
+  xb: number,
+  yb: number,
+  paint?: string,
+) {
+  const left = Math.min(xa, xb);
+  const top = Math.min(ya, yb);
+  const width = Math.abs(xb - xa);
+  const height = Math.abs(yb - ya);
+  const element = doc.createElementNS(SVG_NS, tool === "rect" ? "rect" : "ellipse");
+  const set = (name: string, value: number) => element.setAttribute(name, String(value));
+  if (tool === "rect") {
+    set("x", left);
+    set("y", top);
+    set("width", width);
+    set("height", height);
+  } else {
+    set("cx", left + width / 2);
+    set("cy", top + height / 2);
+    set("rx", width / 2);
+    set("ry", height / 2);
+  }
+  if (paint) {
+    element.setAttribute("fill", "none");
+    element.setAttribute("stroke", paint);
+    element.setAttribute("stroke-width", String(PEN_SIZE));
+  }
   return element;
 }
 

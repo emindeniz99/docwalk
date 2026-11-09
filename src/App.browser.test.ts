@@ -6,6 +6,7 @@ import { page, userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "./styles.css";
 import { App } from "./App";
+import { MARKS_DB } from "./annotate/marksStore";
 import { releaseDraft } from "./share/draft";
 import { DRAFT_STORAGE_KEY } from "./share/types";
 
@@ -121,48 +122,48 @@ describe("leaving present mode", () => {
   });
 });
 
+const DRAW = '.docwalk-annotate-draw[data-active="true"]';
+const activeMarks = (el: HTMLElement) =>
+  el.querySelector<SVGSVGElement>(`.docwalk-deck-pane ${DRAW}`)?.children.length ?? -1;
+
+function stroke(el: HTMLElement) {
+  const svg = el.querySelector<SVGSVGElement>(`.docwalk-deck-pane ${DRAW}`)!;
+  const r = svg.getBoundingClientRect();
+  const at = (type: string, f: number) =>
+    svg.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+        pressure: 0.5,
+        clientX: r.left + r.width * (0.2 + 0.4 * f),
+        clientY: r.top + r.height * 0.5,
+      }),
+    );
+  at("pointerdown", 0);
+  for (let i = 1; i <= 8; i++) at("pointermove", i / 8);
+  at("pointerup", 1);
+}
+
+/**
+ * Waits for the deck that shows `text` and for the pen layer to sit on it.
+ * A rebuild puts up the new deck first and moves the layer onto it once
+ * the deck is ready, and typing that pauses past the rebuild delay
+ * rebuilds more than once: a check made when the address changed could
+ * still meet an earlier deck, or the new one without its layer.
+ */
+async function penLayerOn(el: HTMLElement, text: string) {
+  await expect
+    .poll(() => el.querySelector(".docwalk-deck-pane .reveal")?.textContent ?? "", {
+      timeout: 20_000,
+    })
+    .toContain(text);
+  await expect.poll(() => activeMarks(el), { timeout: 20_000 }).toBeGreaterThanOrEqual(0);
+}
+
 describe("pen marks across a deck rebuild", () => {
-  const DRAW = '.docwalk-annotate-draw[data-active="true"]';
-  const activeMarks = (el: HTMLElement) =>
-    el.querySelector<SVGSVGElement>(`.docwalk-deck-pane ${DRAW}`)?.children.length ?? -1;
-
-  function stroke(el: HTMLElement) {
-    const svg = el.querySelector<SVGSVGElement>(`.docwalk-deck-pane ${DRAW}`)!;
-    const r = svg.getBoundingClientRect();
-    const at = (type: string, f: number) =>
-      svg.dispatchEvent(
-        new PointerEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          pointerId: 1,
-          pointerType: "mouse",
-          isPrimary: true,
-          pressure: 0.5,
-          clientX: r.left + r.width * (0.2 + 0.4 * f),
-          clientY: r.top + r.height * 0.5,
-        }),
-      );
-    at("pointerdown", 0);
-    for (let i = 1; i <= 8; i++) at("pointermove", i / 8);
-    at("pointerup", 1);
-  }
-
-  /**
-   * Waits for the deck that shows `text` and for the pen layer to sit on it.
-   * A rebuild puts up the new deck first and moves the layer onto it once
-   * the deck is ready, and typing that pauses past the rebuild delay
-   * rebuilds more than once: a check made when the address changed could
-   * still meet an earlier deck, or the new one without its layer.
-   */
-  async function penLayerOn(el: HTMLElement, text: string) {
-    await expect
-      .poll(() => el.querySelector(".docwalk-deck-pane .reveal")?.textContent ?? "", {
-        timeout: 20_000,
-      })
-      .toContain(text);
-    await expect.poll(() => activeMarks(el), { timeout: 20_000 }).toBeGreaterThanOrEqual(0);
-  }
-
   // An edit (or an agent write, or a disk reload) rebuilds the deck while the
   // presenter is mid-talk. Marks on the slides the edit did not touch must
   // stay; marks over text that changed would point at the wrong thing.
@@ -253,5 +254,135 @@ describe("annotation shortcuts in the edit view", () => {
     act(() => el.querySelector<HTMLElement>('.docwalk-outline [role="option"]')!.focus());
     await userEvent.keyboard("p");
     expect(byLabel(el, "Pen").getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+const board = (el: HTMLElement) => el.querySelector(".docwalk-annotate[data-board]");
+const status = (el: HTMLElement) =>
+  el.querySelector(".docwalk-deck-pane .docwalk-board-status")?.textContent ?? null;
+const toggle = (el: HTMLElement) => byLabel(el, "Whiteboard");
+
+// Saved marks (decision 105) outlive a test in the browser profile, and a board's strokes are
+// saved too: every test starts from no marks at all.
+const forgetMarks = () =>
+  new Promise((resolve) => {
+    const request = indexedDB.deleteDatabase(MARKS_DB);
+    for (const event of ["success", "error", "blocked"]) request.addEventListener(event, resolve);
+  });
+async function onFirstPoint() {
+  const el = await mountApp();
+  await penLayerOn(el, "Beta.");
+  await userEvent.click(option(el, "First point"));
+  await expect.poll(() => address(el)).toBe("first-point/1");
+  return el;
+}
+
+/** Runs a command from the palette by its name. */
+async function runCommand(name: string) {
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await userEvent.keyboard(name);
+  const item = () =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) =>
+      i.textContent?.includes(name),
+    );
+  await expect.poll(item).toBeDefined();
+  await userEvent.click(item()!);
+}
+
+describe("the whiteboard in the app (decision 110)", () => {
+  beforeEach(forgetMarks);
+  afterEach(async () => {
+    act(() => root?.unmount());
+    root = null;
+    await forgetMarks();
+  });
+
+  test("the toggle opens the board over the current section, picks the pen and says so politely", async () => {
+    const el = await onFirstPoint();
+    // The live region is in the page before anything is said, so the first change is announced.
+    expect(el.querySelector(".docwalk-deck-pane .docwalk-board-status")?.getAttribute("role")).toBe(
+      "status",
+    );
+    expect(status(el)).toBe("");
+    expect(byLabel(el, "Pen").getAttribute("aria-checked")).toBe("false");
+    await userEvent.click(toggle(el));
+    await expect.poll(() => board(el)).not.toBeNull();
+    expect(toggle(el).getAttribute("aria-pressed")).toBe("true");
+    expect(byLabel(el, "Pen").getAttribute("aria-checked")).toBe("true");
+    expect(status(el)).toBe("Whiteboard open: First point");
+    // The first touch draws on the board, and the slide underneath stays clean.
+    stroke(el);
+    expect(activeMarks(el)).toBe(1);
+    await userEvent.click(toggle(el));
+    await expect.poll(() => board(el)).toBeNull();
+    expect(toggle(el).getAttribute("aria-pressed")).toBe("false");
+    expect(status(el)).toBe("Whiteboard closed");
+    expect(activeMarks(el)).toBe(0);
+  });
+
+  test("a tool the viewer already chose stays chosen when the board opens", async () => {
+    const el = await onFirstPoint();
+    await userEvent.click(byLabel(el, "Eraser"));
+    await userEvent.click(toggle(el));
+    await expect.poll(() => board(el)).not.toBeNull();
+    expect(byLabel(el, "Eraser").getAttribute("aria-checked")).toBe("true");
+    expect(byLabel(el, "Pen").getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("W toggles it from the deck, and a change of slide closes it", async () => {
+    const el = await onFirstPoint();
+    act(() => el.querySelector<HTMLElement>(".reveal")!.focus());
+    await userEvent.keyboard("w");
+    await expect.poll(() => board(el)).not.toBeNull();
+    await userEvent.click(option(el, "Second point"));
+    await expect.poll(() => address(el)).toBe("second-point/1");
+    await expect.poll(() => board(el)).toBeNull();
+    expect(toggle(el).getAttribute("aria-pressed")).toBe("false");
+    expect(status(el)).toBe("Whiteboard closed");
+  });
+
+  test("Escape turns the tool off, then closes the board, then is left for the deck", async () => {
+    const el = await onFirstPoint();
+    await userEvent.click(toggle(el));
+    await expect.poll(() => board(el)).not.toBeNull();
+    expect(byLabel(el, "Pen").getAttribute("aria-checked")).toBe("true");
+    await userEvent.keyboard("{Escape}");
+    expect(byLabel(el, "Pen").getAttribute("aria-checked")).toBe("false");
+    expect(board(el)).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => board(el)).toBeNull();
+    expect(status(el)).toBe("Whiteboard closed");
+  });
+
+  test("the palette offers Open whiteboard and then Close whiteboard", async () => {
+    const el = await onFirstPoint();
+    await runCommand("Open whiteboard");
+    await expect.poll(() => board(el)).not.toBeNull();
+    await runCommand("Close whiteboard");
+    await expect.poll(() => board(el)).toBeNull();
+  });
+
+  test("a board's strokes and undo history survive a rebuild while the board is closed", async () => {
+    const el = await onFirstPoint();
+    await userEvent.click(toggle(el));
+    await expect.poll(() => board(el)).not.toBeNull();
+    stroke(el);
+    expect(activeMarks(el)).toBe(1);
+    await userEvent.click(toggle(el));
+    await expect.poll(() => board(el)).toBeNull();
+
+    await expect.poll(() => el.querySelector(".cm-content"), { timeout: 20_000 }).not.toBeNull();
+    await userEvent.click(el.querySelector<HTMLElement>(".cm-content")!);
+    await userEvent.keyboard("{Control>}{End}{/Control} Gamma.");
+    await penLayerOn(el, "Gamma.");
+    await userEvent.click(option(el, "First point"));
+    await expect.poll(() => address(el)).toBe("first-point/1");
+
+    await userEvent.click(toggle(el));
+    await expect.poll(() => board(el)).not.toBeNull();
+    expect(activeMarks(el)).toBe(1);
+    // Saved marks come back without an undo step; the live drawing still has its own.
+    await userEvent.click(byLabel(el, "Undo mark"));
+    expect(activeMarks(el)).toBe(0);
   });
 });

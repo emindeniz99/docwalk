@@ -42,18 +42,23 @@ const clear = vi.fn<() => void>();
 function Harness() {
   const [mode, setMode] = useState<AnnotationMode>("off");
   const [color, setColor] = useState<PenColor>("--dw-color-primary");
-  useAnnotationShortcuts({ mode, setMode, undo, redo });
+  const [board, setBoard] = useState(false);
+  const toggle = () => setBoard((open) => !open);
+  useAnnotationShortcuts({ mode, setMode, undo, redo, board: { open: board, toggle } });
   return h(
     Fragment,
     null,
     h("output", { "data-testid": "mode" }, mode),
     h("output", { "data-testid": "color" }, color),
+    h("output", { "data-testid": "board" }, String(board)),
     h("input", { "aria-label": "Search" }),
     h(AnnotationToolbar, {
       mode,
       onModeChange: setMode,
       color,
       onColorChange: setColor,
+      board,
+      onBoardToggle: toggle,
       onUndo: undo,
       onClear: clear,
     }),
@@ -76,7 +81,7 @@ describe("annotation toolbar", () => {
         ".docwalk-annotate-toolbar button, .docwalk-annotate-swatch",
       ),
     ];
-    expect(controls).toHaveLength(4 + 3 + 2);
+    expect(controls).toHaveLength(6 + 3 + 3);
     for (const c of controls) {
       const name =
         c.getAttribute("aria-label") ?? c.querySelector("input")?.getAttribute("aria-label");
@@ -85,6 +90,60 @@ describe("annotation toolbar", () => {
       expect(r.width).toBeGreaterThanOrEqual(44);
       expect(r.height).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  test("Rectangle and Ellipse sit between Arrow and Eraser, named, with their shortcut keys (decision 110)", () => {
+    const el = render(harness());
+    const names = [...el.querySelectorAll(".docwalk-annotate-group:first-child button")].map((b) =>
+      b.getAttribute("aria-label"),
+    );
+    expect(names).toEqual(["Pen", "Laser pointer", "Arrow", "Rectangle", "Ellipse", "Eraser"]);
+    // React Aria's ToggleButton drops aria-keyshortcuts, so the toolbar sets it on the element.
+    for (const [name, shortcut] of [
+      ["Pen", "P"],
+      ["Laser pointer", "L"],
+      ["Arrow", "A"],
+      ["Rectangle", "R"],
+      ["Ellipse", "C"],
+      ["Eraser", "E"],
+    ] as const) {
+      const button = el.querySelector<HTMLElement>(`[aria-label="${name}"]`)!;
+      expect(button.getAttribute("aria-keyshortcuts")).toBe(shortcut);
+      const box = button.getBoundingClientRect();
+      expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+      expect(button.querySelector("svg")).not.toBeNull();
+    }
+  });
+
+  test.each([
+    ["Rectangle", "rect"],
+    ["Ellipse", "ellipse"],
+  ])("pressing %s selects it and pressing it again turns annotation off", (name, mode) => {
+    const el = render(harness());
+    const button = el.querySelector<HTMLElement>(`[aria-label="${name}"]`)!;
+    act(() => button.click());
+    expect(text(el, "mode")).toBe(mode);
+    expect(button.getAttribute("aria-checked") ?? button.getAttribute("aria-pressed")).toBe("true");
+    act(() => button.click());
+    expect(text(el, "mode")).toBe("off");
+  });
+
+  test("the Whiteboard toggle sits with Undo and Clear, named, pressed when open, a 44px target (decision 110)", () => {
+    const el = render(harness());
+    const toggle = el.querySelector<HTMLElement>('[aria-label="Whiteboard"]')!;
+    expect(toggle.closest(".docwalk-annotate-group")).toBe(
+      el.querySelector<HTMLElement>('[aria-label="Undo mark"]')!.closest(".docwalk-annotate-group"),
+    );
+    expect(toggle.getAttribute("aria-keyshortcuts")).toBe("W");
+    expect(toggle.querySelector("svg")).not.toBeNull();
+    const box = toggle.getBoundingClientRect();
+    expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    act(() => toggle.click());
+    expect(text(el, "board")).toBe("true");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    act(() => toggle.click());
+    expect(text(el, "board")).toBe("false");
   });
 
   test("pressing a tool selects it and pressing it again turns annotation off", () => {
@@ -130,6 +189,118 @@ describe("annotation shortcuts", () => {
     key({ key: "e" });
     expect(text(el, "mode")).toBe("eraser");
     expect(key({ key: "Escape" }).defaultPrevented).toBe(true);
+    expect(text(el, "mode")).toBe("off");
+  });
+
+  test("R picks the rectangle and C the ellipse, in either case", () => {
+    const el = render(harness());
+    key({ key: "r" });
+    expect(text(el, "mode")).toBe("rect");
+    key({ key: "C" });
+    expect(text(el, "mode")).toBe("ellipse");
+    key({ key: "r" });
+    expect(text(el, "mode")).toBe("rect");
+  });
+
+  test("R and C leave text entry and a focus view alone", () => {
+    const el = render(harness());
+    // The keys work on the page, so the refusals below are not just missing keys.
+    key({ key: "r" });
+    expect(text(el, "mode")).toBe("rect");
+    key({ key: "Escape" });
+    const input = el.querySelector("input[aria-label=Search]")!;
+    for (const k of ["r", "c"]) key({ key: k }, input);
+    const focusView = document.createElement("div");
+    focusView.className = "docwalk-focus";
+    const inside = document.createElement("button");
+    focusView.append(inside);
+    el.append(focusView);
+    for (const k of ["r", "c"]) expect(key({ key: k }, inside).defaultPrevented).toBe(false);
+    expect(text(el, "mode")).toBe("off");
+  });
+
+  test("W opens and closes the whiteboard, in either case, and the toggle follows", () => {
+    const el = render(harness());
+    expect(key({ key: "w" }).defaultPrevented).toBe(true);
+    expect(text(el, "board")).toBe("true");
+    expect(el.querySelector('[aria-label="Whiteboard"]')!.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    key({ key: "W" });
+    expect(text(el, "board")).toBe("false");
+    expect(text(el, "mode")).toBe("off");
+  });
+
+  test("W leaves text entry, a focus view and Ctrl+W (close tab) alone", () => {
+    const el = render(harness());
+    key({ key: "w" });
+    expect(text(el, "board")).toBe("true");
+    key({ key: "w" });
+    const input = el.querySelector("input[aria-label=Search]")!;
+    key({ key: "w" }, input);
+    const focusView = document.createElement("div");
+    focusView.className = "docwalk-focus";
+    const inside = document.createElement("button");
+    focusView.append(inside);
+    el.append(focusView);
+    expect(key({ key: "w" }, inside).defaultPrevented).toBe(false);
+    expect(key({ key: "w", ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(key({ key: "w", metaKey: true }).defaultPrevented).toBe(false);
+    expect(text(el, "board")).toBe("false");
+  });
+
+  test("Escape turns the tool off first, then closes the whiteboard, then is left alone", () => {
+    const el = render(harness());
+    key({ key: "w" });
+    key({ key: "p" });
+    expect(key({ key: "Escape" }).defaultPrevented).toBe(true);
+    expect(text(el, "mode")).toBe("off");
+    expect(text(el, "board")).toBe("true");
+    expect(key({ key: "Escape" }).defaultPrevented).toBe(true);
+    expect(text(el, "board")).toBe("false");
+    // Nothing left to close: reveal.js and the present view get the key.
+    expect(key({ key: "Escape" }).defaultPrevented).toBe(false);
+  });
+
+  test("an Escape meant for an open dialog does not close the whiteboard under it", () => {
+    const el = render(harness());
+    key({ key: "w" });
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    dialog.append(inside);
+    el.append(dialog);
+    expect(key({ key: "Escape" }, inside).defaultPrevented).toBe(false);
+    expect(text(el, "board")).toBe("true");
+  });
+
+  test.each(["dialog", "menu", "listbox"])(
+    "W and the tool keys do nothing inside an open %s, so its own keys (type-to-find) keep working",
+    (role) => {
+      const el = render(harness());
+      const layer = document.createElement("div");
+      layer.setAttribute("role", role);
+      const inside = document.createElement("button");
+      layer.append(inside);
+      el.append(layer);
+      for (const k of ["w", "p", "l", "a", "r", "c", "e"]) {
+        expect(key({ key: k }, inside).defaultPrevented).toBe(false);
+      }
+      expect(key({ key: "z", ctrlKey: true }, inside).defaultPrevented).toBe(false);
+      expect(text(el, "board")).toBe("false");
+      expect(text(el, "mode")).toBe("off");
+      // The same keys work on the page again outside it.
+      key({ key: "w" });
+      expect(text(el, "board")).toBe("true");
+    },
+  );
+
+  test("Ctrl+R and Ctrl+C keep reloading and copying", () => {
+    const el = render(harness());
+    expect(key({ key: "r" }).defaultPrevented).toBe(true);
+    key({ key: "Escape" });
+    expect(key({ key: "r", ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(key({ key: "c", metaKey: true }).defaultPrevented).toBe(false);
     expect(text(el, "mode")).toBe("off");
   });
 
@@ -222,6 +393,8 @@ describe("annotation toolbar keyboard (WCAG 2.1.1)", () => {
     expect(text(el, "mode")).toBe("laser");
 
     await userEvent.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
+    expect(label()).toBe("Ellipse");
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
     expect(label()).toBe("Vermilion");
     await userEvent.keyboard("{ArrowRight}");
     expect(label()).toBe("Blue");
@@ -229,6 +402,10 @@ describe("annotation toolbar keyboard (WCAG 2.1.1)", () => {
     expect(text(el, "color")).toBe("--dw-color-focus");
 
     await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    expect(label()).toBe("Whiteboard");
+    await userEvent.keyboard("{Enter}");
+    expect(text(el, "board")).toBe("true");
+    await userEvent.keyboard("{ArrowRight}");
     expect(label()).toBe("Undo mark");
   });
 });

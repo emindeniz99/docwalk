@@ -1,8 +1,11 @@
 import { getStroke } from "perfect-freehand";
+import { boardAddress, sectionOf } from "./board";
+import { coverPage } from "./boardCover";
 import "./mirror.css";
 import type { MirrorStore, StoredStroke } from "./mirrorStore";
 import { COORD_MAX, MIRROR_HEIGHT, MIRROR_LASER_IDLE_MS, MIRROR_WIDTH } from "./mirrorTypes";
 import { outlinePath } from "./outline";
+import { strokeElement } from "./markSvg";
 
 /**
  * Draws a `MirrorStore` over a slide (decision 88): the presenter's pen and
@@ -15,6 +18,12 @@ import { outlinePath } from "./outline";
  * `setAttribute` and `createElementNS`; the only things from the wire that
  * pick a look are a tool and a colour key, both from fixed lists, and the
  * colour is a design token (mirror.css). No message string is parsed as markup.
+ *
+ * While the presenter's whiteboard is open over the page the receiver shows
+ * (decision 110), the overlay adds the board's paper and draws the strokes of
+ * the section's board address in place of the page's, and keeps the page
+ * underneath out of the keyboard's reach. The receiver's own slide change
+ * ends it with no op: the address stops matching.
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -101,13 +110,18 @@ function draw(stroke: StoredStroke): SVGElement | null {
     // An arrow needs both ends; a shorter list is a stroke that is still arriving.
     return stroke.points.length >= 4 ? drawArrow(stroke.points) : null;
   }
+  if (stroke.tool === "rect" || stroke.tool === "ellipse") {
+    // The saved marks and exports draw shapes the same way (decision 110).
+    return strokeElement(stroke, MIRROR_WIDTH, MIRROR_HEIGHT);
+  }
   return stroke.points.length >= 2 ? drawPen(stroke.points) : null;
 }
 
 /**
  * Attaches the overlay to `host` (the slide box, or a slide-sized preview).
  * `address` says which slide the receiver shows now; only that slide's marks
- * are drawn, so a page the receiver does not have never shows a stranger's.
+ * (or its board's, while the board is open over it) are drawn, so a page the
+ * receiver does not have never shows a stranger's.
  */
 export function attachMirror(
   host: HTMLElement,
@@ -123,7 +137,10 @@ export function attachMirror(
   const dot = document.createElement("div");
   dot.className = "docwalk-remote-laser";
   dot.hidden = true;
-  root.append(svg, dot);
+  // The whiteboard's paper (decision 110): shown through `data-board`, under the strokes.
+  const paper = document.createElement("div");
+  paper.className = "docwalk-mirror-board";
+  root.append(paper, svg, dot);
 
   // The overlay is absolutely positioned, so the host needs to be a containing block.
   let stage = host;
@@ -145,11 +162,21 @@ export function attachMirror(
   let laserTimer: ReturnType<typeof setTimeout> | undefined;
   let lastLaser: { x: number; y: number } | null = null;
   let pending: ReturnType<typeof setTimeout> | undefined;
+  /** The undo of the keyboard cover, while the board shows. */
+  let uncover: (() => void) | null = null;
 
   function render() {
     pending = undefined;
     const slide = address();
-    const strokes = slide === null ? [] : store.strokes(slide);
+    const board = slide !== null && store.board === slide;
+    root.toggleAttribute("data-board", board);
+    if (board && !uncover) uncover = coverPage(stage);
+    else if (!board && uncover) {
+      uncover();
+      uncover = null;
+    }
+    const shown = slide === null ? null : board ? boardAddress(sectionOf(slide)) : slide;
+    const strokes = shown === null ? [] : store.strokes(shown);
     const elements: SVGElement[] = [];
     const live = new Set<number>();
     for (const stroke of strokes) {
@@ -206,11 +233,18 @@ export function attachMirror(
       if (next === stage) return;
       detach();
       attach(next);
+      // The rebuilt deck has a new current page; the board covers that one.
+      if (uncover) {
+        uncover();
+        uncover = coverPage(next);
+      }
     },
     destroy() {
       unsubscribe();
       clearTimeout(pending);
       clearTimeout(laserTimer);
+      uncover?.();
+      uncover = null;
       detach();
     },
   };
