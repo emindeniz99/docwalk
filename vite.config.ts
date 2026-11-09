@@ -24,6 +24,11 @@ export default defineConfig({
     // (src/i18n/locale.ts maps each UI locale to one of these).
     { ...optimizeLocales.vite({ locales: ["en-US", "tr-TR"] }), enforce: "pre" },
   ],
+  // Shiki runs only in its worker (src/render/shiki.worker.ts), which the dependency scanner does
+  // not follow: without these the dev server finds them at the first code block and reloads.
+  optimizeDeps: {
+    include: ["@shikijs/core", "@shikijs/engine-javascript", "@shikijs/primitive"],
+  },
   build: {
     // Mermaid 12 targets ES2024 / Safari 17.4, which sets the floor (decision 31).
     target: ["es2024", "safari17.4"],

@@ -57,6 +57,12 @@ export default defineConfig({
       },
       {
         extends: true,
+        // Shiki runs only in its worker, which Vite's dependency scanner does not follow. CI starts
+        // with no Vite cache: without these, Vite finds them at the first code block, reloads,
+        // and the test files still to start never do.
+        optimizeDeps: {
+          include: ["@shikijs/core", "@shikijs/engine-javascript", "@shikijs/primitive"],
+        },
         test: {
           name: "browser",
           include: ["src/**/*.browser.test.ts"],

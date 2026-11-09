@@ -81,6 +81,26 @@ describe("semantic pagination", () => {
     expect(fitsAll(pages)).toEqual(pages.map(() => false));
   });
 
+  test("a try puts in only the blocks the last try did not have (decision 43)", () => {
+    // Opening a document waits for every try: each block a try puts in is
+    // styled and laid out again. A search over 80 paragraphs put in 551
+    // copies; most tries only add or drop a few at the end of the last one.
+    const paragraphs = Array.from({ length: 80 }, (_, i) => `Paragraph ${i + 1} of the long part.`);
+    const slide = slideFor(`## Long\n\n${paragraphs.join("\n\n")}\n`);
+    const added = new MutationObserver(() => undefined);
+    added.observe(document.body, { childList: true, subtree: true });
+    const pages = paginateSlide(slide, { size: SIZE });
+    const records = added.takeRecords();
+    added.disconnect();
+    const putIn = records
+      .filter((r) => r.target instanceof Element && r.target.closest(".docwalk-measure"))
+      .flatMap((r) => [...r.addedNodes])
+      .filter((node) => node instanceof Element && node.tagName === "P").length;
+    expect(items(pages, "p")).toEqual(paragraphs);
+    expect(fitsAll(pages)).toEqual(pages.map(() => false));
+    expect(putIn).toBeLessThan(paragraphs.length * 4);
+  });
+
   test("an overflowing section splits at its sub-headings first, parent title in the breadcrumb", () => {
     const filler = "A paragraph of explanation that takes some room.\n\n".repeat(6);
     const md = `# Doc\n\nx\n\n## Failure handling\n\nintro\n\n### Retries\n\n${filler}### Timeouts\n\n${filler}### Poison messages\n\n${filler}`;
