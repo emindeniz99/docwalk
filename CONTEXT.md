@@ -65,19 +65,22 @@ remote control (37, 38). Opposite: **static mode**.
 
 **Line mark**: the fill and bar on a code line that the viewer clicked in a
 code focus view. It belongs to the open view: it is never written to the
-Markdown or the address, and it is gone when the view closes (87). Code:
-`aria-pressed` on `.docwalk-code-line`.
+Markdown or the address, and it is gone when the view closes (87). The
+presenter's line marks are mirrored to followers while the view is open
+(106). Code: `aria-pressed` on `.docwalk-code-line`.
 
 **Local folder**: a folder on disk the user opened through the File System
 Access API. Its files are saved only on Save or Ctrl/Cmd+S, and reload when
 they change on disk (58). Code: root `"folder"`.
 
 **Mirror**: what the presenter shows others as it happens: the laser, pen
-and arrow marks, and the diagram focus view. Followers get it as signed
-`mirror` messages in slide units, and the presenter window gets the laser and
-marks over the bridge. It goes outward only, stays in memory and is never
-written to the Markdown (88). Code: `src/annotate/mirrorFeed.ts`,
-`mirrorStore.ts`, `mirrorView.ts`.
+and arrow marks, and the focus view with its zoom, scroll and line marks.
+Followers get it as signed `mirror` messages in slide units, and the
+presenter window gets the laser and marks over the bridge. A focus view
+names its block by kind and place on the slide (106). It goes outward only,
+stays in memory and is never written to the Markdown (88). Code:
+`src/annotate/mirrorFeed.ts`, `mirrorStore.ts`, `mirrorView.ts`,
+`src/deck/focusMirror.ts`.
 
 **Measurement pass**: the post-render check of a slide and each Mermaid host
 for overflow, run in the order of decision 22.

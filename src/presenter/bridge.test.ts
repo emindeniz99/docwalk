@@ -359,10 +359,30 @@ describe("mirrored laser and marks (decision 88)", () => {
     const onMirror = vi.fn<(op: MirrorOp) => void>();
     connectPresenter(() => {}, { channel: hub.factory, onMirror });
     onMirror.mockClear();
-    feed.focus({ kind: "open", slide: "one/1", diagram: 1 });
+    feed.focus({ kind: "open", slide: "one/1", block: "diagram", n: 1 });
     feed.focus({ kind: "view", scale: 2, x: 0, y: 0 });
     feed.focus({ kind: "close" });
     expect(onMirror).not.toHaveBeenCalled();
+  });
+
+  test("nor are the code, table and image views or their line marks, live or in a resync (decision 106)", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1)], reset: true });
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    for (const block of ["code", "table", "image"] as const) {
+      feed.focus({ kind: "open", slide: "one/1", block, n: 1 });
+      feed.focus({ kind: "view", scale: 2, x: 0.5, y: 0.5 });
+      feed.focus({ kind: "lines", lines: [1, 2] });
+      vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+      hub.peer().channel.postMessage({ type: "hello", resync: true });
+      feed.focus({ kind: "close" });
+    }
+    const ops = onMirror.mock.calls.map(([op]) => op.op);
+    // The window still gets the marks, so the resyncs did reach it.
+    expect(ops).toContain("stroke");
+    expect(ops.filter((op) => op.startsWith("focus"))).toEqual([]);
   });
 
   test("a malformed mirror message is dropped: any same-origin tab can post on the channel", () => {

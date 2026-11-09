@@ -8,7 +8,10 @@ import {
   MIRROR_FOCUS_VIEW_MS,
   MIRROR_LASER_MS,
   STROKE_FLUSH_MS,
+  focusOpenOp,
+  markedLines,
   type FocusEvent,
+  type FocusPlace,
   type MarkColor,
   type MarkEvent,
   type MarkStroke,
@@ -21,7 +24,8 @@ import {
  * the focus view tell it what happens; it turns that into the ops of
  * `mirrorTypes.ts` and hands them to its sinks (the room, the presenter
  * window). It keeps the pace down (laser 33 ms, a live stroke 80 ms, the
- * focus view 100 ms), cuts a stroke into chunks a relay frame holds, and
+ * focus view's zoom and scroll 100 ms), sends a code view's marked lines
+ * when they change (decision 106), cuts a stroke into chunks a relay frame holds, and
  * remembers what receivers were told, so an undo is one `drop` and a redo
  * sends the stroke again. A receiver that joins late asks for `resync`.
  *
@@ -62,8 +66,10 @@ export class MirrorFeed {
   private readonly known = new Map<string, Set<number>>();
   private current: { slide: string; strokes: readonly MarkStroke[] } | null = null;
 
-  private focusOpen: { slide: string; diagram: number } | null = null;
+  private focusOpen: FocusPlace | null = null;
   private focusView: { scale: number; x: number; y: number } | null = null;
+  /** The marked lines of an open code view, as last sent. */
+  private focusLines: number[] = [];
   private lastViewAt = Number.NEGATIVE_INFINITY;
   private viewTimer: ReturnType<typeof setTimeout> | undefined;
   private viewPending = false;
@@ -120,13 +126,15 @@ export class MirrorFeed {
   focus(event: FocusEvent): void {
     switch (event.kind) {
       case "open":
-        this.focusOpen = { slide: event.slide, diagram: event.diagram };
+        this.focusOpen = { slide: event.slide, block: event.block, n: event.n };
         this.focusView = null;
+        this.focusLines = [];
         this.cancelView();
-        this.emit({ op: "focus-open", slide: event.slide, diagram: event.diagram });
+        this.emit(focusOpenOp(this.focusOpen));
         break;
       case "view": {
-        if (!this.focusOpen) break;
+        // A view measured on a stage with no size is NaN; no receiver would take it.
+        if (!this.focusOpen || ![event.scale, event.x, event.y].every(Number.isFinite)) break;
         this.focusView = {
           scale: round(event.scale, 3),
           x: round(event.x, 3),
@@ -141,9 +149,21 @@ export class MirrorFeed {
         }
         break;
       }
+      case "lines": {
+        if (this.focusOpen?.block !== "code") break;
+        const lines = markedLines(event.lines);
+        const same =
+          lines.length === this.focusLines.length &&
+          lines.every((n, i) => n === this.focusLines[i]);
+        if (same) break;
+        this.focusLines = lines;
+        this.emit({ op: "focus-lines", lines });
+        break;
+      }
       case "close":
         this.focusOpen = null;
         this.focusView = null;
+        this.focusLines = [];
         this.cancelView();
         this.emit({ op: "focus-close" });
         break;
@@ -152,7 +172,8 @@ export class MirrorFeed {
 
   /**
    * Sends the current slide's marks, the stroke in progress and the focus
-   * state to `sink` alone, or to every sink without one. Every op is
+   * state (the open block, its zoom and scroll, and for code its marked
+   * lines, even none) to `sink` alone, or to every sink without one. Every op is
    * idempotent for a receiver that has them already: it opens with `keep`
    * (decision 103), which removes only what the presenter no longer has,
    * and the strokes that follow replace by id, so no receiver shows the
@@ -180,8 +201,10 @@ export class MirrorFeed {
       for (const stroke of live) this.sendChunks(emit, slide, stroke, 0, false);
     }
     if (this.focusOpen) {
-      emit({ op: "focus-open", ...this.focusOpen });
+      emit(focusOpenOp(this.focusOpen));
       if (this.focusView) emit({ op: "focus-view", ...this.focusView });
+      // Even an empty list: a receiver that missed a Clear holds marks the presenter dropped.
+      if (this.focusOpen.block === "code") emit({ op: "focus-lines", lines: [...this.focusLines] });
     } else {
       emit({ op: "focus-close" });
     }

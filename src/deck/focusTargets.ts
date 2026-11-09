@@ -1,5 +1,7 @@
+import type { FocusPlace, FocusViewKind } from "../annotate/mirrorTypes";
 import { m } from "../paraglide/messages.js";
 import { FOCUS_VIEW_CLASS } from "./focusView";
+import { slideAddress } from "./pages";
 
 /**
  * The blocks of a slide that open in the focus view next to diagrams
@@ -34,14 +36,93 @@ function hasOwnName(el: Element): boolean {
   );
 }
 
+const BLOCK_SELECTOR: Record<FocusViewKind, string> = {
+  diagram: ".docwalk-diagram",
+  code: "pre",
+  table: "table",
+  image: "img",
+};
+
+/**
+ * Whether `el`, found by the selector of `kind`, is a block of that kind
+ * whether or not it has loaded. Nothing inside a diagram or a view counts,
+ * and an image in a link belongs to the link.
+ */
+function isBlock(el: Element, kind: FocusViewKind): boolean {
+  if (kind === "diagram") return true;
+  if (el.closest(`.docwalk-diagram, .${FOCUS_VIEW_CLASS}`)) return false;
+  return kind !== "image" || !el.closest("a");
+}
+
+/**
+ * The blocks of `kind` on a page in document order, loaded or not, so a
+ * follower that blocked an image numbers the ones after it as the presenter
+ * does (decision 106).
+ */
+function blocksOf(page: Element, kind: FocusViewKind): HTMLElement[] {
+  return [...page.querySelectorAll<HTMLElement>(BLOCK_SELECTOR[kind])].filter((el) =>
+    isBlock(el, kind),
+  );
+}
+
+/** The id of the section a page address belongs to: the address without its page number. */
+function sectionOf(address: string): string {
+  return address.slice(0, Math.max(0, address.lastIndexOf("/")));
+}
+
+/**
+ * The blocks a number counts among: for a table, the page it is on, because
+ * a table can split and two screens may cut it differently. A code block,
+ * an image or a diagram never splits (rule 3), so the number counts across
+ * every page of the section and does not depend on where either screen
+ * paginated (decision 106).
+ */
+function numbered(pages: readonly Element[], kind: FocusViewKind): HTMLElement[] {
+  return pages.flatMap((page) => blocksOf(page, kind));
+}
+
+function pagesOfSection(stage: ParentNode, id: string): HTMLElement[] {
+  return [...stage.querySelectorAll<HTMLElement>(":scope > section[data-docwalk-id]")].filter(
+    (page) => page.dataset["docwalkId"] === id,
+  );
+}
+
+/**
+ * Where a block sits: its page's address, its kind and its number among that
+ * kind on the page for a table, in the whole section for the others.
+ */
+export function locateBlock(el: HTMLElement, kind: FocusViewKind): FocusPlace | null {
+  const page = el.closest<HTMLElement>("section[data-docwalk-id]");
+  if (!page) return null;
+  const pages =
+    kind === "table" || !page.parentElement
+      ? [page]
+      : pagesOfSection(page.parentElement, page.dataset["docwalkId"] ?? "");
+  const at = numbered(pages, kind).indexOf(el);
+  return at < 0 ? null : { slide: slideAddress(page), block: kind, n: at + 1 };
+}
+
+/**
+ * The block `place` names among the pages of `stage`, if this deck has it.
+ * A table is looked up on the page with the presenter's address; any other
+ * kind in the section the address names, wherever this deck paginated it.
+ */
+export function findBlock(stage: ParentNode, place: FocusPlace): HTMLElement | null {
+  const pages =
+    place.block === "table"
+      ? pagesOfSection(stage, sectionOf(place.slide)).filter(
+          (page) => slideAddress(page) === place.slide,
+        )
+      : pagesOfSection(stage, sectionOf(place.slide));
+  return numbered(pages, place.block)[place.n - 1] ?? null;
+}
+
 function kindOf(el: Element): FocusKind | null {
-  if (el.closest(`.docwalk-diagram, .${FOCUS_VIEW_CLASS}`)) return null;
-  if (el instanceof HTMLPreElement) return "code";
-  if (el instanceof HTMLTableElement) return "table";
+  if (el instanceof HTMLPreElement) return isBlock(el, "code") ? "code" : null;
+  if (el instanceof HTMLTableElement) return isBlock(el, "table") ? "table" : null;
   if (!(el instanceof HTMLImageElement)) return null;
-  // A blocked image has no \`src\` yet, so it is never loaded (decision 33); an image in a link
-  // belongs to the link.
-  return isLoadedImage(el) && !el.closest("a") ? "image" : null;
+  // A blocked image has no `src` yet, so it is never loaded (decision 33).
+  return isBlock(el, "image") && isLoadedImage(el) ? "image" : null;
 }
 
 /** Marks one element when it qualifies, and does nothing otherwise. */

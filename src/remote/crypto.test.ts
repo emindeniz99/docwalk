@@ -74,6 +74,12 @@ const MESSAGES: RemoteMessage[] = [
   { type: "mirror", op: "focus-open", slide: "retries/2", diagram: 2 },
   { type: "mirror", op: "focus-view", scale: 2.5, x: -0.25, y: 0.1 },
   { type: "mirror", op: "focus-close" },
+  // The code, table and image views (decision 106).
+  { type: "mirror", op: "focus-open", slide: "retries/2", code: 1 },
+  { type: "mirror", op: "focus-open", slide: "retries/2", table: 1000 },
+  { type: "mirror", op: "focus-open", slide: "retries/2", image: 3 },
+  { type: "mirror", op: "focus-lines", lines: [1, 4, 100_000] },
+  { type: "mirror", op: "focus-lines", lines: [] },
 ];
 
 /** A seal for tests: any sender id, any counter. */
@@ -547,6 +553,72 @@ describe("mirror messages (decision 88)", () => {
     for (const message of hostile) {
       expect(await decrypt(key, await encryptRaw(key, sealed(message)))).toBeNull();
     }
+  });
+
+  test("a focus op names a block by one kind and its place, and marked lines stay few, whole and in order (decision 106)", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const open = { type: "mirror", op: "focus-open", slide: "a/1" };
+    const lines = { type: "mirror", op: "focus-lines" };
+    const hostile: unknown[] = [
+      // One kind and one place from 1 to 1000; no text, no id, no second kind.
+      { ...open, code: 0 },
+      { ...open, table: 1001 },
+      { ...open, image: 1.5 },
+      { ...open, code: -1 },
+      { ...open, code: Number.POSITIVE_INFINITY },
+      { ...open, code: "1" },
+      { ...open, image: "#figure-1" },
+      { ...open, code: 1, table: 1 },
+      { ...open, diagram: 1, image: 1 },
+      { ...open, video: 1 },
+      { ...open },
+      { type: "mirror", op: "focus-open", code: 1 },
+      { ...open, slide: "", code: 1 },
+      { ...open, slide: "x".repeat(2049), table: 1 },
+      { ...open, code: 1, text: "const a = 1;" },
+      { ...open, image: 1, src: "https://images.invalid/a.png" },
+      // Line numbers from 1, ascending, at most 256 of them, none past 100,000.
+      { ...lines, lines: Array.from({ length: 257 }, (_, i) => i + 1) },
+      { ...lines, lines: [0] },
+      { ...lines, lines: [100_001] },
+      { ...lines, lines: [3, 2] },
+      { ...lines, lines: [2, 2] },
+      { ...lines, lines: [1.5] },
+      { ...lines, lines: [Number.NaN] },
+      { ...lines, lines: ["1"] },
+      { ...lines, lines: "1,2" },
+      { ...lines, lines: null },
+      lines,
+      { ...lines, lines: [1], slide: "a/1" },
+      { ...lines, lines: [1], html: "<mark>" },
+    ];
+    for (const message of hostile) {
+      expect(
+        await decrypt(key, await encryptRaw(key, sealed(message))),
+        `${JSON.stringify(message)}`,
+      ).toBeNull();
+    }
+  });
+
+  test("the longest list of marked lines fits a relay frame and arrives intact (decision 106)", async () => {
+    // Like every mirror op it cannot be split into parts, so 256 of the
+    // widest line numbers must fit one 16 KB frame, signed.
+    const { view, signer, verifier } = await signedRoom();
+    const widest: RemoteMessage = {
+      type: "mirror",
+      op: "focus-lines",
+      lines: Array.from({ length: 256 }, (_, i) => 100_000 - 255 + i),
+    };
+    const frame = await encrypt(view, widest, SEAL, signer);
+    const bytes = JSON.stringify(frame).length;
+    expect(bytes).toBeLessThan(3 * 1024);
+    expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(widest);
+    console.info(
+      `mirror focus-lines: 256 lines, ${JSON.stringify(widest).length} bytes of JSON, ${bytes} as a frame`,
+    );
   });
 
   test("the largest keep a presenter can send fits a relay frame and arrives intact (decision 103)", async () => {

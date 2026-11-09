@@ -89,8 +89,8 @@ export interface PresenterBridgeOptions {
    * sends them to presenter windows as `mirror` messages, and sends the
    * current slide's marks again to one that says hello for the first time,
    * at most once per 2 s (decision 103).
-   * The diagram focus view stays out: the presenter window shows scaled,
-   * inert copies of the slides.
+   * The focus views (diagram, code, table and image) stay out: the presenter
+   * window shows scaled, inert copies of the slides.
    */
   mirror?: MirrorFeed;
   channel?: ChannelFactory;
