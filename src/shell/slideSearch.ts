@@ -60,7 +60,10 @@ function foldLetter(letter: string, locale: string): string {
   // a hostile page can hold a million distinct letters.
   const lower =
     letter === "I" || letter === "İ" ? letter.toLocaleLowerCase(locale) : letter.toLowerCase();
-  const bare = lower.normalize("NFKD").replace(MARKS, "");
+  // Lower case again after NFKD: a compatibility form such as the
+  // mathematical bold 𝐀 only becomes a cased A there, and the collator
+  // equates it with a.
+  const bare = lower.normalize("NFKD").replace(MARKS, "").toLowerCase();
   const code = bare.length === 1 ? bare.charCodeAt(0) : 0;
   const kana = code >= 0x30a1 && code <= 0x30f6 ? String.fromCharCode(code - 0x60) : bare;
   let fold = letter;

@@ -74,6 +74,15 @@ describe("findText: case, accents and boundaries", () => {
     const hit = findText(text, "retries", EN);
     expect(hit && text.slice(hit.start, hit.end)).toBe("retries");
   });
+
+  // The collator treats the mathematical bold capital A as a, so the search
+  // must too; folding it to capital A and stopping there missed it.
+  test("finds a mathematical capital letter from its lower-case query, as the collator does", () => {
+    const text = "Let \u{1D400} be the matrix";
+    const hit = findText(text, "a be", EN);
+    expect(hit && text.slice(hit.start, hit.end)).toBe("\u{1D400} be");
+    expect(titleMatches("\u{1D400}lpha", "alpha", EN)).toBe(true);
+  });
 });
 
 describe("findText: Turkish dotted and dotless i (decision 81)", () => {
