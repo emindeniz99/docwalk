@@ -32,8 +32,8 @@ import {
  *   (decision 110). Once a pen has been used a finger owns nothing, whatever
  *   tool is chosen: a tap on the slide toggles the controls and a swipe moves
  *   the slide.
- * - Tab shows the chrome and focuses its first control (Shift+Tab: its last),
- *   so a keyboard user never tabs into nothing. Hidden controls stay in the
+ * - Tab shows the chrome and focuses its first visible control (Shift+Tab: its
+ *   last), so a keyboard user never tabs into nothing. Hidden controls stay in the
  *   accessibility tree, and focus reaching one by any route shows them.
  */
 export const CHROME_IDLE_MS = 3000;
@@ -285,8 +285,15 @@ export function usePresentChrome({
         }
         // The bar comes before the deck in the DOM, so a plain Tab from the
         // slide would leave the page. Land on the controls instead.
+        // Only a control the user can see and reach takes focus: the annotation
+        // toolbar hides some of its controls by container query, and focus on
+        // one of those would leave the user with nothing to look at. Opacity is
+        // not checked: the hidden bar is transparent until focus shows it.
         const items = [...root.querySelectorAll<HTMLElement>(`${BAR} :is(${TABBABLE})`)].filter(
-          (el) => !(el instanceof HTMLInputElement && el.type === "radio" && !el.checked),
+          (el) =>
+            !(el instanceof HTMLInputElement && el.type === "radio" && !el.checked) &&
+            !el.closest("[inert]") &&
+            el.checkVisibility({ checkVisibilityCSS: true }),
         );
         const target = event.shiftKey ? items.at(-1) : items[0];
         if (!target) return;
