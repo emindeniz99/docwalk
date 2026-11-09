@@ -183,8 +183,7 @@ Later rounds:
   Worker under Miniflare; `e2e/mcp.spec.ts`, a real-socket session with the
   built bin, passed 3 of 3 on Node 22.23.4 on 2026-11-09 (the MCP unit tests
   20 of 20), but CI runs Node 24 only, so nothing holds `engines` (>=22) in
-  place; an agent or phone remote that joins before the
-  presenter's socket is open is not counted (hello is not resent);
+  place; a device that left is still counted (there is no goodbye), and an agent built before decision 111 stays uncounted after a presenter reload;
   `docwalk-mcp` is not on npm yet.
 - Markdown (decision 107): raw HTML headings (`<h2>…</h2>`) and headings
   inside footnote definitions get no anchor; a heading's slug comes from its
