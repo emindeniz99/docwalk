@@ -6,6 +6,7 @@ import { m } from "../paraglide/messages.js";
 import type { DiagramTour } from "./diagramTour";
 import { emitFocus } from "./focusEvents";
 import { FOCUS_VIEW_CLASS } from "./focusView";
+import { type DiagramEdge, diagramEdges } from "./mermaid";
 import { focusKind, isLoadedImage, locateBlock, unmarkFocusTargets } from "./focusTargets";
 import {
   firstStep,
@@ -320,7 +321,7 @@ function diagramStage(stage: HTMLElement, diagram: HTMLElement, close: () => voi
   const count = nodesInDiagram(copy).length;
   const tour =
     count >= TOUR_MIN_NODES
-      ? tourControls(stage, copy, source ?? "", count, base.fitted ?? Promise.resolve())
+      ? tourControls(stage, copy, diagramEdges(diagram), count, base.fitted ?? Promise.resolve())
       : null;
   if (source === undefined && !tour) return base;
   return {
@@ -360,7 +361,7 @@ const TAP_SLOP = 6;
 function tourControls(
   stage: HTMLElement,
   copy: SVGSVGElement,
-  source: string,
+  edges: readonly DiagramEdge[],
   count: number,
   fitted: Promise<void>,
 ) {
@@ -382,7 +383,7 @@ function tourControls(
       .then(({ createDiagramTour }) =>
         createDiagramTour(
           copy,
-          source,
+          edges,
           (text) => {
             if (status) status.textContent = prefix ? `${prefix} ${text}` : text;
             prefix = "";

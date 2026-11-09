@@ -1,5 +1,6 @@
 import { m } from "../paraglide/messages.js";
 import { diagramGraph, type DiagramGraph } from "./diagramGraph";
+import type { DiagramEdge } from "./mermaid";
 import {
   normalizeTour,
   TOUR_MAX_NEIGHBOURS_READ,
@@ -45,17 +46,17 @@ export interface DiagramTour {
 
 /**
  * @param svg The view's copy of the diagram, with its Mermaid ids.
- * @param source The diagram's Markdown text, as `data-source` holds it.
+ * @param edges The host's `diagramEdges`, from Mermaid's parse.
  * @param announce Gets the status text for a polite live region; set it with `textContent`.
  * @param options.fitted Settles after the stage's first Fit; marks are measured after it.
  */
 export function createDiagramTour(
   svg: SVGSVGElement,
-  source: string,
+  edges: readonly DiagramEdge[],
   announce: (text: string) => void,
   options: { fitted?: Promise<unknown> } = {},
 ): DiagramTour {
-  const graph = diagramGraph(svg, source);
+  const graph = diagramGraph(svg, edges);
   const count = graph.nodes.length;
   let layer: SVGGElement | null = null;
   // Bumped by every show and clear: a draw that waited draws only if it is still the latest.

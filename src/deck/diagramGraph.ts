@@ -2,12 +2,12 @@
  * Nodes and edges of a rendered diagram, for the tour (decision 109). Nodes
  * come from `nodesInDiagram`, so this side and the mirror's other side number
  * them alike. Edge endpoints come from Mermaid's own parse, kept by
- * `renderDiagram` (`diagramEdges`), because the SVG cannot say which nodes an
+ * `renderDiagram` (`diagramEdges`, by host), because the SVG cannot say which nodes an
  * edge joins. Ids from the parse are compared and never written to the page
  * or used to build a selector (rule 5).
  */
 import { nodesInDiagram, sourceNodeId } from "../comments/diagramNodes";
-import { diagramEdges } from "./mermaid";
+import type { DiagramEdge } from "./mermaid";
 
 export interface GraphNode {
   /** The id written in the Mermaid source. */
@@ -31,10 +31,13 @@ export interface DiagramGraph {
 
 /**
  * The graph of one rendered diagram. `svg` is the slide's SVG or a clone that
- * kept its ids; `source` is the diagram's Markdown text. A diagram without
+ * kept its ids; `parsedEdges` are the host's `diagramEdges`. A diagram without
  * nodes, or one whose edges Mermaid's parse did not keep, has no edges.
  */
-export function diagramGraph(svg: SVGSVGElement, source: string): DiagramGraph {
+export function diagramGraph(
+  svg: SVGSVGElement,
+  parsedEdges: readonly DiagramEdge[],
+): DiagramGraph {
   const listed = nodesInDiagram(svg);
   const byId = new Map<string, GraphNode>();
   const nodes: GraphNode[] = listed.map((node) => {
@@ -61,7 +64,7 @@ export function diagramGraph(svg: SVGSVGElement, source: string): DiagramGraph {
 
   const edges: GraphEdge[] = [];
   if (nodes.length > 0) {
-    for (const edge of diagramEdges(source)) {
+    for (const edge of parsedEdges) {
       const path = paths.get(`${svg.id}-${edge.id}`);
       if (path) edges.push({ path, from: numberOf(edge.start), to: numberOf(edge.end) });
     }

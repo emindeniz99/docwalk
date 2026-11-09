@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import "virtual:docwalk-tokens.css";
 import { m } from "../paraglide/messages.js";
 import { createDiagramTour } from "./diagramTour";
-import { renderDiagrams } from "./mermaid";
+import { type DiagramEdge, diagramEdges, renderDiagrams } from "./mermaid";
 import { TOUR_DIM_OPACITY, TOUR_MAX_NEIGHBOURS_READ } from "./tourModel";
 
 /**
@@ -31,7 +31,7 @@ afterEach(() => {
 interface Mounted {
   stage: HTMLElement;
   svg: SVGSVGElement;
-  source: string;
+  edges: readonly DiagramEdge[];
 }
 
 /** Render `source`, then put a copy of its SVG into a sized stage as the diagram focus view does. */
@@ -60,7 +60,7 @@ async function mount(source: string): Promise<Mounted> {
   stage.append(copy);
   document.body.append(stage);
   mounted.push(stage);
-  return { stage, svg: copy, source: host.dataset["source"] ?? source };
+  return { stage, svg: copy, edges: diagramEdges(host) };
 }
 
 /** The computed colour a token resolves to, as `rgb(...)`. */
@@ -92,9 +92,9 @@ function contains(outer: DOMRect, inner: DOMRect) {
   );
 }
 
-function tourOf({ svg, source }: Mounted, options?: { fitted?: Promise<unknown> }) {
+function tourOf({ svg, edges }: Mounted, options?: { fitted?: Promise<unknown> }) {
   const said: string[] = [];
-  const tour = createDiagramTour(svg, source, (text: string) => said.push(text), options);
+  const tour = createDiagramTour(svg, edges, (text: string) => said.push(text), options);
   return { tour, said };
 }
 

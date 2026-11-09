@@ -83,7 +83,7 @@ async function render(sources: string[]): Promise<HTMLElement[]> {
 
 function graphOf(host: HTMLElement): { svg: SVGSVGElement; graph: DiagramGraph } {
   const svg = host.querySelector("svg") as SVGSVGElement;
-  return { svg, graph: diagramGraph(svg, host.dataset["source"] ?? "") };
+  return { svg, graph: diagramGraph(svg, diagramEdges(host)) };
 }
 
 /** Each edge as `from>to` in source ids, `null` for an end that is not a node. */
@@ -149,9 +149,9 @@ describe("diagramGraph: edges of a rendered diagram", () => {
     expect(graph.edges).toEqual([]);
   });
 
-  test("a source that was never rendered has no edges", () => {
+  test("a host that was never rendered has no edges", () => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    const graph = diagramGraph(svg, "flowchart LR\n  never --> rendered\n");
+    const graph = diagramGraph(svg, diagramEdges(document.createElement("figure")));
     expect(graph).toEqual({ nodes: [], edges: [] });
   });
 });
@@ -204,13 +204,15 @@ describe("diagramGraph: the same diagram more than once", () => {
   });
 });
 
-describe("diagramEdges: the edge list lives and goes with the cached SVG", () => {
-  test("the oldest diagram's edges go when the cache drops it, so the map stays bounded", async () => {
-    // 70 is more than the cache holds (RENDERED_LIMIT in mermaid.ts).
+describe("a host on the page keeps its edges", () => {
+  test("the oldest diagram of a deck over the cache limit still has its path lines", async () => {
+    // 70 is more than the cache holds (RENDERED_LIMIT in mermaid.ts). The
+    // cache drops the first SVGs, but their hosts stay on the page, so the
+    // tour of the first diagram must still find its edges.
     const sources = Array.from({ length: 70 }, (_v, i) => `flowchart LR\n  n${i} --> m${i}`);
-    await render(sources);
-    // The code block's text ends with a newline, and the cache key includes it.
-    expect(diagramEdges(`${sources[0]}\n`)).toEqual([]);
-    expect(diagramEdges(`${sources[69]}\n`)).toHaveLength(1);
+    const hosts = await render(sources);
+    for (const host of [hosts[0], hosts[69]] as HTMLElement[]) {
+      expect(graphOf(host).graph.edges).toHaveLength(1);
+    }
   });
 });

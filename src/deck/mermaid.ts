@@ -143,23 +143,27 @@ export interface DiagramResult {
  * Mermaid config is fixed in `loadMermaid`, so the source alone is the key.
  * Each entry holds the sanitized nodes as rendered, before fitting.
  */
-const rendered = new Map<string, DocumentFragment>();
+const rendered = new Map<string, { nodes: DocumentFragment; edges: readonly DiagramEdge[] }>();
 /**
- * The edges of each cached diagram, from Mermaid's parse, under the same key
- * and dropped with it. The SVG alone cannot say which nodes an edge joins
- * (decision 109); the tour reads these through `diagramEdges`.
+ * The edges of the diagram each host shows, from Mermaid's parse. The cache
+ * entry carries them too, but a host outlives its entry: in a deck of more
+ * than `RENDERED_LIMIT` diagrams the first hosts keep an SVG on the page
+ * after the cache dropped it, and the tour still needs their edges (decision
+ * 109). Keyed by the host, so they go with it.
  */
-const edgesBySource = new Map<string, readonly DiagramEdge[]>();
+const edgesByHost = new WeakMap<HTMLElement, readonly DiagramEdge[]>();
 /** Enough for several documents' diagrams; the oldest entry goes first. */
 const RENDERED_LIMIT = 64;
 
 /**
- * The edges of a diagram that `renderDiagram` has rendered, as Mermaid's own
- * parse of its source named them; empty for a type without edges and for a
- * source that is not in the cache. No new parse runs here.
+ * The edges of the diagram `renderDiagram` last rendered into `host`, as
+ * Mermaid's own parse of its source named them; empty for a type without
+ * edges, for a diagram that failed and for a host that was never rendered.
+ * The SVG cannot say which nodes an edge joins (decision 109). No new parse
+ * runs here.
  */
-export function diagramEdges(source: string): readonly DiagramEdge[] {
-  return edgesBySource.get(prepareDiagramSource(source)) ?? [];
+export function diagramEdges(host: HTMLElement): readonly DiagramEdge[] {
+  return edgesByHost.get(host) ?? [];
 }
 
 function cloneChildren(from: Node): DocumentFragment {
@@ -195,7 +199,8 @@ export async function renderDiagram(
     // Refresh its place, so the entries in use are the last to go.
     rendered.delete(prepared);
     rendered.set(prepared, hit);
-    showSvg(host, hit.cloneNode(true));
+    showSvg(host, hit.nodes.cloneNode(true));
+    edgesByHost.set(host, hit.edges);
     return { ok: true };
   }
   const mermaid = await loadMermaid();
@@ -209,12 +214,10 @@ export async function renderDiagram(
     const edges = parsedEdges(graph);
     const { svg } = await mermaid.render(id, prepared);
     showSvg(host, purifySvg(svg));
-    rendered.set(prepared, cloneChildren(host));
-    edgesBySource.set(prepared, edges);
+    edgesByHost.set(host, edges);
+    rendered.set(prepared, { nodes: cloneChildren(host), edges });
     if (rendered.size > RENDERED_LIMIT) {
-      const oldest = rendered.keys().next().value as string;
-      rendered.delete(oldest);
-      edgesBySource.delete(oldest);
+      rendered.delete(rendered.keys().next().value as string);
     }
     return { ok: true };
   } catch (error) {
@@ -228,6 +231,7 @@ export async function renderDiagram(
     });
     host.replaceChildren(note, pre);
     host.classList.add("docwalk-diagram-error");
+    edgesByHost.delete(host);
     return { ok: false, error: message };
   } finally {
     // Mermaid leaves a temporary container behind when rendering fails.
