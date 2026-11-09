@@ -112,6 +112,10 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
 - Done 2026-11-09: a `?src=` document's sketches key by origin and path
   like its comments and marks, and move once from the old key on the next
   opening of the sketch dialog (decision 122).
+- Done 2026-11-09: the palette filters slide titles by folding each title
+  once per deck and running `indexOf`, as its text search does: a
+  keystroke over a 2 MB heading makes 13 collator calls instead of 6.3
+  million (decision 123).
 
 Still open in v1:
 
@@ -288,9 +292,7 @@ Later rounds:
   query is one contiguous phrase (no fuzzy or any-order matching), and in the
   Turkish UI `gec` does not find `geç`, because the collation that the title
   filter always used treats ç, ğ, ö, ş and ü as letters of their own. Ten
-  text hits show at most. Slide titles still go through React Aria's
-  filter, which slides a collator window, so a hostile 2 MB heading is slow
-  in the Slides list (decision 116).
+  text hits show at most.
 - Focus view (decision 87): checked on Chromium only; Firefox and WebKit run
   in the fork's CI. The diagram view still stays open over a rebuild and a
   slide change while the other three close (its own test says so); line
