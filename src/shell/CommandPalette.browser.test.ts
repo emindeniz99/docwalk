@@ -212,3 +212,49 @@ describe("palette: Turkish locale", () => {
     expect(items()[0]?.querySelector("mark")?.textContent).toBe("sıra");
   });
 });
+
+/** How many times anything reached for a collator's `compare` while `run` ran. */
+async function countCompares(run: () => Promise<void>): Promise<number> {
+  let count = 0;
+  const descriptor = Object.getOwnPropertyDescriptor(Intl.Collator.prototype, "compare")!;
+  Object.defineProperty(Intl.Collator.prototype, "compare", {
+    ...descriptor,
+    get(this: Intl.Collator) {
+      count++;
+      return descriptor.get!.call(this);
+    },
+  });
+  try {
+    await run();
+  } finally {
+    Object.defineProperty(Intl.Collator.prototype, "compare", descriptor);
+  }
+  return count;
+}
+
+describe("palette: a hostile 2 MB heading (decision 123)", () => {
+  test("filtering the Slides list by title costs a collator call per distinct letter, not per position", async () => {
+    // React Aria's filter slid a collator window along each title on every keystroke: about two
+    // million calls for this heading, which froze the tab.
+    const big = "Lorem ipsum dolor sit amet, café İstanbul ışık. ".repeat(44_000);
+    render({ slides: [slide(0, "big", 1, `${big}the end`, "plain words"), ...SLIDES] });
+    const calls = await countCompares(async () => {
+      await search("zzqq");
+      await expect.poll(() => items().length).toBe(0);
+    });
+    expect(calls).toBeLessThan(500);
+    await search("the end");
+    await expect.poll(() => items().length).toBe(1);
+  });
+
+  test("in the Turkish UI, a capital I finds dotless ı in a title, and gec does not find geç", async () => {
+    const tr = [slide(0, "a", 1, "Işık", "x"), slide(1, "b", 1, "Geçiş", "y")];
+    render({ slides: tr, locale: "tr-TR" });
+    await search("IŞIK");
+    await expect
+      .poll(() => items().map((e) => e.textContent))
+      .toEqual([expect.stringContaining("Işık")]);
+    await search("gec");
+    await expect.poll(() => items().length).toBe(0);
+  });
+});

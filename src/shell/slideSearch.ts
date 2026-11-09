@@ -131,16 +131,58 @@ export function findText(text: string, query: string, locale: string): TextMatch
   return findFolded(foldText(text, locale), foldText(query, locale).folded);
 }
 
+type FoldCache = WeakMap<object, { locale: string; text: string; folded: FoldedText }>;
+
 /** Each slide's folded text per locale, built the first time a search reads it and gone with the deck. */
-const foldedSlides = new WeakMap<object, { locale: string; text: string; folded: FoldedText }>();
+const foldedSlides: FoldCache = new WeakMap();
+/** The same for each slide's title (decision 123). */
+const foldedTitles: FoldCache = new WeakMap();
+
+/** `text` folded once per owner and locale; `compose` composes it to NFC first, on a miss only. */
+function foldedOnce(
+  cache: FoldCache,
+  owner: object,
+  text: string,
+  locale: string,
+  compose = false,
+): FoldedText {
+  const kept = cache.get(owner);
+  if (kept && kept.locale === locale && kept.text === text) return kept.folded;
+  const folded = foldText(compose ? text.normalize("NFC") : text, locale);
+  cache.set(owner, { locale, text, folded });
+  return folded;
+}
 
 function foldedSlide(slide: { text: string }, locale: string): FoldedText {
-  const kept = foldedSlides.get(slide);
-  const text = slide.text;
-  if (kept && kept.locale === locale && kept.text === text) return kept.folded;
-  const folded = foldText(text, locale);
-  foldedSlides.set(slide, { locale, text, folded });
-  return folded;
+  return foldedOnce(foldedSlides, slide, slide.text, locale);
+}
+
+/** The last query the title filter folded: it asks once per slide and command on each keystroke. */
+let lastQuery = { query: "", locale: "", folded: "" };
+
+/**
+ * Whether `title` holds `query`, ignoring case and accents: the palette's
+ * title filter, with the verdicts of React Aria's `useFilter` `contains` it
+ * replaces (an empty query matches, neither side is trimmed, both are composed
+ * to NFC) but folded and searched with `indexOf` like page text, so a 2 MB
+ * heading costs one fold per deck instead of a collator call per position
+ * (decision 123). `owner` keeps the folded title; without one it is folded
+ * again on each call, which suits a short command label.
+ */
+export function titleMatches(
+  title: string,
+  query: string,
+  locale: string,
+  owner?: object,
+): boolean {
+  if (query.length === 0) return true;
+  if (lastQuery.query !== query || lastQuery.locale !== locale) {
+    lastQuery = { query, locale, folded: foldText(query.normalize("NFC"), locale).folded };
+  }
+  const folded = owner
+    ? foldedOnce(foldedTitles, owner, title, locale, true)
+    : foldText(title.normalize("NFC"), locale);
+  return findFolded(folded, lastQuery.folded) !== null;
 }
 
 export interface Snippet {

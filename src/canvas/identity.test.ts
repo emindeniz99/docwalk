@@ -2,10 +2,13 @@ import { describe, expect, test } from "vitest";
 import {
   diagramHash,
   documentKey,
+  legacyDocumentKey,
   sketchKey,
   sketchKeyBounds,
   sketchKeyDocument,
 } from "./identity";
+
+const url = (u: string) => ({ kind: "url", url: u, trusted: true }) as const;
 
 describe("sketch identity (decision 54)", () => {
   test("a document loaded from a link is keyed by that link, so its sketches come back with it", () => {
@@ -17,6 +20,26 @@ describe("sketch identity (decision 54)", () => {
     const branch = documentKey({ kind: "repo", repo: "o/r", path: "doc.md", ref: "dev" });
     expect(main).not.toBe(branch);
     expect(documentKey({ kind: "file", name: "design.md" })).toBe("file:design.md");
+  });
+
+  test("a link's key is its origin and path, so no token in its query is stored (decision 122)", () => {
+    // The key sits in IndexedDB in the clear and shows in the Saved sketches panel.
+    expect(documentKey(url("https://me:pw@docs.example/plan.md?token=secret&t=1#h"))).toBe(
+      "url:https://docs.example/plan.md",
+    );
+    // One file reached with two tokens is one document.
+    expect(documentKey(url("https://docs.example/plan.md?token=one"))).toBe(
+      documentKey(url("https://docs.example/plan.md?token=two")),
+    );
+  });
+
+  test("the key a link had before decision 122 is its raw URL, offered only when it differs", () => {
+    expect(legacyDocumentKey(url("https://docs.example/plan.md?token=secret"))).toBe(
+      "url:https://docs.example/plan.md?token=secret",
+    );
+    // Nothing to move: the old and the new key are the same record.
+    expect(legacyDocumentKey(url("https://docs.example/plan.md"))).toBeNull();
+    expect(legacyDocumentKey({ kind: "file", name: "plan.md" })).toBeNull();
   });
 
   test("a workspace file is keyed by its root and path", () => {

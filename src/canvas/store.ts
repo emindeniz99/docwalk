@@ -151,20 +151,32 @@ export async function listSketches(): Promise<SketchSummary[]> {
 export async function moveSketches(from: string, to: string | null): Promise<void> {
   if (from === to) return;
   const db = await openDb();
-  const [lower, upper] = sketchKeyBounds(from);
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    moveInto(tx.objectStore(STORE), from, to);
+    tx.addEventListener("complete", () => resolve());
+    tx.addEventListener("error", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction failed")),
+    );
+    tx.addEventListener("abort", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted")),
+    );
+  });
+}
+
+/**
+ * Moves a document's sketches from the key it had before decision 122 to its
+ * new key, only while the new key holds none, in one transaction: a sketch
+ * drawn under the new key is never overwritten by an older one.
+ */
+export async function adoptSketches(from: string, to: string): Promise<void> {
+  const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
     const store = tx.objectStore(STORE);
-    const cursor = store.openCursor(IDBKeyRange.bound(lower, upper));
-    cursor.addEventListener("success", () => {
-      const at = cursor.result;
-      if (!at) return;
-      const value: unknown = at.value;
-      if (to !== null && isStoredSketch(value)) {
-        store.put({ ...value, key: sketchKey(to, value.key.slice(lower.length)) });
-      }
-      at.delete();
-      at.continue();
+    const count = store.count(IDBKeyRange.bound(...sketchKeyBounds(to)));
+    count.addEventListener("success", () => {
+      if (count.result === 0) moveInto(store, from, to);
     });
     tx.addEventListener("complete", () => resolve());
     tx.addEventListener("error", () =>
@@ -173,6 +185,22 @@ export async function moveSketches(from: string, to: string | null): Promise<voi
     tx.addEventListener("abort", () =>
       reject(tx.error ?? new Error("IndexedDB transaction aborted")),
     );
+  });
+}
+
+/** Rewrites each of `from`'s sketches under `to` (or drops it when `to` is null) and deletes the original. */
+function moveInto(store: IDBObjectStore, from: string, to: string | null): void {
+  const [lower, upper] = sketchKeyBounds(from);
+  const cursor = store.openCursor(IDBKeyRange.bound(lower, upper));
+  cursor.addEventListener("success", () => {
+    const at = cursor.result;
+    if (!at) return;
+    const value: unknown = at.value;
+    if (to !== null && isStoredSketch(value)) {
+      store.put({ ...value, key: sketchKey(to, value.key.slice(lower.length)) });
+    }
+    at.delete();
+    at.continue();
   });
 }
 

@@ -10,12 +10,11 @@ import {
   Modal,
   ModalOverlay,
   SearchField,
-  useFilter,
   useLocale,
 } from "react-aria-components";
 import type { SlideInfo } from "../deck/controller";
 import { m } from "../paraglide/messages.js";
-import { searchText } from "./slideSearch";
+import { searchText, titleMatches } from "./slideSearch";
 
 export interface Command {
   id: string;
@@ -76,7 +75,6 @@ function PaletteBody({
   commands,
   onGoTo,
 }: Omit<CommandPaletteProps, "isOpen">) {
-  const { contains } = useFilter({ sensitivity: "base" });
   const { locale } = useLocale();
   const [query, setQuery] = useState("");
   const slideItems = slides.map((s) => ({
@@ -85,12 +83,13 @@ function PaletteBody({
     hint: `${s.index + 1}`,
     run: () => onGoTo(s.address),
   }));
+  const slideById = useMemo(() => new Map(slides.map((s) => [`slide:${s.address}`, s])), [slides]);
   // Slides whose title matches are in the Slides list already; the rest are
-  // searched by their text. Each slide's text is folded once per deck, and a
-  // keystroke runs `indexOf` over it (decision 116).
+  // searched by their text. Each slide's title and text are folded once per
+  // deck, and a keystroke runs `indexOf` over them (decisions 116 and 123).
   const text = useMemo(
-    () => searchText(slides, query, locale, (s) => contains(slideLabel(s), query)),
-    [slides, query, locale, contains],
+    () => searchText(slides, query, locale, (s) => titleMatches(slideLabel(s), query, locale, s)),
+    [slides, query, locale],
   );
 
   const run = (key: React.Key) => {
@@ -109,7 +108,8 @@ function PaletteBody({
     <>
       <Autocomplete
         filter={(textValue, input, node) =>
-          String(node.key).startsWith(TEXT_KEY) || contains(textValue, input)
+          String(node.key).startsWith(TEXT_KEY) ||
+          titleMatches(textValue, input, locale, slideById.get(String(node.key)))
         }
         inputValue={query}
         onInputChange={setQuery}

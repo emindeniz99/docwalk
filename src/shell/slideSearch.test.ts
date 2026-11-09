@@ -6,6 +6,7 @@ import {
   normalizeQuery,
   searchText,
   snippetAround,
+  titleMatches,
 } from "./slideSearch";
 
 const EN = "en-US";
@@ -285,5 +286,89 @@ describe("searchText: which slides answer a query", () => {
   test("does not count skipped slides in the total", () => {
     const { total } = searchText(deck, "retries", EN, () => true);
     expect(total).toBe(0);
+  });
+});
+
+/**
+ * React Aria's `useFilter({ sensitivity: "base" }).contains`, which the palette's title filter used
+ * before decision 123: a collator window the length of the query, slid along the title.
+ */
+function ariaContains(title: string, query: string, locale: string): boolean {
+  if (query.length === 0) return true;
+  const collator = new Intl.Collator(locale, { usage: "search", sensitivity: "base" });
+  const t = title.normalize("NFC");
+  const q = query.normalize("NFC");
+  for (let at = 0; at + q.length <= t.length; at++) {
+    if (collator.compare(q, t.slice(at, at + q.length)) === 0) return true;
+  }
+  return false;
+}
+
+describe("titleMatches: the palette's title filter (decision 123)", () => {
+  // Each case is a verdict the title filter gave before this row; a change of matching shows up here.
+  const cases: [title: string, query: string, locale: string][] = [
+    ["Failure handling", "FAIL", EN],
+    ["Failure handling", "handling", EN],
+    ["Failure handling", "rollout", EN],
+    ["Café notes", "cafe", EN],
+    ["Cafe notes", "CAFÉ", EN],
+    ["Cafe\u0301 notes", "café", EN],
+    ["İstanbul", "istanbul", EN],
+    ["İstanbul", "ISTANBUL", EN],
+    ["sıra", "sira", EN],
+    ["İstanbul", "istanbul", TR],
+    ["Işık", "IŞIK", TR],
+    ["listing", "LISTING", TR],
+    ["geçiyordu", "gec", TR],
+    ["geçiyordu", "gec", EN],
+    ["Rollout · 2", "out · 2", EN],
+    ["Rollout", " roll", EN],
+    ["Rollout", "", EN],
+    ["", "a", EN],
+    ["ＡＢＣ report", "abc", EN],
+    ["カタカナ", "かたかな", EN],
+  ];
+
+  test.each(cases)(
+    "%j against %j in %s gives the verdict React Aria's filter gave",
+    (title, query, locale) => {
+      expect(titleMatches(title, query, locale)).toBe(ariaContains(title, query, locale));
+    },
+  );
+
+  test("the cases cover both verdicts in both locales, so the check above can fail", () => {
+    const verdicts = cases.map(([t, q, l]) => `${l}:${ariaContains(t, q, l)}`);
+    expect(new Set(verdicts)).toEqual(
+      new Set(["en-US:true", "en-US:false", "tr-TR:true", "tr-TR:false"]),
+    );
+  });
+
+  test("an empty query matches every title, so the palette lists every slide while the box is empty", () => {
+    expect(titleMatches("Anything", "", EN)).toBe(true);
+  });
+});
+
+describe("titleMatches: a hostile 2 MB heading (decision 123)", () => {
+  // A heading has no length cap, and the title filter runs for every slide on every keystroke.
+  const BIG = "Lorem ipsum dolor sit amet, café İstanbul ışık. ".repeat(44_000);
+
+  test("a query that matches nowhere costs a collator call per distinct letter, not per position", () => {
+    // React Aria's window made one call per position: two million for this heading.
+    const calls = countCompares(() => expect(titleMatches(BIG, "zzqq", EN, {})).toBe(false));
+    expect(calls).toBeLessThan(200);
+  });
+
+  test("a heading is folded once per deck: the next keystroke calls no collator at all", () => {
+    const owner = {};
+    titleMatches(`${BIG}the end`, "th", EN, owner);
+    const calls = countCompares(() =>
+      expect(titleMatches(`${BIG}the end`, "the end", EN, owner)).toBe(true),
+    );
+    expect(calls).toBe(0);
+  });
+
+  test("a match at the very end is still found in both locales", () => {
+    expect(titleMatches(`${BIG}retry budget`, "RETRY BUDGET", EN, {})).toBe(true);
+    expect(titleMatches(`${BIG}son`, "IŞIK. SON", TR, {})).toBe(true);
   });
 });

@@ -45,10 +45,10 @@ import { keepExcalidrawControlsNamed } from "./controls";
 import { convertDiagram } from "./convert";
 import { inlineFiles } from "./files";
 import type { DocumentSource } from "../inputs/types";
-import { diagramHash, documentKey, sketchKey } from "./identity";
+import { diagramHash, documentKey, legacyDocumentKey, sketchKey } from "./identity";
 import { sketchFileName } from "./names";
 import { SavedSketches } from "./SavedSketches";
-import { loadSketch, saveSketch } from "./store";
+import { adoptSketches, loadSketch, saveSketch } from "./store";
 
 type ExcalidrawProps = ComponentProps<typeof Excalidraw>;
 type Api = Parameters<NonNullable<ExcalidrawProps["excalidrawAPI"]>>[0];
@@ -155,6 +155,7 @@ export function SketchDialog(props: SketchDialogProps) {
 
 function SketchBody({ source, index, documentSource, documentTitle, onClose }: SketchDialogProps) {
   const docKey = documentKey(documentSource);
+  const legacyKey = legacyDocumentKey(documentSource);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [saved, setSaved] = useState<Saved>("saved");
   const [exportStatus, setExportStatus] = useState("");
@@ -199,6 +200,9 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
       if (k === null) {
         if (!cancelled) setSaved("unkept");
       } else {
+        // Decision 122: a `?src=` key used to keep the query, where a token can sit. Its sketches
+        // move to the new key once; a failed move leaves them for the next open.
+        if (legacyKey !== null) await adoptSketches(legacyKey, docKey).catch(() => {});
         try {
           stored = await loadSketch(k);
         } catch {
@@ -230,7 +234,7 @@ function SketchBody({ source, index, documentSource, documentTitle, onClose }: S
     return () => {
       cancelled = true;
     };
-  }, [docKey, source]);
+  }, [docKey, legacyKey, source]);
 
   /**
    * Converts the diagram into the mounted canvas. It waits for Excalifont:

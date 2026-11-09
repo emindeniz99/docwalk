@@ -1,16 +1,17 @@
+import { sourceKey } from "../comments/identity";
 import type { DocumentSource } from "../inputs/types";
 
 /**
  * Which document a sketch belongs to (decision 54). A document loaded from
- * a link is that link, so its sketches come back whenever the link is
- * opened again. Documents with no address of their own (the sample, a paste,
+ * a link is that link's origin and path, as for comments (decision 122), so
+ * its sketches come back whenever the link is opened again. Documents with no address of their own (the sample, a paste,
  * a share fragment) share one key per kind; the diagram hash still keeps
  * their sketches apart.
  */
 export function documentKey(source: DocumentSource): string {
   switch (source.kind) {
     case "url":
-      return `url:${source.url}`;
+      return sourceKey(source)!;
     case "repo":
       return `repo:${source.repo}:${source.ref ?? ""}:${source.path}`;
     case "file":
@@ -23,6 +24,17 @@ export function documentKey(source: DocumentSource): string {
     default:
       return source.kind;
   }
+}
+
+/**
+ * The key a `?src=` document had before decision 122 (its whole URL, query
+ * and token included), when it differs from today's. Its sketches move to the
+ * new key once, then go.
+ */
+export function legacyDocumentKey(source: DocumentSource): string | null {
+  if (source.kind !== "url") return null;
+  const old = `url:${source.url}`;
+  return old === documentKey(source) ? null : old;
 }
 
 /**
