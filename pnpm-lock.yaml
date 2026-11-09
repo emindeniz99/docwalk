@@ -241,12 +241,24 @@ importers:
       lucide-react:
         specifier: 1.64.0
         version: 1.64.0(@types/react@19.3.0)(react@19.3.1)
+      mdast-util-gfm:
+        specifier: 3.1.0
+        version: 3.1.0(supports-color@10.2.2)
+      mdast-util-math:
+        specifier: 3.0.0
+        version: 3.0.0(supports-color@10.2.2)
       mdast-util-to-string:
         specifier: 4.0.0
         version: 4.0.0
       mermaid:
         specifier: 12.2.0
         version: 12.2.0
+      micromark-extension-gfm:
+        specifier: 3.0.0
+        version: 3.0.0
+      micromark-extension-math:
+        specifier: 3.1.0
+        version: 3.1.0
       modern-screenshot:
         specifier: 4.7.0
         version: 4.7.0
@@ -280,12 +292,6 @@ importers:
       rehype-stringify:
         specifier: 10.0.1
         version: 10.0.1
-      remark-gfm:
-        specifier: 4.0.1
-        version: 4.0.1(supports-color@10.2.2)
-      remark-math:
-        specifier: 6.0.0
-        version: 6.0.0(supports-color@10.2.2)
       remark-parse:
         specifier: 11.0.0
         version: 11.0.0(supports-color@10.2.2)
@@ -4892,12 +4898,6 @@ packages:
 
   remark-frontmatter@5.0.0:
     resolution: {integrity: sha512-XTFYvNASMe5iPN0719nPrdItC9aU0ssC4v14mH1BCi1u0n1gAocqcujWUrByftZTbLhRtiKRyjYTSIOcr69UVQ==}
-
-  remark-gfm@4.0.1:
-    resolution: {integrity: sha512-1quofZ2RQ9EWdeN34S79+KExV1764+wCUGop5CPL1WGdD0ocPpu91lzPGbwWMECpEpd42kJGQwzRfyov9j4yNg==}
-
-  remark-math@6.0.0:
-    resolution: {integrity: sha512-MMqgnP74Igy+S3WwnhQ7kqGlEerTETXMvJhrUzDikVZ2/uogJCb+WHUg97hK9/jcfc0dkD73s3LN8zU49cTEtA==}
 
   remark-mdx@3.1.1:
     resolution: {integrity: sha512-Pjj2IYlUY3+D8x00UJsIOg5BEvfMyeI+2uLPn9VO9Wg4MEtN/VTIq2NEJQfde9PnX15KgtHyl9S0BcTnWrIuWg==}
@@ -10405,26 +10405,6 @@ snapshots:
       '@types/mdast': 4.0.4
       mdast-util-frontmatter: 2.0.1(supports-color@10.2.2)
       micromark-extension-frontmatter: 2.0.0
-      unified: 11.0.5
-    transitivePeerDependencies:
-      - supports-color
-
-  remark-gfm@4.0.1(supports-color@10.2.2):
-    dependencies:
-      '@types/mdast': 4.0.4
-      mdast-util-gfm: 3.1.0(supports-color@10.2.2)
-      micromark-extension-gfm: 3.0.0
-      remark-parse: 11.0.0(supports-color@10.2.2)
-      remark-stringify: 11.0.0
-      unified: 11.0.5
-    transitivePeerDependencies:
-      - supports-color
-
-  remark-math@6.0.0(supports-color@10.2.2):
-    dependencies:
-      '@types/mdast': 4.0.4
-      mdast-util-math: 3.0.0(supports-color@10.2.2)
-      micromark-extension-math: 3.1.0
       unified: 11.0.5
     transitivePeerDependencies:
       - supports-color

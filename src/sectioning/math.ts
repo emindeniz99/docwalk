@@ -1,8 +1,6 @@
 import type { Parent, PhrasingContent, Root } from "mdast";
-import remarkGfm from "remark-gfm";
-import remarkParse from "remark-parse";
-import { unified } from "unified";
 import { visit } from "unist-util-visit";
+import { markdownReader } from "./syntax";
 
 /**
  * remark-math finds `$…$` with none of the guards GitHub applies, so
@@ -20,7 +18,7 @@ import { visit } from "unist-util-visit";
  *
  * `$$…$$` has no such rules and is left as it is.
  */
-const plain = unified().use(remarkParse).use(remarkGfm);
+const plain = markdownReader(false);
 
 export function settleInlineMath(tree: Root, source: string): void {
   visit(tree, "inlineMath", (node, index, parent) => {
