@@ -78,3 +78,38 @@ test("print fills a hidden print frame with every slide and opens the print dial
   await expect(pages).toHaveCount(3);
   await expect(pages.first()).toContainText("Round trip");
 });
+
+test("print with speaker notes puts each note in the print frame; plain print and HTML carry none", async ({
+  page,
+}) => {
+  // Notes are the HTML comments GitHub hides (decision 79). They reach paper only
+  // through the item that asks for them; the plain print and the file stay clean.
+  await page.addInitScript(() => {
+    window.print = () => {
+      const top = window.top as Window & { docwalkPrintCalls?: number };
+      top.docwalkPrintCalls = (top.docwalkPrintCalls ?? 0) + 1;
+    };
+  });
+  await ready(page);
+  await replaceSource(page, "# A\n\n<!-- Say hello -->\n\n# B\n");
+  await expect(page.locator(".docwalk-outline-item")).toHaveCount(2);
+  const notes = page.frameLocator("iframe[data-docwalk-print]").locator(".docwalk-export-notes");
+
+  await exportAs(page, "Print with speaker notes");
+  await expect(notes).toHaveCount(1);
+  await expect(notes).toContainText("Say hello");
+
+  // A new print replaces the frame; this one asks for no notes.
+  await exportAs(page, "Print or save as PDF");
+  await expect(page.locator("iframe[data-docwalk-print]")).toHaveCount(1);
+  await expect(
+    page.frameLocator("iframe[data-docwalk-print]").locator(".docwalk-export-page"),
+  ).toHaveCount(2);
+  await expect(notes).toHaveCount(0);
+
+  const download = page.waitForEvent("download");
+  await exportAs(page, "Download HTML");
+  const html = await readFile(await (await download).path(), "utf8");
+  expect(html).not.toContain("Say hello");
+  expect(html).not.toContain(`class="docwalk-export-notes"`);
+});

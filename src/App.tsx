@@ -70,6 +70,7 @@ import { SourceBanner } from "./inputs/SourceBanner";
 import { startPresenterBridge } from "./presenter/bridge";
 import { openPresenterWindow } from "./presenter/window";
 import type { RemoteStatus } from "./remote/client";
+import { speakerNotes } from "./sectioning/notes";
 import { applySelection } from "./sectioning/selection";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { useDraftAutosave } from "./share/draft";
@@ -750,26 +751,32 @@ export function App() {
 
   // The exporters work from the paginated pages the audience sees, as copies they may change.
   // Each slide takes the saved marks drawn on its present text (decision 105), unless left out.
+  // A section's speaker notes go on its last slide (decision 114), for the print that asks.
+  const notes = useMemo(() => speakerNotes(selection.plan), [selection.plan]);
   const getExportOptions = useCallback(
-    (withMarks: boolean): ExportOptions | null => {
+    (withMarks: boolean, withNotes: boolean): ExportOptions | null => {
       if (!controller) return null;
+      const pages = clonePages(controller);
       return {
         title: docTitle,
         size: SLIDE_SIZE,
-        slides: clonePages(controller).map(({ info, element }) => {
+        slides: pages.map(({ info, element }, index) => {
           const marks = withMarks
             ? (savedMarks?.strokes(info.address, slideFingerprint(element)) ?? [])
             : [];
+          const isLast = pages[index + 1]?.info.sectionId !== info.sectionId;
+          const sectionNotes = withNotes && isLast ? notes.get(info.sectionId) : undefined;
           return {
             address: info.address,
             title: info.title,
             element,
             ...(marks.length > 0 ? { marks } : {}),
+            ...(sectionNotes ? { notes: [...sectionNotes] } : {}),
           };
         }),
       };
     },
-    [controller, docTitle, savedMarks],
+    [controller, docTitle, savedMarks, notes],
   );
 
   const oauthClientId = health?.features.includes("oauth") ? health.githubClientId : undefined;
@@ -958,6 +965,7 @@ export function App() {
               <ExportMenu
                 getOptions={getExportOptions}
                 hasMarks={saved.count > 0}
+                hasNotes={notes.size > 0}
                 isDisabled={!controller}
               />
             </Suspense>
