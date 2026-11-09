@@ -38,6 +38,15 @@ For maintainers and agents continuing the project:
    the test run to them (`taskset`), repeat it 40 times or more, and
    record the failure count before and after the fix. Wait for the
    condition the next step needs, not for an earlier sign of readiness.
+6. An agent session can hand pieces of work to the three agents in
+   `.claude/agents/`: `scout` finds files, runs tests and reads logs and CI
+   output, and edits nothing; `implementer` builds a well-scoped change from
+   a spec, test first; `reviewer` takes review, hard debugging, design,
+   refactors, migrations and performance work. Code edits and judgement
+   calls on anything larger stay with the lead session or the reviewer.
+   When a task falls short, first give it a way to check its own work (a
+   test, a build, a script), then raise effort one level, then move it to
+   the next agent up.
 
 ## Commit messages
 
