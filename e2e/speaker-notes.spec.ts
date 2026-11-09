@@ -125,7 +125,7 @@ test("the comments above the title open no slide: the deck and the presenter lis
   // first slide, which the presenter list titled by its address.
   test.setTimeout(90_000);
   await loadDoc(page);
-  await expect(page.locator(".docwalk-statusbar")).toContainText(/\b6 slides\b/);
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/(^|\D)6 slides/);
   await expect(page.locator(".reveal .slides > section").first()).toHaveAttribute(
     "data-docwalk-id",
     "notes-talk",
