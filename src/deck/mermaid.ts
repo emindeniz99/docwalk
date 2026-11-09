@@ -55,10 +55,22 @@ export function prepareDiagramSource(source: string): string {
 
 type ParsedDiagram = Awaited<ReturnType<Mermaid["mermaidAPI"]["getDiagramFromText"]>>;
 
-/** The parts of Mermaid's parsed state that name an image it would fetch while rendering. */
-interface ImageSources {
-  getData?: () => { nodes?: { img?: unknown }[] };
+/** The parts of Mermaid's parsed state that the checks below read. */
+interface ParsedState {
+  getData?: () => {
+    nodes?: { img?: unknown }[];
+    edges?: { id?: unknown; start?: unknown; end?: unknown }[];
+  };
   getActors?: () => Map<string, { properties?: Record<string, unknown> }>;
+}
+
+type ParsedGraph = ReturnType<NonNullable<ParsedState["getData"]>>;
+
+/** One edge as Mermaid's parse names it: its id and the ids of its two ends. */
+export interface DiagramEdge {
+  readonly id: string;
+  readonly start: string;
+  readonly end: string;
 }
 
 /**
@@ -70,10 +82,10 @@ interface ImageSources {
  * fails when a Mermaid upgrade adds another. Same-origin and `data:`
  * sources pass, as Markdown images do.
  */
-function remoteImages(diagram: ParsedDiagram): string[] {
-  const db = diagram.db as ImageSources;
+function remoteImages(diagram: ParsedDiagram, graph: ParsedGraph | undefined): string[] {
+  const db = diagram.db as ParsedState;
   const sources: string[] = [];
-  for (const node of db.getData?.().nodes ?? []) {
+  for (const node of graph?.nodes ?? []) {
     if (node.img) sources.push(String(node.img));
   }
   for (const actor of db.getActors?.().values() ?? []) {
@@ -81,6 +93,20 @@ function remoteImages(diagram: ParsedDiagram): string[] {
     if (icon && !String(icon).trim().startsWith("@")) sources.push(String(icon).trim());
   }
   return sources.filter((src) => remoteImageUrl(src) !== null);
+}
+
+/**
+ * The edges of a parsed flowchart, class, state or ER diagram. Other types
+ * have none. `getData` runs once per parse: the state diagram's version
+ * counts edges as it goes.
+ */
+function parsedEdges(graph: ParsedGraph | undefined): DiagramEdge[] {
+  const edges: DiagramEdge[] = [];
+  for (const edge of graph?.edges ?? []) {
+    if (edge.id == null || edge.start == null || edge.end == null) continue;
+    edges.push({ id: String(edge.id), start: String(edge.start), end: String(edge.end) });
+  }
+  return edges;
 }
 
 /**
@@ -118,8 +144,23 @@ export interface DiagramResult {
  * Each entry holds the sanitized nodes as rendered, before fitting.
  */
 const rendered = new Map<string, DocumentFragment>();
+/**
+ * The edges of each cached diagram, from Mermaid's parse, under the same key
+ * and dropped with it. The SVG alone cannot say which nodes an edge joins
+ * (decision 109); the tour reads these through `diagramEdges`.
+ */
+const edgesBySource = new Map<string, readonly DiagramEdge[]>();
 /** Enough for several documents' diagrams; the oldest entry goes first. */
 const RENDERED_LIMIT = 64;
+
+/**
+ * The edges of a diagram that `renderDiagram` has rendered, as Mermaid's own
+ * parse of its source named them; empty for a type without edges and for a
+ * source that is not in the cache. No new parse runs here.
+ */
+export function diagramEdges(source: string): readonly DiagramEdge[] {
+  return edgesBySource.get(prepareDiagramSource(source)) ?? [];
+}
 
 function cloneChildren(from: Node): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -163,11 +204,18 @@ export async function renderDiagram(
     // Parse first and refuse a diagram that names a remote image: rendering
     // it would contact that host with no click (rule 8, decision 26).
     const parsed = await mermaid.mermaidAPI.getDiagramFromText(prepared);
-    if (remoteImages(parsed).length > 0) throw new Error(m.diagram_remote_image());
+    const graph = (parsed.db as ParsedState).getData?.();
+    if (remoteImages(parsed, graph).length > 0) throw new Error(m.diagram_remote_image());
+    const edges = parsedEdges(graph);
     const { svg } = await mermaid.render(id, prepared);
     showSvg(host, purifySvg(svg));
     rendered.set(prepared, cloneChildren(host));
-    if (rendered.size > RENDERED_LIMIT) rendered.delete(rendered.keys().next().value as string);
+    edgesBySource.set(prepared, edges);
+    if (rendered.size > RENDERED_LIMIT) {
+      const oldest = rendered.keys().next().value as string;
+      rendered.delete(oldest);
+      edgesBySource.delete(oldest);
+    }
     return { ok: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
