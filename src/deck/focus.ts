@@ -441,26 +441,39 @@ function tourControls(
   };
   const step = (to: (from: TourPath) => TourPath) => set(to(path), true);
 
-  let down: { x: number; y: number } | null = null;
+  // The tap is read from pointerdown and pointerup. Panzoom cancels the
+  // pointerdown, and an engine may then send no click for a touch tap (CI's WebKit sent none).
+  let down: { id: number; x: number; y: number } | null = null;
   // Capture: Panzoom stops pointerdown at the canvas, so it never bubbles to the stage.
   stage.addEventListener(
     "pointerdown",
     (event) => {
-      down = { x: event.clientX, y: event.clientY };
+      // A second finger makes it a pinch; a button other than the main one is no tap.
+      down =
+        event.isPrimary && event.button === 0
+          ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+          : null;
     },
     { capture: true },
   );
-  // A drag that pans ends in a click too; it goes nowhere.
-  stage.addEventListener("click", (event) => {
-    const from = down;
-    down = null;
-    if (!running()) return;
-    if (from && Math.hypot(event.clientX - from.x, event.clientY - from.y) >= TAP_SLOP) return;
-    const target = event.target;
+  const goTo = (target: EventTarget | null) => {
     void load().then((tour) => {
       const n = tour?.nodeAt(target) ?? null;
       if (n !== null && !disposed) set(jumpTo(path, n, count), true);
     });
+  };
+  // A drag that pans goes nowhere.
+  stage.addEventListener("pointerup", (event) => {
+    const from = down;
+    down = null;
+    if (!running() || from?.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX - from.x, event.clientY - from.y) >= TAP_SLOP) return;
+    goTo(event.target);
+  });
+  // A screen reader's activate and element.click() send a click with detail 0 and no
+  // pointer events. A real pointer's click counts 1 or more and was a pointerup above.
+  stage.addEventListener("click", (event) => {
+    if (running() && event.detail === 0) goTo(event.target);
   });
 
   return {
