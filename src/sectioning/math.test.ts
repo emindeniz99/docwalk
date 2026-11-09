@@ -127,3 +127,51 @@ describe("math in places that are code", () => {
     expect(mathOf(root)).toEqual([]);
   });
 });
+
+/** Milliseconds `parseMarkdown` takes for `markdown`. */
+function time(markdown: string): number {
+  const started = performance.now();
+  parseMarkdown(markdown);
+  return performance.now() - started;
+}
+
+describe("a document of rejected spans", () => {
+  // Each rejected span used to run a full unified parse, even when it held
+  // no Markdown at all: 500 KB of `$ a$ ` took 14.3 s, against 1.7 s for the
+  // same length of plain words. The test compares the two on one machine, so
+  // load moves both.
+  test("parses in a small multiple of the time plain text takes", () => {
+    const size = 100_000;
+    const plainMs = time("word ".repeat(size / 5));
+    const dollarMs = time("$ a$ ".repeat(size / 5));
+    expect(dollarMs).toBeLessThan(plainMs * 5 + 250);
+  });
+
+  test("a rejected span without Markdown stays the text it was", () => {
+    expect(plain("A $ x$ and $y $ and $5 or $10 here.")).toBe(
+      "A $ x$ and $y $ and $5 or $10 here.",
+    );
+  });
+
+  test.each([
+    "$ [a](https://example.com/a)$",
+    "$ https://example.com/a$",
+    "$ www.example.com$",
+    "$ mail me@example.com$",
+    "$ <https://example.com/a>$",
+  ])("a rejected span that holds a link or an address is still read: %s", (span) => {
+    expect(typesOf(parseMarkdown(`See ${span} now.`))).toContain("link");
+  });
+
+  test("a rejected span with emphasis, strike-through, code or an escape is still read", () => {
+    expect(typesOf(parseMarkdown("It $ *a* b$ here."))).toContain("emphasis");
+    expect(typesOf(parseMarkdown("It $ ~~a~~ b$ here."))).toContain("delete");
+    expect(typesOf(parseMarkdown("It $ `a` b$ here."))).toContain("inlineCode");
+    expect(plain("It $ \\* b$ here.")).toBe("It $ * b$ here.");
+    expect(plain("It $ a &amp; b$ here.")).toBe("It $ a & b$ here.");
+  });
+
+  test("a rejected span across two lines keeps its line break", () => {
+    expect(plain("It $ a\nb$ here.")).toBe("It $ a\nb$ here.");
+  });
+});

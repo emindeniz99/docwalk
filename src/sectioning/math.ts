@@ -49,8 +49,21 @@ export function settleInlineMath(tree: Root, source: string): void {
   });
 }
 
-/** The span as Markdown without math: its inline nodes, or the plain text when it is not one paragraph. */
+/**
+ * A character that can start inline Markdown (or GFM's autolinks) or change
+ * how a line is read: a backslash escape, emphasis, code, a link or image,
+ * HTML, an entity, strike-through, an email address, a URL scheme, a line
+ * break. `www.` has no such character, so it is a case of its own.
+ */
+const MARKDOWN_SYNTAX = /[\\*_`[\]<>&!~@:\r\n]|www\./i;
+
+/**
+ * The span as Markdown without math: its inline nodes, or the plain text when it is not one paragraph.
+ * A span with none of the syntax above is its own text and skips the parse: a full unified parse
+ * for each of 100,000 rejected spans made 500 KB of `$ a$ ` take 14.3 s.
+ */
 function reread(raw: string): PhrasingContent[] {
+  if (!MARKDOWN_SYNTAX.test(raw)) return [{ type: "text", value: raw }];
   const [paragraph, ...rest] = plain.parse(raw).children;
   if (paragraph?.type !== "paragraph" || rest.length > 0) return [{ type: "text", value: raw }];
   // Positions are relative to the span, which would mislead anything that reads them.
