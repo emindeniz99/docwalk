@@ -104,6 +104,12 @@ async function openView(markdown = FLOW) {
   return deck;
 }
 
+/** One keydown of T on the focused element; a held key sends more with `repeat` set. */
+const press = (repeat: boolean) =>
+  (document.activeElement ?? document.body).dispatchEvent(
+    new KeyboardEvent("keydown", { key: "t", repeat, bubbles: true, cancelable: true }),
+  );
+
 async function startTour() {
   await userEvent.keyboard("t");
   await expect.poll(() => ringed()).toBe("Alpha");
@@ -176,10 +182,6 @@ describe("starting and ending the tour", () => {
   test("holding T starts the tour once: key repeats change nothing and send nothing", async () => {
     await openView();
     const events = record();
-    const press = (repeat: boolean) =>
-      (document.activeElement ?? document.body).dispatchEvent(
-        new KeyboardEvent("keydown", { key: "t", repeat, bubbles: true, cancelable: true }),
-      );
     press(false);
     await expect.poll(() => ringed()).toBe("Alpha");
     for (let i = 0; i < 4; i += 1) press(true);

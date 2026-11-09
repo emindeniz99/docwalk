@@ -71,20 +71,20 @@ describe("closing the diagram focus view after the deck was rebuilt under it", (
   });
 });
 
-describe("the diagram view's toolbar before any tour starts", () => {
-  async function openDiagramView() {
-    const deck = mountDeck(DOC);
-    await deck.ready(1);
-    const diagram = deck.container.querySelector<HTMLElement>(
-      ".reveal .slides section.present .docwalk-diagram",
-    )!;
-    diagram.focus();
-    await userEvent.keyboard("{Enter}");
-    const view = document.querySelector<HTMLElement>(".docwalk-focus")!;
-    expect(view).not.toBeNull();
-    return view;
-  }
+async function openDiagramView() {
+  const deck = mountDeck(DOC);
+  await deck.ready(1);
+  const diagram = deck.container.querySelector<HTMLElement>(
+    ".reveal .slides section.present .docwalk-diagram",
+  )!;
+  diagram.focus();
+  await userEvent.keyboard("{Enter}");
+  const view = document.querySelector<HTMLElement>(".docwalk-focus")!;
+  expect(view).not.toBeNull();
+  return view;
+}
 
+describe("the diagram view's toolbar before any tour starts", () => {
   // The tour's code loads on its first start, and offline it may never load.
   // The status line must be hidden from the first frame, not once that chunk
   // arrives: before, it was an unstyled flex item and "Tour ended" could show.
