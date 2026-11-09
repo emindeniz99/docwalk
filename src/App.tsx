@@ -478,16 +478,22 @@ export function App() {
     view === "present" ? undefined : deckRef,
   );
 
-  // Presenting, the slide fills the screen unless the viewer chose the card
-  // frame (decision 77).
+  // Presenting, and on a follow screen (decision 113), the slide fills the
+  // screen unless the viewer chose the card frame (decision 77).
   const frame = usePresentFrame();
-  const fill = view === "present" && !follow && frame === "fill";
+  const presenting = view === "present" && !follow;
+  const staged = presenting || follow;
+  const fill = staged && frame === "fill";
+  // A follow screen hides its bar like a presenting one, but only while the
+  // slide can be trusted: anything but an open connection, or an incomplete
+  // link, keeps the bar (and the status in it) up.
+  const followOpen = follow && followUpdate.status === "open" && !followUpdate.incomplete;
   // The screen stays on while presenting (decision 80).
   useWakeLock(view === "present");
   // Presenting, the bar and tools step aside after a few idle seconds so the
   // slide can take the whole stage (decision 75); usePresentChrome has the rules.
   const chrome = usePresentChrome({
-    active: view === "present" && !follow,
+    active: presenting || followOpen,
     pane: deckRef,
     toolActive: mode !== "off",
     barIsStage: fill,
@@ -900,7 +906,7 @@ export function App() {
       data-view={follow ? "follow" : view}
       data-pane={phone && view === "edit" && !follow ? phonePane : undefined}
       data-chrome={chrome.hidden ? "hidden" : chrome.hides ? "shown" : undefined}
-      data-frame={view === "present" && !follow ? frame : undefined}
+      data-frame={staged ? frame : undefined}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
@@ -910,7 +916,7 @@ export function App() {
         </div>
         <div className="docwalk-doc-title">
           <strong>{docTitle}</strong>
-          {subline}
+          {!follow && subline}
         </div>
         {!follow && !phone && (
           <Button className="docwalk-palette-trigger" onPress={() => setPaletteOpen(true)}>
@@ -967,14 +973,7 @@ export function App() {
             )}
           </div>
         )}
-        {follow ? (
-          <IconButton
-            label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
-            onPress={() => setTheme(NEXT_THEME[theme])}
-          >
-            <ThemeIcon size={18} aria-hidden="true" />
-          </IconButton>
-        ) : (
+        {!follow && (
           <Button
             className="docwalk-button docwalk-present"
             data-variant="primary"
@@ -1123,6 +1122,17 @@ export function App() {
                   : "…"}
             </strong>
             <span className="docwalk-preview-address">{current?.address ?? ""}</span>
+            {/* The header is gone on a follow screen (decision 113): its status and theme button live here. */}
+            {follow && subline}
+            {follow && (
+              <IconButton
+                className="docwalk-icon-button docwalk-follow-theme"
+                label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
+                onPress={() => setTheme(NEXT_THEME[theme])}
+              >
+                <ThemeIcon size={18} aria-hidden="true" />
+              </IconButton>
+            )}
             {!follow && (
               <IconButton
                 label={m.cmd_overview()}
@@ -1176,7 +1186,7 @@ export function App() {
           )}
           {report?.slides === 0 && <p className="docwalk-stage-empty">{m.app_stage_empty()}</p>}
           {/* Mounted for the whole talk, so the first-time hint is announced (WCAG 4.1.3). */}
-          {view === "present" && !follow && (
+          {staged && (
             <p role="status" className="docwalk-chrome-hint" data-shown={chrome.hint || undefined}>
               {chrome.hint ? m.present_controls_hint() : null}
             </p>

@@ -561,12 +561,13 @@ section[data-docwalk-id] {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.docwalk-app[data-view="present"] .docwalk-toolbar,
-.docwalk-app[data-view="present"] .docwalk-statusbar {
+/* A follow screen takes the presenting layout (decision 113). */
+.docwalk-app:is([data-view="present"], [data-view="follow"])
+  :is(.docwalk-toolbar, .docwalk-statusbar) {
   display: none;
 }
 
-.docwalk-app[data-view="present"] {
+.docwalk-app:is([data-view="present"], [data-view="follow"]) {
   grid-template-rows: auto 1fr;
   /* The safe-area insets read as more stage, not as a light frame around it. */
   background: var(--dw-color-stage);
@@ -674,10 +675,36 @@ section[data-docwalk-id] {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .docwalk-app[data-view="present"]
+  .docwalk-app:is([data-view="present"], [data-view="follow"])
     :is(.docwalk-preview-head, .docwalk-deck-host .reveal .controls) {
     transition: opacity 200ms ease;
   }
+}
+
+/*
+ * A follow screen's bar holds the follow status and the theme button in the
+ * place of the header they replace (decision 113), in the bar's stage colours.
+ */
+.docwalk-preview-head .docwalk-source-banner {
+  display: block;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--dw-color-stage-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docwalk-preview-head .docwalk-follow-theme {
+  width: var(--dw-space-target);
+  height: var(--dw-space-target);
+  border-color: var(--dw-color-stage-border);
+  border-radius: var(--dw-radius-lg);
+  background: var(--dw-color-stage-raised);
+  color: var(--dw-color-stage-ink);
+}
+
+.docwalk-preview-head .docwalk-follow-theme[data-pressed] {
+  background: var(--dw-color-stage-border);
 }
 
 /* "Tap or move to show controls", the first time the chrome hides. Empty, it stays an invisible live region. */
