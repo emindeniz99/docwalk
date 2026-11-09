@@ -213,6 +213,11 @@ Needs the owner:
 
 Later rounds:
 
+- Remote links made before decision 117 carry no `p=` (the presenter's
+  public state key), so a phone or agent that joined with one shows no
+  countdown and never says hello again (118) until the presenter shares a new
+  link. Nothing in code can repair an old link; the presenter window could
+  say so when such a remote joins.
 - Workspace: no fallback for Safari before 26 (no `createWritable`) or
   private windows; the panel stays hidden there (decision 89). A rename or
   move made on disk, outside docwalk, does not carry comments and sketches:
