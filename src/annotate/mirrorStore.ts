@@ -12,7 +12,8 @@ import {
 
 /**
  * What a receiver has been told (decision 88): the presenter's laser, the
- * marks of the slides it has heard about, and the focus view. Followers and
+ * marks of the slides it has heard about, the whiteboard (decision 110) and
+ * the focus view. Followers and
  * the presenter window apply every validated op here and draw from it
  * (mirrorView.ts). The ops passed schema checks already; this file adds the
  * limits that keep a signed but hostile or buggy sender from growing it
@@ -49,6 +50,8 @@ const sameList = (a: readonly number[], b: readonly number[]) =>
 
 export class MirrorStore {
   laser: { x: number; y: number } | null = null;
+  /** The page the open whiteboard covers (decision 110); its marks are the strokes of the board address. */
+  board: string | null = null;
   focus: FocusMirror | null = null;
   /** Least recently touched first, so the first key is the one to forget. */
   private readonly slides = new Map<string, Map<number, StoredStroke>>();
@@ -106,6 +109,14 @@ export class MirrorStore {
         if (strokes.size === 0) this.slides.delete(op.slide);
         break;
       }
+      case "board-open":
+        changed = this.board !== op.slide;
+        this.board = op.slide;
+        break;
+      case "board-close":
+        changed = this.board !== null;
+        this.board = null;
+        break;
       case "focus-open": {
         const open = this.focus;
         const place = focusPlaceOf(op);

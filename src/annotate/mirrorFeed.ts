@@ -23,7 +23,8 @@ import {
  * The presenter's side of the mirror (decision 88). The annotation layer and
  * the focus view tell it what happens; it turns that into the ops of
  * `mirrorTypes.ts` and hands them to its sinks (the room, the presenter
- * window). It keeps the pace down (laser 33 ms, a live stroke 80 ms, the
+ * window). It tells receivers when the whiteboard opens and closes (decision
+ * 110). It keeps the pace down (laser 33 ms, a live stroke 80 ms, the
  * focus view's zoom and scroll 100 ms), sends a code view's marked lines
  * when they change (decision 106), cuts a stroke into chunks a relay frame holds, and
  * remembers what receivers were told, so an undo is one `drop` and a redo
@@ -65,6 +66,9 @@ export class MirrorFeed {
   /** Per slide, the strokes receivers hold; least recently used slide first. */
   private readonly known = new Map<string, Set<number>>();
   private current: { slide: string; strokes: readonly MarkStroke[] } | null = null;
+
+  /** The page the whiteboard covers, as receivers were last told (decision 110). */
+  private board: string | null = null;
 
   private focusOpen: FocusPlace | null = null;
   private focusView: { scale: number; x: number; y: number } | null = null;
@@ -119,6 +123,12 @@ export class MirrorFeed {
         break;
       case "marks":
         this.marks(event);
+        break;
+      case "board":
+        this.board = event.slide;
+        this.emit(
+          event.slide === null ? { op: "board-close" } : { op: "board-open", slide: event.slide },
+        );
         break;
     }
   }
@@ -181,6 +191,9 @@ export class MirrorFeed {
    */
   resync(sink?: MirrorSink): void {
     const emit = (op: MirrorOp) => this.emit(op, sink);
+    // Before `keep`, whose slide is the board's address while the board is open;
+    // a receiver that missed the close drops the board (decision 110).
+    emit(this.board === null ? { op: "board-close" } : { op: "board-open", slide: this.board });
     if (this.current) {
       const { slide, strokes } = this.current;
       // Only what every sink has been sent; the next flush sends the rest
