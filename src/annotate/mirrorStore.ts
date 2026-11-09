@@ -73,6 +73,20 @@ export class MirrorStore {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * The presenter's signed state names the page it is on. A board covers one
+   * page, and a change of slide closes it (decision 110), so a state for
+   * another page drops the board: the `board-close` may have been lost, or a
+   * replayed `board-open` from an earlier presenter tab may be what is held.
+   * Without this the follower would show a blank board each time it returned
+   * to that page. The board's marks stay.
+   */
+  followPage(address: string): void {
+    if (this.board === null || this.board === address) return;
+    this.board = null;
+    for (const listener of this.listeners) listener();
+  }
+
   apply(op: MirrorOp): void {
     let changed = false;
     switch (op.op) {

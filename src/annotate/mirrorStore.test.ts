@@ -339,6 +339,35 @@ describe("the whiteboard (decision 110)", () => {
     expect(ids(store, "a/board")).toEqual([2]);
   });
 
+  test("a state for another page drops the board, so a close the relay lost cannot leave a blank board on the page", () => {
+    const store = new MirrorStore();
+    const heard = vi.fn<() => void>();
+    store.apply({ op: "board-open", slide: "a/1" });
+    store.subscribe(heard);
+    store.followPage("a/1");
+    expect(store.board).toBe("a/1");
+    expect(heard).not.toHaveBeenCalled();
+    store.followPage("b/1");
+    expect(store.board).toBeNull();
+    expect(heard).toHaveBeenCalledTimes(1);
+    // Back on the first page the board stays gone until the presenter opens one again.
+    store.followPage("a/1");
+    expect(store.board).toBeNull();
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
+  test("a state with no board open tells nobody, and the board's marks stay when it is dropped", () => {
+    const store = new MirrorStore();
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    store.followPage("a/1");
+    expect(heard).not.toHaveBeenCalled();
+    store.apply(stroke({ slide: "a/board", id: 2, end: true }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    store.followPage("a/2");
+    expect(ids(store, "a/board")).toEqual([2]);
+  });
+
   test("a rectangle and an ellipse are held like an arrow, whole", () => {
     const store = new MirrorStore();
     store.apply(stroke({ id: 1, tool: "rect", points: [10, 20, 300, 400], end: true }));
