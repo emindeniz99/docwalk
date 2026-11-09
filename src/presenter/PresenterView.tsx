@@ -308,19 +308,25 @@ export function PresenterView({ channel }: PresenterViewProps) {
 /**
  * The current slide's speaker notes. They are text: React writes each one as
  * a text node, so a note can never become markup (rule 5). The panel is
- * always there, so the layout does not move from slide to slide.
+ * always there, so the layout does not move from slide to slide. It says on
+ * every slide that notes are not private (decision 121): they are comments in
+ * the Markdown, which every share link and room carries.
  */
 function SpeakerNotes({ notes }: { notes: readonly string[] }) {
   return (
     <section
       className="docwalk-presenter-notes"
       aria-labelledby="docwalk-presenter-notes-label"
+      aria-describedby="docwalk-presenter-notes-privacy"
       // Long notes scroll inside the panel, so the panel must take the keyboard.
       tabIndex={0}
     >
       <span id="docwalk-presenter-notes-label" className="docwalk-presenter-label">
         {m.presenter_notes()}
       </span>
+      <p id="docwalk-presenter-notes-privacy" className="docwalk-presenter-notes-privacy">
+        {m.presenter_notes_private()}
+      </p>
       {notes.length > 0 ? (
         notes.map((note, i) => (
           // The list is replaced as a whole, so the position is the identity.

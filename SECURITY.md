@@ -103,6 +103,9 @@ Known limits, by design:
   or resync, as it can cover the page with marks. A follower from before
   decision 110 drops the board ops and the new tools at its schema check
   and keeps showing the slide.
+- Speaker notes are not private. They are HTML comments in the Markdown,
+  so anyone who has the file, a share link or a room link can read them;
+  the presenter window says so under its notes.
 - The relay sees room ids, frame sizes and timing.
 - Whoever hosts docwalk serves its code. A hostile host, a compromised
   browser or a malicious extension is out of scope.

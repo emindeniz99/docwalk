@@ -387,6 +387,7 @@
   "presenter_no_preview": "Bu slayt için önizleme yok.",
   "presenter_notes": "Konuşmacı notları",
   "presenter_notes_empty": "Bu slayt için not yok.",
+  "presenter_notes_private": "Gizli değil: notlar belgedeki HTML yorumlarıdır; Markdown dosyasına, bir paylaşım bağlantısına ya da oda bağlantısına sahip olan herkes onları okuyabilir.",
   "presenter_now": "Şimdi",
   "presenter_pace_ahead": "Planın önünde",
   "presenter_pace_behind": "Planın gerisinde",

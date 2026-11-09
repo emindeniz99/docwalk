@@ -91,8 +91,8 @@ lists every settled design decision.
   the presenter window shows it under that slide. GitHub hides comments, so
   the document reads the same there. The notes are plain text; tool
   comments such as `<!-- prettier-ignore -->` or `<!-- markdownlint-disable -->`
-  are skipped. They sit in the document text, so a share link or a remote
-  room carries them too.
+  are skipped. Notes are not private: they sit in the document text, so
+  anyone with the file, a share link or a remote room can read them.
 - A phone remote and a follow-along link for other screens (full mode).
   The room key stays in the link's fragment, so the relay passes only
   ciphertext. A follower sees your laser, your pen marks and the diagram
