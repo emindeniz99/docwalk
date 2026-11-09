@@ -124,6 +124,19 @@ describe("watchPenDrags", () => {
     expect(clickReaches()).toBe(true);
   });
 
+  test("the pointerdown the layer hands to drauu mid-drag does not make the watcher forget the drag, so its click is still swallowed", async () => {
+    const onDrag = await watch();
+    pointer("pointerdown", link, { clientX: 10, clientY: 10 });
+    pointer("pointermove", link, { clientX: 40, clientY: 10 });
+    expect(onDrag).toHaveBeenCalledTimes(1);
+    // The same pen's pointerdown again, with no pointerup between: not a new touch of the glass.
+    pointer("pointerdown", stage, { clientX: 10, clientY: 10 });
+    pointer("pointermove", link, { clientX: 60, clientY: 10 });
+    pointer("pointerup", link, { clientX: 10, clientY: 10 });
+    expect(onDrag).toHaveBeenCalledTimes(1);
+    expect(clickReaches()).toBe(false);
+  });
+
   test("a click outside the stage still fires after a pen drag, so an export download or a button press is not lost", async () => {
     // iPadOS sends no click after a Pencil drag, so the armed window stays
     // open for 500 ms; a programmatic click or a keyboard press in it is not
@@ -223,6 +236,40 @@ describe("watchPenDrags", () => {
     pointer("pointerdown", link, { pointerId: 1, clientX: 10, clientY: 10 });
     pointer("pointermove", link, { pointerId: 2, clientX: 90, clientY: 10 });
     expect(onDrag).not.toHaveBeenCalled();
+  });
+
+  test("a link's native drag is cancelled while a pen is down on the stage, so a stroke that starts on a link is not turned into a drag and drop", async () => {
+    await watch();
+    pointer("pointerdown", link, { clientX: 50, clientY: 50 });
+    const drag = new DragEvent("dragstart", { bubbles: true, cancelable: true });
+    link.dispatchEvent(drag);
+    expect(drag.defaultPrevented).toBe(true);
+  });
+
+  test("a native drag is left alone with no pen down, for a mouse, and when enabled() is false", async () => {
+    let on = true;
+    await watch(() => on);
+    const dragstart = () => {
+      const event = new DragEvent("dragstart", { bubbles: true, cancelable: true });
+      link.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(dragstart()).toBe(false);
+    pointer("pointerdown", link, { pointerType: "mouse", clientX: 50, clientY: 50 });
+    expect(dragstart()).toBe(false);
+    pointer("pointerup", link, { pointerType: "mouse" });
+    on = false;
+    pointer("pointerdown", link, { clientX: 50, clientY: 50 });
+    expect(dragstart()).toBe(false);
+  });
+
+  test("once the pen lifts a native drag is left alone again", async () => {
+    await watch();
+    pointer("pointerdown", link, { clientX: 50, clientY: 50 });
+    pointer("pointerup", link, { clientX: 50, clientY: 50 });
+    const drag = new DragEvent("dragstart", { bubbles: true, cancelable: true });
+    link.dispatchEvent(drag);
+    expect(drag.defaultPrevented).toBe(false);
   });
 
   test("a pen down outside the stage is not watched", async () => {

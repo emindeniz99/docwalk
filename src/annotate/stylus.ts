@@ -121,6 +121,8 @@ export function watchPenDrags(stage: HTMLElement, { enabled, onDrag }: DragWatch
   };
   const onWindowDown = () => disarm();
   const onStageDown = (event: PointerEvent) => {
+    // The pen is still down: this is the layer's hand-over of the same drag to drauu, not a new touch.
+    if (down && event.pointerId === down.pointerId) return;
     down = null;
     if (event.pointerType !== "pen" || !event.isPrimary || event.button !== 0 || !enabled()) return;
     down = event;
@@ -143,6 +145,11 @@ export function watchPenDrags(stage: HTMLElement, { enabled, onDrag }: DragWatch
     }
     down = null;
   };
+  // A pen down on a link would start the browser's drag and drop of it after a few pixels, and
+  // end the stroke with a pointercancel. Only a pen the watcher follows is spared that.
+  const onDragStart = (event: DragEvent) => {
+    if (down && enabled()) event.preventDefault();
+  };
   const onClick = (event: MouseEvent) => {
     if (!swallow) return;
     // Only the pen's own click, which a pointer made (detail 1 or more) on the
@@ -159,6 +166,7 @@ export function watchPenDrags(stage: HTMLElement, { enabled, onDrag }: DragWatch
 
   window.addEventListener("pointerdown", onWindowDown, true);
   stage.addEventListener("pointerdown", onStageDown, true);
+  stage.addEventListener("dragstart", onDragStart, true);
   window.addEventListener("pointermove", onMove, true);
   window.addEventListener("pointerup", onEnd, true);
   window.addEventListener("pointercancel", onEnd, true);
@@ -167,6 +175,7 @@ export function watchPenDrags(stage: HTMLElement, { enabled, onDrag }: DragWatch
     disarm();
     window.removeEventListener("pointerdown", onWindowDown, true);
     stage.removeEventListener("pointerdown", onStageDown, true);
+    stage.removeEventListener("dragstart", onDragStart, true);
     window.removeEventListener("pointermove", onMove, true);
     window.removeEventListener("pointerup", onEnd, true);
     window.removeEventListener("pointercancel", onEnd, true);
