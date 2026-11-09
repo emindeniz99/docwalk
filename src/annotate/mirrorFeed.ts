@@ -197,12 +197,12 @@ export class MirrorFeed {
 
   /**
    * Sends the current slide's marks, the stroke in progress and the focus
-   * state (the open block, its zoom and scroll, and for code its marked
-   * lines, even none) to `sink` alone, or to every sink without one. Every op is
-   * idempotent for a receiver that has them already: it opens with `keep`
-   * (decision 103), which removes only what the presenter no longer has,
-   * and the strokes that follow replace by id, so no receiver shows the
-   * slide empty in between.
+   * state (the open block, its zoom and scroll, for code its marked lines,
+   * and for a diagram its tour path, each even when none) to `sink` alone,
+   * or to every sink without one. Every op is idempotent for a receiver that
+   * has them already: it opens with `keep` (decision 103), which removes only
+   * what the presenter no longer has, and the strokes that follow replace by
+   * id, so no receiver shows the slide empty in between.
    */
   resync(sink?: MirrorSink): void {
     const emit = (op: MirrorOp) => this.emit(op, sink);
