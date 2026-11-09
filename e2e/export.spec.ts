@@ -78,3 +78,114 @@ test("print fills a hidden print frame with every slide and opens the print dial
   await expect(pages).toHaveCount(3);
   await expect(pages.first()).toContainText("Round trip");
 });
+
+test("print with speaker notes puts each note in the print frame; plain print and HTML carry none", async ({
+  page,
+}) => {
+  // Notes are the HTML comments GitHub hides (decision 79). They reach paper only
+  // through the item that asks for them; the plain print and the file stay clean.
+  await page.addInitScript(() => {
+    window.print = () => {
+      const top = window.top as Window & { docwalkPrintCalls?: number };
+      top.docwalkPrintCalls = (top.docwalkPrintCalls ?? 0) + 1;
+    };
+  });
+  await ready(page);
+  await replaceSource(page, "# A\n\n<!-- Say hello -->\n\n# B\n");
+  await expect(page.locator(".docwalk-outline-item")).toHaveCount(2);
+  const notes = page.frameLocator("iframe[data-docwalk-print]").locator(".docwalk-export-notes");
+
+  await exportAs(page, "Print with speaker notes");
+  await expect(notes).toHaveCount(1);
+  await expect(notes).toContainText("Say hello");
+
+  // A new print replaces the frame; this one asks for no notes.
+  await exportAs(page, "Print or save as PDF");
+  await expect(page.locator("iframe[data-docwalk-print]")).toHaveCount(1);
+  await expect(
+    page.frameLocator("iframe[data-docwalk-print]").locator(".docwalk-export-page"),
+  ).toHaveCount(2);
+  await expect(notes).toHaveCount(0);
+
+  const download = page.waitForEvent("download");
+  await exportAs(page, "Download HTML");
+  const html = await readFile(await (await download).path(), "utf8");
+  expect(html).not.toContain("Say hello");
+  expect(html).not.toContain(`class="docwalk-export-notes"`);
+});
+
+test("print with speaker notes prints the chosen sections' notes only (decisions 100, 107, 114)", async ({
+  page,
+}) => {
+  // The comment above the first heading belongs to the cover, and `?sections=` drops sections
+  // without moving their notes to the next section that stays.
+  await page.addInitScript(() => {
+    window.print = () => {};
+    localStorage.setItem(
+      "docwalk.draft",
+      JSON.stringify({
+        markdown: "<!-- COVER NOTE of A -->\n\n# A\n\nalpha\n\n# B\n\nbeta\n\n<!-- B NOTE -->\n",
+        source: { kind: "paste" },
+      }),
+    );
+  });
+  await ready(page, "/?sections=b");
+  await expect(page.locator(".docwalk-sections-trigger")).toContainText("1 of 2");
+  const notes = page.frameLocator("iframe[data-docwalk-print]").locator(".docwalk-export-notes");
+
+  await exportAs(page, "Print with speaker notes");
+  await expect(notes).toHaveCount(1);
+  await expect(notes).toContainText("B NOTE");
+  await expect(notes).not.toContainText("COVER NOTE");
+
+  // Only the cover chosen: its own note, and none of B's.
+  await page.goto("/?sections=a");
+  await expect(page.locator(".docwalk-sections-trigger")).toContainText("1 of 2");
+  await exportAs(page, "Print with speaker notes");
+  await expect(notes).toHaveCount(1);
+  await expect(notes).toContainText("COVER NOTE of A");
+  await expect(notes).not.toContainText("B NOTE");
+});
+
+test("a whiteboard with marks prints as one more page after its section, and not without Include marks (decision 110)", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.print = () => {};
+  });
+  await ready(page, "/#summary/1");
+  await page.locator(".reveal").focus();
+  await page.keyboard.press("w");
+  await expect(page.locator(".docwalk-annotate[data-board]")).toHaveCount(1);
+  const overlay = await page.locator(".docwalk-annotate").boundingBox();
+  if (!overlay) throw new Error("annotation overlay missing");
+  await page.mouse.move(overlay.x + overlay.width * 0.3, overlay.y + overlay.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(overlay.x + overlay.width * 0.7, overlay.y + overlay.height * 0.7, {
+    steps: 10,
+  });
+  await page.mouse.up();
+  await expect(page.locator(".docwalk-annotate-draw[data-active='true'] > *")).toHaveCount(1);
+
+  const frame = page.frameLocator("iframe[data-docwalk-print]");
+  const boards = frame.locator(".docwalk-export-board");
+  await exportAs(page, "Print or save as PDF");
+  await expect(boards).toHaveCount(1);
+  await expect(boards).toHaveAttribute("aria-label", "Whiteboard: Summary");
+  // Right after the last page of its section, and drawn over, not on, the page.
+  const pages = frame.locator("main > .docwalk-export-page");
+  const index = await pages.evaluateAll((all) =>
+    all.findIndex((p) => p.querySelector(".docwalk-export-board") !== null),
+  );
+  const before = pages.nth(index - 1);
+  await expect(before).toContainText("Summary");
+  await expect(before.locator(".docwalk-export-board")).toHaveCount(0);
+  await expect(pages.nth(index).locator("svg.docwalk-export-marks > *")).toHaveCount(1);
+
+  // "Include marks" off leaves the board out with the slide marks.
+  await page.getByRole("button", { name: "Export" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Include marks" }).click();
+  await page.getByRole("menuitem", { name: "Print or save as PDF" }).click();
+  await expect(page.locator("iframe[data-docwalk-print]")).toHaveCount(1);
+  await expect(boards).toHaveCount(0);
+});

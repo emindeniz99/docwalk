@@ -189,8 +189,10 @@ without a message when the API is missing or refuses (80). Code:
 
 **Whiteboard**: a blank page over the slide box, one per section, addressed
 `<section-id>/board`. It has its own marks, which are mirrored and saved
-like a slide's, and a change of slide closes it (110). Code:
-`src/annotate/board.ts`, `layer.setBoard`.
+like a slide's, and a change of slide closes it. Followers hear it open
+and close as the `board-open` and `board-close` ops, and an export adds it
+as a page after the section's last slide when Include marks is on (110).
+Code: `src/annotate/board.ts`, `layer.setBoard`, `src/export/boardPages.ts`.
 
 **Workspace**: the files and folders docwalk keeps for the user, either in
 the browser's origin private file system (autosaved) or in a **local
