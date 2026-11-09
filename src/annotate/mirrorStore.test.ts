@@ -212,15 +212,141 @@ describe("laser and focus", () => {
     store.apply({ op: "focus-view", scale: 2, x: 0, y: 0 });
     expect(store.focus).toBeNull();
     store.apply({ op: "focus-open", slide: "d/1", diagram: 2 });
-    expect(store.focus).toEqual({ slide: "d/1", diagram: 2, view: null });
+    expect(store.focus).toEqual({ slide: "d/1", block: "diagram", n: 2, view: null, lines: [] });
     store.apply({ op: "focus-view", scale: 2.5, x: -0.25, y: 0.1 });
     expect(store.focus?.view).toEqual({ scale: 2.5, x: -0.25, y: 0.1 });
     store.apply({ op: "focus-open", slide: "d/1", diagram: 2 });
     expect(store.focus?.view).toEqual({ scale: 2.5, x: -0.25, y: 0.1 });
     store.apply({ op: "focus-open", slide: "d/1", diagram: 3 });
-    expect(store.focus).toEqual({ slide: "d/1", diagram: 3, view: null });
+    expect(store.focus).toEqual({ slide: "d/1", block: "diagram", n: 3, view: null, lines: [] });
     store.apply({ op: "focus-close" });
     expect(store.focus).toBeNull();
+  });
+});
+
+describe("the code, table and image views (decision 106)", () => {
+  test("a block is held by its kind and place, and a new block starts with no view and no marks", () => {
+    const store = new MirrorStore();
+    store.apply({ op: "focus-open", slide: "c/1", code: 2 });
+    expect(store.focus).toEqual({ slide: "c/1", block: "code", n: 2, view: null, lines: [] });
+    store.apply({ op: "focus-view", scale: 1.5, x: 0, y: 0.5 });
+    store.apply({ op: "focus-lines", lines: [1, 3] });
+    // The same block again (a resync) keeps what the view holds.
+    store.apply({ op: "focus-open", slide: "c/1", code: 2 });
+    expect(store.focus).toEqual({
+      slide: "c/1",
+      block: "code",
+      n: 2,
+      view: { scale: 1.5, x: 0, y: 0.5 },
+      lines: [1, 3],
+    });
+    // Another kind at the same place is another block.
+    store.apply({ op: "focus-open", slide: "c/1", table: 2 });
+    expect(store.focus).toEqual({ slide: "c/1", block: "table", n: 2, view: null, lines: [] });
+    store.apply({ op: "focus-open", slide: "c/1", image: 1 });
+    expect(store.focus).toEqual({ slide: "c/1", block: "image", n: 1, view: null, lines: [] });
+    store.apply({ op: "focus-open", slide: "c/1", diagram: 1 });
+    expect(store.focus).toEqual({ slide: "c/1", block: "diagram", n: 1, view: null, lines: [] });
+  });
+
+  test("marked lines are taken only while a code view is open, and each list replaces the last", () => {
+    const store = new MirrorStore();
+    store.apply({ op: "focus-lines", lines: [1] });
+    expect(store.focus).toBeNull();
+    store.apply({ op: "focus-open", slide: "c/1", table: 1 });
+    store.apply({ op: "focus-lines", lines: [1] });
+    expect(store.focus?.lines).toEqual([]);
+    store.apply({ op: "focus-open", slide: "c/1", code: 1 });
+    store.apply({ op: "focus-lines", lines: [2, 5, 9] });
+    expect(store.focus?.lines).toEqual([2, 5, 9]);
+    store.apply({ op: "focus-lines", lines: [5] });
+    expect(store.focus?.lines).toEqual([5]);
+    store.apply({ op: "focus-lines", lines: [] });
+    expect(store.focus?.lines).toEqual([]);
+    store.apply({ op: "focus-close" });
+    store.apply({ op: "focus-lines", lines: [1] });
+    expect(store.focus).toBeNull();
+  });
+
+  test("the store keeps its own copy of the lines, so the sender's array cannot change it later", () => {
+    const store = new MirrorStore();
+    store.apply({ op: "focus-open", slide: "c/1", code: 1 });
+    const lines = [1, 2];
+    store.apply({ op: "focus-lines", lines });
+    lines.push(3);
+    expect(store.focus?.lines).toEqual([1, 2]);
+  });
+
+  test("a resync that repeats the open view, its zoom and its marks tells no listener, so nothing redraws", () => {
+    const store = new MirrorStore();
+    store.apply({ op: "focus-open", slide: "c/1", code: 1 });
+    store.apply({ op: "focus-view", scale: 2, x: 0.5, y: 0.25 });
+    store.apply({ op: "focus-lines", lines: [4, 7] });
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    store.apply({ op: "focus-open", slide: "c/1", code: 1 });
+    store.apply({ op: "focus-view", scale: 2, x: 0.5, y: 0.25 });
+    store.apply({ op: "focus-lines", lines: [4, 7] });
+    expect(heard).not.toHaveBeenCalled();
+    store.apply({ op: "focus-lines", lines: [4] });
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the whiteboard (decision 110)", () => {
+  test("board-open holds the page the board covers, board-close clears it, and a store starts with none", () => {
+    const store = new MirrorStore();
+    expect(store.board).toBeNull();
+    store.apply({ op: "board-open", slide: "a/2" });
+    expect(store.board).toBe("a/2");
+    store.apply({ op: "board-close" });
+    expect(store.board).toBeNull();
+  });
+
+  test("a board opened over another page replaces the first one, and the first's marks stay", () => {
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/board", end: true }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    store.apply({ op: "board-open", slide: "a/2" });
+    expect(store.board).toBe("a/2");
+    expect(ids(store, "a/board")).toEqual([1]);
+  });
+
+  test("a repeated open, and a close with no board open, tell nobody: a resync redraws nothing", () => {
+    const store = new MirrorStore();
+    const heard = vi.fn<() => void>();
+    store.subscribe(heard);
+    store.apply({ op: "board-close" });
+    expect(heard).not.toHaveBeenCalled();
+    store.apply({ op: "board-open", slide: "a/1" });
+    expect(heard).toHaveBeenCalledTimes(1);
+    store.apply({ op: "board-open", slide: "a/1" });
+    expect(heard).toHaveBeenCalledTimes(1);
+    store.apply({ op: "board-open", slide: "a/2" });
+    expect(heard).toHaveBeenCalledTimes(2);
+    store.apply({ op: "board-close" });
+    store.apply({ op: "board-close" });
+    expect(heard).toHaveBeenCalledTimes(3);
+  });
+
+  test("the board's marks are held under its own address, beside the page's, and closing keeps them", () => {
+    const store = new MirrorStore();
+    store.apply(stroke({ slide: "a/1", id: 1 }));
+    store.apply({ op: "board-open", slide: "a/1" });
+    store.apply(stroke({ slide: "a/board", id: 2, end: true }));
+    store.apply({ op: "board-close" });
+    expect(ids(store, "a/1")).toEqual([1]);
+    expect(ids(store, "a/board")).toEqual([2]);
+  });
+
+  test("a rectangle and an ellipse are held like an arrow, whole", () => {
+    const store = new MirrorStore();
+    store.apply(stroke({ id: 1, tool: "rect", points: [10, 20, 300, 400], end: true }));
+    store.apply(stroke({ id: 2, tool: "ellipse", points: [30, 40, 500, 600], end: true }));
+    expect(store.strokes("a/1").map((s) => [s.tool, s.points])).toEqual([
+      ["rect", [10, 20, 300, 400]],
+      ["ellipse", [30, 40, 500, 600]],
+    ]);
   });
 });
 

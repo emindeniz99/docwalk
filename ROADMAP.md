@@ -57,6 +57,22 @@ sharing, exports, remote control, `DESIGN.md` and the Stage look. Round 1
   `mirrorView.browser.test.ts`, `src/remote/remote.browser.test.ts` and
   `e2e/mirror.spec.ts` cover it on Chromium; Firefox and WebKit run in the
   fork's CI.
+- Done 2026-11-09: saved marks (decision 105): the presenter's pen and
+  arrow marks stay in this browser per document and slide, come back on
+  reload, and the PDF, HTML and PNG exports draw them unless Include marks is
+  off; More actions or the palette deletes them. Stored records are checked
+  for size before parsing. `e2e/saved-marks.spec.ts` covers it (3 tests on
+  Chromium).
+- Done 2026-11-09: Markdown fidelity (decision 107): each page of a split
+  slide shows the footnotes its own text cites; headings inside quotes,
+  alerts and list items get their GitHub anchor; a preamble of comments
+  above the first heading opens no slide and its notes go to the first.
+- Done 2026-11-09: the code, table and image focus views mirrored to
+  followers with their zoom, scroll and code line marks, inside the signed,
+  sealed mirror messages (decision 106). Code blocks, images and diagrams are
+  numbered across their section, so a follower with other page breaks opens
+  the same block or nothing. `e2e/mirror-focus.spec.ts` covers it (6 tests
+  on Chromium).
 - Done 2026-11-09: choosing the sections to present (decision 100): a
   dialog from the sidebar, the palette or More actions, kept in the link as
   `?sections=`; the deck, outline, palette, overview, presenter list and
@@ -170,8 +186,17 @@ Later rounds:
   place; an agent or phone remote that joins before the
   presenter's socket is open is not counted (hello is not resent);
   `docwalk-mcp` is not on npm yet.
-- Markdown: a footnote list pushed to a
-  continuation page stays there; anchors cover top-level headings only.
+- Markdown (decision 107): raw HTML headings (`<h2>…</h2>`) and headings
+  inside footnote definitions get no anchor; a heading's slug comes from its
+  source text, so `## Foo <sup>beta</sup>` gives `foo-supbetasup` where
+  GitHub would give `foo-beta`; GitHub's numbering of duplicate slugs across
+  nested headings is read from its behaviour, not from a captured fixture.
+- Saved marks (decision 105): marks do not follow a workspace rename or
+  delete; two tabs on one document each keep what they loaded and the last
+  save of a slide wins; marks travel in no share link, sidecar or zip; undo
+  cannot remove a restored mark (the eraser and Clear can); on plain http,
+  where the browser cannot hash, marks are neither saved nor exported, and
+  comments stay "loading"; `markSvg.ts` repeats `mirrorView.ts`'s drawing.
 - Comments (decisions 94 to 97): a tombstone list stops at 500, so a very
   old file can bring back a deletion older than the 500 newest; a node
   comment's `sig` describes the diagram when the comment was written, so
@@ -194,15 +219,15 @@ Later rounds:
   schema refuses (65 to 68 killed on 2026-11-09; the 8 left are equivalent
   mutants, such as padding that `atob` does not need); Lighthouse SEO has a
   0.95 floor since 2026-11-09 (decision 104). "Editing the source … notes in the gutter"
-  (`e2e/app.spec.ts`) failed once on WebKit under load and never again in
-  40 runs; one lead is that `App.tsx` diagnostics fall back to line 1
-  (`?? 1`) for a slide from a stale deck. The presenter axe test's 90 s
+  (`e2e/app.spec.ts`) failed once on WebKit; on 2026-11-09 the stale-deck
+  note on line 1 was fixed (cosmetic, not the cause) and the test waits for
+  the ready deck, but it still fails if a rebuild takes over 5 s, which was
+  not measured on WebKit. The presenter axe test's 90 s
   budget assumes CI is about twice as slow as a local run; it was not
   measured on CI.
-- Speaker notes (decision 79): a comment above the first heading opens a
-  slide of its own, blank and titled by its address in the presenter list
-  (a `markdownlint-disable` line above `# Title` does it); the notes go to
-  the next slide, the blank slide stays. Notes are not exported (no
+- Speaker notes (decision 79): a comment-only part after the first slide
+  (between two thematic breaks) still opens a blank slide. Notes are not
+  exported (no
   handout, no notes in PDF), show Markdown as plain text, and travel in
   the document text, so a share link or a remote room carries them.
 - Countdown, pacing bar and wake lock (decision 80): the target cannot change
@@ -222,8 +247,12 @@ Later rounds:
   marks are not kept between openings; code has no line numbers; a table
   fitted at the 0.75 floor still scrolls sideways; a double-click that
   selects a word in code or a table opens the view on its first click; the
-  view is not in any export, and only the diagram view is mirrored to
-  followers (decision 88).
+  view is not in any export, and the presenter window shows no focus view
+  (decisions 88 and 106). Clear in the code view disables itself while
+  focused, so focus falls to the page and Escape no longer closes the view.
+- Mirrored focus views (decision 106): a table split differently on two
+  screens can open a different part of it on the follower; a follower that
+  has not loaded the image opens nothing.
 - Mirroring (decision 88), known gaps: a follower that paginates a section
   differently shows marks only on a page with the presenter's address; a
   slide with over 200 strokes is mirrored with the newest 200; a relay that
@@ -250,10 +279,11 @@ Later rounds:
   2.4.7 because it shows whenever they do. A stricter reading keeps it
   visible at all times. In Firefox the deck's focus stays invisible after
   Present's click until Tab moves it.
-- Layout: with the comments panel open at 1440 px the deck pane is about
-  500 px and the annotation toolbar wraps to two rows; on a phone an
-  expanded file panel leaves the outline about one row inside the 40dvh
-  sidebar; overview thumbnails are clones and repeat the slides' ids.
+- Layout (decision 108): with the comments panel open and a window
+  narrower than about 1264 px the annotation tool groups wrap again, with
+  every control reachable; the diagram focus view copies the SVG with its
+  ids, so they repeat while it is open; at 1280 px the app header takes two
+  rows (113 px against 63 px at 1440).
 - Code colours (decision 76): a grammar that loads after the 5 s timeout
   colours nothing until the next rebuild; the default view's first load
   is 977 kB of the 1 MB limit, and Shiki's precompiled grammars with its
@@ -283,13 +313,9 @@ order unless the owner picks differently. The first two give the most for
 the least work. Each starts with a decision row, then failing tests, then
 code.
 
-1. The code, table and image focus views, with their line marks, mirrored
-   to followers inside the signed, encrypted room messages. The laser,
-   strokes and the diagram view already are (decisions 87, 88).
-2. Saved annotations, included in PDF and PNG exports.
-3. Math and emoji shortcodes, which GitHub renders natively.
-4. A step-through tour of a Mermaid diagram's nodes and paths.
-5. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
+1. Math and emoji shortcodes, which GitHub renders natively.
+2. A step-through tour of a Mermaid diagram's nodes and paths.
+3. A blank whiteboard, rectangle and ellipse shapes, stylus detection.
 
 ## Later
 

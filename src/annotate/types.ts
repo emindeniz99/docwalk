@@ -1,10 +1,12 @@
 /**
  * Contract for pen and laser annotation (decision 29). The layer sits over
- * an element (the slide stage, or the diagram focus canvas) and draws
- * ephemeral marks: nothing is saved to the document.
+ * an element (the slide stage, or the diagram focus canvas) and draws marks
+ * that never reach the document. It saves nothing itself: an observer saves
+ * what it reports, and saved marks come back through its options (105).
  */
 
 import type { MarkColor, MarkEvent } from "./mirrorTypes";
+import type { SavedStroke } from "./savedMarks";
 
 export type AnnotationMode = "off" | "pen" | "laser" | "arrow" | "eraser";
 
@@ -40,5 +42,17 @@ export interface AnnotationLayer {
   destroy(): void;
 }
 
-/** Implemented in ./layer.ts as `createAnnotationLayer(host)`. */
-export type CreateAnnotationLayer = (host: HTMLElement) => AnnotationLayer;
+export interface AnnotationLayerOptions {
+  /**
+   * The saved strokes of a slide (decision 105), asked for by key and
+   * address the first time the layer shows that key. They are drawn below
+   * anything new, and drauu's undo history starts after them.
+   */
+  saved?: (key: string, address: string) => readonly SavedStroke[];
+}
+
+/** Implemented in ./layer.ts as `createAnnotationLayer(host, options)`. */
+export type CreateAnnotationLayer = (
+  host: HTMLElement,
+  options?: AnnotationLayerOptions,
+) => AnnotationLayer;

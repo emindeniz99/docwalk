@@ -4,6 +4,7 @@ import { MirrorMessageSchema } from "./mirrorSchema";
 import { MirrorStore } from "./mirrorStore";
 import {
   MAX_CHUNK_POINTS,
+  MAX_MARKED_LINES,
   MAX_SLIDE_POINTS,
   MAX_SLIDE_STROKES,
   MAX_STROKE_POINTS,
@@ -41,6 +42,13 @@ const mark = (id: number, n = 4, over: Partial<MarkStroke> = {}): MarkStroke => 
   tool: "pen",
   color: "primary",
   points: line(n, id),
+  ...over,
+});
+const box = (id: number, tool: "rect" | "ellipse", over: Partial<MarkStroke> = {}): MarkStroke => ({
+  id,
+  tool,
+  color: "ink",
+  points: [400, 500, 3000, 2500],
   ...over,
 });
 const committed = (slide: string, s: MarkStroke): MarkEvent => ({
@@ -284,14 +292,22 @@ describe("a receiver that joins late (resync)", () => {
     const done = [mark(1), mark(2)];
     feed.ingest({ kind: "marks", slide: "a/1", strokes: done, reset: true });
     feed.ingest({ kind: "stroke", slide: "a/1", end: false, ...mark(3, 6) });
-    feed.focus({ kind: "open", slide: "a/1", diagram: 2 });
+    feed.focus({ kind: "open", slide: "a/1", block: "diagram", n: 2 });
     feed.focus({ kind: "view", scale: 2, x: 0.1, y: -0.1 });
     vi.advanceTimersByTime(500);
     sent.length = 0;
     others.length = 0;
     feed.resync((op) => late.push(op));
-    expect(kinds(late)).toEqual(["keep", "stroke", "stroke", "stroke", "focus-open", "focus-view"]);
-    expect(late[0]).toEqual({ op: "keep", slide: "a/1", ids: [1, 2, 3] });
+    expect(kinds(late)).toEqual([
+      "board-close",
+      "keep",
+      "stroke",
+      "stroke",
+      "stroke",
+      "focus-open",
+      "focus-view",
+    ]);
+    expect(late[1]).toEqual({ op: "keep", slide: "a/1", ids: [1, 2, 3] });
     expect(strokeOps(late).map((s) => [s.id, s.from, s.end])).toEqual([
       [1, 0, true],
       [2, 0, true],
@@ -306,7 +322,11 @@ describe("a receiver that joins late (resync)", () => {
     const late: MirrorOp[] = [];
     feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
     feed.resync((op) => late.push(op));
-    expect(late).toEqual([{ op: "keep", slide: "a/1", ids: [] }, { op: "focus-close" }]);
+    expect(late).toEqual([
+      { op: "board-close" },
+      { op: "keep", slide: "a/1", ids: [] },
+      { op: "focus-close" },
+    ]);
   });
 
   test("never sends more than 200 strokes or 30,000 points, whatever the slide holds", () => {
@@ -522,14 +542,14 @@ describe("a resync while a pen stroke is being drawn (decision 103)", () => {
     const late: MirrorOp[] = [];
     feed.resync((op) => late.push(op));
     expect(strokeOps(late)).toEqual([]);
-    expect(late[0]).toEqual({ op: "keep", slide: "a/1", ids: [] });
+    expect(late[1]).toEqual({ op: "keep", slide: "a/1", ids: [] });
   });
 });
 
 describe("the diagram focus view", () => {
   test("open and close are sent at once; zoom and pan at most every 100 ms, the last one always", () => {
     const { feed, sent } = setup();
-    feed.focus({ kind: "open", slide: "d/1", diagram: 1 });
+    feed.focus({ kind: "open", slide: "d/1", block: "diagram", n: 1 });
     for (let i = 1; i <= 50; i++) {
       feed.focus({ kind: "view", scale: 1 + i / 50, x: i / 100, y: 0 });
       vi.advanceTimersByTime(4);
@@ -553,6 +573,289 @@ describe("the diagram focus view", () => {
   });
 });
 
+describe("the code, table and image views (decision 106)", () => {
+  test("open names the block by its kind and place on the slide, as the diagram's op does", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 2 });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "table", n: 1 });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "image", n: 3 });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "diagram", n: 4 });
+    expect(sent).toEqual([
+      { op: "focus-open", slide: "c/1", code: 2 },
+      { op: "focus-close" },
+      { op: "focus-open", slide: "c/1", table: 1 },
+      { op: "focus-close" },
+      { op: "focus-open", slide: "c/1", image: 3 },
+      { op: "focus-close" },
+      { op: "focus-open", slide: "c/1", diagram: 4 },
+    ]);
+  });
+
+  test("marked lines go out at once, ascending and once each, and an unchanged list is not sent again", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 1 });
+    feed.focus({ kind: "lines", lines: [4, 1] });
+    feed.focus({ kind: "lines", lines: [1, 4, 4] });
+    feed.focus({ kind: "lines", lines: [1, 4, 6] });
+    feed.focus({ kind: "lines", lines: [] });
+    expect(sent.filter((o) => o.op === "focus-lines")).toEqual([
+      { op: "focus-lines", lines: [1, 4] },
+      { op: "focus-lines", lines: [1, 4, 6] },
+      { op: "focus-lines", lines: [] },
+    ]);
+  });
+
+  test("a presenter who marks more than 256 lines mirrors the first 256, and numbers out of range are left out", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 1 });
+    const many = Array.from({ length: 400 }, (_, i) => 400 - i);
+    feed.focus({ kind: "lines", lines: [0, -3, 1.5, 200_000, Number.NaN, ...many] });
+    const [op] = sent.filter((o) => o.op === "focus-lines");
+    expect(op).toEqual({
+      op: "focus-lines",
+      lines: Array.from({ length: MAX_MARKED_LINES }, (_, i) => i + 1),
+    });
+    expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+  });
+
+  test("lines are sent only for an open code view: a table, an image or no view sends none", () => {
+    const { feed, sent } = setup();
+    feed.focus({ kind: "lines", lines: [1] });
+    feed.focus({ kind: "open", slide: "c/1", block: "table", n: 1 });
+    feed.focus({ kind: "lines", lines: [1] });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "image", n: 1 });
+    feed.focus({ kind: "lines", lines: [1] });
+    expect(sent.filter((o) => o.op === "focus-lines")).toEqual([]);
+  });
+
+  test("a new view starts with no marks: the lines of the last one are not resent for it", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "c/1", strokes: [], reset: true });
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 1 });
+    feed.focus({ kind: "lines", lines: [2, 3] });
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 2 });
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(late.filter((o) => o.op.startsWith("focus"))).toEqual([
+      { op: "focus-open", slide: "c/1", code: 2 },
+      { op: "focus-lines", lines: [] },
+    ]);
+  });
+
+  test("a resync sends the open block, its zoom and scroll, and its marks, empty ones too", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "c/1", strokes: [mark(1)], reset: true });
+    feed.focus({ kind: "open", slide: "c/1", block: "code", n: 2 });
+    feed.focus({ kind: "view", scale: 1.25, x: 0, y: 0.75 });
+    feed.focus({ kind: "lines", lines: [3, 5] });
+    vi.advanceTimersByTime(500);
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(kinds(late)).toEqual([
+      "board-close",
+      "keep",
+      "stroke",
+      "focus-open",
+      "focus-view",
+      "focus-lines",
+    ]);
+    expect(late.slice(3)).toEqual([
+      { op: "focus-open", slide: "c/1", code: 2 },
+      { op: "focus-view", scale: 1.25, x: 0, y: 0.75 },
+      { op: "focus-lines", lines: [3, 5] },
+    ]);
+    // Cleared marks go out as an empty list, so a follower that held them drops them.
+    feed.focus({ kind: "lines", lines: [] });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(late.at(-1)).toEqual({ op: "focus-lines", lines: [] });
+    // A table or an image view has no marks to send.
+    feed.focus({ kind: "close" });
+    feed.focus({ kind: "open", slide: "c/1", block: "table", n: 1 });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(late.filter((o) => o.op.startsWith("focus"))).toEqual([
+      { op: "focus-open", slide: "c/1", table: 1 },
+    ]);
+  });
+
+  test("a zoom or pan that is not a finite number is not sent and does not replace the last good one", () => {
+    // A view measured on a stage with no size divides by zero; every receiver
+    // would refuse that op, and each resync would repeat it.
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "marks", slide: "c/1", strokes: [], reset: true });
+    feed.focus({ kind: "open", slide: "c/1", block: "image", n: 1 });
+    feed.focus({ kind: "view", scale: 2, x: 0.25, y: 0 });
+    vi.advanceTimersByTime(200);
+    feed.focus({ kind: "view", scale: 1, x: Number.NaN, y: Number.NaN });
+    feed.focus({ kind: "view", scale: Number.POSITIVE_INFINITY, x: 0, y: 0 });
+    vi.advanceTimersByTime(200);
+    feed.resync();
+    const views = sent.filter((o) => o.op === "focus-view");
+    expect(views).toEqual([
+      { op: "focus-view", scale: 2, x: 0.25, y: 0 },
+      { op: "focus-view", scale: 2, x: 0.25, y: 0 },
+    ]);
+  });
+
+  test("every focus op it makes passes the schema a receiver checks", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "marks", slide: "c/1", strokes: [], reset: true });
+    for (const block of ["diagram", "code", "table", "image"] as const) {
+      feed.focus({ kind: "open", slide: "c/1", block, n: 1000 });
+      feed.focus({ kind: "view", scale: 5.333_333, x: 1, y: 0.123_456 });
+      feed.focus({ kind: "lines", lines: [100_000] });
+      vi.advanceTimersByTime(200);
+      feed.resync();
+      feed.focus({ kind: "close" });
+    }
+    for (const op of ["focus-open", "focus-view", "focus-lines", "focus-close"]) {
+      expect(kinds(sent)).toContain(op);
+    }
+    for (const op of sent) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+  });
+});
+
+describe("the whiteboard and the shapes (decision 110)", () => {
+  test("a committed rectangle or ellipse goes out as one stroke op, from 0 and ending, four numbers", () => {
+    const { feed, sent } = setup();
+    feed.ingest(committed("a/1", box(1, "rect")));
+    feed.ingest(committed("a/1", box(2, "ellipse")));
+    vi.advanceTimersByTime(500);
+    expect(strokeOps(sent)).toEqual([
+      {
+        op: "stroke",
+        slide: "a/1",
+        id: 1,
+        tool: "rect",
+        color: "ink",
+        from: 0,
+        points: [400, 500, 3000, 2500],
+        end: true,
+      },
+      {
+        op: "stroke",
+        slide: "a/1",
+        id: 2,
+        tool: "ellipse",
+        color: "ink",
+        from: 0,
+        points: [400, 500, 3000, 2500],
+        end: true,
+      },
+    ]);
+    for (const op of sent) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+  });
+
+  test("opening the board sends board-open, then the board's marks as a clear and its strokes, in that order", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    sent.length = 0;
+    feed.ingest({ kind: "board", slide: "a/1" });
+    feed.ingest({
+      kind: "marks",
+      slide: "a/board",
+      strokes: [box(7, "rect"), mark(8)],
+      reset: true,
+    });
+    expect(kinds(sent)).toEqual(["board-open", "clear", "stroke", "stroke"]);
+    expect(sent[0]).toEqual({ op: "board-open", slide: "a/1" });
+    expect(sent[1]).toEqual({ op: "clear", slide: "a/board" });
+    expect(strokeOps(sent).map((s) => [s.slide, s.id, s.tool])).toEqual([
+      ["a/board", 7, "rect"],
+      ["a/board", 8, "pen"],
+    ]);
+  });
+
+  test("closing sends board-close, then the slide's marks again", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "board", slide: "a/1" });
+    feed.ingest({ kind: "marks", slide: "a/board", strokes: [mark(7)], reset: true });
+    sent.length = 0;
+    feed.ingest({ kind: "board", slide: null });
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    expect(kinds(sent)).toEqual(["board-close", "clear", "stroke"]);
+    expect(sent[0]).toEqual({ op: "board-close" });
+  });
+
+  test("a resync with the board open sends board-open first, then keep for the board's strokes", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    feed.ingest({ kind: "board", slide: "a/2" });
+    feed.ingest({ kind: "marks", slide: "a/board", strokes: [box(7, "ellipse")], reset: true });
+    vi.advanceTimersByTime(500);
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(kinds(late)).toEqual(["board-open", "keep", "stroke", "focus-close"]);
+    expect(late[0]).toEqual({ op: "board-open", slide: "a/2" });
+    expect(late[1]).toEqual({ op: "keep", slide: "a/board", ids: [7] });
+  });
+
+  test("a resync with the board closed sends board-close first, so a follower that missed the close drops the board", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    feed.ingest({ kind: "board", slide: "a/1" });
+    feed.ingest({ kind: "board", slide: null });
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(late[0]).toEqual({ op: "board-close" });
+    expect(late[1]?.op).toBe("keep");
+  });
+
+  test("a resync before any marks still says whether the board is open", () => {
+    const { feed } = setup();
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(late).toEqual([{ op: "board-close" }, { op: "focus-close" }]);
+    feed.ingest({ kind: "board", slide: "a/1" });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(late[0]).toEqual({ op: "board-open", slide: "a/1" });
+  });
+
+  test("a resync to one sink leaves the others alone", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "board", slide: "a/1" });
+    sent.length = 0;
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(sent).toEqual([]);
+    expect(late[0]).toEqual({ op: "board-open", slide: "a/1" });
+  });
+
+  test("a follower that applies the ops in order ends with the board the presenter has", () => {
+    const { feed } = setup();
+    const follower = new MirrorStore();
+    feed.addSink((op) => follower.apply(op));
+    feed.ingest({ kind: "board", slide: "a/1" });
+    feed.ingest({ kind: "marks", slide: "a/board", strokes: [box(7, "rect")], reset: true });
+    expect(follower.board).toBe("a/1");
+    expect(follower.strokes("a/board").map((s) => s.tool)).toEqual(["rect"]);
+    feed.ingest({ kind: "board", slide: null });
+    expect(follower.board).toBeNull();
+    // A follower that joined while the board was open, then missed the close.
+    const late = new MirrorStore();
+    late.apply({ op: "board-open", slide: "a/1" });
+    feed.resync((op) => late.apply(op));
+    expect(late.board).toBeNull();
+  });
+
+  test("every board op it makes passes the schema a receiver checks", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "board", slide: "a".repeat(2048) });
+    feed.ingest({ kind: "board", slide: null });
+    feed.resync();
+    expect(sent.some((o) => o.op === "board-open")).toBe(true);
+    for (const op of sent) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+  });
+});
+
 describe("sinks", () => {
   test("a removed sink hears nothing more, and a feed without sinks keeps its state for the next one", () => {
     const feed = new MirrorFeed();
@@ -560,7 +863,7 @@ describe("sinks", () => {
     const heard: MirrorOp[] = [];
     const off = feed.addSink((op) => heard.push(op));
     feed.resync();
-    expect(kinds(heard)).toEqual(["keep", "stroke", "focus-close"]);
+    expect(kinds(heard)).toEqual(["board-close", "keep", "stroke", "focus-close"]);
     off();
     heard.length = 0;
     feed.ingest({ kind: "laser", x: 0.5, y: 0.5 });

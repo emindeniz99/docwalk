@@ -58,33 +58,39 @@ interface Found {
 function scan(nodes: readonly RootContent[]): Found {
   const root: Root = { type: "root", children: nodes as RootContent[] };
   const notes: string[] = [];
-  let onlyComments = true;
+  let commentsOnly = true;
   visit(root, (node) => {
     if (node.type === "html") {
       const { texts, rest } = comments((node as Html).value);
-      if (rest.trim() !== "") onlyComments = false;
+      if (rest.trim() !== "") commentsOnly = false;
       for (const raw of texts) {
         const text = raw.trim();
         if (text !== "" && !isToolDirective(text)) notes.push(text);
       }
     } else if (node.type === "text") {
-      if (node.value.trim() !== "") onlyComments = false;
+      if (node.value.trim() !== "") commentsOnly = false;
     } else if (node.type !== "root" && node.type !== "paragraph") {
-      onlyComments = false;
+      commentsOnly = false;
     }
   });
-  return { notes, onlyComments };
+  return { notes, onlyComments: commentsOnly };
+}
+
+/** True when `nodes` hold closed comments and whitespace only (directives and empty comments count). */
+export function onlyComments(nodes: readonly RootContent[]): boolean {
+  return scan(nodes).onlyComments;
 }
 
 /**
  * The notes of each section that has any, by section id. A note belongs to
- * the section whose nodes hold it. A slide with no heading and nothing but
- * comments (what a comment above the first heading opens) passes its notes
- * to the next slide, so a note above the cover reaches the cover.
+ * the section whose nodes hold it. The comments that open the document open
+ * no slide (decision 107), so their notes go to the first slide, and a
+ * note above the cover reaches the cover. A later slide with no heading and
+ * nothing but comments passes its notes to the next slide.
  */
 export function speakerNotes(plan: SectionPlan): Map<string, string[]> {
   const result = new Map<string, string[]>();
-  let carried: string[] = [];
+  let carried = scan(plan.leadingComments).notes;
   for (const section of plan.sections) {
     const found = scan(section.nodes);
     const notes = [...carried, ...found.notes];

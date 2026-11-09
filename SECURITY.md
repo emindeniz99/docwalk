@@ -54,17 +54,21 @@ protects:
   a document. A replayed frame is dropped. The control key steers the deck
   and reads and writes the document; the view key in a follow link only
   receives state, and only state the presenter signed. The presenter's
-  laser, pen marks and diagram focus view reach followers the same way: as
-  signed `mirror` messages under the view key, never to remotes or agents.
-  A mirror message holds numbers, a tool, a colour key and a slide address
-  only; a receiver draws the marks itself, caps what it keeps, and a
-  follower cannot sign one. The presenter resends a slide's marks to a
-  follower that says hello at most every 2 s, and less often the more the
-  last resend cost, and answers hellos with at most one state per 250 ms.
-  The join links appear once the presenter's socket is open, and a
-  presenter whose room someone else reached first moves to a new room.
-  Agent writes apply only while the presenter has switched on "Allow agent
-  edits".
+  laser, pen marks and focus view (of a diagram, code block, table or image,
+  with its zoom, scroll and marked code lines) reach followers the same way:
+  as signed `mirror` messages under the view key, never to remotes or
+  agents. A mirror message holds numbers, a tool, a colour key and a slide
+  address only, and names a block by its kind and place on the slide, never
+  by its text. A receiver draws the marks itself, caps what it keeps and
+  opens a view only on its own copy of the block; a follower cannot sign a
+  message. A follower opens an image view only on an image it has loaded
+  itself, so mirroring never fetches an image the follower blocked. The
+  presenter resends a slide's marks to a follower that says hello at most
+  every 2 s, and less often the more the last resend cost, and answers
+  hellos with at most one state per 250 ms. The join links appear once the
+  presenter's socket is open, and a presenter whose room someone else
+  reached first moves to a new room. Agent writes apply only while the
+  presenter has switched on "Allow agent edits".
 
 Known limits, by design:
 

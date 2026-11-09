@@ -74,6 +74,37 @@ const MESSAGES: RemoteMessage[] = [
   { type: "mirror", op: "focus-open", slide: "retries/2", diagram: 2 },
   { type: "mirror", op: "focus-view", scale: 2.5, x: -0.25, y: 0.1 },
   { type: "mirror", op: "focus-close" },
+  // The code, table and image views (decision 106).
+  { type: "mirror", op: "focus-open", slide: "retries/2", code: 1 },
+  { type: "mirror", op: "focus-open", slide: "retries/2", table: 1000 },
+  { type: "mirror", op: "focus-open", slide: "retries/2", image: 3 },
+  { type: "mirror", op: "focus-lines", lines: [1, 4, 100_000] },
+  { type: "mirror", op: "focus-lines", lines: [] },
+  // Shapes and the whiteboard (decision 110).
+  {
+    type: "mirror",
+    op: "stroke",
+    slide: "retries/board",
+    id: 8,
+    tool: "rect",
+    color: "ink",
+    from: 0,
+    points: [0, 10, 4096, 4000],
+    end: true,
+  },
+  {
+    type: "mirror",
+    op: "stroke",
+    slide: "retries/board",
+    id: 9,
+    tool: "ellipse",
+    color: "focus",
+    from: 0,
+    points: [100, 200, 300, 400],
+    end: true,
+  },
+  { type: "mirror", op: "board-open", slide: "retries/2" },
+  { type: "mirror", op: "board-close" },
 ];
 
 /** A seal for tests: any sender id, any counter. */
@@ -517,6 +548,19 @@ describe("mirror messages (decision 88)", () => {
       { ...stroke, id: -1 },
       { ...stroke, id: 2 ** 31 },
       { ...stroke, tool: "rectangle" },
+      // A shape is two corners sent whole; a hostile sender cannot grow or cut it (decision 110).
+      { ...stroke, tool: "rect", points: [1, 2], end: true },
+      { ...stroke, tool: "rect", points: [1, 2, 3, 4], end: false },
+      { ...stroke, tool: "ellipse", points: [1, 2, 3, 4, 5, 6], end: true },
+      { ...stroke, tool: "ellipse", from: 4, points: [1, 2], end: true },
+      { ...stroke, tool: "arrow", points: [1, 2, 3, 4, 5, 6], end: true },
+      { ...stroke, tool: "arrow", points: [1, 2, 3, 4], end: false },
+      { type: "mirror", op: "board-open" },
+      { type: "mirror", op: "board-open", slide: "" },
+      { type: "mirror", op: "board-open", slide: "x".repeat(2049) },
+      { type: "mirror", op: "board-open", slide: "a/1", title: "<b>" },
+      { type: "mirror", op: "board-close", slide: "a/1" },
+      { type: "mirror", op: "board", slide: "a/1" },
       { ...stroke, color: "#ff0000" },
       { ...stroke, color: "url(javascript:x)" },
       { ...stroke, slide: "" },
@@ -546,6 +590,105 @@ describe("mirror messages (decision 88)", () => {
     ];
     for (const message of hostile) {
       expect(await decrypt(key, await encryptRaw(key, sealed(message)))).toBeNull();
+    }
+  });
+
+  test("a focus op names a block by one kind and its place, and marked lines stay few, whole and in order (decision 106)", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const open = { type: "mirror", op: "focus-open", slide: "a/1" };
+    const lines = { type: "mirror", op: "focus-lines" };
+    const hostile: unknown[] = [
+      // One kind and one place from 1 to 1000; no text, no id, no second kind.
+      { ...open, code: 0 },
+      { ...open, table: 1001 },
+      { ...open, image: 1.5 },
+      { ...open, code: -1 },
+      { ...open, code: Number.POSITIVE_INFINITY },
+      { ...open, code: "1" },
+      { ...open, image: "#figure-1" },
+      { ...open, code: 1, table: 1 },
+      { ...open, diagram: 1, image: 1 },
+      { ...open, video: 1 },
+      { ...open },
+      { type: "mirror", op: "focus-open", code: 1 },
+      { ...open, slide: "", code: 1 },
+      { ...open, slide: "x".repeat(2049), table: 1 },
+      { ...open, code: 1, text: "const a = 1;" },
+      { ...open, image: 1, src: "https://images.invalid/a.png" },
+      // Line numbers from 1, ascending, at most 256 of them, none past 100,000.
+      { ...lines, lines: Array.from({ length: 257 }, (_, i) => i + 1) },
+      { ...lines, lines: [0] },
+      { ...lines, lines: [100_001] },
+      { ...lines, lines: [3, 2] },
+      { ...lines, lines: [2, 2] },
+      { ...lines, lines: [1.5] },
+      { ...lines, lines: [Number.NaN] },
+      { ...lines, lines: ["1"] },
+      { ...lines, lines: "1,2" },
+      { ...lines, lines: null },
+      lines,
+      { ...lines, lines: [1], slide: "a/1" },
+      { ...lines, lines: [1], html: "<mark>" },
+    ];
+    for (const message of hostile) {
+      expect(
+        await decrypt(key, await encryptRaw(key, sealed(message))),
+        `${JSON.stringify(message)}`,
+      ).toBeNull();
+    }
+  });
+
+  test("the longest list of marked lines fits a relay frame and arrives intact (decision 106)", async () => {
+    // Like every mirror op it cannot be split into parts, so 256 of the
+    // widest line numbers must fit one 16 KB frame, signed.
+    const { view, signer, verifier } = await signedRoom();
+    const widest: RemoteMessage = {
+      type: "mirror",
+      op: "focus-lines",
+      lines: Array.from({ length: 256 }, (_, i) => 100_000 - 255 + i),
+    };
+    const frame = await encrypt(view, widest, SEAL, signer);
+    const bytes = JSON.stringify(frame).length;
+    expect(bytes).toBeLessThan(3 * 1024);
+    expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(widest);
+    console.info(
+      `mirror focus-lines: 256 lines, ${JSON.stringify(widest).length} bytes of JSON, ${bytes} as a frame`,
+    );
+  });
+
+  test("the widest board-open and the widest shape fit a relay frame, and the host's estimate holds for both (decision 110)", async () => {
+    // The longest address, in characters that take three bytes each: neither
+    // op can be split into parts, and the resync gap is computed from the estimate.
+    const { view, signer, verifier } = await signedRoom();
+    const address = "語".repeat(2048);
+    const widest: RemoteMessage[] = [
+      { type: "mirror", op: "board-open", slide: address },
+      {
+        type: "mirror",
+        op: "stroke",
+        slide: address,
+        id: 2 ** 31 - 1,
+        tool: "ellipse",
+        color: "primary",
+        from: 0,
+        points: [4096, 4096, 4096, 4096],
+        end: true,
+      },
+    ];
+    for (const message of widest) {
+      const { type: _type, ...op } = message as { type: "mirror" } & MirrorOp;
+      const frame = await encrypt(view, message, SEAL, signer);
+      const bytes = JSON.stringify(frame).length;
+      expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+      const opened = await decrypt(view, frame, verifier);
+      expect(opened?.signed).toBe(true);
+      expect(opened?.message).toEqual(message);
+      const estimate = mirrorFrameBytes(op as MirrorOp);
+      expect(estimate, `${op.op}: the estimate never undercounts`).toBeGreaterThanOrEqual(bytes);
+      expect(estimate, `${op.op}: and stays close`).toBeLessThan(bytes * 1.02);
     }
   });
 

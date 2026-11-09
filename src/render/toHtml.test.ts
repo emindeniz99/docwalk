@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseMarkdown } from "../sectioning/sectionize";
+import { headingIds, parseMarkdown } from "../sectioning/sectionize";
 import { BLOCKED_IMAGE_CLASS, nodesToHtml } from "./toHtml";
 
 const render = (markdown: string, options = {}) =>
@@ -244,5 +244,12 @@ describe("heading ids", () => {
     expect(html).toContain('<h4 id="user-content-retry-budget">Retry budget</h4>');
     // The parsed tree is shared with the sectioner and the editor; rendering never changes it.
     expect(root.children[0]?.data).toBeUndefined();
+  });
+
+  test("a heading inside a quote or a list item gets its anchor id too (decision 107)", () => {
+    const root = parseMarkdown("> ### Quoted part\n\n- #### In a list\n");
+    const html = nodesToHtml(root.children, { headingIds: headingIds(root) });
+    expect(html).toContain('<h3 id="user-content-quoted-part">Quoted part</h3>');
+    expect(html).toContain('<h4 id="user-content-in-a-list">In a list</h4>');
   });
 });

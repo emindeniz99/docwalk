@@ -102,29 +102,58 @@ test("on a phone the edit view switches between source and a visible slide previ
   await expect(page.locator(".docwalk-deck-pane")).toBeHidden();
 });
 
-test("with the comments panel open at 1440 px the annotation toolbar stays on one row", async ({
-  page,
-}) => {
-  // The comments panel narrows the deck pane. The toolbar used to wrap its
-  // undo and clear buttons onto a row of their own, pushing the slide down
-  // and splitting a group the presenter reads as one strip.
-  await ready(page);
-  await page.getByRole("button", { name: /^Comments/ }).click();
-  await expect(page.getByRole("complementary", { name: "Comments" })).toBeVisible();
-  const tops = await page
-    .locator(".docwalk-preview-head .docwalk-stage-tools")
-    .locator(".docwalk-annotate-button, .docwalk-annotate-swatch")
-    .evaluateAll((els) =>
-      els
-        .filter((el) => el.getBoundingClientRect().height > 0)
-        .map((el) => Math.round(el.getBoundingClientRect().top)),
-    );
-  expect(tops.length).toBeGreaterThan(5);
-  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(2);
-  // The whole head is at most two control rows: counter and address, then the tools.
-  const head = await page.locator(".docwalk-preview-head").boundingBox();
-  expect(head?.height ?? Infinity).toBeLessThanOrEqual(2 * 38 + 8 + 12 + 1);
-});
+// Where the tools fit at the mouse control height, 38 px, they keep it
+// (DESIGN.md, Layout); a narrower preview sets them at 32 px.
+for (const [width, height, size] of [
+  [1440, 900, 38],
+  [1280, 800, 32],
+] as const) {
+  test(`with the comments panel open at ${width} px the annotation toolbar stays on one row`, async ({
+    page,
+  }) => {
+    // The comments panel narrows the deck pane to 498 px at 1440 px and 402 px
+    // at 1280 px. The toolbar used to wrap its undo and clear buttons onto a
+    // row of their own, pushing the slide down and splitting a group the
+    // presenter reads as one strip (decision 108).
+    await page.setViewportSize({ width, height });
+    await ready(page);
+    await page.getByRole("button", { name: /^Comments/ }).click();
+    await expect(page.getByRole("complementary", { name: "Comments" })).toBeVisible();
+    const pane = await page.locator(".docwalk-deck-pane").boundingBox();
+    const controls = await page
+      .locator(".docwalk-preview-head")
+      .locator(".docwalk-annotate-button, .docwalk-annotate-swatch")
+      .evaluateAll((els) =>
+        els
+          .filter((el) => el.getBoundingClientRect().height > 0)
+          .map((el) => {
+            const box = el.getBoundingClientRect();
+            const tool = el.closest(".docwalk-stage-tools") !== null;
+            return {
+              tool,
+              top: Math.round(box.top),
+              right: box.right,
+              width: box.width,
+              height: box.height,
+            };
+          }),
+      );
+    const tops = controls.filter((c) => c.tool).map((c) => c.top);
+    // Four tools, three colours, undo and clear.
+    expect(tops).toHaveLength(9);
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(2);
+    for (const c of controls) {
+      // Every control stays reachable inside the pane and a WCAG 2.5.8 target.
+      expect(c.right).toBeLessThanOrEqual((pane?.x ?? 0) + (pane?.width ?? 0));
+      expect(c.width).toBeGreaterThanOrEqual(24);
+      // Firefox reports boxes at fractional offsets a few millionths short.
+      expect(c.height).toBeCloseTo(size, 1);
+    }
+    // The whole head is at most two control rows: counter and address, then the tools.
+    const head = await page.locator(".docwalk-preview-head").boundingBox();
+    expect(head?.height ?? Infinity).toBeLessThanOrEqual(2 * size + 8 + 12 + 1);
+  });
+}
 
 test("an empty document says how to make a slide instead of showing a blank stage", async ({
   page,

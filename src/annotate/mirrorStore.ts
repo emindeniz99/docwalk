@@ -3,6 +3,8 @@ import {
   MAX_SLIDE_POINTS,
   MAX_SLIDE_STROKES,
   MAX_STROKE_POINTS,
+  focusPlaceOf,
+  type FocusPlace,
   type MarkColor,
   type MarkTool,
   type MirrorOp,
@@ -10,12 +12,14 @@ import {
 
 /**
  * What a receiver has been told (decision 88): the presenter's laser, the
- * marks of the slides it has heard about, and the focus view. Followers and
+ * marks of the slides it has heard about, the whiteboard (decision 110) and
+ * the focus view. Followers and
  * the presenter window apply every validated op here and draw from it
  * (mirrorView.ts). The ops passed schema checks already; this file adds the
  * limits that keep a signed but hostile or buggy sender from growing it
  * without bound, and it ignores an op that does not fit what it holds
- * (a chunk that does not continue its stroke, a view with no focus open).
+ * (a chunk that does not continue its stroke, a view with no focus open,
+ * marked lines with no code view open).
  * A resync repeats what a receiver may hold already (decision 103); an op
  * that changes nothing tells no listener, so nothing redraws.
  * No DOM types: the Node-run unit tests import it.
@@ -29,11 +33,11 @@ export interface StoredStroke {
   points: number[];
 }
 
-export interface FocusMirror {
-  slide: string;
-  /** The diagram's number on its slide, from 1. */
-  diagram: number;
+/** The open focus view: which block, its zoom and position, and for code its marked lines (decision 106). */
+export interface FocusMirror extends FocusPlace {
   view: { scale: number; x: number; y: number } | null;
+  /** Marked lines, from 1, ascending; always empty for a diagram, table or image. */
+  lines: readonly number[];
 }
 
 const MAX_STROKE_NUMBERS = 2 * MAX_STROKE_POINTS;
@@ -41,9 +45,13 @@ const MAX_SLIDE_NUMBERS = 2 * MAX_SLIDE_POINTS;
 
 const startsWith = (held: readonly number[], start: readonly number[]) =>
   start.length <= held.length && start.every((n, i) => held[i] === n);
+const sameList = (a: readonly number[], b: readonly number[]) =>
+  a.length === b.length && startsWith(a, b);
 
 export class MirrorStore {
   laser: { x: number; y: number } | null = null;
+  /** The page the open whiteboard covers (decision 110); its marks are the strokes of the board address. */
+  board: string | null = null;
   focus: FocusMirror | null = null;
   /** Least recently touched first, so the first key is the one to forget. */
   private readonly slides = new Map<string, Map<number, StoredStroke>>();
@@ -101,10 +109,19 @@ export class MirrorStore {
         if (strokes.size === 0) this.slides.delete(op.slide);
         break;
       }
+      case "board-open":
+        changed = this.board !== op.slide;
+        this.board = op.slide;
+        break;
+      case "board-close":
+        changed = this.board !== null;
+        this.board = null;
+        break;
       case "focus-open": {
         const open = this.focus;
-        if (open?.slide === op.slide && open.diagram === op.diagram) break;
-        this.focus = { slide: op.slide, diagram: op.diagram, view: null };
+        const place = focusPlaceOf(op);
+        if (open?.slide === place.slide && open.block === place.block && open.n === place.n) break;
+        this.focus = { ...place, view: null, lines: [] };
         changed = true;
         break;
       }
@@ -114,6 +131,13 @@ export class MirrorStore {
         const { view } = open;
         if (view?.scale === op.scale && view.x === op.x && view.y === op.y) break;
         this.focus = { ...open, view: { scale: op.scale, x: op.x, y: op.y } };
+        changed = true;
+        break;
+      }
+      case "focus-lines": {
+        const open = this.focus;
+        if (open?.block !== "code" || sameList(open.lines, op.lines)) break;
+        this.focus = { ...open, lines: [...op.lines] };
         changed = true;
         break;
       }

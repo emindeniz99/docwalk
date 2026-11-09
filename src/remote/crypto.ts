@@ -20,7 +20,7 @@ import type { EncryptedFrame, RemoteMessage, RoomCredentials } from "./types";
  * therefore signs each state with an ECDSA P-256 key of the room; the
  * public half travels in the follow link (`p=`), and a follower drops any
  * state that does not verify. The presenter's mirror messages (laser, marks,
- * diagram focus; decision 88) are signed the same way.
+ * the focus views; decisions 88 and 106) are signed the same way.
  *
  * This file uses no DOM types, so the Node-run unit tests can import it.
  */
