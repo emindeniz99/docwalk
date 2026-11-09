@@ -292,7 +292,12 @@ describe("mirrored laser and marks (decision 88)", () => {
     feed.ingest({ kind: "marks", slide: "one/1", strokes: [stroke(1), stroke(2)], reset: true });
     const onMirror = vi.fn<(op: MirrorOp) => void>();
     connectPresenter(() => {}, { channel: hub.factory, onMirror });
-    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke", "stroke"]);
+    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual([
+      "board-close",
+      "keep",
+      "stroke",
+      "stroke",
+    ]);
     onMirror.mockClear();
     vi.advanceTimersByTime(HEARTBEAT_MS * 3);
     expect(onMirror).not.toHaveBeenCalled();
@@ -310,9 +315,9 @@ describe("mirrored laser and marks (decision 88)", () => {
     // Inside the first window's 2 s gap: the resync waits for its end (decision 103).
     expect(second).not.toHaveBeenCalled();
     vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
-    expect(second.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke"]);
+    expect(second.mock.calls.map(([op]) => op.op)).toEqual(["board-close", "keep", "stroke"]);
     // The resync is a broadcast of ops that change nothing for a window that has the marks.
-    expect(first.mock.calls.map(([op]) => op.op)).toEqual(["keep", "stroke"]);
+    expect(first.mock.calls.map(([op]) => op.op)).toEqual(["board-close", "keep", "stroke"]);
   });
 
   test("a flood of hellos that ask for a resync gets one at once and one at the end of the gap (decision 103)", () => {
@@ -383,6 +388,32 @@ describe("mirrored laser and marks (decision 88)", () => {
     // The window still gets the marks, so the resyncs did reach it.
     expect(ops).toContain("stroke");
     expect(ops.filter((op) => op.startsWith("focus"))).toEqual([]);
+  });
+
+  test("the board ops reach a presenter window, live and in a resync, while the focus ops still do not (decision 110)", () => {
+    const hub = createHub();
+    const { feed } = mirroredAudience(hub);
+    const onMirror = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror });
+    onMirror.mockClear();
+    feed.ingest({ kind: "board", slide: "one/1" });
+    expect(onMirror).toHaveBeenLastCalledWith({ op: "board-open", slide: "one/1" });
+    feed.ingest({ kind: "marks", slide: "one/board", strokes: [stroke(1)], reset: true });
+    feed.focus({ kind: "open", slide: "one/1", block: "code", n: 1 });
+    feed.ingest({ kind: "board", slide: null });
+    expect(onMirror.mock.calls.map(([op]) => op.op)).toEqual([
+      "board-open",
+      "clear",
+      "stroke",
+      "board-close",
+    ]);
+    // A window that opens while the board is up is told, ahead of the strokes.
+    feed.ingest({ kind: "board", slide: "one/1" });
+    feed.ingest({ kind: "marks", slide: "one/board", strokes: [stroke(1)], reset: true });
+    const late = vi.fn<(op: MirrorOp) => void>();
+    connectPresenter(() => {}, { channel: hub.factory, onMirror: late });
+    vi.advanceTimersByTime(RESYNC_MIN_GAP_MS);
+    expect(late.mock.calls.map(([op]) => op.op).slice(0, 2)).toEqual(["board-open", "keep"]);
   });
 
   test("a malformed mirror message is dropped: any same-origin tab can post on the channel", () => {

@@ -44,6 +44,13 @@ const mark = (id: number, n = 4, over: Partial<MarkStroke> = {}): MarkStroke => 
   points: line(n, id),
   ...over,
 });
+const box = (id: number, tool: "rect" | "ellipse", over: Partial<MarkStroke> = {}): MarkStroke => ({
+  id,
+  tool,
+  color: "ink",
+  points: [400, 500, 3000, 2500],
+  ...over,
+});
 const committed = (slide: string, s: MarkStroke): MarkEvent => ({
   kind: "stroke",
   slide,
@@ -291,8 +298,16 @@ describe("a receiver that joins late (resync)", () => {
     sent.length = 0;
     others.length = 0;
     feed.resync((op) => late.push(op));
-    expect(kinds(late)).toEqual(["keep", "stroke", "stroke", "stroke", "focus-open", "focus-view"]);
-    expect(late[0]).toEqual({ op: "keep", slide: "a/1", ids: [1, 2, 3] });
+    expect(kinds(late)).toEqual([
+      "board-close",
+      "keep",
+      "stroke",
+      "stroke",
+      "stroke",
+      "focus-open",
+      "focus-view",
+    ]);
+    expect(late[1]).toEqual({ op: "keep", slide: "a/1", ids: [1, 2, 3] });
     expect(strokeOps(late).map((s) => [s.id, s.from, s.end])).toEqual([
       [1, 0, true],
       [2, 0, true],
@@ -307,7 +322,11 @@ describe("a receiver that joins late (resync)", () => {
     const late: MirrorOp[] = [];
     feed.ingest({ kind: "marks", slide: "a/1", strokes: [], reset: true });
     feed.resync((op) => late.push(op));
-    expect(late).toEqual([{ op: "keep", slide: "a/1", ids: [] }, { op: "focus-close" }]);
+    expect(late).toEqual([
+      { op: "board-close" },
+      { op: "keep", slide: "a/1", ids: [] },
+      { op: "focus-close" },
+    ]);
   });
 
   test("never sends more than 200 strokes or 30,000 points, whatever the slide holds", () => {
@@ -523,7 +542,7 @@ describe("a resync while a pen stroke is being drawn (decision 103)", () => {
     const late: MirrorOp[] = [];
     feed.resync((op) => late.push(op));
     expect(strokeOps(late)).toEqual([]);
-    expect(late[0]).toEqual({ op: "keep", slide: "a/1", ids: [] });
+    expect(late[1]).toEqual({ op: "keep", slide: "a/1", ids: [] });
   });
 });
 
@@ -637,8 +656,15 @@ describe("the code, table and image views (decision 106)", () => {
     vi.advanceTimersByTime(500);
     const late: MirrorOp[] = [];
     feed.resync((op) => late.push(op));
-    expect(kinds(late)).toEqual(["keep", "stroke", "focus-open", "focus-view", "focus-lines"]);
-    expect(late.slice(2)).toEqual([
+    expect(kinds(late)).toEqual([
+      "board-close",
+      "keep",
+      "stroke",
+      "focus-open",
+      "focus-view",
+      "focus-lines",
+    ]);
+    expect(late.slice(3)).toEqual([
       { op: "focus-open", slide: "c/1", code: 2 },
       { op: "focus-view", scale: 1.25, x: 0, y: 0.75 },
       { op: "focus-lines", lines: [3, 5] },
@@ -695,6 +721,141 @@ describe("the code, table and image views (decision 106)", () => {
   });
 });
 
+describe("the whiteboard and the shapes (decision 110)", () => {
+  test("a committed rectangle or ellipse goes out as one stroke op, from 0 and ending, four numbers", () => {
+    const { feed, sent } = setup();
+    feed.ingest(committed("a/1", box(1, "rect")));
+    feed.ingest(committed("a/1", box(2, "ellipse")));
+    vi.advanceTimersByTime(500);
+    expect(strokeOps(sent)).toEqual([
+      {
+        op: "stroke",
+        slide: "a/1",
+        id: 1,
+        tool: "rect",
+        color: "ink",
+        from: 0,
+        points: [400, 500, 3000, 2500],
+        end: true,
+      },
+      {
+        op: "stroke",
+        slide: "a/1",
+        id: 2,
+        tool: "ellipse",
+        color: "ink",
+        from: 0,
+        points: [400, 500, 3000, 2500],
+        end: true,
+      },
+    ]);
+    for (const op of sent) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+  });
+
+  test("opening the board sends board-open, then the board's marks as a clear and its strokes, in that order", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    sent.length = 0;
+    feed.ingest({ kind: "board", slide: "a/1" });
+    feed.ingest({
+      kind: "marks",
+      slide: "a/board",
+      strokes: [box(7, "rect"), mark(8)],
+      reset: true,
+    });
+    expect(kinds(sent)).toEqual(["board-open", "clear", "stroke", "stroke"]);
+    expect(sent[0]).toEqual({ op: "board-open", slide: "a/1" });
+    expect(sent[1]).toEqual({ op: "clear", slide: "a/board" });
+    expect(strokeOps(sent).map((s) => [s.slide, s.id, s.tool])).toEqual([
+      ["a/board", 7, "rect"],
+      ["a/board", 8, "pen"],
+    ]);
+  });
+
+  test("closing sends board-close, then the slide's marks again", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "board", slide: "a/1" });
+    feed.ingest({ kind: "marks", slide: "a/board", strokes: [mark(7)], reset: true });
+    sent.length = 0;
+    feed.ingest({ kind: "board", slide: null });
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    expect(kinds(sent)).toEqual(["board-close", "clear", "stroke"]);
+    expect(sent[0]).toEqual({ op: "board-close" });
+  });
+
+  test("a resync with the board open sends board-open first, then keep for the board's strokes", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    feed.ingest({ kind: "board", slide: "a/2" });
+    feed.ingest({ kind: "marks", slide: "a/board", strokes: [box(7, "ellipse")], reset: true });
+    vi.advanceTimersByTime(500);
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(kinds(late)).toEqual(["board-open", "keep", "stroke", "focus-close"]);
+    expect(late[0]).toEqual({ op: "board-open", slide: "a/2" });
+    expect(late[1]).toEqual({ op: "keep", slide: "a/board", ids: [7] });
+  });
+
+  test("a resync with the board closed sends board-close first, so a follower that missed the close drops the board", () => {
+    const { feed } = setup();
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    feed.ingest({ kind: "board", slide: "a/1" });
+    feed.ingest({ kind: "board", slide: null });
+    feed.ingest({ kind: "marks", slide: "a/1", strokes: [mark(1)], reset: true });
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(late[0]).toEqual({ op: "board-close" });
+    expect(late[1]?.op).toBe("keep");
+  });
+
+  test("a resync before any marks still says whether the board is open", () => {
+    const { feed } = setup();
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(late).toEqual([{ op: "board-close" }, { op: "focus-close" }]);
+    feed.ingest({ kind: "board", slide: "a/1" });
+    late.length = 0;
+    feed.resync((op) => late.push(op));
+    expect(late[0]).toEqual({ op: "board-open", slide: "a/1" });
+  });
+
+  test("a resync to one sink leaves the others alone", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "board", slide: "a/1" });
+    sent.length = 0;
+    const late: MirrorOp[] = [];
+    feed.resync((op) => late.push(op));
+    expect(sent).toEqual([]);
+    expect(late[0]).toEqual({ op: "board-open", slide: "a/1" });
+  });
+
+  test("a follower that applies the ops in order ends with the board the presenter has", () => {
+    const { feed } = setup();
+    const follower = new MirrorStore();
+    feed.addSink((op) => follower.apply(op));
+    feed.ingest({ kind: "board", slide: "a/1" });
+    feed.ingest({ kind: "marks", slide: "a/board", strokes: [box(7, "rect")], reset: true });
+    expect(follower.board).toBe("a/1");
+    expect(follower.strokes("a/board").map((s) => s.tool)).toEqual(["rect"]);
+    feed.ingest({ kind: "board", slide: null });
+    expect(follower.board).toBeNull();
+    // A follower that joined while the board was open, then missed the close.
+    const late = new MirrorStore();
+    late.apply({ op: "board-open", slide: "a/1" });
+    feed.resync((op) => late.apply(op));
+    expect(late.board).toBeNull();
+  });
+
+  test("every board op it makes passes the schema a receiver checks", () => {
+    const { feed, sent } = setup();
+    feed.ingest({ kind: "board", slide: "a".repeat(2048) });
+    feed.ingest({ kind: "board", slide: null });
+    feed.resync();
+    expect(sent.some((o) => o.op === "board-open")).toBe(true);
+    for (const op of sent) expect(v.is(MirrorMessageSchema, { type: "mirror", ...op })).toBe(true);
+  });
+});
+
 describe("sinks", () => {
   test("a removed sink hears nothing more, and a feed without sinks keeps its state for the next one", () => {
     const feed = new MirrorFeed();
@@ -702,7 +863,7 @@ describe("sinks", () => {
     const heard: MirrorOp[] = [];
     const off = feed.addSink((op) => heard.push(op));
     feed.resync();
-    expect(kinds(heard)).toEqual(["keep", "stroke", "focus-close"]);
+    expect(kinds(heard)).toEqual(["board-close", "keep", "stroke", "focus-close"]);
     off();
     heard.length = 0;
     feed.ingest({ kind: "laser", x: 0.5, y: 0.5 });

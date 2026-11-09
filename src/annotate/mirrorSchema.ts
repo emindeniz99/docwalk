@@ -18,7 +18,7 @@ import {
 } from "./mirrorTypes";
 
 /**
- * The schema of every mirror op (decisions 88, 103 and 106), checked where the ops arrive:
+ * The schema of every mirror op (decisions 88, 103, 106 and 110), checked where the ops arrive:
  * in a room message after it decrypts (src/remote/crypto.ts) and on the
  * presenter bridge (src/presenter/bridge.ts). Strict: a field it does not
  * name fails the whole message, so nothing a sender adds can ride along.
@@ -67,6 +67,11 @@ export const MirrorMessageSchema = v.variant("op", [
     v.check((m) => m.from % 2 === 0, "from counts whole points"),
     v.check((m) => m.from + m.points.length <= 2 * MAX_STROKE_POINTS, "stroke too long"),
     v.check((m) => m.points.length > 0 || m.end, "an empty chunk has to end the stroke"),
+    // A shape is its two corners, sent whole (decision 110): a hostile sender cannot grow or cut one.
+    v.check(
+      (m) => m.tool === "pen" || (m.from === 0 && m.points.length === 4 && m.end),
+      "a shape is one chunk of four numbers",
+    ),
   ),
   v.strictObject({
     type: v.literal("mirror"),
@@ -81,6 +86,8 @@ export const MirrorMessageSchema = v.variant("op", [
     slide: Slide,
     ids: v.pipe(v.array(StrokeId), v.maxLength(MAX_KEEP_IDS)),
   }),
+  v.strictObject({ type: v.literal("mirror"), op: v.literal("board-open"), slide: Slide }),
+  v.strictObject({ type: v.literal("mirror"), op: v.literal("board-close") }),
   // One key names the block's kind (decision 106); a message with two, or none, fails.
   v.strictObject({ ...focusOpen, diagram: Place }),
   v.strictObject({ ...focusOpen, code: Place }),
