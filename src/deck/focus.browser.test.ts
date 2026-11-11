@@ -332,6 +332,65 @@ for (const [kind, markdown] of [
   });
 }
 
+/** A key pressed on whatever has focus. Returns the event, to read whether it was prevented. */
+function press(key: string, init: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+  (document.activeElement ?? document.body).dispatchEvent(event);
+  return event;
+}
+
+describe("the zoom keys leave the browser's own shortcuts alone (decisions 87 and 132)", () => {
+  // Ctrl/Cmd + plus, minus and 0 are the browser's page zoom. The view zoomed as well,
+  // and a presenter's view sent that zoom to every follower.
+  // Short, so Fit lands well inside the type scale's range and a step either way is not clamped.
+  const SHORT_CODE = "## Code\n\n```ts\nconst a = 1;\nconst b = 2;\n```\n";
+
+  test("with Ctrl, Cmd or Alt held, +, - and 0 neither zoom nor fit the view, nor take the browser's default", async () => {
+    const { view } = await openKind(SHORT_CODE, "code");
+    const fit = textScale(view);
+    press("-");
+    const out = textScale(view);
+    expect(out).toBeCloseTo(fit - 0.25, 5);
+    const reached: string[] = [];
+    const onWindow = (event: KeyboardEvent) => reached.push(event.key);
+    window.addEventListener("keydown", onWindow);
+    try {
+      for (const [key, init] of [
+        ["+", { ctrlKey: true }],
+        ["=", { ctrlKey: true }],
+        ["-", { metaKey: true }],
+        ["0", { ctrlKey: true }],
+        ["+", { altKey: true }],
+      ] as const) {
+        const event = press(key, init);
+        expect(textScale(view), `${key} with ${Object.keys(init)[0]}`).toBe(out);
+        expect(event.defaultPrevented, "the browser's page zoom stays").toBe(false);
+      }
+      // As before, no key reaches the app's shortcuts behind the view.
+      expect(reached).toEqual([]);
+    } finally {
+      window.removeEventListener("keydown", onWindow);
+    }
+  });
+
+  test("without a modifier, 0 fits, + and = zoom in (Shift included, as + is Shift+= on many layouts) and - zooms out", async () => {
+    const { view } = await openKind(SHORT_CODE, "code");
+    const fit = textScale(view);
+    expect(fit, "room for a step either way").toBeGreaterThanOrEqual(1.25);
+    expect(fit).toBeLessThanOrEqual(3.5);
+    press("-");
+    expect(textScale(view)).toBeCloseTo(fit - 0.25, 5);
+    press("0");
+    expect(textScale(view)).toBe(fit);
+    press("-");
+    press("-");
+    press("+", { shiftKey: true });
+    expect(textScale(view)).toBeCloseTo(fit - 0.25, 5);
+    press("=");
+    expect(textScale(view)).toBeCloseTo(fit, 5);
+  });
+});
+
 describe("Safari's pinch gesture events (decision 127)", () => {
   // WebKit sends gesturestart and gesturechange for a trackpad pinch; left alone they zoom the page.
   test("in a diagram view the scale becomes the start times the gesture's scale, around its point, and the page does not zoom", async () => {
