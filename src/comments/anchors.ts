@@ -1,15 +1,15 @@
 /**
- * Where comments attach. Headings are found on the Markdown AST with the
- * same slugger and the same rules as `sectionize` (rule 2), so a heading
- * anchor equals the section id or GitHub anchor a reader already links to.
+ * Where comments attach. A heading's anchor is the id `headingIds` gives it,
+ * the one `sectionize` and the renderer use (rule 2, decision 132): GitHub's
+ * anchor, or its fallback where GitHub's slug is empty, so a heading anchor
+ * equals the section id or anchor a reader already links to.
  * Diagram nodes are read from the rendered SVG (src/comments/diagramNodes.ts);
  * this module stays free of the DOM so it runs anywhere.
  */
-import GithubSlugger from "github-slugger";
 import type { Code, Heading, Root, RootContent } from "mdast";
 import { visit } from "unist-util-visit";
 import { m } from "../paraglide/messages.js";
-import { anchoredHeadings, headingText, type SectionPlan } from "../sectioning/sectionize";
+import { headingText, type SectionPlan } from "../sectioning/sectionize";
 import type { Anchor, DocComment } from "./types";
 
 export interface HeadingTarget {
@@ -110,11 +110,11 @@ function sectionOfNodes(root: Root, plan: SectionPlan): Map<RootContent, string 
 /** Every heading and Mermaid diagram a comment can point at, in document order. */
 export function buildAnchorIndex(root: Root, plan: SectionPlan): AnchorIndex {
   const sectionOf = sectionOfNodes(root, plan);
-  // Same slugging as sectionize: every heading GitHub anchors, nested ones
-  // too (decision 107), in order, so duplicate titles get GitHub's `-1`,
-  // `-2` suffixes in the same places. Comments attach to top-level ones.
-  const slugger = new GithubSlugger();
-  const slugs = new Map(anchoredHeadings(root).map((h) => [h, slugger.slug(headingText(h))]));
+  // The ids sectionize gave (`headingIds`): GitHub's numbering over every
+  // heading, nested ones too (decision 107), and a fallback id where GitHub's
+  // slug is empty, which an anchor cannot hold (decision 132). Comments
+  // attach to top-level headings.
+  const slugs = plan.headingIds;
   const headings: HeadingTarget[] = [];
   const diagrams: DiagramTarget[] = [];
   const perHeading = new Map<string, number>();

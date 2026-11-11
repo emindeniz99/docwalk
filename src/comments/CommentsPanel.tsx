@@ -232,14 +232,18 @@ function PanelBody({
   const resolved = api.comments.map((c) => ({
     comment: c,
     where: resolveAnchor(c.anchor, index, nodes),
+    key: currentKey(c.anchor, index),
   }));
   const orphaned = resolved.filter((r) => r.where.status === "orphaned");
+  // Every node of one diagram has the same order: the anchor key keeps each
+  // node's comments together, one group per node (decision 132).
   const attached = resolved
     .filter((r) => r.where.status === "attached")
     .toSorted(
       (a, b) =>
         (a.where.status === "attached" ? a.where.order : 0) -
           (b.where.status === "attached" ? b.where.order : 0) ||
+        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) ||
         a.comment.created - b.comment.created,
     );
   const openCount = attached.filter((r) => !r.comment.resolved).length;
@@ -248,9 +252,8 @@ function PanelBody({
 
   const groups: { key: string; label: string; sectionId: string | null; items: DocComment[] }[] =
     [];
-  for (const { comment, where } of shown) {
+  for (const { comment, where, key } of shown) {
     if (where.status !== "attached") continue;
-    const key = currentKey(comment.anchor, index);
     const last = groups.at(-1);
     if (last?.key === key) last.items.push(comment);
     else groups.push({ key, label: where.label, sectionId: where.sectionId, items: [comment] });
