@@ -12,7 +12,7 @@ import { slideAddress } from "./pages";
  * element a target or forge a name. A mark is `data-docwalk-focus` plus a
  * tab stop and a name that says how to open the block; exports remove them.
  */
-export type FocusKind = "code" | "table" | "image";
+type FocusKind = "code" | "table" | "image";
 
 export const FOCUS_ATTR = "data-docwalk-focus";
 /** Set when the block already had a name of its own, so removing the mark leaves it. */
@@ -150,7 +150,7 @@ export function markFocusTargets(root: ParentNode): void {
 }
 
 /** Takes the mark off one element, leaving a name the author gave it. */
-export function unmarkFocusTarget(el: Element): void {
+function unmarkFocusTarget(el: Element): void {
   const kind = focusKind(el);
   if (!kind) return;
   el.removeAttribute(FOCUS_ATTR);

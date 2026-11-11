@@ -12,7 +12,7 @@ import type { ExportSlide } from "./types";
  * Kept apart from pages.ts, which brings in the sanitizer: App builds these
  * slides and loads the exporters only when one is asked for (decision 43).
  */
-export function boardSlide(
+function boardSlide(
   sectionId: string,
   sectionTitle: string,
   marks: readonly SavedStroke[],

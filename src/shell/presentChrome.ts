@@ -39,12 +39,12 @@ import {
 export const CHROME_IDLE_MS = 3000;
 
 /** How long the first-time hint stays up once the chrome has hidden. */
-export const CHROME_HINT_MS = 5000;
+const CHROME_HINT_MS = 5000;
 
-export const KEEP_CHROME_KEY = "docwalk.keepPresentControls";
-export const CHROME_HINT_KEY = "docwalk.presentControlsHintSeen";
+const KEEP_CHROME_KEY = "docwalk.keepPresentControls";
+const CHROME_HINT_KEY = "docwalk.presentControlsHintSeen";
 /** Set ("true") when the viewer chose the card frame over the default fill (decision 77). */
-export const CARD_FRAME_KEY = "docwalk.presentCardFrame";
+const CARD_FRAME_KEY = "docwalk.presentCardFrame";
 
 /** The bar above the slide: counter, address, overview, Exit and the tools. */
 const BAR = ".docwalk-preview-head";
@@ -84,7 +84,7 @@ const QUIET_KEYS = new Set([
 ]);
 
 /** True for a key press that should leave hidden chrome hidden. */
-export function isQuietKey(event: Pick<KeyboardEvent, "key">): boolean {
+function isQuietKey(event: Pick<KeyboardEvent, "key">): boolean {
   return QUIET_KEYS.has(event.key);
 }
 
@@ -163,7 +163,7 @@ export function usePresentFrame(): PresentFrame {
 
 // ---- The hook -------------------------------------------------------------
 
-export interface PresentChrome {
+interface PresentChrome {
   /** The chrome is hidden and the slide has the stage to itself. */
   hidden: boolean;
   /** Show the first-time hint ("Tap or move to show controls"). */

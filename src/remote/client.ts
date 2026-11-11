@@ -59,7 +59,7 @@ export type RemoteRole = "presenter" | "remote" | "follower" | "agent";
  * - `too-large`: the encrypted frame is over the relay's cap and the message
  *   cannot be split into parts (parts.ts); it is dropped.
  */
-export type SendResult = "sent" | "queued" | "not-open" | "too-large";
+type SendResult = "sent" | "queued" | "not-open" | "too-large";
 
 export interface SocketHandlers {
   open(): void;
@@ -69,7 +69,7 @@ export interface SocketHandlers {
 }
 
 /** The part of a WebSocket the client uses, so tests can pass a fake relay. */
-export interface SocketLike {
+interface SocketLike {
   send(data: string): void;
   close(): void;
 }
@@ -92,7 +92,7 @@ export interface RoomConnection {
   close(): void;
 }
 
-export interface ConnectOptions {
+interface ConnectOptions {
   /** The presenter needs both keys, a remote or an agent `key`, a follower `view`; without it the status goes to "closed". */
   creds: RoomCredentials;
   role: RemoteRole;
@@ -136,7 +136,7 @@ export function reconnectDelay(attempt: number): number {
 }
 
 /** `wss://<host>/api/remote/<room>`, or `ws:` when the page is served over plain http. */
-export function roomUrl(room: string, base: string): string {
+function roomUrl(room: string, base: string): string {
   const url = new URL(REMOTE_PATH + encodeURIComponent(room), base);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   url.search = "";

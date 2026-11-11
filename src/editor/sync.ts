@@ -6,7 +6,7 @@ import type { EditorDiagnostic } from "./types";
  * state, so the rules they encode are unit-tested in Node.
  */
 
-export interface TextChange {
+interface TextChange {
   from: number;
   to: number;
   insert: string;

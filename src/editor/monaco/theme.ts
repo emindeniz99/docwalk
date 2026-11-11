@@ -7,7 +7,7 @@ import type { editor } from "monaco-editor/editor";
  * values whenever light/dark changes; there is no second copy of the palette
  * to drift from DESIGN.md.
  */
-export interface Palette {
+interface Palette {
   dark: boolean;
   bg: string;
   surface: string;

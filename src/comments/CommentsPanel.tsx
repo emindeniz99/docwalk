@@ -56,7 +56,7 @@ import { MAX_AUTHOR_CHARS, MAX_COMMENT_CHARS, type Anchor, type DocComment } fro
 import type { CommentNotice, CommentsApi } from "./useComments";
 import "./comments.css";
 
-export interface CommentsPanelProps {
+interface CommentsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   /** Phone and narrow layouts show the panel as a modal sheet. */

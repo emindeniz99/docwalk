@@ -89,7 +89,7 @@ export const CommentSchema = v.pipe(
   }),
 );
 
-export const CommentListSchema = v.pipe(v.array(CommentSchema), v.maxLength(MAX_COMMENTS));
+const CommentListSchema = v.pipe(v.array(CommentSchema), v.maxLength(MAX_COMMENTS));
 
 /** A tombstone carries an id and a time and nothing else; a time too far ahead becomes 0. */
 export const TombstoneSchema = v.pipe(
@@ -151,7 +151,7 @@ export function tombstoneFor(comment: DocComment, now: number): Tombstone {
 }
 
 /** Validates an already-parsed value as a comments file, with a reason a user can act on when it is not one. */
-export function parseCommentsFile(input: unknown): ParseResult {
+function parseCommentsFile(input: unknown): ParseResult {
   const result = v.safeParse(CommentsFileSchema, input);
   if (result.success) {
     return {
@@ -228,7 +228,7 @@ export function serializeComments(
   return `${JSON.stringify(commentsFile(comments, deleted), null, 2)}\n`;
 }
 
-export interface MergeResult extends CommentSet {
+interface MergeResult extends CommentSet {
   /** Comments that are new, newer or gone because of a tombstone: what the merge changed. */
   changed: number;
   /** How many of the changes were local comments removed by a tombstone. */

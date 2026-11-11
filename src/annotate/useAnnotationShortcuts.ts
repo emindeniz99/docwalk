@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, type RefObject } from "react";
 import { inFocusView } from "../deck/focusView";
 import type { AnnotationMode } from "./types";
 
-export type AnnotationShortcut = { mode: AnnotationMode } | { action: "undo" | "redo" | "board" };
+type AnnotationShortcut = { mode: AnnotationMode } | { action: "undo" | "redo" | "board" };
 
 const MODE_KEYS: Record<string, AnnotationMode> = {
   p: "pen",
@@ -62,7 +62,7 @@ export function annotationShortcut(event: KeyboardEvent): AnnotationShortcut | n
   return mode ? { mode } : null;
 }
 
-export interface AnnotationShortcutHandlers {
+interface AnnotationShortcutHandlers {
   /** The current mode: Escape is only claimed while a tool is active. */
   mode: AnnotationMode;
   setMode: (mode: AnnotationMode) => void;

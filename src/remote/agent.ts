@@ -9,7 +9,7 @@ import type { AgentSlide, RemoteMessage } from "./types";
  * when it names one.
  */
 
-export type AgentRequest = Extract<RemoteMessage, { type: "doc-get" | "doc-write" | "slides-get" }>;
+type AgentRequest = Extract<RemoteMessage, { type: "doc-get" | "doc-write" | "slides-get" }>;
 
 export interface AgentHostContext {
   /** The presenter's document, or null while it loads. */

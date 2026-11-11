@@ -29,7 +29,7 @@ const SHEET = "(max-width: 900px)";
 
 const NO_NODES: DiagramNodes = new Map();
 
-export interface CommentsUiInput {
+interface CommentsUiInput {
   doc: LoadedDocument | null;
   title: string;
   root: Root;

@@ -24,10 +24,10 @@ import { m } from "../paraglide/messages.js";
 import { withoutDocumentLink } from "../url/state";
 import { rememberedFile } from "../workspace/store";
 
-export const SAMPLE: LoadedDocument = { markdown: sample, source: { kind: "sample" } };
+const SAMPLE: LoadedDocument = { markdown: sample, source: { kind: "sample" } };
 
 /** Message functions, read when a notice is raised, so they follow the UI language. */
-export const DAMAGED_LINK = m.doc_damaged_link;
+const DAMAGED_LINK = m.doc_damaged_link;
 
 export const DRAFT_KEPT = m.doc_draft_kept;
 

@@ -5,7 +5,7 @@ import { m } from "../paraglide/messages.js";
 import { sketchKeyDocument } from "./identity";
 import { deleteSketch, deleteSketches, listSketches, type SketchSummary } from "./store";
 
-export interface SavedSketchesProps {
+interface SavedSketchesProps {
   /** The key of the sketch on the canvas, or null when none is stored for it. It is never offered for deletion. */
   openKey: string | null;
   /** Escape closes the panel and not the dialog. */

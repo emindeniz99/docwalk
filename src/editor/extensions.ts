@@ -164,7 +164,7 @@ const flashField = StateField.define<DecorationSet>({
 
 /* ---- The whole setup ------------------------------------------------------ */
 
-export interface SetupOptions {
+interface SetupOptions {
   label: Extension;
   onUpdate: Extension;
 }

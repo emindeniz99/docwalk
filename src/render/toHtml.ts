@@ -20,7 +20,7 @@ export const BLOCKED_IMAGE_CLASS = "docwalk-blocked-image";
  * as the click and focus target. Loaded or exported, the image is no longer
  * a button and the span is a plain inline wrapper.
  */
-export const BLOCKED_IMAGE_FRAME_CLASS = "docwalk-blocked-frame";
+const BLOCKED_IMAGE_FRAME_CLASS = "docwalk-blocked-frame";
 
 /**
  * Where a blocked image keeps its remote URL. Not `data-src`: reveal.js
@@ -45,7 +45,7 @@ export interface HtmlOptions {
  * needs. Neither element is in GitHub's schema; loose text inside one is
  * the only thing that no longer shows.
  */
-export const SANITIZE_SCHEMA = {
+const SANITIZE_SCHEMA = {
   ...defaultSchema,
   strip: [...(defaultSchema.strip ?? []), "style", "svg", "math"],
   // GitHub's schema keeps a disabled checkbox for task lists. docwalk draws
@@ -131,7 +131,7 @@ export function remoteImageUrl(src: string): string | null {
  * page loads it only after a click (`src/render/remoteImages.ts`) or when
  * the setting allows it. Same-origin sources pass.
  */
-export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
+function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
   return (tree: HastRoot) => {
     if (options.loadRemoteImages) return;
     visit(tree, "element", (node: Element, index, parent) => {
@@ -184,7 +184,7 @@ export function rehypeBlockRemoteImages(options: HtmlOptions = {}) {
 }
 
 /** Class on the empty `<span>` that stands where a task item's checkbox was (decision 86). */
-export const TASK_BOX_CLASS = "docwalk-task-box";
+const TASK_BOX_CLASS = "docwalk-task-box";
 
 /** What a task mark is told to the viewer, by state. `data-state` carries the same value for CSS. */
 const TASK_LABELS = { done: m.render_task_done, open: m.render_task_open };

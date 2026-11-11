@@ -16,7 +16,7 @@ export type LevelOption = "auto" | HeadingDepth | readonly HeadingDepth[];
  * - `title`: a heading above the slide level that carries its own content.
  * - `content`: a normal slide-starting section, or a part created by a thematic break.
  */
-export type SectionKind = "cover" | "title" | "content";
+type SectionKind = "cover" | "title" | "content";
 
 export interface Section {
   /** Stable id: the heading's GitHub anchor, or `<previous-id>-part-<n>` after a thematic break. */
@@ -79,7 +79,7 @@ export function parseMarkdown(markdown: string): Root {
  * headings under it. Only H1 qualifies: a document whose single H2 is
  * followed by H3s is a section with subsections, not a titled document.
  */
-export function findTitleHeading(root: Root): Heading | null {
+function findTitleHeading(root: Root): Heading | null {
   const headings = root.children.filter((n): n is Heading => n.type === "heading");
   const first = headings[0];
   if (!first || first.depth !== 1 || headings.length < 2) return null;

@@ -73,7 +73,7 @@ interface Stage {
  * to Fit, and for a canvas the pan as fractions of the stage, for text how
  * far it is scrolled as fractions of how far it can scroll.
  */
-export interface FocusTransform {
+interface FocusTransform {
   scale: number;
   x: number;
   y: number;

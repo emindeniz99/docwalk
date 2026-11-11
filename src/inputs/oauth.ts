@@ -4,7 +4,6 @@
  * nothing. The token lands in `sessionStorage` through token.ts. In static
  * mode `/api/health` is missing and none of this is offered.
  */
-import { useEffect, useState } from "react";
 import * as v from "valibot";
 import { m } from "../paraglide/messages.js";
 import type { HealthResponse, RefreshRequest, TokenRequest, TokenResponse } from "../api/types";
@@ -143,21 +142,6 @@ export async function fetchApiHealth(
   }
 }
 
-/** The Worker's features, or null while unknown and in static mode: hide OAuth and remote until then. */
-export function useApiHealth(fetchImpl?: FetchLike): HealthResponse | null {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  useEffect(() => {
-    let live = true;
-    void fetchApiHealth(fetchImpl).then((result) => {
-      if (live) setHealth(result);
-    });
-    return () => {
-      live = false;
-    };
-  }, [fetchImpl]);
-  return health;
-}
-
 // ---- PKCE -----------------------------------------------------------------
 
 function base64url(bytes: Uint8Array): string {
@@ -177,7 +161,7 @@ export async function pkceChallenge(verifier: string): Promise<string> {
 }
 
 /** `<origin>/?oauth=callback`, the one redirect URI the Worker accepts. */
-export function callbackUrl(origin: string): string {
+function callbackUrl(origin: string): string {
   return `${origin}/?oauth=callback`;
 }
 
@@ -217,7 +201,7 @@ export async function startLogin(clientId: string, env: Partial<OAuthEnv> = {}):
   return url.href;
 }
 
-export type LoginResult =
+type LoginResult =
   | { kind: "none" }
   | { kind: "signed-in"; token: string; stopRefresh: () => void }
   | { kind: "error"; message: string };

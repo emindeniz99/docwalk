@@ -52,7 +52,7 @@ type CopyStatus = "" | "copied" | "manual";
 /** Empty modules around the code, as the QR specification asks, so phone cameras find its edges. */
 const QUIET_ZONE = 4;
 
-export interface JoinDialogProps {
+interface JoinDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   host: Pick<
