@@ -476,7 +476,8 @@ section[data-docwalk-id] {
   /* The canvas stage centres its child; a block child would inherit that as justify-self and overhang on the left. */
   place-items: start;
   overflow: auto;
-  touch-action: auto;
+  /* The browser pans; a two-finger pinch sets the type size, not the page zoom (decision 127). */
+  touch-action: pan-x pan-y;
 }
 
 .docwalk-focus-stage[data-mode="sheet"] :focus-visible,

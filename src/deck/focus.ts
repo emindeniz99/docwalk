@@ -8,6 +8,7 @@ import { emitFocus } from "./focusEvents";
 import { FOCUS_VIEW_CLASS } from "./focusView";
 import { type DiagramEdge, diagramEdges } from "./mermaid";
 import { focusKind, isLoadedImage, locateBlock, unmarkFocusTargets } from "./focusTargets";
+import { panDelta, wheelPixels, zoomFactor } from "./wheelGesture";
 import {
   firstStep,
   jumpTo,
@@ -27,10 +28,12 @@ import "./focusTour.css";
  * key reaches the app behind it.
  *
  * Diagrams and images are drawn on a canvas with fit, zoom, pan, reset and
- * fullscreen (wheel zoom needs Ctrl/Cmd so scrolling past never zooms it by
- * accident; pinch zoom works on touch screens). Code and tables are text:
- * they scroll natively and zoom by type size, so selection, touch scroll and
- * line marks keep working (decision 87).
+ * fullscreen. Code and tables are text: they scroll natively and zoom by type
+ * size, so selection, touch scroll and line marks keep working (decision 87).
+ * Pan and zoom follow the gesture (decision 127): a plain wheel pans a canvas
+ * and scrolls text, and Ctrl/Cmd + wheel, which is also how a trackpad pinch
+ * arrives, Safari's gesture events and a two-finger pinch zoom by the size of
+ * the gesture around its point.
  *
  * Each view tells `focusEvents.ts` which block it shows, how it is zoomed
  * and scrolled, which code lines are marked and how far a diagram tour has
@@ -45,7 +48,12 @@ interface Stage {
   zoomOut(): void;
   zoomIn(): void;
   fit(): void;
+  /** Takes every wheel event on the stage and prevents its default only when it uses it. */
   wheel(event: WheelEvent): void;
+  /** The zoom now, in the stage's own unit: Panzoom's scale or the type scale. */
+  getScale(): number;
+  /** Zooms to `scale`, inside the stage's limits, keeping the point at `clientX`, `clientY` in place. */
+  zoomTo(scale: number, clientX: number, clientY: number): void;
   /** Called once the view is in the page and its toolbar is built. */
   start(): void;
   /** Extra toolbar buttons, between Fullscreen and Close; `toolbar` takes what is not a button. */
@@ -79,6 +87,8 @@ interface FocusTransform {
   y: number;
 }
 type AddButton = (label: string, title: string, action: () => void) => HTMLButtonElement;
+/** Safari's `GestureEvent`, which the DOM types do not name. */
+type GestureLike = Event & { scale?: number; clientX?: number; clientY?: number };
 
 let current: { kind: ViewKind; close: () => void } | null = null;
 
@@ -150,10 +160,21 @@ function mountView(
   view.extras?.(button, toolbar);
   const closeButton = button("✕", m.close(), () => close(true));
 
-  const onWheel = (event: WheelEvent) => {
-    if (!event.ctrlKey && !event.metaKey) return;
+  const onWheel = (event: WheelEvent) => view.wheel(event);
+  // Safari's pinch (decision 127): each change is relative to the scale at the start. Its
+  // default is prevented so the page does not zoom. A pinch with two fingers on the screen is
+  // read from the pointers (Panzoom, or the text stage), so its gesture events only stop the page.
+  const touches = new Set<number>();
+  const onTouchDown = (event: PointerEvent) => {
+    if (event.pointerType === "touch") touches.add(event.pointerId);
+  };
+  const onTouchUp = (event: PointerEvent) => touches.delete(event.pointerId);
+  let gestureFrom = 1;
+  const onGesture = (event: GestureLike) => {
     event.preventDefault();
-    view.wheel(event);
+    if (touches.size > 1) return;
+    if (event.type === "gesturestart") gestureFrom = view.getScale();
+    else view.zoomTo(gestureFrom * (event.scale ?? 1), event.clientX ?? 0, event.clientY ?? 0);
   };
   const onKey = (event: KeyboardEvent) => {
     // Escape reaches the stage first: a running tour ends and the view stays open.
@@ -186,6 +207,12 @@ function mountView(
     event.stopPropagation();
   };
   stage.addEventListener("wheel", onWheel, { passive: false });
+  // Capture: Panzoom stops pointerdown at the canvas.
+  stage.addEventListener("pointerdown", onTouchDown, { capture: true });
+  stage.addEventListener("pointerup", onTouchUp, { capture: true });
+  stage.addEventListener("pointercancel", onTouchUp, { capture: true });
+  stage.addEventListener("gesturestart", onGesture);
+  stage.addEventListener("gesturechange", onGesture);
   overlay.addEventListener("keydown", onKey);
 
   let closed = false;
@@ -196,6 +223,11 @@ function mountView(
     if (announced) emitFocus({ kind: "close" });
     onClosed?.(byViewer);
     stage.removeEventListener("wheel", onWheel);
+    stage.removeEventListener("pointerdown", onTouchDown, { capture: true });
+    stage.removeEventListener("pointerup", onTouchUp, { capture: true });
+    stage.removeEventListener("pointercancel", onTouchUp, { capture: true });
+    stage.removeEventListener("gesturestart", onGesture);
+    stage.removeEventListener("gesturechange", onGesture);
     overlay.removeEventListener("keydown", onKey);
     view.dispose();
     if (document.fullscreenElement === overlay) void document.exitFullscreen();
@@ -241,11 +273,9 @@ function canvasStage(
   canvas.append(copy);
   stage.append(canvas);
 
-  const panzoom: PanzoomObject = Panzoom(canvas, {
-    maxScale: 12,
-    minScale: 0.1,
-    step: 0.25,
-  });
+  const minScale = 0.1;
+  const maxScale = 12;
+  const panzoom: PanzoomObject = Panzoom(canvas, { maxScale, minScale, step: 0.25 });
   // The pan travels as a fraction of the stage: what it shifts on screen is x * scale pixels.
   // A stage with no size (a view already closed) has no fraction to give.
   canvas.addEventListener("panzoomchange", (event) => {
@@ -276,12 +306,41 @@ function canvasStage(
     panzoom.reset({ animate: false });
   };
 
+  // Panzoom draws on the next frame, and a pinch sends several events per frame, so the
+  // focal point comes from the canvas's layout box (which the transform does not move)
+  // and Panzoom's own values, never from the drawn box. The canvas is centred in the stage;
+  // Panzoom's zoomToPoint assumes its top left corner.
+  const zoomTo = (to: number, clientX: number, clientY: number) => {
+    const next = Math.min(maxScale, Math.max(minScale, to));
+    if (next === panzoom.getScale()) return;
+    const box = stage.getBoundingClientRect();
+    const centreX = box.left + canvas.offsetLeft - stage.offsetLeft + canvas.offsetWidth / 2;
+    const centreY = box.top + canvas.offsetTop - stage.offsetTop + canvas.offsetHeight / 2;
+    // Panzoom's focal is the point's offset from the centre, at the new scale.
+    const focal = { x: (clientX - centreX) * next, y: (clientY - centreY) * next };
+    panzoom.zoom(next, { animate: false, focal });
+  };
+
   return {
     zoomOut: () => panzoom.zoomOut(),
     zoomIn: () => panzoom.zoomIn(),
     fit,
     fitted,
-    wheel: (event) => panzoom.zoomWithWheel(event),
+    // A plain wheel pans, so a mouse wheel never zooms by accident (decision 127).
+    wheel(event) {
+      event.preventDefault();
+      const pixels = wheelPixels(event, { width: stage.clientWidth, height: stage.clientHeight });
+      const scale = panzoom.getScale();
+      if (event.ctrlKey || event.metaKey) {
+        zoomTo(scale * zoomFactor(pixels.y), event.clientX, event.clientY);
+        return;
+      }
+      // Panzoom's pan is before the scale: a shift of d screen pixels is d / scale.
+      const { x, y } = panDelta(pixels, event.shiftKey);
+      panzoom.pan(-x / scale, -y / scale, { relative: true, animate: false });
+    },
+    getScale: () => panzoom.getScale(),
+    zoomTo,
     start: () => {
       frame = requestAnimationFrame(() => {
         fit();
@@ -652,6 +711,59 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
     apply(next);
     report();
   };
+  // Zooms and scrolls so the text under the point stays under it (decision 127).
+  const zoomTo = (next: number, clientX: number, clientY: number) => {
+    const from = scale;
+    const before = getComputedStyle(sheet);
+    const padLeft = Number.parseFloat(before.paddingLeft) || 0;
+    const padTop = Number.parseFloat(before.paddingTop) || 0;
+    apply(next);
+    if (scale === from) return;
+    const ratio = scale / from;
+    const after = getComputedStyle(sheet);
+    const box = stage.getBoundingClientRect();
+    const offsetX = clientX - box.left - stage.clientLeft;
+    const offsetY = clientY - box.top - stage.clientTop;
+    const x = stage.scrollLeft + offsetX;
+    const y = stage.scrollTop + offsetY;
+    stage.scrollLeft =
+      (Number.parseFloat(after.paddingLeft) || 0) + (x - padLeft) * ratio - offsetX;
+    stage.scrollTop = (Number.parseFloat(after.paddingTop) || 0) + (y - padTop) * ratio - offsetY;
+    report();
+  };
+  // A two-finger pinch on a touch screen sets the type scale from the change of the fingers'
+  // distance. The stage's touch-action lets the browser pan, so one or two fingers still scroll.
+  const fingers = new Map<number, { x: number; y: number }>();
+  let pinch: { distance: number; scale: number } | null = null;
+  const spread = () => {
+    const [a, b] = [...fingers.values()];
+    if (!a || !b) return null;
+    return {
+      distance: Math.hypot(b.x - a.x, b.y - a.y),
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+    };
+  };
+  const onFingerDown = (event: PointerEvent) => {
+    if (event.pointerType !== "touch") return;
+    fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const now = fingers.size === 2 ? spread() : null;
+    pinch = now && now.distance > 0 ? { distance: now.distance, scale } : null;
+  };
+  const onFingerMove = (event: PointerEvent) => {
+    if (!fingers.has(event.pointerId)) return;
+    fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const now = pinch && fingers.size === 2 ? spread() : null;
+    if (pinch && now) zoomTo((pinch.scale * now.distance) / pinch.distance, now.x, now.y);
+  };
+  const onFingerUp = (event: PointerEvent) => {
+    fingers.delete(event.pointerId);
+    pinch = null;
+  };
+  stage.addEventListener("pointerdown", onFingerDown);
+  stage.addEventListener("pointermove", onFingerMove);
+  stage.addEventListener("pointerup", onFingerUp);
+  stage.addEventListener("pointercancel", onFingerUp);
   // The largest size that needs no sideways scroll and, above 1, no vertical scroll. A
   // line or column that is wider than the screen at FIT_MIN scrolls; smaller is not readable.
   const fit = () => {
@@ -672,7 +784,15 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
     zoomOut: () => zoom(scale - SCALE_STEP),
     zoomIn: () => zoom(scale + SCALE_STEP),
     fit,
-    wheel: (event) => zoom(scale + (event.deltaY < 0 ? SCALE_STEP : -SCALE_STEP)),
+    // A plain wheel scrolls the text natively; Ctrl/Cmd + wheel, or a trackpad pinch, zooms.
+    wheel(event) {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const pixels = wheelPixels(event, { width: stage.clientWidth, height: stage.clientHeight });
+      zoomTo(scale * zoomFactor(pixels.y), event.clientX, event.clientY);
+    },
+    getScale: () => scale,
+    zoomTo,
     start: fit,
     setTransform(view) {
       apply(fitted * view.scale);
@@ -680,7 +800,13 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
       stage.scrollLeft = unit(view.x) * across;
       stage.scrollTop = unit(view.y) * down;
     },
-    dispose: () => stage.removeEventListener("scroll", report),
+    dispose() {
+      stage.removeEventListener("scroll", report);
+      stage.removeEventListener("pointerdown", onFingerDown);
+      stage.removeEventListener("pointermove", onFingerMove);
+      stage.removeEventListener("pointerup", onFingerUp);
+      stage.removeEventListener("pointercancel", onFingerUp);
+    },
   };
   if (kind === "table") {
     // Nothing inside a table takes focus, and axe wants a scrolling region to be reachable.
