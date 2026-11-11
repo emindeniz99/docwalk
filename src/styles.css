@@ -14,6 +14,7 @@
   --fg: var(--dw-color-ink);
   --muted: var(--dw-color-ink-muted);
   --link: var(--dw-color-primary-ink);
+  --editor-code: var(--dw-color-editor-code);
   --focus: var(--dw-color-focus);
   --note-bg: var(--dw-color-note-surface);
   --note-border: var(--dw-color-note-border);
@@ -30,6 +31,7 @@
     --fg: var(--dw-color-ink-dark);
     --muted: var(--dw-color-ink-muted-dark);
     --link: var(--dw-color-primary-ink-dark);
+    --editor-code: var(--dw-color-editor-code-dark);
     --focus: var(--dw-color-focus-dark);
     --note-bg: var(--dw-color-note-surface-dark);
     --note-border: var(--dw-color-stage-note-border);
@@ -46,6 +48,7 @@
   --fg: var(--dw-color-ink-dark);
   --muted: var(--dw-color-ink-muted-dark);
   --link: var(--dw-color-primary-ink-dark);
+  --editor-code: var(--dw-color-editor-code-dark);
   --focus: var(--dw-color-focus-dark);
   --note-bg: var(--dw-color-note-surface-dark);
   --note-border: var(--dw-color-stage-note-border);
@@ -528,11 +531,12 @@ section[data-docwalk-id] {
 }
 
 /* Code, tables and images open in the focus view; the pointer says so, as it does for diagrams. */
-.docwalk-slide-body [data-docwalk-focus] {
+/* The document view opens them too (decision 129). */
+:is(.docwalk-slide-body, .docwalk-document) [data-docwalk-focus] {
   cursor: zoom-in;
 }
 
-.docwalk-slide-body [data-docwalk-focus]:focus-visible {
+:is(.docwalk-slide-body, .docwalk-document) [data-docwalk-focus]:focus-visible {
   outline: 2px solid var(--dw-color-focus);
   outline-offset: 2px;
 }

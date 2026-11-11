@@ -408,6 +408,15 @@ Later rounds:
   table view that starts with no room to scroll drifts a few pixels under the
   pointer until it can scroll. The app shell grew 0.9 kB (433.0 kB gzip).
 
+- Focus views in the document view (decision 129): when the view closes
+  because the document is rendered again or the reader leaves the document
+  view, keyboard focus lands on `<body>`, not on a block (nothing stays inert,
+  and Tab and the shortcuts work); the built app's test opens a diagram only,
+  the other kinds rest on browser tests; a `<summary>` or a blocked image's
+  placeholder inside a table does its own action and opens the table view too,
+  as on a slide; `e2e/document-mode.spec.ts` ran on Chromium here, Firefox and
+  WebKit in the fork's CI.
+
 ## Next up
 
 ### 1. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
@@ -439,10 +448,10 @@ needs its own name ("map mode" here). Questions to settle:
 - **Reuse:** pan and zoom from decision 127, the focus views, the pen and laser
   layer, and the overview's section frames.
 
-A cheaper first step that delivers part of it: the document view gets
-click-to-open for diagrams, tables, code and images. Today only the slides open
-the focus view (`openDiagramFocus` and `openBlockFocus` in
-`src/deck/focus.ts` are wired into `Deck.tsx` only).
+The cheaper first step is done (decision 129, 2026-11-11): the document view
+opens the focus view on a click or Enter for diagrams, tables, code and loaded
+images, through the wiring the deck uses (`src/deck/focusWiring.ts`). Nothing
+is mirrored from it. The questions above still wait for the owner.
 
 ### 2. Small UX fixes seen on 2026-11-09
 

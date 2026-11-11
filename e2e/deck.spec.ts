@@ -212,6 +212,8 @@ test("the presenter window's preview shows the slide's overflow note", async ({
   );
   // Wait for the rebuilt deck: a click on the old one would be undone by the rebuild.
   await expect(page.locator(".docwalk-outline-item")).toHaveCount(3);
+  // The status bar names the kind of note: speaker notes are notes too (decision 130).
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)1 overflow note(?!s)/);
   await page.getByRole("option", { name: /Config/ }).click();
   await expect.poll(() => hash(page)).toBe("#config/1");
 

@@ -129,7 +129,7 @@
 }
 
 .docwalk-editor .dw-tok-code {
-  color: var(--link);
+  color: var(--editor-code);
 }
 
 .docwalk-editor .dw-tok-quote {

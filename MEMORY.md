@@ -13,7 +13,9 @@ rows run to 126. The simplification pass (125, 126) is done:
 `usePresenting`, `useEditorSync`, `useAppKeys`, `shell/appCommands.ts`). Pan
 and zoom in the focus views follow the gesture (127, 128; `deck/wheelGesture.ts`),
 tested with synthetic events only: the hand check is in ROADMAP "Follow-ups".
-The next task is ROADMAP "Next up" 1, map mode, which starts with decisions.
+The document view opens the focus views too (129, `deck/focusWiring.ts`). The
+next task is ROADMAP "Next up" 1, map mode: its questions wait for the owner,
+so "Next up" 2 (small UX fixes) is the next work an agent can start.
 
 The project is public at github.com/emindeniz99/docwalk with the static
 build on GitHub Pages (`deploy-pages.yml` runs after CI passes on `main`, or
@@ -89,6 +91,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-09: Vite's dependency scanner does not follow `new URL("./x.worker.ts", import.meta.url)`: a package only a worker imports is optimized at run time and reloads a vitest browser run on a fresh cache, so list it in `optimizeDeps.include`. Vite builds workers as iife, so a worker cannot code-split (Shiki's grammars stay page chunks posted to it). The CPU profiler overstates tiny hot functions; confirm with interleaved A/B runs or `performance.mark` phases. Pagination measures `cloneNode` copies at once, and Firefox loads a copied image again with no size when its cache will not answer (Playwright routing turns the cache off), so `settled()` pins loaded images until the pages are flagged. Twelve stage controls need 524 px at 38 px; beside the comments panel at 1280 px the head has 354 px.
 - 2026-11-11: A hook split out of a component takes refs and state setters as parameters, and oxlint then wants them in dependency arrays (it cannot see they are stable); adding them changes nothing. A cloud container with Node 24.22.1 needs `pnpm_config_runtime_on_fail=warn`. Never symlink the repository's `node_modules` into a copy and run `pnpm` there: without a lockfile pnpm installs through the link and rewrites the original (repair with `pnpm install --frozen-lockfile`). Before-and-after screenshots differ only in reveal.js's next arrow, which animates until the first slide change; take each twice. CI's `playwright install --with-deps` fails when the runner cannot resolve `security.ubuntu.com` (run 43060033739): run it again.
 - 2026-11-11: Panzoom 4.6 draws on the next frame and its `zoomToPoint` assumes the element sits at its parent's top left: for several wheel events in one frame, or a centred canvas, compute the focal point from the layout box (`offsetLeft`, which a transform does not change) and call `zoom(next, { focal })`; a test waits a frame before it measures. Synthetic PointerEvents bypass `touch-action`, so a pinch test proves the arithmetic, not that a browser delivers the moves. `scrollLeft` keeps whole pixels in Chromium: carry the lost fraction into the next step or forty small steps drift by pixels. `git merge -F -` does not read stdin; write the message to a file.
+- 2026-11-11: The deck stays mounted, only `hidden`, while the document view shows, so anything the deck does on `slidechanged` or teardown also runs then: a module-wide close must check that the view's block is inside the deck's root (`closeContentFocus(root)`). CI's WebKit e2e leg takes 28 to 30 minutes against a 30-minute job limit; run 43083163225 was cancelled mid-suite with no failure printed.
 
 ## Done
 
