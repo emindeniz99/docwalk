@@ -6,8 +6,9 @@
  */
 import * as v from "valibot";
 import { m } from "../paraglide/messages.js";
-import type { HealthResponse, RefreshRequest, TokenRequest, TokenResponse } from "../api/types";
-import { readCapped, type FetchLike } from "./load";
+import type { RefreshRequest, TokenRequest, TokenResponse } from "../api/types";
+import { ClientIdSchema, readJson } from "./health";
+import type { FetchLike } from "./load";
 import {
   clearToken,
   readRefresh,
@@ -29,8 +30,6 @@ const REFRESH_LEAD_MS = 5 * 60_000;
 const REFRESH_RETRY_MS = 60_000;
 /** setTimeout's largest delay. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
-/** Largest JSON body read from `/api`. */
-const MAX_API_BYTES = 16 * 1024;
 /** Longest page address kept for the return trip (a long `#doc=` share fragment can exceed it). */
 const MAX_RETURN_TO = 64 * 1024;
 
@@ -61,16 +60,10 @@ function environment(overrides: Partial<OAuthEnv>): OAuthEnv {
   };
 }
 
+// The health check lives in ./health so a visit that never signs in loads none of this (decision 126).
+export { fetchApiHealth } from "./health";
+
 // ---- Validation -----------------------------------------------------------
-
-/** GitHub App client ids (`Iv1.…`, `Iv23…`). */
-const ClientIdSchema = v.pipe(v.string(), v.regex(/^[A-Za-z0-9._-]{1,128}$/));
-
-const HealthSchema = v.object({
-  ok: v.literal(true),
-  features: v.pipe(v.array(v.string()), v.maxLength(32)),
-  githubClientId: v.optional(v.string()),
-});
 
 const TokenResponseSchema = v.object({
   access_token: v.pipe(v.string(), v.regex(/^[A-Za-z0-9_]{20,255}$/)),
@@ -98,49 +91,6 @@ const CallbackSchema = v.object({
   code: v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{1,256}$/)),
   state: v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{22,128}$/)),
 });
-
-async function readJson(response: Response): Promise<unknown> {
-  const body = await readCapped(response, MAX_API_BYTES);
-  if (!body.ok) return null;
-  try {
-    return JSON.parse(new TextDecoder().decode(body.bytes)) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-// ---- Health ---------------------------------------------------------------
-
-/**
- * GET /api/health, or null in static mode. A static host may answer with the
- * SPA's index.html and a 200, so the body is validated, not the status.
- */
-export async function fetchApiHealth(
-  fetchImpl: FetchLike = (input, init) => globalThis.fetch(input, init),
-): Promise<HealthResponse | null> {
-  try {
-    const response = await fetchImpl("/api/health", {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) return null;
-    const parsed = v.safeParse(HealthSchema, await readJson(response));
-    if (!parsed.success) return null;
-    const clientId = parsed.output.githubClientId;
-    const hasClientId = clientId !== undefined && v.safeParse(ClientIdSchema, clientId).success;
-    // Unknown features from a newer Worker are ignored; "oauth" without a client id is unusable.
-    const features = parsed.output.features.filter(
-      (f): f is "oauth" | "remote" => f === "remote" || (f === "oauth" && hasClientId),
-    );
-    return {
-      ok: true,
-      features: [...new Set(features)],
-      ...(hasClientId && features.includes("oauth") ? { githubClientId: clientId } : {}),
-    };
-  } catch {
-    return null;
-  }
-}
 
 // ---- PKCE -----------------------------------------------------------------
 

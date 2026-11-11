@@ -165,7 +165,7 @@ export function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   useEffect(() => {
     let live = true;
-    void import("./inputs/oauth")
+    void import("./inputs/health")
       .then((mod) => mod.fetchApiHealth())
       .then((h) => {
         if (live) setHealth(h);
