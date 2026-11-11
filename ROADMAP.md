@@ -394,47 +394,23 @@ Later rounds:
   on `main` before the pass and pass alone with `--workers=1`: a race to find
   (CONTRIBUTING, Picking up work 5).
 
+- Pan and zoom in the focus views (decisions 127 and 128), built and tested
+  with synthetic events in Chromium only. Owed, by hand: a Mac trackpad
+  (two-finger scroll pans, a pinch feels proportional; the factor is
+  `exp(-deltaY * 0.01)` with 10 px per event at most) in Chrome, Firefox and
+  Safari; whether Safari sends both `gesturechange` and `ctrlKey` wheel events
+  for one pinch, which would zoom twice; an iPad and a phone. On a touch screen
+  the code and table views allow native panning (`touch-action: pan-x pan-y`),
+  and a browser that takes two moving fingers for a pan sends `pointercancel`,
+  which would end the pinch after a few moves: if so, those views need
+  `touch-action: none` and their own one-finger scroll. iOS gesture events may
+  carry no `clientX`, and the zoom then centres on the top left. A code or
+  table view that starts with no room to scroll drifts a few pixels under the
+  pointer until it can scroll. The app shell grew 0.9 kB (433.0 kB gzip).
+
 ## Next up
 
-### 1. Pan and zoom in the focus views that feel like Excalidraw (owner, 2026-11-09)
-
-A bug fix with a decision row (it refines the focus-view rows). Estimate:
-one to two days. The simplification pass (decision 125) left
-`src/deck/focus.ts` as it was, so the line numbers below still hold.
-
-What the owner saw: in an opened Mermaid diagram, two-finger scrolling on a
-trackpad does not move the diagram, and pinch zoom jumps too far at once.
-
-Cause, found in `src/deck/focus.ts` on 2026-11-09:
-
-- A wheel event without Ctrl or Cmd returns early (`onWheel`), so a
-  two-finger trackpad scroll, which arrives as exactly that, does nothing.
-- `@panzoom/panzoom`'s `zoomWithWheel` with `step: 0.25` multiplies the
-  scale by 1.25 per wheel event, whatever the event's size. A trackpad pinch
-  sends dozens of small events (`ctrlKey` set, small `deltaY`), so one gesture
-  zooms many times over. The code and table focus views do the same with
-  `SCALE_STEP = 0.25` per event.
-
-Target behaviour, as in Excalidraw and Figma:
-
-- Two-finger scroll (wheel without Ctrl/Cmd) pans by `deltaX` and `deltaY`;
-  Shift turns a vertical wheel into a horizontal pan.
-- Pinch, and Ctrl/Cmd + wheel, zoom smoothly in proportion to `deltaY`
-  (for example `scale *= Math.exp(-deltaY * k)`, with `deltaMode` lines and
-  pages converted to pixels), around the pointer, within the current limits.
-- A mouse wheel without a modifier still pans, so nothing zooms by accident.
-- Safari's `gesturestart`/`gesturechange` pinch and two-finger touch
-  (pan and pinch together) on phones and tablets work the same way.
-- The keyboard and the zoom buttons keep their fixed steps.
-- Only the focus overlay takes the wheel; a diagram on a slide or in the
-  document still scrolls the page.
-
-Tests: browser tests that send a pinch as forty small `ctrlKey` wheel events
-and check the total zoom stays within the gesture's size, that a plain wheel
-pans and does not zoom, and the same for the code and table views. A hand check
-on a Mac trackpad and an iPad is still needed; record it.
-
-### 2. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
+### 1. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
 
 The owner's idea: besides slides (pages) and the document view (one column),
 show the Markdown the way Prezi does. All sections sit on one large canvas;
@@ -460,7 +436,7 @@ needs its own name ("map mode" here). Questions to settle:
   first load inside decision 43 (lazy chunk).
 - **Accessibility and motion:** keyboard moves between sections, the camera
   respects `prefers-reduced-motion`, and screen readers get document order.
-- **Reuse:** pan and zoom from item 1, the focus views, the pen and laser
+- **Reuse:** pan and zoom from decision 127, the focus views, the pen and laser
   layer, and the overview's section frames.
 
 A cheaper first step that delivers part of it: the document view gets
@@ -468,7 +444,7 @@ click-to-open for diagrams, tables, code and images. Today only the slides open
 the focus view (`openDiagramFocus` and `openBlockFocus` in
 `src/deck/focus.ts` are wired into `Deck.tsx` only).
 
-### 3. Small UX fixes seen on 2026-11-09
+### 2. Small UX fixes seen on 2026-11-09
 
 From screenshots of the sample and a feature document on desktop and phone:
 
@@ -484,7 +460,7 @@ From screenshots of the sample and a feature document on desktop and phone:
 - The one-time "Tap or move to show controls" hint sits over slide content on
   a phone; check it against short and tall slides.
 
-### 4. A review of PR #5's feature code and a real-device UX pass
+### 3. A review of PR #5's feature code and a real-device UX pass
 
 The security review on 2026-11-09 read the risky parts of PR #5 (rendering,
 the room protocol, the workspace, dependencies); the rest of its roughly
@@ -494,7 +470,7 @@ pass (done 2026-11-11): a code review of the remaining feature code (focus views
 whiteboard, countdown, saved marks, comments round two) and a hand test on a
 Mac trackpad, an iPhone and an iPad, with findings written here.
 
-### 5. The next feature round
+### 4. The next feature round
 
 Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
 for this round is built. After the pass, re-check the survey as its "Re-check"
