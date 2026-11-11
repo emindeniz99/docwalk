@@ -4,6 +4,7 @@ import {
   MAX_ZOOM_DELTA,
   panDelta,
   wheelPixels,
+  zoomDelta,
   ZOOM_PER_PIXEL,
   zoomFactor,
 } from "./wheelGesture";
@@ -44,6 +45,17 @@ describe("panDelta", () => {
 
   test("with Shift a delta the system already turned sideways stays sideways", () => {
     expect(panDelta({ x: 40, y: 0 }, true)).toEqual({ x: 40, y: 0 });
+  });
+});
+
+describe("zoomDelta", () => {
+  test("a zoom reads the vertical delta when there is one", () => {
+    expect(zoomDelta({ x: 3, y: -2 })).toBe(-2);
+  });
+
+  test("with no vertical delta it reads the horizontal one, since macOS turns Shift + wheel sideways", () => {
+    // Panzoom's zoomWithWheel did the same, so Ctrl/Cmd + Shift + wheel zoomed before 127.
+    expect(zoomDelta({ x: -4, y: 0 })).toBe(-4);
   });
 });
 

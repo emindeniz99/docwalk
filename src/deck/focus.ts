@@ -8,7 +8,7 @@ import { emitFocus } from "./focusEvents";
 import { FOCUS_VIEW_CLASS } from "./focusView";
 import { type DiagramEdge, diagramEdges } from "./mermaid";
 import { focusKind, isLoadedImage, locateBlock, unmarkFocusTargets } from "./focusTargets";
-import { panDelta, wheelPixels, zoomFactor } from "./wheelGesture";
+import { panDelta, wheelPixels, zoomDelta, zoomFactor } from "./wheelGesture";
 import {
   firstStep,
   jumpTo,
@@ -164,17 +164,22 @@ function mountView(
   // Safari's pinch (decision 127): each change is relative to the scale at the start. Its
   // default is prevented so the page does not zoom. A pinch with two fingers on the screen is
   // read from the pointers (Panzoom, or the text stage), so its gesture events only stop the page.
+  // Whether a gesture counts is decided at its start and holds until the next start: the
+  // browser may cancel the fingers' pointers halfway through. A change with no start zooms nothing.
   const touches = new Set<number>();
   const onTouchDown = (event: PointerEvent) => {
     if (event.pointerType === "touch") touches.add(event.pointerId);
   };
+  // On the window: a finger can lift outside the stage.
   const onTouchUp = (event: PointerEvent) => touches.delete(event.pointerId);
-  let gestureFrom = 1;
+  let gesture: { from: number; ignored: boolean } | null = null;
   const onGesture = (event: GestureLike) => {
     event.preventDefault();
-    if (touches.size > 1) return;
-    if (event.type === "gesturestart") gestureFrom = view.getScale();
-    else view.zoomTo(gestureFrom * (event.scale ?? 1), event.clientX ?? 0, event.clientY ?? 0);
+    if (event.type === "gesturestart") {
+      gesture = { from: view.getScale(), ignored: touches.size > 1 };
+    } else if (gesture && !gesture.ignored) {
+      view.zoomTo(gesture.from * (event.scale ?? 1), event.clientX ?? 0, event.clientY ?? 0);
+    }
   };
   const onKey = (event: KeyboardEvent) => {
     // Escape reaches the stage first: a running tour ends and the view stays open.
@@ -209,8 +214,8 @@ function mountView(
   stage.addEventListener("wheel", onWheel, { passive: false });
   // Capture: Panzoom stops pointerdown at the canvas.
   stage.addEventListener("pointerdown", onTouchDown, { capture: true });
-  stage.addEventListener("pointerup", onTouchUp, { capture: true });
-  stage.addEventListener("pointercancel", onTouchUp, { capture: true });
+  window.addEventListener("pointerup", onTouchUp, { capture: true });
+  window.addEventListener("pointercancel", onTouchUp, { capture: true });
   stage.addEventListener("gesturestart", onGesture);
   stage.addEventListener("gesturechange", onGesture);
   overlay.addEventListener("keydown", onKey);
@@ -224,8 +229,8 @@ function mountView(
     onClosed?.(byViewer);
     stage.removeEventListener("wheel", onWheel);
     stage.removeEventListener("pointerdown", onTouchDown, { capture: true });
-    stage.removeEventListener("pointerup", onTouchUp, { capture: true });
-    stage.removeEventListener("pointercancel", onTouchUp, { capture: true });
+    window.removeEventListener("pointerup", onTouchUp, { capture: true });
+    window.removeEventListener("pointercancel", onTouchUp, { capture: true });
     stage.removeEventListener("gesturestart", onGesture);
     stage.removeEventListener("gesturechange", onGesture);
     overlay.removeEventListener("keydown", onKey);
@@ -332,7 +337,7 @@ function canvasStage(
       const pixels = wheelPixels(event, { width: stage.clientWidth, height: stage.clientHeight });
       const scale = panzoom.getScale();
       if (event.ctrlKey || event.metaKey) {
-        zoomTo(scale * zoomFactor(pixels.y), event.clientX, event.clientY);
+        zoomTo(scale * zoomFactor(zoomDelta(pixels)), event.clientX, event.clientY);
         return;
       }
       // Panzoom's pan is before the scale: a shift of d screen pixels is d / scale.
@@ -675,6 +680,9 @@ const lineOf = (event: Event) =>
     ? (event.target.closest<HTMLElement>(`.${LINE_CLASS}`) ?? null)
     : null;
 
+/** What a scroll step lost to whole pixels, kept for the next step; more than a pixel was an edge. */
+const keep = (lost: number) => (Math.abs(lost) < 1 ? lost : 0);
+
 function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "table"): Stage {
   stage.dataset["mode"] = "sheet";
   // The class brings the slide's own table, code and colour rules; the sheet only sets size.
@@ -711,24 +719,28 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
     apply(next);
     report();
   };
-  // Zooms and scrolls so the text under the point stays under it (decision 127).
+  // Zooms and scrolls so the text under the point stays under it (decision 127). Padding,
+  // borders and a line's bar keep their size while the type grows, so the anchor is the line
+  // or cell under the point, measured before and after, not a model of the layout.
+  let carry = { x: 0, y: 0 };
   const zoomTo = (next: number, clientX: number, clientY: number) => {
     const from = scale;
-    const before = getComputedStyle(sheet);
-    const padLeft = Number.parseFloat(before.paddingLeft) || 0;
-    const padTop = Number.parseFloat(before.paddingTop) || 0;
+    const hit = document.elementFromPoint(clientX, clientY);
+    const anchor =
+      (hit && copy.contains(hit) ? hit.closest(`.${LINE_CLASS}, td, th`) : null) ?? copy;
+    const before = anchor.getBoundingClientRect();
+    const fx = before.width > 0 ? (clientX - before.left) / before.width : 0;
+    const fy = before.height > 0 ? (clientY - before.top) / before.height : 0;
     apply(next);
     if (scale === from) return;
-    const ratio = scale / from;
-    const after = getComputedStyle(sheet);
-    const box = stage.getBoundingClientRect();
-    const offsetX = clientX - box.left - stage.clientLeft;
-    const offsetY = clientY - box.top - stage.clientTop;
-    const x = stage.scrollLeft + offsetX;
-    const y = stage.scrollTop + offsetY;
-    stage.scrollLeft =
-      (Number.parseFloat(after.paddingLeft) || 0) + (x - padLeft) * ratio - offsetX;
-    stage.scrollTop = (Number.parseFloat(after.paddingTop) || 0) + (y - padTop) * ratio - offsetY;
+    const after = anchor.getBoundingClientRect();
+    // The stage scrolls by whole pixels here; what a step loses is added to the next one,
+    // so forty small steps do not drift. A step held at an edge carries nothing.
+    const left = stage.scrollLeft + carry.x + after.left + fx * after.width - clientX;
+    const top = stage.scrollTop + carry.y + after.top + fy * after.height - clientY;
+    stage.scrollLeft = left;
+    stage.scrollTop = top;
+    carry = { x: keep(left - stage.scrollLeft), y: keep(top - stage.scrollTop) };
     report();
   };
   // A two-finger pinch on a touch screen sets the type scale from the change of the fingers'
@@ -756,14 +768,15 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
     const now = pinch && fingers.size === 2 ? spread() : null;
     if (pinch && now) zoomTo((pinch.scale * now.distance) / pinch.distance, now.x, now.y);
   };
+  // On the window: a finger can lift outside the stage.
   const onFingerUp = (event: PointerEvent) => {
-    fingers.delete(event.pointerId);
+    if (!fingers.delete(event.pointerId)) return;
     pinch = null;
   };
   stage.addEventListener("pointerdown", onFingerDown);
   stage.addEventListener("pointermove", onFingerMove);
-  stage.addEventListener("pointerup", onFingerUp);
-  stage.addEventListener("pointercancel", onFingerUp);
+  window.addEventListener("pointerup", onFingerUp);
+  window.addEventListener("pointercancel", onFingerUp);
   // The largest size that needs no sideways scroll and, above 1, no vertical scroll. A
   // line or column that is wider than the screen at FIT_MIN scrolls; smaller is not readable.
   const fit = () => {
@@ -789,7 +802,7 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       const pixels = wheelPixels(event, { width: stage.clientWidth, height: stage.clientHeight });
-      zoomTo(scale * zoomFactor(pixels.y), event.clientX, event.clientY);
+      zoomTo(scale * zoomFactor(zoomDelta(pixels)), event.clientX, event.clientY);
     },
     getScale: () => scale,
     zoomTo,
@@ -804,8 +817,8 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
       stage.removeEventListener("scroll", report);
       stage.removeEventListener("pointerdown", onFingerDown);
       stage.removeEventListener("pointermove", onFingerMove);
-      stage.removeEventListener("pointerup", onFingerUp);
-      stage.removeEventListener("pointercancel", onFingerUp);
+      window.removeEventListener("pointerup", onFingerUp);
+      window.removeEventListener("pointercancel", onFingerUp);
     },
   };
   if (kind === "table") {

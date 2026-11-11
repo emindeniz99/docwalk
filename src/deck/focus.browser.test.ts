@@ -407,6 +407,108 @@ describe("a two-finger pinch on a touch screen in the code view (decision 127)",
   });
 });
 
+describe("a Safari gesture is taken or ignored as a whole (decision 127)", () => {
+  // On an iPad a two-finger pinch sends pointers and gesture events. The pointers may be
+  // cancelled mid-gesture when the browser takes the touch for panning; the gesture's
+  // later changes must not then zoom from a scale recorded for some other gesture.
+  test("a gesture that began with two fingers down stays ignored after they are cancelled, and a change with no start zooms nothing", async () => {
+    const { view, stage } = await openKind(WIDE_CODE, "code");
+    const start = textScale(view);
+    const box = stage.getBoundingClientRect();
+    const x = box.left + 100;
+    const y = box.top + 100;
+    expect(gestureAt("gesturechange", x, y, 1.3), "the page still does not zoom").toBe(true);
+    expect(textScale(view), "no gesturestart since the view opened").toBe(start);
+
+    touch("pointerdown", stage, 1, x - 40, y);
+    touch("pointerdown", stage, 2, x + 40, y);
+    gestureAt("gesturestart", x, y, 1);
+    touch("pointercancel", stage, 1, x - 40, y);
+    touch("pointercancel", stage, 2, x + 40, y);
+    gestureAt("gesturechange", x, y, 1.1);
+    expect(textScale(view), "the gesture began under two fingers").toBe(start);
+
+    // A clean gesture afterwards zooms from where it began.
+    gestureAt("gesturestart", x, y, 1);
+    gestureAt("gesturechange", x, y, 1.5);
+    expect(textScale(view)).toBeCloseTo(Math.min(4, start * 1.5), 5);
+  });
+});
+
+/** Forty lines too wide and too many for the stage, so it scrolls both ways. */
+const BIG_CODE = [
+  "## Code",
+  "",
+  "```text",
+  ...Array.from(
+    { length: 40 },
+    (_, i) => `line ${String(i + 1).padStart(2, "0")} ${"word ".repeat(30)}`,
+  ),
+  "```",
+  "",
+].join("\n");
+/** A table wider than the stage at Fit, so it scrolls sideways from the start. */
+const BIG_TABLE = [
+  "## Table",
+  "",
+  `| ${Array.from({ length: 10 }, (_, i) => `heading number ${i}`).join(" | ")} |`,
+  `| ${Array.from({ length: 10 }, () => "---").join(" | ")} |`,
+  ...Array.from(
+    { length: 12 },
+    (_, r) => `| ${Array.from({ length: 10 }, (_c, c) => `row ${r} cell ${c} text`).join(" | ")} |`,
+  ),
+  "",
+].join("\n");
+
+for (const [kind, markdown, selector] of [
+  ["code", BIG_CODE, ".docwalk-code-line"],
+  ["table", BIG_TABLE, "td, th"],
+] as const) {
+  describe(`the ${kind} view zooms around the pointer (decision 127)`, () => {
+    // Padding, borders and the bar of a line are fixed lengths: a model that scales
+    // everything by the zoom ratio lets the text slide away from the pointer.
+    test("over a forty-event pinch the line or cell under the pointer stays under it within 2 px", async () => {
+      await page.viewport(1280, 800);
+      const { view, stage } = await openKind(markdown, kind);
+      const box = stage.getBoundingClientRect();
+      // A line or cell from the middle of the copy, brought to the middle of the stage.
+      const all = [...stage.querySelectorAll<HTMLElement>(selector)];
+      const target = all[Math.floor(all.length / 2)]!;
+      // Zoom in with the button until the stage scrolls both ways: where it cannot scroll,
+      // nothing can hold the point, and the test is about the scroll.
+      const zoomIn = view.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!;
+      for (let i = 0; i < 8; i++) {
+        if (stage.scrollWidth > stage.clientWidth && stage.scrollHeight > stage.clientHeight) break;
+        zoomIn.click();
+      }
+      expect(stage.scrollWidth, "it scrolls sideways before the pinch").toBeGreaterThan(
+        stage.clientWidth,
+      );
+      expect(stage.scrollHeight, "it scrolls down before the pinch").toBeGreaterThan(
+        stage.clientHeight,
+      );
+      target.scrollIntoView({ block: "center", inline: "center" });
+      const start = target.getBoundingClientRect();
+      // Off the element's centre, so a zoom around the wrong point shows.
+      const x = Math.min(box.right - 20, start.left + start.width * 0.3);
+      const y = start.top + start.height * 0.6;
+      expect(document.elementFromPoint(x, y)?.closest(selector), "the pointer is over it").toBe(
+        target,
+      );
+      const before = target.getBoundingClientRect();
+      const fx = (x - before.left) / before.width;
+      const fy = (y - before.top) / before.height;
+      for (let i = 0; i < 40; i++) wheelAt(x, y, { deltaY: -2, ctrlKey: true });
+      const after = target.getBoundingClientRect();
+      expect(after.height / before.height, "the pinch zoomed").toBeGreaterThan(1.5);
+      expect(stage.scrollWidth, "it scrolls sideways").toBeGreaterThan(stage.clientWidth);
+      expect(stage.scrollHeight, "it scrolls down").toBeGreaterThan(stage.clientHeight);
+      expect(Math.abs(after.left + fx * after.width - x)).toBeLessThan(2);
+      expect(Math.abs(after.top + fy * after.height - y)).toBeLessThan(2);
+    });
+  });
+}
+
 describe("only the focus overlay takes the wheel (decision 127)", () => {
   // A diagram on a slide or in the document must still let the page scroll past it.
   test("a wheel on a diagram outside the view is not prevented, with or without Ctrl", async () => {

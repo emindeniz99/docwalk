@@ -36,6 +36,14 @@ export function panDelta(pixels: Point, shift: boolean): Point {
   return { x: pixels.x !== 0 ? pixels.x : pixels.y, y: 0 };
 }
 
+/**
+ * The delta a zoom reads, in pixels: the vertical one, or the horizontal one when there is no
+ * vertical one, because macOS turns Shift + wheel sideways (Panzoom's zoomWithWheel did the same).
+ */
+export function zoomDelta(pixels: Point): number {
+  return pixels.y !== 0 ? pixels.y : pixels.x;
+}
+
 /** The scale factor of one zoom wheel event, from its `deltaY` in pixels. */
 export function zoomFactor(deltaY: number): number {
   const held = Math.min(MAX_ZOOM_DELTA, Math.max(-MAX_ZOOM_DELTA, deltaY));
