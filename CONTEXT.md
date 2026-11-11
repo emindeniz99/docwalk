@@ -219,6 +219,7 @@ Add a row here before introducing a new one.
 | fill the screen, card       | ekranı doldur, kart         | the two present frames                     |
 | presenter (the person)      | sunumu yapan kişi           | not "sunucu", which also means server      |
 | speaker notes               | konuşmacı notları           | the comments panel in the presenter view   |
+| overflow note               | taşma notu                  | the status bar's count; never plain "not"  |
 | target time, countdown      | hedef süre, geri sayım      | "kalan süre" for the time left             |
 | pacing bar                  | tempo çubuğu                | the group's name in the UI is "Tempo"      |
 | over time                   | süre aşıldı                 | also the verdict when the clock is past 0  |

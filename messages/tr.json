@@ -40,7 +40,7 @@
   "app_status": "Durum",
   "app_status_diagram_errors": "{count, plural, other {# diyagram hatası}}",
   "app_status_level": "Slayt düzeyi: {level}",
-  "app_status_notes": "{count, plural, other {# not}}",
+  "app_status_notes": "{count, plural, other {# taşma notu}}",
   "app_status_offline": "Sunucuya hiçbir şey gönderilmez · çevrimdışı çalışır",
   "app_status_rendering": "İşleniyor…",
   "app_untitled": "Adsız",
