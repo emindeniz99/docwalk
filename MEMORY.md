@@ -10,9 +10,10 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 rows run to 126. The simplification pass (125, 126) is done:
 `src/App.tsx` composes hooks that hold one job each (`useRemoteRoom`,
 `usePresenterWindow`, `useAnnotationLayer`, `useSavedMarksLayer`,
-`usePresenting`, `useEditorSync`, `useAppKeys`, `shell/appCommands.ts`). The
-next task is ROADMAP "Next up" 1, pan and zoom in the focus views; open work
-and owner tasks are in ROADMAP "Follow-ups".
+`usePresenting`, `useEditorSync`, `useAppKeys`, `shell/appCommands.ts`). Pan
+and zoom in the focus views follow the gesture (127, 128; `deck/wheelGesture.ts`),
+tested with synthetic events only: the hand check is in ROADMAP "Follow-ups".
+The next task is ROADMAP "Next up" 1, map mode, which starts with decisions.
 
 The project is public at github.com/emindeniz99/docwalk with the static
 build on GitHub Pages (`deploy-pages.yml` runs after CI passes on `main`, or
@@ -22,7 +23,7 @@ and the nightly Stryker run was fixed. Small safe changes go straight to
 
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
-a 3 MB warning and a 5 MB failure (decision 124; 994 kB used on 2026-11-11, shell 432.1 kB) and times open and
+a 3 MB warning and a 5 MB failure (decision 124; 994 kB used on 2026-11-11, shell 433.0 kB) and times open and
 repaginate, and fails if the first load carries the sign-in chunk (126). The
 1.5 s open budget still does not hold; the measurements are in ROADMAP "Still
 open in v1".
@@ -87,6 +88,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-09: The presenter window's countdown goes window → bridge → audience tab → a `countdown` message under the control key (`state` is unchanged); `startPresenterBridge` takes `onCountdown` and arms its 5 s expiry at start; the host resends at every hello, null included, and a window with no countdown posts nothing. A follow screen is `data-view=follow` with `data-frame`; `usePresentChrome` hides its bar only while `followUpdate.status === "open"` and the link is complete. `mountView` closes the open focus view before it mounts another.
 - 2026-11-09: Vite's dependency scanner does not follow `new URL("./x.worker.ts", import.meta.url)`: a package only a worker imports is optimized at run time and reloads a vitest browser run on a fresh cache, so list it in `optimizeDeps.include`. Vite builds workers as iife, so a worker cannot code-split (Shiki's grammars stay page chunks posted to it). The CPU profiler overstates tiny hot functions; confirm with interleaved A/B runs or `performance.mark` phases. Pagination measures `cloneNode` copies at once, and Firefox loads a copied image again with no size when its cache will not answer (Playwright routing turns the cache off), so `settled()` pins loaded images until the pages are flagged. Twelve stage controls need 524 px at 38 px; beside the comments panel at 1280 px the head has 354 px.
 - 2026-11-11: A hook split out of a component takes refs and state setters as parameters, and oxlint then wants them in dependency arrays (it cannot see they are stable); adding them changes nothing. A cloud container with Node 24.22.1 needs `pnpm_config_runtime_on_fail=warn`. Never symlink the repository's `node_modules` into a copy and run `pnpm` there: without a lockfile pnpm installs through the link and rewrites the original (repair with `pnpm install --frozen-lockfile`). Before-and-after screenshots differ only in reveal.js's next arrow, which animates until the first slide change; take each twice. CI's `playwright install --with-deps` fails when the runner cannot resolve `security.ubuntu.com` (run 43060033739): run it again.
+- 2026-11-11: Panzoom 4.6 draws on the next frame and its `zoomToPoint` assumes the element sits at its parent's top left: for several wheel events in one frame, or a centred canvas, compute the focal point from the layout box (`offsetLeft`, which a transform does not change) and call `zoom(next, { focal })`; a test waits a frame before it measures. Synthetic PointerEvents bypass `touch-action`, so a pinch test proves the arithmetic, not that a browser delivers the moves. `scrollLeft` keeps whole pixels in Chromium: carry the lost fraction into the next step or forty small steps drift by pixels. `git merge -F -` does not read stdin; write the message to a file.
 
 ## Done
 
