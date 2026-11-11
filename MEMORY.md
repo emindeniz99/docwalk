@@ -15,7 +15,10 @@ and zoom in the focus views follow the gesture (127, 128; `deck/wheelGesture.ts`
 tested with synthetic events only: the hand check is in ROADMAP "Follow-ups".
 The document view opens the focus views too (129, `deck/focusWiring.ts`). The
 next task is ROADMAP "Next up" 1, map mode: its questions wait for the owner,
-so "Next up" 2 (small UX fixes) is the next work an agent can start.
+and so do two of the small UX fixes ("Next up" 2) and the Turkish word for an
+overflow note. A review of PR #5's feature code found twenty defects; decision
+132 fixes thirteen and ROADMAP "Next up" 3 lists the rest, which an agent can
+take next, each from a failing test.
 
 The project is public at github.com/emindeniz99/docwalk with the static
 build on GitHub Pages (`deploy-pages.yml` runs after CI passes on `main`, or
@@ -92,6 +95,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-11: A hook split out of a component takes refs and state setters as parameters, and oxlint then wants them in dependency arrays (it cannot see they are stable); adding them changes nothing. A cloud container with Node 24.22.1 needs `pnpm_config_runtime_on_fail=warn`. Never symlink the repository's `node_modules` into a copy and run `pnpm` there: without a lockfile pnpm installs through the link and rewrites the original (repair with `pnpm install --frozen-lockfile`). Before-and-after screenshots differ only in reveal.js's next arrow, which animates until the first slide change; take each twice. CI's `playwright install --with-deps` fails when the runner cannot resolve `security.ubuntu.com` (run 43060033739): run it again.
 - 2026-11-11: Panzoom 4.6 draws on the next frame and its `zoomToPoint` assumes the element sits at its parent's top left: for several wheel events in one frame, or a centred canvas, compute the focal point from the layout box (`offsetLeft`, which a transform does not change) and call `zoom(next, { focal })`; a test waits a frame before it measures. Synthetic PointerEvents bypass `touch-action`, so a pinch test proves the arithmetic, not that a browser delivers the moves. `scrollLeft` keeps whole pixels in Chromium: carry the lost fraction into the next step or forty small steps drift by pixels. `git merge -F -` does not read stdin; write the message to a file.
 - 2026-11-11: The deck stays mounted, only `hidden`, while the document view shows, so anything the deck does on `slidechanged` or teardown also runs then: a module-wide close must check that the view's block is inside the deck's root (`closeContentFocus(root)`). CI's WebKit e2e leg takes 28 to 30 minutes against a 30-minute job limit; run 43083163225 was cancelled mid-suite with no failure printed.
+- 2026-11-11: Several agents can fix different files in one checkout at once if none commits, stashes or runs the whole gate: each runs only its own test files, and the lead commits by path (tests, then code) and runs `pnpm check` once. A test that needs a hook's inner steps gets them as exported functions, and its red commit then fails on the missing export, not on the bug: say so in the commit. reveal.js 6.0.2's `slide()` to the index already shown clears `inert` on the page and fires no event; watch the attribute. An empty-slug heading (`## ???`) is where two slug sources disagree: take ids from `plan.headingIds`, never from a second `GithubSlugger`.
 
 ## Done
 

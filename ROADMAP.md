@@ -511,6 +511,17 @@ smallest first; each needs a failing test before code:
   left out of an export when a slide's text changed after the last rebuild; the
   annotation layer is never built if IndexedDB never answers.
 
+- Left by the fixes of 132: a comment stored before 132 on a second heading
+  with an empty slug (slug `-1`), or on a diagram node under such a heading,
+  now lists as orphaned (nothing is deleted); a slide that shows a failed
+  diagram's note gets a new fingerprint once, so its saved marks wait until it
+  is marked again; Delete saved marks closes an open whiteboard; a held file or
+  paste draft gets its alias when it opens, not at its first edit; on a layout
+  that types `+` or `-` with AltGr the zoom keys do nothing in the view (the
+  buttons work); when the old and the new key of a `?src=` document hold more
+  than 500 comments together, the move of 120 fails at every open and the old
+  key stays.
+
 Still owed, by hand: the new features on a Mac trackpad, an iPhone and an
 iPad (focus views and their pan and zoom, the tour, the whiteboard and stylus,
 the countdown on a phone, saved marks, comments), with findings written here.
