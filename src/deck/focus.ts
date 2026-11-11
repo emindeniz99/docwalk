@@ -90,15 +90,16 @@ type AddButton = (label: string, title: string, action: () => void) => HTMLButto
 /** Safari's `GestureEvent`, which the DOM types do not name. */
 type GestureLike = Event & { scale?: number; clientX?: number; clientY?: number };
 
-let current: { kind: ViewKind; close: () => void } | null = null;
+let current: { kind: ViewKind; origin: HTMLElement; close: () => void } | null = null;
 
 /**
- * Closes an open code, table or image view. A rebuild or a change of slide
- * calls it: the copy comes from a slide that is gone. The diagram view is
- * left as it was (decision 87).
+ * Closes an open code, table or image view whose block is inside `root`. A
+ * rebuild or a change of slide calls it with the deck: the copy comes from a
+ * slide that is gone. The diagram view is left as it was (decision 87), and
+ * so is a view opened from the document view (decision 129).
  */
-export function closeContentFocus(): void {
-  if (current && current.kind !== "diagram") current.close();
+export function closeContentFocus(root: Element): void {
+  if (current && current.kind !== "diagram" && root.contains(current.origin)) current.close();
 }
 
 /** Called when a view closes; `byViewer` is true for Escape, Close or Sketch, false for a rebuild or a slide change. */
@@ -252,7 +253,7 @@ function mountView(
     else deckHost?.querySelector<HTMLElement>(".reveal")?.focus({ preventScroll: true });
   }
 
-  current = { kind, close };
+  current = { kind, origin, close };
   // Every kind is mirrored to followers (decisions 88 and 106). The open goes
   // first, so the view a stage reports as it starts belongs to this block.
   const where = locateBlock(origin, kind);

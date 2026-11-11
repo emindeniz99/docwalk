@@ -5,8 +5,10 @@ import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import type { FocusEvent } from "../annotate/mirrorTypes";
+import type { DeckController } from "../deck/controller";
+import { Deck } from "../deck/Deck";
 import { observeFocus } from "../deck/focusEvents";
-import { parseMarkdown } from "../sectioning/sectionize";
+import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import { DocumentView } from "./DocumentView";
 
 /**
@@ -40,6 +42,7 @@ const DOC = [
   "| Name | Where |",
   "| --- | --- |",
   "| Later | [jump](#later) |",
+  "| Site | [elsewhere](https://example.invalid/) |",
   "",
   "![Company logo](/icons/icon-192.png)",
   "",
@@ -71,6 +74,9 @@ async function mount(markdown = DOC) {
   const article = pane.querySelector<HTMLElement>(".docwalk-document")!;
   return { pane, article, show, drawn: () => drawn };
 }
+
+/** Keeps the test page from following a link once every other listener has run. */
+const stay = (event: Event) => event.preventDefault();
 
 const overlay = () => document.querySelector<HTMLElement>(".docwalk-focus");
 
@@ -145,6 +151,16 @@ describe("what a click in the document view does not open (decision 87's excepti
     expect(overlay()?.dataset["kind"]).toBe("table");
   });
 
+  test("a click on an external link inside a table opens nothing", async () => {
+    const { article } = await mount();
+    const table = await marked(article, "table");
+    // The test page must not leave; the link's own default is the browser's, not the view's.
+    window.addEventListener("click", stay);
+    cleanups.push(() => window.removeEventListener("click", stay));
+    await userEvent.click(table.querySelector<HTMLElement>('a[href^="https:"]')!);
+    expect(overlay()).toBeNull();
+  });
+
   test("a click that ends a text selection in code opens nothing; a plain click does", async () => {
     const { article } = await mount();
     const pre = await marked(article, "pre");
@@ -201,5 +217,51 @@ describe("closing with the document (decision 129)", () => {
     root = null;
     await expect.poll(overlay).toBeNull();
     expect(pane.inert).toBe(false);
+  });
+});
+
+/** A deck mounted beside the document view, as App keeps it while the document shows. */
+async function mountDeck() {
+  const deckBox = document.createElement("div");
+  Object.assign(deckBox.style, { display: "grid", width: "1280px", height: "800px" });
+  document.body.append(deckBox);
+  const deckRoot = createRoot(deckBox);
+  cleanups.push(() => deckRoot.unmount());
+  const readies: DeckController[] = [];
+  const onReady = (c: DeckController | null) => {
+    if (c) readies.push(c);
+  };
+  const show = (md: string) =>
+    deckRoot.render(h(Deck, { plan: sectionize(parseMarkdown(md), "auto"), onReady }));
+  show(DOC);
+  await expect.poll(() => readies.length, { timeout: 20_000 }).toBeGreaterThan(0);
+  return { readies, show };
+}
+
+describe("the hidden deck beside the document view (decision 129)", () => {
+  // App keeps the deck mounted, hidden, while the document view shows. A slide change (a
+  // remote, the URL sync after a rebuild) or a rebuild of that deck closed whatever content
+  // view was open, so a listing the reader had just opened from the document closed by itself.
+  // On a slide, a view still closes on both (focusTargets.browser.test.ts: "a rebuild closes
+  // the view and the new deck takes focus", "moving to another slide closes the view and focus
+  // lands in the deck").
+  test("a slide change of the deck leaves a code view opened from the document open", async () => {
+    const deck = await mountDeck();
+    const { article } = await mount();
+    await userEvent.click(await marked(article, "pre"));
+    expect(overlay()?.dataset["kind"]).toBe("code");
+    deck.readies.at(-1)!.next();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(overlay()).not.toBeNull();
+  });
+
+  test("a rebuild of the deck leaves a code view opened from the document open", async () => {
+    const deck = await mountDeck();
+    const { article } = await mount();
+    await userEvent.click(await marked(article, "pre"));
+    expect(overlay()?.dataset["kind"]).toBe("code");
+    deck.show(DOC.replace("The end.", "The end, edited."));
+    await expect.poll(() => deck.readies.length, { timeout: 20_000 }).toBeGreaterThan(1);
+    expect(overlay()).not.toBeNull();
   });
 });

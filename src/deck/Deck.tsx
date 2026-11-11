@@ -10,7 +10,6 @@ import type { Locale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import type { SectionPlan } from "../sectioning/sectionize";
 import { createDeckController, type DeckController } from "./controller";
-import { closeContentFocus } from "./focus";
 import { markFocusTargets } from "./focusTargets";
 import { wireFocusTargets } from "./focusWiring";
 import {
@@ -226,7 +225,7 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
       if (cancelled) return;
       reveal.current = { deck, el: revealEl };
       // The copy in a code, table or image view belongs to one slide.
-      deck.on("slidechanged", closeContentFocus);
+      deck.on("slidechanged", focusWiring.closeContent);
       localizeRevealChrome(revealEl);
 
       const overflowing: DeckReport["overflowing"] = [];
@@ -250,7 +249,8 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
     return () => {
       cancelled = true;
       // Before the deck goes: the view's copy is of a slide that is about to be replaced.
-      closeContentFocus();
+      // Only this deck's: a view opened from the document view is not (decision 129).
+      focusWiring.closeContent();
       revealEl.removeEventListener("click", onClick);
       // A diagram view stays open over a rebuild (decision 87), so only the listeners go.
       focusWiring.stop();

@@ -1,4 +1,4 @@
-import { openBlockFocus, openDiagramFocus } from "./focus";
+import { closeContentFocus, openBlockFocus, openDiagramFocus } from "./focus";
 import { FOCUS_ATTR, markFocusTarget } from "./focusTargets";
 
 const nothing = (): void => undefined;
@@ -19,10 +19,16 @@ function onImageLoad(event: Event): void {
  * here. The caller marks the blocks once they are drawn; an image that loads
  * later is marked as it loads.
  *
- * `close` closes a view opened from `root`, if it is still open; `stop`
- * removes the listeners.
+ * `close` closes a view opened from `root`, if it is still open.
+ * `closeContent` closes an open code, table or image view of a block inside
+ * `root`, whoever opened it (a click, or the mirror for a follower), and
+ * leaves a diagram view. `stop` removes the listeners.
  */
-export function wireFocusTargets(root: HTMLElement): { close(): void; stop(): void } {
+export function wireFocusTargets(root: HTMLElement): {
+  close(): void;
+  closeContent(): void;
+  stop(): void;
+} {
   let closeOpened = nothing;
   const onClick = (event: Event) => {
     const target = event.target as Element;
@@ -55,6 +61,7 @@ export function wireFocusTargets(root: HTMLElement): { close(): void; stop(): vo
   root.addEventListener("load", onImageLoad, true);
   return {
     close: () => closeOpened(),
+    closeContent: () => closeContentFocus(root),
     stop() {
       root.removeEventListener("click", onClick);
       root.removeEventListener("keydown", onKey);
