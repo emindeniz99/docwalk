@@ -481,15 +481,39 @@ no WebKit, no real safe-area insets.
   only when its box overlaps no slide content and try again at the next hide,
   or keep it as it is (once per browser, 5 s).
 
-### 3. A review of PR #5's feature code and a real-device UX pass
+### 3. A real-device UX pass, and what the review of PR #5 left
 
-The security review on 2026-11-09 read the risky parts of PR #5 (rendering,
-the room protocol, the workspace, dependencies); the rest of its roughly
-11,700 lines of app code was covered by tests but not read line by line, and
-no one has walked the new features on real devices. After the simplification
-pass (done 2026-11-11): a code review of the remaining feature code (focus views, tour,
-whiteboard, countdown, saved marks, comments round two) and a hand test on a
-Mac trackpad, an iPhone and an iPad, with findings written here.
+The code review is done (2026-11-11): three reviewers read the focus views
+and tour, the whiteboard, stylus and saved marks, and the countdown and
+comments. Decision 132 lists the thirteen defects fixed. Found and not fixed,
+smallest first; each needs a failing test before code:
+
+- Comments: a reopened comment reads "edited" although its text never changed
+  (`CommentsPanel.tsx`, `edited` comes from `updated` alone). After Save or
+  Cancel of an edit, Cancel of a delete, or "Delete N comments", focus falls to
+  `<body>` and Escape no longer closes the panel. Closing the panel, or Escape
+  inside its text field, discards typed text.
+- Countdown: the timer's `aria-label` stays "Time left" once over (row 80 says
+  it changes), and the invalid-minutes message is not announced. Start and
+  Reset drop focus to `<body>` in the presenter window.
+- Eraser (drauu 1.0): a drag cut short by a slide change or the whiteboard
+  toggle removes strokes from the screen and not from the saved record, so they
+  return after a reload; an eraser click that erases nothing adds an empty undo
+  step and drops redo. Both sit in drauu's eraser model.
+- Code view: a raw-HTML `<pre>` with `<br>` or an image loses them in the focus
+  view (`intoLines` keeps text nodes only). Fenced code is unaffected.
+- Suspected, not shown from the code: a `#doc=…&c=…` link pasted into a tab
+  that shows another document may merge its comments into the wrong one; two
+  fast edits may detach a draft's comments; the glow on commented diagram nodes
+  shows while presenting; a link or file can overwrite a local comment's text
+  if it knows the id (row 65's "last edit wins"); a stage constructor that
+  throws leaves the page inert under an empty focus overlay; saved marks are
+  left out of an export when a slide's text changed after the last rebuild; the
+  annotation layer is never built if IndexedDB never answers.
+
+Still owed, by hand: the new features on a Mac trackpad, an iPhone and an
+iPad (focus views and their pan and zoom, the tour, the whiteboard and stylus,
+the countdown on a phone, saved marks, comments), with findings written here.
 
 ### 4. The next feature round
 
