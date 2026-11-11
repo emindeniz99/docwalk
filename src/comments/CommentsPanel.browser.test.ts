@@ -1,10 +1,10 @@
 import { act, createElement as h, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
-import type { AnchorIndex } from "./anchors";
+import { diagramKey, type AnchorIndex } from "./anchors";
 import { CommentsPanel } from "./CommentsPanel";
 import { cleanAuthor } from "./schema";
 import type { Anchor, DocComment } from "./types";
@@ -154,4 +154,83 @@ test("a document whose saved comments cannot be read says so instead of claiming
   expect(document.querySelector(".docwalk-comments-warning")?.textContent).toContain(
     "could not be read",
   );
+});
+
+/** A comment on node `node` of the one diagram under Goals. */
+const on = (node: string, id: string, created: number): DocComment => ({
+  id,
+  anchor: { kind: "node", heading: "goals", diagram: 0, node },
+  text: `On ${node}, ${id}`,
+  created,
+  updated: created,
+  resolved: false,
+});
+
+describe("comments on the nodes of one diagram (decision 132)", () => {
+  test("group by node, one group per node, whatever order they were written in", () => {
+    // Every node of one diagram sorts at the same place, so the comments fell
+    // back to creation order: a, b, a gave three groups and two with one key.
+    const diagramIndex: AnchorIndex = {
+      ...index,
+      diagrams: [{ heading: "goals", diagram: 0, source: "a --> b", sig: "1", sectionId: "goals" }],
+    };
+    const comments = [on("a", "first", 1), on("b", "second", 2), on("a", "third", 3)];
+    const api: CommentsApi = {
+      comments,
+      deleted: [],
+      ready: true,
+      key: "sha256:test",
+      legacyKey: null,
+      unidentified: false,
+      persistent: true,
+      unreadable: false,
+      author: "",
+      setAuthor: () => {},
+      markEdit: () => {},
+      add: () => true,
+      update: () => {},
+      remove: () => {},
+      setResolved: () => {},
+      importFile: async () => ({ message: "", tone: "info" }),
+    };
+    const errors = vi.spyOn(console, "error");
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() =>
+      root!.render(
+        h(CommentsPanel, {
+          isOpen: true,
+          onClose: () => {},
+          sheet: false,
+          api,
+          index: diagramIndex,
+          nodes: new Map([
+            [
+              diagramKey("goals", 0),
+              [
+                { id: "a", label: "a" },
+                { id: "b", label: "b" },
+              ],
+            ],
+          ]),
+          defaultAnchor: null,
+          focusAnchor: null,
+          onGoTo: () => {},
+          sidecarName: "doc.comments.json",
+        }),
+      ),
+    );
+    const groups = [...document.querySelectorAll(".docwalk-comments-group")].map((g) => [
+      g.querySelector(".docwalk-comments-anchor")?.textContent,
+      [...g.querySelectorAll(".docwalk-comments-item")].length,
+    ]);
+    expect(groups).toEqual([
+      ["Diagram node a", 2],
+      ["Diagram node b", 1],
+    ]);
+    // React reports two siblings with one key as an error.
+    expect(errors.mock.calls.flat().join(" ")).not.toContain("same key");
+    errors.mockRestore();
+  });
 });

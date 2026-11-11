@@ -2,9 +2,20 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { LoadedDocument } from "../inputs/types";
+import { parseMarkdown, sectionize } from "../sectioning/sectionize";
+import {
+  clearDraft,
+  draftWouldBeReplaced,
+  holdDraft,
+  loadDraft,
+  releaseDraft,
+  saveDraft,
+} from "../share/draft";
+import { buildAnchorIndex, resolveAnchor } from "./anchors";
 import { AUTHOR_KEY } from "./author";
-import { encodeComments } from "./payload";
-import { serializeComments } from "./schema";
+import { contentKey, DRAFT_ALIAS } from "./identity";
+import { decodeComments, encodeComments } from "./payload";
+import { parseCommentsText, serializeComments } from "./schema";
 import { openCommentStore } from "./store";
 import type { Anchor, DocComment } from "./types";
 import { useComments, type CommentNotice, type CommentsApi } from "./useComments";
@@ -336,5 +347,171 @@ describe("the display name (decision 97)", () => {
       act(() => void api.current!.add(heading, `Odd ${bad.length}`));
     }
     expect(api.current!.comments.map((c) => "author" in c)).toEqual([false, false, false]);
+  });
+});
+
+/** Mounts the hook on a document that can be swapped or rendered again, as the app does. */
+function mountSwappable(doc: LoadedDocument) {
+  const api: { current: CommentsApi | null } = { current: null };
+  const report = (a: CommentsApi) => (api.current = a);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const own = createRoot(container);
+  const render = (next: LoadedDocument) => act(() => own.render(h(Harness, { doc: next, report })));
+  render(doc);
+  return { api, render, unmount: () => act(() => own.unmount()) };
+}
+
+describe("a heading whose GitHub slug is empty (decision 132)", () => {
+  test("keeps its comment over a reload, and the comment exports and shares", async () => {
+    // `## ???` has no GitHub slug. An anchor with an empty slug was stored,
+    // then dropped by the schema on the next load, and an export or share
+    // link that held it was refused whole as damaged.
+    const doc: LoadedDocument = {
+      markdown: "# T\n\n## ???\n\nText.\n",
+      source: { kind: "file", name: `empty-slug-${crypto.randomUUID()}.md` },
+    };
+    const tree = parseMarkdown(doc.markdown);
+    const index = buildAnchorIndex(tree, sectionize(tree));
+    const anchor: Anchor = { kind: "heading", slug: index.headings[1]!.slug };
+
+    const first = mountSwappable(doc);
+    await ready(first.api);
+    act(() => void first.api.current!.add(anchor, "Which question?"));
+    await settle();
+    const written = first.api.current!.comments;
+    expect(parseCommentsText(serializeComments(written)).ok).toBe(true);
+    expect((await decodeComments(await encodeComments(written))).ok).toBe(true);
+    first.unmount();
+
+    const reloaded = mountSwappable(doc);
+    await ready(reloaded.api);
+    expect(reloaded.api.current!.comments.map((c) => c.text)).toEqual(["Which question?"]);
+    const [kept] = reloaded.api.current!.comments;
+    expect(resolveAnchor(kept!.anchor, index, new Map()).status).toBe("attached");
+    reloaded.unmount();
+  });
+});
+
+describe("Replace draft (decision 132)", () => {
+  afterEach(() => {
+    releaseDraft();
+    clearDraft();
+  });
+
+  test("moves the draft alias at once, so a reload shows the new draft's comments", async () => {
+    // A pasted draft D has comments; a share link S is opened and edited (the
+    // draft would be replaced, so the alias stays on D); then the user presses
+    // "Replace draft" and reloads without typing again.
+    const store = await openCommentStore();
+    const draftKey = `sha256:draft-d-${crypto.randomUUID()}`;
+    await store.setAlias(DRAFT_ALIAS, draftKey);
+    const d = `# D ${crypto.randomUUID()}\n\n## Goals\n\nText.\n`;
+    saveDraft(d, { kind: "paste" });
+
+    const page = mountSwappable({ markdown: d, source: { kind: "paste" } });
+    await ready(page.api);
+    expect(page.api.current!.key).toBe(draftKey);
+    act(() => void page.api.current!.add(heading, "On D"));
+    await settle();
+
+    // A share link replaces the document on screen and lets go of the draft slot.
+    releaseDraft();
+    const s = `# S ${crypto.randomUUID()}\n\n## Goals\n\nText.\n`;
+    const sKey = await contentKey(s);
+    page.render({ markdown: s, source: { kind: "fragment" } });
+    await expect.poll(() => page.api.current!.key).toBe(sKey);
+    act(() => void page.api.current!.add(heading, "On S"));
+    await settle();
+
+    // An edit makes it the user's own text, which would replace the draft: not yet.
+    const edited: LoadedDocument = { markdown: `${s}\nMore.\n`, source: { kind: "paste" } };
+    act(() => page.api.current!.markEdit(edited.markdown));
+    page.render(edited);
+    await settle();
+    expect(page.api.current!.key).toBe(sKey);
+    expect(draftWouldBeReplaced()).toBe(true);
+
+    // "Replace draft" (`replaceDraft` in src/shell/useDocument.ts) holds the
+    // slot, saves the open text and renders the page again; the document is the same.
+    holdDraft();
+    saveDraft(edited.markdown, { kind: "paste" });
+    page.render(edited);
+    await settle();
+    page.unmount();
+
+    // Reload: the draft opens as a paste and finds its comments through the alias.
+    const reloaded = mountSwappable({ markdown: loadDraft()!.markdown, source: { kind: "paste" } });
+    await ready(reloaded.api);
+    expect(reloaded.api.current!.key).toBe(sKey);
+    expect(reloaded.api.current!.comments.map((c) => c.text)).toEqual(["On S"]);
+    reloaded.unmount();
+  });
+});
+
+/** A `?src=` document whose URL carries a token, with its key now and its key before decision 120. */
+const urlDoc = (): { doc: LoadedDocument; next: string; legacy: string } => {
+  const path = `https://docs.example/${crypto.randomUUID()}.md`;
+  return {
+    doc: {
+      markdown: "# T\n\n## Goals\n\nText.\n",
+      source: { kind: "url", url: `${path}?t=secret-token`, trusted: true },
+    },
+    next: `url:${path}`,
+    legacy: `url:${path}?t=secret-token`,
+  };
+};
+
+describe("the move of decision 120 (decision 132)", () => {
+  test("an old record left beside a new key that has comments is merged and deleted at the next open", async () => {
+    // A move whose delete did not happen left the token-bearing record behind;
+    // the new key was no longer empty, so no later open looked at it again.
+    const { doc, next, legacy } = urlDoc();
+    const store = await openCommentStore();
+    await store.save(next, [comment({ id: "under-the-new-key", text: "New" })]);
+    await store.save(legacy, [comment({ id: "left-under-the-old-key", text: "Old" })]);
+
+    const api = mount(doc);
+    await ready(api);
+    const both = ["left-under-the-old-key", "under-the-new-key"];
+    expect(api.current!.comments.map((c) => c.id).toSorted()).toEqual(both);
+    await settle();
+    expect(await store.read(legacy)).toEqual({ comments: [], deleted: [] });
+    expect((await store.read(next)).comments.map((c) => c.id).toSorted()).toEqual(both);
+  });
+
+  test("is one transaction: when the delete fails, the new key gets nothing and the next open moves it", async () => {
+    // Merge and delete as two transactions: a delete that failed after the
+    // merge left the token in the database for good.
+    const { doc, next, legacy } = urlDoc();
+    const store = await openCommentStore();
+    const old = comment({ id: "saved-under-the-old-key", text: "Before 120" });
+    await store.save(legacy, [old]);
+
+    let broken = true;
+    const del = IDBObjectStore.prototype.delete;
+    vi.spyOn(IDBObjectStore.prototype, "delete").mockImplementation(function (
+      this: IDBObjectStore,
+      ...args: Parameters<typeof del>
+    ) {
+      if (broken) throw new DOMException("delete failed", "UnknownError");
+      return del.apply(this, args);
+    });
+
+    const page = mountSwappable(doc);
+    await ready(page.api);
+    await settle();
+    broken = false;
+    expect((await store.read(legacy)).comments.map((c) => c.id)).toEqual([old.id]);
+    expect(await store.read(next)).toEqual({ comments: [], deleted: [] });
+    page.unmount();
+
+    const again = mountSwappable(doc);
+    await ready(again.api);
+    expect(again.api.current!.comments.map((c) => c.id)).toEqual([old.id]);
+    await settle();
+    expect(await store.read(legacy)).toEqual({ comments: [], deleted: [] });
+    expect((await store.read(next)).comments.map((c) => c.id)).toEqual([old.id]);
+    again.unmount();
   });
 });
