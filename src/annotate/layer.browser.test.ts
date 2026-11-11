@@ -4,8 +4,9 @@ import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { createAnnotationLayer, LASER_TRAIL_MS } from "./layer";
 import { quantize, type MarkEvent } from "./mirrorTypes";
-import type { SavedStroke } from "./savedMarks";
+import { DocumentMarks, type SavedStroke } from "./savedMarks";
 import type { AnnotationLayer } from "./types";
+import { layerOptions } from "./useSavedMarksLayer";
 
 let layer: AnnotationLayer | null = null;
 
@@ -1126,6 +1127,40 @@ describe("a stroke cut off by a change of drawing (decision 110)", () => {
     lift();
     layer!.setKey("a/1#abc", "a/1");
     finger(host, 32);
+    expect(marks(host)).toBe(1);
+  });
+});
+
+/** A layer made as `useSavedMarksLayer` makes it, for a follow screen or a presenter's. */
+function mountAs(follow: boolean) {
+  const host = document.createElement("div");
+  Object.assign(host.style, { width: "400px", height: "300px", margin: "0" });
+  document.body.append(host);
+  layer = createAnnotationLayer(
+    host,
+    layerOptions(new DocumentMarks("", [], null, () => {}), follow),
+  );
+  const events: MarkEvent[] = [];
+  layer.observe((event) => events.push(event));
+  layer.setKey("a/1#abc", "a/1");
+  return { host, events };
+}
+
+describe("a follow screen takes no pen input (decisions 88, 110)", () => {
+  // A follower has no toolbar, no keys and no undo: a stroke it drew could not be taken back.
+  test("on a follow screen no pen, finger or mouse drag draws", () => {
+    const { host, events } = mountAs(true);
+    drag(host, "pen", [40, 30], [360, 270]);
+    drag(host, "touch", [40, 30], [360, 270], { id: 8 });
+    drag(host, "mouse", [40, 30], [360, 270], { id: 1 });
+    expect(strokes(events)).toEqual([]);
+    expect(marks(host)).toBe(0);
+  });
+
+  test("on a presenter's screen the same pen drag draws", () => {
+    const { host, events } = mountAs(false);
+    drag(host, "pen", [40, 30], [360, 270]);
+    expect(strokes(events)).toHaveLength(1);
     expect(marks(host)).toBe(1);
   });
 });
