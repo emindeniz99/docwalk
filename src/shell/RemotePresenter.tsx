@@ -11,7 +11,7 @@ import { buildShareLink } from "../share/link";
 import type { Notice } from "./useDocument";
 import { useStageLaser } from "./useStageLaser";
 
-export interface RemotePresenterProps {
+interface RemotePresenterProps {
   controller: DeckController | null;
   doc: LoadedDocument | null;
   /** The deck's slide level, which followers must use to get the same slide addresses. */

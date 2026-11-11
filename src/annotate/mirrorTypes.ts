@@ -112,7 +112,7 @@ export function quantize(unit: number): number {
 }
 
 /** The four kinds of focus view (decisions 87 and 106). */
-export const FOCUS_VIEW_KINDS = ["diagram", "code", "table", "image"] as const;
+const FOCUS_VIEW_KINDS = ["diagram", "code", "table", "image"] as const;
 export type FocusViewKind = (typeof FOCUS_VIEW_KINDS)[number];
 
 /**

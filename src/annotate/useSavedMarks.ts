@@ -11,7 +11,7 @@ const PROBLEM: Record<MarksProblem, () => string> = {
 
 const noSubscription = () => () => {};
 
-export interface SavedMarksApi {
+interface SavedMarksApi {
   /**
    * The open document's saved marks; null while its identity or its marks
    * load, so nothing drawn then is saved under another document's key. A

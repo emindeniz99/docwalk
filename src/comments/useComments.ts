@@ -64,9 +64,9 @@ export interface CommentsApi {
   importFile: (file: File) => Promise<CommentNotice>;
 }
 
-export const IMPORT_TOO_LARGE = m.comments_import_too_large;
-export const IMPORT_OVER_CAP = (): string => m.comments_import_over_cap({ max: MAX_COMMENTS });
-export const LINK_COMMENTS_IGNORED = m.comments_link_ignored;
+const IMPORT_TOO_LARGE = m.comments_import_too_large;
+const IMPORT_OVER_CAP = (): string => m.comments_import_over_cap({ max: MAX_COMMENTS });
+const LINK_COMMENTS_IGNORED = m.comments_link_ignored;
 
 interface State extends CommentSet {
   key: string | null;

@@ -6,12 +6,13 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-2026-11-09: v1 and the v2 workspace and agent work are built, and decision
-rows run to 123. The owner accepted rows 97, 98 and 109 to 115 with the merge
-of PR #5; a security review of that merge produced rows 116 to 123, all
-merged. All ten ranked features in `docs/feature-gaps.md` are built. The next
-task is ROADMAP "Next up" 1, a simplification pass with written steps and a
-definition of done; open work and owner tasks are in ROADMAP "Follow-ups".
+2026-11-11: v1 and the v2 workspace and agent work are built, and decision
+rows run to 126. The simplification pass (125, 126) is done:
+`src/App.tsx` composes hooks that hold one job each (`useRemoteRoom`,
+`usePresenterWindow`, `useAnnotationLayer`, `useSavedMarksLayer`,
+`usePresenting`, `useEditorSync`, `useAppKeys`, `shell/appCommands.ts`). The
+next task is ROADMAP "Next up" 1, pan and zoom in the focus views; open work
+and owner tasks are in ROADMAP "Follow-ups".
 
 The project is public at github.com/emindeniz99/docwalk with the static
 build on GitHub Pages (`deploy-pages.yml` runs after CI passes on `main`, or
@@ -21,10 +22,10 @@ and the nightly Stryker run was fixed. Small safe changes go straight to
 
 `pnpm size` tracks only the app shell (index.html plus App's preloads);
 `e2e/perf.spec.ts` (Chromium) holds the default view's real download to
-a 3 MB warning and a 5 MB failure (decision 124; 993 kB used on 2026-11-09) and times open and
-repaginate. The 1.5 s open budget still does not hold; the measurements are
-in ROADMAP "Still open in v1". The first load is close to the limit, so check
-`pnpm size` and `e2e/perf.spec.ts` after adding a dependency.
+a 3 MB warning and a 5 MB failure (decision 124; 994 kB used on 2026-11-11, shell 432.1 kB) and times open and
+repaginate, and fails if the first load carries the sign-in chunk (126). The
+1.5 s open budget still does not hold; the measurements are in ROADMAP "Still
+open in v1".
 
 Local runs: `mise install` in the repository installs the pinned Node and
 pnpm (see README); with mise's shims on `PATH` they apply inside the
@@ -85,9 +86,11 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-09: Mirror: `s % n` on a 32-bit LCG reads its low bits, which repeat every few steps (the old mirror model check never cut a stroke); draw from the high bits or use xorshift, and keep the arithmetic inside 2^53. A sealed mirror frame costs about 4/3 of its op's UTF-8 JSON plus 258 bytes. In mirror e2e a follower's mark exists from the first 80 ms chunk: wait for its position, not its count. Valibot without `abortEarly` validates every stroke of a refused record and walks each strict object's keys; pass `abortEarly: true` when only pass or fail matters. A join now sends two hellos (decision 111: hello again on the first state from a sender id not among the last 8), so a test that pauses "past 103's window" must wait past two windows (800 ms).
 - 2026-11-09: The presenter window's countdown goes window → bridge → audience tab → a `countdown` message under the control key (`state` is unchanged); `startPresenterBridge` takes `onCountdown` and arms its 5 s expiry at start; the host resends at every hello, null included, and a window with no countdown posts nothing. A follow screen is `data-view=follow` with `data-frame`; `usePresentChrome` hides its bar only while `followUpdate.status === "open"` and the link is complete. `mountView` closes the open focus view before it mounts another.
 - 2026-11-09: Vite's dependency scanner does not follow `new URL("./x.worker.ts", import.meta.url)`: a package only a worker imports is optimized at run time and reloads a vitest browser run on a fresh cache, so list it in `optimizeDeps.include`. Vite builds workers as iife, so a worker cannot code-split (Shiki's grammars stay page chunks posted to it). The CPU profiler overstates tiny hot functions; confirm with interleaved A/B runs or `performance.mark` phases. Pagination measures `cloneNode` copies at once, and Firefox loads a copied image again with no size when its cache will not answer (Playwright routing turns the cache off), so `settled()` pins loaded images until the pages are flagged. Twelve stage controls need 524 px at 38 px; beside the comments panel at 1280 px the head has 354 px.
+- 2026-11-11: A hook split out of a component takes refs and state setters as parameters, and oxlint then wants them in dependency arrays (it cannot see they are stable); adding them changes nothing. A cloud container with Node 24.22.1 needs `pnpm_config_runtime_on_fail=warn`. Never symlink the repository's `node_modules` into a copy and run `pnpm` there: without a lockfile pnpm installs through the link and rewrites the original (repair with `pnpm install --frozen-lockfile`). Before-and-after screenshots differ only in reveal.js's next arrow, which animates until the first slide change; take each twice. CI's `playwright install --with-deps` fails when the runner cannot resolve `security.ubuntu.com` (run 43060033739): run it again.
 
 ## Done
 
+- 2026-11-11: The simplification pass (125, 126) on `claude/docwalk-fork-sync-tasks-6l4rzp`: numbers in the merge commit body and ROADMAP.
 - 2026-11-09: The two items the review left open fixed on `fix/open-gaps`: sketches key by origin and path with a one-time move (122), and the palette's title filter folds once and runs `indexOf` (123); MEMORY pruned under 100 lines.
 - 2026-11-09: Security review of PR #5 fixed on `fix/review-pr5` (116 to 121): linear palette search, signed countdown with `p=` in the remote link, hello again only for signed states, held tombstones, origin-and-path `?src=` keys with a one-time move, a free temporary name for case-only renames, notes marked not private.
 - 2026-11-09: The integration branch merged decisions 89 to 115 (each row, the ROADMAP "Done" entries with their test counts and `git log --merges` hold the detail); saved marks had two Opus reviews, the mirrored focus views one (no security finding), and a security review of 88 produced row 103.

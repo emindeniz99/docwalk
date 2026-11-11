@@ -132,7 +132,7 @@ function stripFrontMatter(source: string): string {
 
 let counter = 0;
 
-export interface DiagramResult {
+interface DiagramResult {
   ok: boolean;
   error?: string;
 }

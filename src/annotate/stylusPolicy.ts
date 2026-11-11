@@ -12,7 +12,7 @@
 
 export type PointerKind = "mouse" | "pen" | "touch";
 
-export interface StylusState {
+interface StylusState {
   /** The pen, arrow, shape or eraser tool is chosen (drauu is in a drawing mode). */
   drawingTool: boolean;
   /** The laser is chosen. */

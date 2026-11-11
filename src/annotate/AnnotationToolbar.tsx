@@ -157,7 +157,7 @@ function Swatch({
   );
 }
 
-export interface AnnotationToolbarProps {
+interface AnnotationToolbarProps {
   mode: AnnotationMode;
   onModeChange: (mode: AnnotationMode) => void;
   color: PenColor;

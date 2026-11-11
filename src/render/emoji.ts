@@ -33,11 +33,11 @@ function hasCandidate(text: string): boolean {
 const KEPT = "code, pre, kbd, samp, script, style, textarea, math, .docwalk-diagram";
 
 /** How long a deck waits for the list before it measures with the shortcodes as text. */
-export const EMOJI_TIMEOUT_MS = 5000;
+const EMOJI_TIMEOUT_MS = 5000;
 
 export type EmojiNames = ReadonlyMap<string, string>;
 
-export interface EmojiOptions {
+interface EmojiOptions {
   /** Checked once the list is in: a stale build leaves its text alone. */
   stop?: () => boolean;
   timeoutMs?: number;

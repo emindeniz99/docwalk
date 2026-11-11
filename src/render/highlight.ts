@@ -16,7 +16,7 @@
  */
 
 /** The grammars docwalk loads, by Shiki's name for them. */
-export const CODE_LANGUAGES = [
+const CODE_LANGUAGES = [
   "c",
   "cpp",
   "csharp",
@@ -195,7 +195,7 @@ async function tokenizerFor(
   }
 }
 
-export interface HighlightOptions {
+interface HighlightOptions {
   /** Checked once the grammars are in: a stale build leaves its blocks alone. */
   stop?: () => boolean;
   timeoutMs?: number;

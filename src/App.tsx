@@ -1,92 +1,50 @@
 import {
-  Cast,
   Download,
-  KeyRound,
   LayoutGrid,
-  ListChecks,
-  LogIn,
   Moon,
   Monitor,
-  MonitorPlay,
   Play,
-  Search,
   Share2,
   Sun,
   TableOfContents,
-  Trash,
   X,
 } from "lucide-react";
-import {
-  AnnotationToolbar,
-  PEN_COLORS,
-  resolvePenColor,
-  type PenColor,
-} from "./annotate/AnnotationToolbar";
-import { BOARD_TEXT, boardAddress, boardKey, isBoardAddress, sectionOf } from "./annotate/board";
-import { markKeys, slideFingerprint, slideFingerprints } from "./annotate/markKeys";
+import { AnnotationToolbar } from "./annotate/AnnotationToolbar";
+import { useAnnotationLayer } from "./annotate/useAnnotationLayer";
+import { useSavedMarksLayer } from "./annotate/useSavedMarksLayer";
 import { MirrorFeed } from "./annotate/mirrorFeed";
-import { markColorOf } from "./annotate/mirrorTypes";
-import { marksSaver } from "./annotate/savedMarks";
-import {
-  notePenOn,
-  penInUse,
-  stylusDraws,
-  subscribePenInUse,
-  subscribeStylusDraws,
-  useStylusDraws,
-} from "./annotate/stylus";
-import { slideOwner, type PointerKind } from "./annotate/stylusPolicy";
-import type { AnnotationLayer, AnnotationMode } from "./annotate/types";
-import { useAnnotationShortcuts } from "./annotate/useAnnotationShortcuts";
-import { useSavedMarks } from "./annotate/useSavedMarks";
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type ComponentType,
   type DragEvent,
 } from "react";
 import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
 import { useSketchRequest } from "./canvas/request";
 import { useCommentsUi } from "./comments/useCommentsUi";
-import { clonePages, type DeckController, type SlideInfo } from "./deck/controller";
-import { Deck, SLIDE_SIZE, type DeckReport } from "./deck/Deck";
+import type { DeckController, SlideInfo } from "./deck/controller";
+import { Deck, type DeckReport } from "./deck/Deck";
 import { observeFocus } from "./deck/focusEvents";
-import { useOverviewShortcut } from "./deck/useOverviewShortcut";
-import {
-  COARSE_POINTER,
-  setEditorChoice,
-  useEditorChoice,
-  useStoredEditorChoice,
-} from "./editor/choice";
-import {
-  chooseLocale,
-  getAppLocale,
-  localeName,
-  locales,
-  useLocale,
-  type Locale,
-} from "./i18n/locale";
-import type { EditorDiagnostic, SourceEditorProps } from "./editor/types";
-import { withBoardPages } from "./export/boardPages";
-import type { ExportOptions } from "./export/types";
+import { COARSE_POINTER, useEditorChoice, useStoredEditorChoice } from "./editor/choice";
+import { EditorSlot } from "./editor/EditorSlot";
+import { useEditorSync } from "./editor/useEditorSync";
+import { getAppLocale, useLocale } from "./i18n/locale";
+import { useExportOptions } from "./export/useExportOptions";
 import { OpenFileButton } from "./inputs/OpenFileButton";
 import type { HealthResponse } from "./api/types";
 import { SourceBanner } from "./inputs/SourceBanner";
-import { startPresenterBridge } from "./presenter/bridge";
-import { sameCountdown, type Countdown } from "./presenter/pacing";
-import { openPresenterWindow } from "./presenter/window";
+import { usePresenterWindow } from "./presenter/usePresenterWindow";
 import type { RemoteStatus } from "./remote/client";
-import { speakerNotes } from "./sectioning/notes";
+import { useRemoteRoom } from "./remote/useRemoteRoom";
 import { applySelection } from "./sectioning/selection";
 import { parseMarkdown, sectionize, type LevelOption } from "./sectioning/sectionize";
 import { useDraftAutosave } from "./share/draft";
-import { CommandPalette, type Command } from "./shell/CommandPalette";
+import { appCommands, appMoreActions, NEXT_THEME } from "./shell/appCommands";
+import { CommandPalette } from "./shell/CommandPalette";
 import {
   DocumentView,
   linkedTarget,
@@ -97,24 +55,23 @@ import { documentTitle } from "./shell/documentTitle";
 import { IconButton } from "./shell/IconButton";
 import { LevelSelect } from "./shell/LevelSelect";
 import { ModShortcut } from "./shell/ModShortcut";
-import { MoreMenu, type MoreAction } from "./shell/MoreMenu";
-import { setPresentFrame, usePresentChrome, usePresentFrame } from "./shell/presentChrome";
+import { MoreMenu } from "./shell/MoreMenu";
 import { Outline, OutlineSheet } from "./shell/Outline";
-import { useTheme, type ThemeChoice } from "./shell/theme";
+import { useTheme } from "./shell/theme";
+import { useAppKeys } from "./shell/useAppKeys";
 import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
 import { useDocument } from "./shell/useDocument";
+import { useLazyDialog } from "./shell/useLazyDialog";
 import { useMediaQuery } from "./shell/useMediaQuery";
-import { useWakeLock } from "./shell/wakeLock";
-import type { FollowUpdate } from "./shell/RemoteFollower";
+import { usePhonePane } from "./shell/usePhonePane";
+import { usePresenting } from "./shell/usePresenting";
+import type { View } from "./shell/view";
 import { readInitialSections, useUrlSync } from "./url/useUrlSync";
 import { m } from "./paraglide/messages.js";
-import { workspaceCommands } from "./workspace/commands";
 import { FilesPanel } from "./workspace/FilesPanel";
 import { useWorkspace } from "./workspace/useWorkspace";
 import { WorkspaceBanner } from "./workspace/WorkspaceBanner";
 import { WorkspaceDialogs } from "./workspace/WorkspaceDialogs";
-
-type View = "edit" | "document" | "present";
 
 // CodeMirror is the largest single dependency; load it after the deck is up.
 const SourceEditor = lazy(() =>
@@ -161,38 +118,6 @@ const SketchDialog = lazy(() =>
   import("./canvas/SketchDialog").then((mod) => ({ default: mod.SketchDialog })),
 );
 
-const LEVELS: { label: string; value: LevelOption }[] = [
-  { label: "H1", value: 1 },
-  { label: "H2", value: 2 },
-  { label: "H3", value: 3 },
-];
-
-const NEXT_THEME: Record<ThemeChoice, ThemeChoice> = {
-  system: "light",
-  light: "dark",
-  dark: "system",
-};
-
-/** What the layer asks of the stylus setting and latch (decision 110). */
-const STYLUS_INPUT = {
-  stylusDraws,
-  penInUse,
-  subscribe: (listener: () => void) => {
-    const stopSetting = subscribeStylusDraws(listener);
-    const stopLatch = subscribePenInUse(listener);
-    return () => {
-      stopSetting();
-      stopLatch();
-    };
-  },
-};
-
-/** Set once the first pen has been told that fingers now change slides. */
-const STYLUS_NOTICE_KEY = "docwalk.stylusNoticeSeen";
-
-const pointerKind = (type: string): PointerKind =>
-  type === "pen" || type === "touch" ? type : "mouse";
-
 const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
   connecting: m.follow_connecting,
   open: m.follow_open,
@@ -202,46 +127,6 @@ const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
 
 /** Narrow screens move the palette trigger and theme into the overflow menu. */
 const PHONE = "(max-width: 640px)";
-
-/** Mounts a lazily loaded dialog on first open and keeps it mounted, so closing animates and restores focus. */
-function useLazyDialog() {
-  const [isOpen, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const onOpenChange = useCallback((open: boolean) => {
-    if (open) setMounted(true);
-    setOpen(open);
-  }, []);
-  return { isOpen, mounted, onOpenChange, open: () => onOpenChange(true) };
-}
-
-/**
- * The editor in the Edit view. A switch of editor mounts the other one on the
- * line where this document's cursor last was (decision 102). The line lives
- * here rather than in App, so a cursor move re-renders the editor only; this
- * slot unmounts with the Edit view, so coming back starts on line 1.
- */
-function EditorSlot({
-  Editor,
-  onCursorLine,
-  ...props
-}: Omit<SourceEditorProps, "initialLine"> & { Editor: ComponentType<SourceEditorProps> }) {
-  const [cursor, setCursor] = useState<{ line: number; doc: number | undefined } | null>(null);
-  const { documentId } = props;
-  const report = useCallback(
-    (line: number) => {
-      setCursor({ line, doc: documentId });
-      onCursorLine?.(line);
-    },
-    [documentId, onCursorLine],
-  );
-  return (
-    <Editor
-      {...props}
-      onCursorLine={report}
-      initialLine={cursor && cursor.doc === documentId ? cursor.line : null}
-    />
-  );
-}
 
 export function App() {
   // ?view=follow: a read-only screen that follows a presenter (decision 8).
@@ -258,65 +143,18 @@ export function App() {
 
   const [level, setLevel] = useState<LevelOption>("auto");
   const [view, setView] = useState<View>("edit");
-  // On a phone the edit view shows the source or the slide preview, not both.
-  const [phonePane, setPhonePane] = useState<"source" | "preview">("source");
-  // Leaving present mode on a phone lands on the deck just presented (and on
-  // the focus Exit and Escape keep there), not on the source pane.
-  const [lastView, setLastView] = useState(view);
-  const paneSwitchRef = useRef<HTMLDivElement>(null);
-  if (lastView !== view) {
-    setLastView(view);
-    if (lastView === "present") setPhonePane("preview");
-  }
   const [theme, setTheme] = useTheme();
   const [report, setReport] = useState<DeckReport | null>(null);
   const [controller, setController] = useState<DeckController | null>(null);
   const [current, setCurrent] = useState<SlideInfo | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [revealLine, setRevealLine] = useState<number | null>(null);
-  const [presenterRequested, setPresenterRequested] = useState(false);
-  // The presenter window's countdown, which phone remotes show (decision 112). A repeat of the
-  // same values keeps the old object, so the window's 2 s heartbeat re-renders nothing.
-  const [presenterCountdown, setPresenterCountdown] = useState<Countdown | null>(null);
-  const onCountdown = useCallback(
-    (next: Countdown | null) =>
-      setPresenterCountdown((prev) => (sameCountdown(prev, next) ? prev : next)),
-    [],
-  );
-  const [mode, setMode] = useState<AnnotationMode>("off");
-  // The page the open whiteboard covers (decision 110), from the layer's events; `told` keeps
-  // the status silent until the first open and then says "closed" once it is.
-  const [boardState, setBoardState] = useState<{ page: string | null; told: boolean }>({
-    page: null,
-    told: false,
-  });
-  const boardPage = boardState.page;
-  const [penColor, setPenColor] = useState<PenColor>(PEN_COLORS[0].variable);
   const share = useLazyDialog();
-  const join = useLazyDialog();
   const overview = useLazyDialog();
   const sectionPicker = useLazyDialog();
-  const [remoteOn, setRemoteOn] = useState(false);
   const sketch = useSketchRequest(!follow);
   const phone = useMediaQuery(PHONE);
-  // Scroll the outline away until the sticky pane switch reaches the top, so
-  // the chosen pane fills the screen under it and the slide is on screen, not
-  // below the outline.
-  const showPhonePane = useCallback(() => {
-    const main = paneSwitchRef.current?.parentElement;
-    const bar = paneSwitchRef.current?.getBoundingClientRect();
-    if (main && bar) main.scrollTop += bar.top - main.getBoundingClientRect().top;
-    // The deck was display: none; reveal.js lays out again on resize.
-    window.dispatchEvent(new Event("resize"));
-  }, []);
-  // Present unmounts the outline and the pane switch, and Chromium resets the
-  // page's scroll: the preview pane came back selected but below the fold.
-  const viewBefore = useRef(view);
-  useEffect(() => {
-    const was = viewBefore.current;
-    viewBefore.current = view;
-    if (phone && was === "present" && view === "edit") requestAnimationFrame(showPhonePane);
-  }, [view, phone, showPhonePane]);
+  const { phonePane, setPhonePane, paneSwitchRef, showPhonePane } = usePhonePane({ view, phone });
   // The update prompt (src/pwa/update.css) sits above the status bar, whose height varies.
   const statusbarRef = useBlockSizeProperty<HTMLElement>("--docwalk-statusbar-size");
   const Editor = useEditorChoice() === "monaco" ? MonacoEditor : SourceEditor;
@@ -327,7 +165,7 @@ export function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   useEffect(() => {
     let live = true;
-    void import("./inputs/oauth")
+    void import("./inputs/health")
       .then((mod) => mod.fetchApiHealth())
       .then((h) => {
         if (live) setHealth(h);
@@ -337,19 +175,10 @@ export function App() {
     };
   }, []);
   const deckRef = useRef<HTMLDivElement>(null);
-  const layerRef = useRef<AnnotationLayer | null>(null);
   // What this tab mirrors: the laser, pen marks and diagram focus view. Followers (through
   // RemotePresenter) and the presenter window (through the bridge) subscribe (decision 88).
   const [mirrorFeed] = useState(() => new MirrorFeed());
   useEffect(() => observeFocus((event) => mirrorFeed.focus(event)), [mirrorFeed]);
-  const startedAt = useRef(0);
-  // The presenter bridge reads the latest document through refs, so it is not restarted on every keystroke.
-  const markdownRef = useRef(markdown);
-  const levelRef = useRef(level);
-  useLayoutEffect(() => {
-    markdownRef.current = markdown;
-    levelRef.current = level;
-  });
 
   // reveal.js lays out on window resize, so nudge it whenever the deck's pane changes size.
   const show = useCallback((next: View | ((v: View) => View)) => {
@@ -386,15 +215,6 @@ export function App() {
   const resolved = plan.levels.length > 0 ? `H${plan.levels.join(", H")}` : m.app_breaks_only();
   const docTitle = !doc ? m.app_loading_document() : documentTitle(root, plan) || m.app_untitled();
   const slides = useMemo(() => controller?.slides() ?? [], [controller]);
-  // Said in a polite status in the deck pane when the whiteboard opens or closes (decision 110).
-  const boardTitle = boardPage
-    ? (slides.find((sl) => sl.sectionId === sectionOf(boardPage))?.title ?? sectionOf(boardPage))
-    : "";
-  const boardStatus = boardPage
-    ? m.board_opened({ title: boardTitle })
-    : boardState.told
-      ? m.board_closed()
-      : "";
 
   // Document mode reads the whole file: the outline scrolls it to a section,
   // and entering it opens at the section the outline marks as current. A
@@ -432,35 +252,18 @@ export function App() {
   // Pasted and opened documents exist nowhere else; App never unmounts, so no debounced save is lost.
   useDraftAutosave(markdown, doc?.source ?? { kind: "sample" });
 
-  // ---- Remote control (decision 8): only when the Worker offers it -------
-  // Feature-detected through /api/health and hidden in static mode (AGENTS.md rule 6).
-  const remoteAvailable = !follow && health?.features.includes("remote") === true;
-
-  const [followUpdate, setFollowUpdate] = useState<FollowUpdate>({
-    status: "connecting",
-    state: null,
-    incomplete: false,
-  });
+  // Remote control (decision 8): only when the Worker offers it.
   const { loadFromLink } = inputs;
-  // Called once for each document the presenter announces, so a follower
-  // picks up an edit or a newly opened document; null when there is no link.
-  const onFollowDocument = useCallback(
-    (link: string | null) => {
-      if (link) void loadFromLink(link);
-      else setNotice({ message: m.follow_doc_too_long(), tone: "error" });
-    },
-    [loadFromLink, setNotice],
-  );
-  const onFollowUpdate = useCallback((update: FollowUpdate) => {
-    setFollowUpdate(update);
-    // Section ids, and so the presenter's slide addresses, depend on the slide level.
-    const next = update.state?.level;
-    if (next !== undefined)
-      setLevel((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-  }, []);
-  useEffect(() => {
-    if (followUpdate.incomplete) setNotice({ message: m.follow_link_incomplete(), tone: "error" });
-  }, [followUpdate.incomplete, setNotice]);
+  const {
+    join,
+    remoteOn,
+    remoteAvailable,
+    openRemote,
+    followUpdate,
+    followOpen,
+    onFollowUpdate,
+    onFollowDocument,
+  } = useRemoteRoom({ follow, health, loadFromLink, setNotice, setLevel });
 
   // Source line of every section, for the editor's reveal, cursor sync and notes.
   const sectionLines = useMemo(
@@ -482,284 +285,65 @@ export function App() {
     },
   });
 
-  // The first pen on the stage (decision 110): fingers now change slides, and the viewer is told
-  // once per browser, and where to change it.
-  useEffect(() => {
-    if (follow || !controller) return;
-    return notePenOn(controller.stage());
-  }, [follow, controller]);
-  useEffect(() => {
-    if (follow) return;
-    let stop: (() => void) | undefined;
-    const unsubscribe = subscribePenInUse(() => {
-      if (!stylusDraws()) return;
-      try {
-        if (localStorage.getItem(STYLUS_NOTICE_KEY) === "true") return;
-        localStorage.setItem(STYLUS_NOTICE_KEY, "true");
-      } catch {
-        // Without storage the notice shows once per visit, since the latch sets once.
-      }
-      // Not while the pen is down: the notice moves the page, and a tap that began on a link
-      // would end on something else. The click of this touch comes before the timeout.
-      const lifted = () => {
-        stop?.();
-        window.setTimeout(() => setNotice({ message: m.stylus_notice(), tone: "info" }), 0);
-      };
-      window.addEventListener("pointerup", lifted, true);
-      window.addEventListener("pointercancel", lifted, true);
-      stop = () => {
-        window.removeEventListener("pointerup", lifted, true);
-        window.removeEventListener("pointercancel", lifted, true);
-      };
-    });
-    return () => {
-      unsubscribe();
-      stop?.();
-    };
-  }, [follow, setNotice]);
-
-  // Presenter bridge: only in the tab that opened the presenter window, so two
-  // open docwalk tabs never both answer it.
-  useEffect(() => {
-    if (!controller || !presenterRequested) return;
-    return startPresenterBridge({
-      getState: () => ({
-        markdown: markdownRef.current,
-        level: typeof levelRef.current === "object" ? [...levelRef.current] : levelRef.current,
-        current: controller.current()?.address ?? "",
-        addresses: controller.slides().map((sl) => sl.address),
-        startedAt: startedAt.current,
-      }),
-      goTo: (address) => controller.goTo(address),
-      step: (d) => (d === 1 ? controller.next() : controller.prev()),
-      subscribe: (onChange) => controller.onChange(() => onChange()),
-      mirror: mirrorFeed,
-      onCountdown,
-    });
-  }, [controller, presenterRequested, mirrorFeed, onCountdown]);
-
-  // Set when the annotation layer is up (below, after the saved marks it draws are known).
-  const [layerReady, setLayerReady] = useState(0);
-  useEffect(
-    () => () => {
-      layerRef.current?.destroy();
-      layerRef.current = null;
-    },
-    [],
-  );
-  useEffect(() => {
-    if (layerReady) layerRef.current?.setMode(mode);
-  }, [mode, layerReady]);
-  // The pen colour is a CSS variable whose value changes with the theme, so
-  // `theme` re-resolves it even though the body does not read it.
-  useEffect(() => {
-    if (layerReady) {
-      layerRef.current?.setColor(resolvePenColor(penColor), markColorOf(penColor) ?? undefined);
-    }
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [penColor, theme, layerReady]);
-  // The whiteboard of the section on screen (decision 110). The layer is the source of truth:
-  // it opens and closes, and the `board` events it sends set `boardState`.
-  const toggleBoard = useCallback(() => {
-    const layer = layerRef.current;
-    if (!layer) return;
-    if (layer.board()) {
-      layer.setBoard(null);
-      return;
-    }
-    const section = controller?.current()?.sectionId;
-    if (!section) return;
-    layer.setBoard({ key: boardKey(section), address: boardAddress(section) });
-    // The first touch should draw: with no drawing tool chosen, the pen is.
-    if (layer.board()) setMode((chosen) => (chosen === "off" ? "pen" : chosen));
-  }, [controller]);
-  // The deck pane is hidden in the document view; a board there would be open on nothing.
-  useEffect(() => {
-    if (view === "document") layerRef.current?.setBoard(null);
-  }, [view]);
-  useAnnotationShortcuts(
-    {
-      mode,
-      setMode,
-      undo: () => layerRef.current?.undo(),
-      redo: () => layerRef.current?.redo(),
-      board: { open: boardPage !== null, toggle: toggleBoard },
-    },
-    // Presenting, the keys work anywhere. In the edit view the toolbar is on screen
-    // too, so they work while focus is in the deck pane (the slide or the toolbar).
-    // A sketch owns its keys (P, A, E are Excalidraw tools too).
-    !follow && !sketch.request,
-    view === "present" ? undefined : deckRef,
-  );
-
-  // Presenting, and on a follow screen (decision 113), the slide fills the
-  // screen unless the viewer chose the card frame (decision 77).
-  const frame = usePresentFrame();
-  const presenting = view === "present" && !follow;
-  const staged = presenting || follow;
-  const fill = staged && frame === "fill";
-  // A follow screen hides its bar like a presenting one, but only while the
-  // slide can be trusted: anything but an open connection, or an incomplete
-  // link, keeps the bar (and the status in it) up.
-  const followOpen = follow && followUpdate.status === "open" && !followUpdate.incomplete;
-  // The screen stays on while presenting (decision 80).
-  useWakeLock(view === "present");
-  // Presenting, the bar and tools step aside after a few idle seconds so the
-  // slide can take the whole stage (decision 75); usePresentChrome has the rules.
-  const stylusOn = useStylusDraws();
-  const chrome = usePresentChrome({
-    active: presenting || followOpen,
-    pane: deckRef,
-    slideOwner: (type) =>
-      slideOwner({
-        pointerType: pointerKind(type),
-        drawingTool: mode !== "off" && mode !== "laser",
-        laser: mode === "laser",
-        stylusDraws: stylusOn,
-        penInUse: penInUse(),
-      }),
-    barIsStage: fill,
+  const { presenterCountdown, openPresenter } = usePresenterWindow({
+    controller,
+    markdown,
+    level,
+    mirrorFeed,
+    setNotice,
   });
 
-  // O opens the slide overview: anywhere while presenting, from the deck pane while editing.
-  useOverviewShortcut(
-    overview.open,
-    !follow && controller !== null && view !== "document",
-    view === "present" ? undefined : deckRef,
-  );
+  const {
+    layerRef,
+    mode,
+    setMode,
+    penColor,
+    setPenColor,
+    boardPage,
+    boardStatus,
+    setBoardState,
+    layerReady,
+    setLayerReady,
+    toggleBoard,
+  } = useAnnotationLayer({
+    follow,
+    controller,
+    view,
+    theme,
+    slides,
+    sketchOpen: sketch.request !== null,
+    deckRef,
+    setNotice,
+  });
 
-  // Notes on slides become editor diagnostics at their section's source line.
-  // Until the deck rebuilds, its slides are those of the text before the last
-  // edit: a slide whose section the edit removed has no line, and its note
-  // waits for the rebuild instead of landing on line 1.
-  const diagnostics = useMemo<EditorDiagnostic[]>(
-    () =>
-      slides.flatMap((sl) => {
-        const line = sectionLines.get(sl.sectionId);
-        if (!sl.flagged || line === undefined) return [];
-        const note = sl.note ?? m.app_slide_has_note();
-        return [
-          {
-            line,
-            message: m.app_slide_diagnostic(
-              { number: sl.index + 1, address: sl.address, note },
-              { locale },
-            ),
-            severity: "warning" as const,
-          },
-        ];
-      }),
-    [slides, sectionLines, locale],
-  );
+  const { frame, staged, fill, chrome, present } = usePresenting({
+    view,
+    follow,
+    followOpen,
+    mode,
+    deckRef,
+    layerRef,
+    show,
+  });
 
-  // The preview follows the cursor while editing. The editor reports a line
-  // only when it changes, and a heading just typed is not a section until the
-  // edit has been paginated and the deck rebuilt: the last line is matched
-  // again then, and followed if its section is not the one followed last
-  // (so a level switch or a write elsewhere leaves a browsed preview alone).
-  const cursor = useRef<{ line: number; section: string | null } | null>(null);
-  const followCursor = useCallback(
-    (moved: boolean) => {
-      const at = cursor.current;
-      if (!controller || !at) return;
-      let target: string | null = null;
-      for (const sec of plan.sections) if (sec.line <= at.line) target = sec.id;
-      if (!target || (!moved && target === at.section)) return;
-      if (controller.current()?.sectionId === target || controller.goTo(target)) {
-        at.section = target;
-      }
-    },
-    [controller, plan],
-  );
-  const onCursorLine = useCallback(
-    (line: number) => {
-      cursor.current = { line, section: cursor.current?.section ?? null };
-      followCursor(true);
-    },
-    [followCursor],
-  );
-  useEffect(() => {
-    if (view === "edit") followCursor(false);
-    // The editor remounts on return to Edit and reports its line again.
-    else cursor.current = null;
-  }, [view, followCursor]);
+  const { diagnostics, onCursorLine } = useEditorSync({
+    controller,
+    plan,
+    slides,
+    sectionLines,
+    view,
+    locale,
+  });
 
-  const openPresenter = useCallback(() => {
-    if (!openPresenterWindow()) {
-      setNotice({ message: m.app_presenter_blocked(), tone: "error" });
-      return;
-    }
-    startedAt.current = Date.now();
-    setPresenterRequested(true);
-    setNotice(null);
-  }, [setNotice]);
-
-  // Whether this fullscreen session's exit has been acted on; see onFullscreen.
-  const fullscreenLeft = useRef(false);
-  const present = useCallback(async () => {
-    show("present");
-    fullscreenLeft.current = false;
-    try {
-      // The whole page goes fullscreen, not just the deck: dialogs such as the
-      // command palette render outside the deck and would be invisible.
-      await document.documentElement.requestFullscreen?.();
-    } catch {
-      // Fullscreen can be refused (iOS, iframes); present mode still fills the window.
-    }
-    deckRef.current?.querySelector<HTMLElement>(".reveal")?.focus();
-  }, [show]);
-
-  useEffect(() => {
-    const onFullscreen = () => {
-      if (document.fullscreenElement) {
-        fullscreenLeft.current = false;
-        return;
-      }
-      // One exit, one action. An Escape during WebKit's enter animation
-      // delays the enter's change event until the exit has begun, so two
-      // events in a row find no fullscreen element; acting on both would
-      // close a dialog and then leave present mode on the same key.
-      if (fullscreenLeft.current) return;
-      fullscreenLeft.current = true;
-      // Browsers keep Escape for leaving fullscreen and the page never sees
-      // the key. With a dialog open (slide overview, sketch, palette) that
-      // Escape was meant for the dialog: hand it over and keep presenting,
-      // windowed, as a page without fullscreen would.
-      const focused = document.activeElement;
-      if (focused instanceof HTMLElement && focused.closest('[role="dialog"]')) {
-        focused.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-        );
-        return;
-      }
-      // Likewise an open whiteboard (decision 110): that Escape was meant for it, so presenting
-      // goes on windowed with the board up; Escape again closes it, and once more leaves.
-      if (layerRef.current?.board()) return;
-      show((v) => (v === "present" ? "edit" : v));
-    };
-    document.addEventListener("fullscreenchange", onFullscreen);
-    return () => document.removeEventListener("fullscreenchange", onFullscreen);
-  }, [show]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!follow && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteOpen((open) => !open);
-        return;
-      }
-      // Without fullscreen (refused on iOS, in iframes, or headless) Escape is
-      // the only way out of present mode, so handle it here too. The pen and
-      // laser claim Escape first while a tool is active.
-      // reveal marks Escape as handled (its binding is a no-op), so do not test defaultPrevented here.
-      if (e.key === "Escape") {
-        if (document.fullscreenElement) void document.exitFullscreen();
-        else show((v) => (v === "present" ? "edit" : v));
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [show, follow]);
+  useAppKeys({
+    follow,
+    controller,
+    view,
+    deckRef,
+    openOverview: overview.open,
+    setPaletteOpen,
+    show,
+  });
 
   const goTo = useCallback(
     (address: string) => {
@@ -794,87 +378,17 @@ export function App() {
   const { markEdit } = comments;
   const { edit } = inputs;
 
-  // Pen and arrow marks saved per document and slide (decision 105), under the comments' identity.
-  const saved = useSavedMarks({
-    documentKey: comments.documentKey,
-    legacyKey: comments.documentLegacyKey,
-    unidentified: comments.documentUnidentified,
-    enabled: !follow,
+  // Saved marks (decision 105) and the annotation layer that draws them.
+  const { saved, savedMarks, clearMarks, deleteSavedMarks } = useSavedMarksLayer({
+    comments,
+    follow,
+    controller,
+    mirrorFeed,
+    layerRef,
+    setBoardState,
+    setLayerReady,
     setNotice,
   });
-  const { marks: savedMarks } = saved;
-
-  // Pen and laser over the slides; each slide keeps its own marks while the deck is open, and
-  // its saved marks come back on its first visit. The layer (drauu, perfect-freehand) loads
-  // after the deck and the document's saved marks are up, outside the first-load bundle.
-  // A rebuild (an edit, an agent write, a disk reload, a language switch) brings a new stage:
-  // the layer moves onto it, and only slides whose text changed lose their marks. Another
-  // document brings other saved marks: the layer starts again from those.
-  /** The saved marks the current layer was made for. */
-  const layerMarks = useRef<typeof savedMarks>(null);
-  const fingerprints = useRef(new Map<string, string>());
-  useEffect(() => {
-    if (!controller || !savedMarks) return;
-    let cancelled = false;
-    let stop: (() => void) | undefined;
-    void import("./annotate/layer").then(({ createAnnotationLayer }) => {
-      if (cancelled) return;
-      if (layerRef.current && layerMarks.current !== savedMarks) {
-        // Receivers hear the board close before the layer goes.
-        layerRef.current.setBoard(null);
-        layerRef.current.destroy();
-        layerRef.current = null;
-      }
-      let layer = layerRef.current;
-      if (!layer) {
-        layer = createAnnotationLayer(controller.stage(), {
-          saved: (key, address) => savedMarks.forKey(key, address),
-          input: STYLUS_INPUT,
-        });
-        // What it draws goes to the mirror (decision 88) and into the saved marks (decision
-        // 105). It keeps its observers across rebuilds, so this runs once per document.
-        layer.observe((event) => mirrorFeed.ingest(event));
-        layer.observe((event) => {
-          if (event.kind === "board") setBoardState({ page: event.slide, told: true });
-        });
-        layer.observe(
-          marksSaver(
-            () => savedMarks,
-            // A board's text is "no text", so it outlives edits to its section (decision 110).
-            (address) => (isBoardAddress(address) ? BOARD_TEXT : fingerprints.current.get(address)),
-          ),
-        );
-        layerMarks.current = savedMarks;
-      }
-      const shown = layer;
-      shown.moveTo(controller.stage());
-      layerRef.current = shown;
-      fingerprints.current = slideFingerprints(controller.stage());
-      const keys = markKeys(controller.stage());
-      stop = controller.onChange((sl) =>
-        shown.setKey(keys.get(sl.address) ?? sl.address, sl.address),
-      );
-      // Every present section's whiteboard stays too, though no slide key names it.
-      const boardSections = new Set([...keys.keys()].map(sectionOf));
-      shown.retain([...keys.values(), ...[...boardSections].map(boardKey)]);
-      setLayerReady((n) => n + 1);
-    });
-    return () => {
-      cancelled = true;
-      stop?.();
-    };
-  }, [controller, mirrorFeed, savedMarks]);
-
-  // "Delete saved marks": the records, then every slide's marks and their undo history.
-  const clearMarks = useLazyDialog();
-  const deleteSavedMarks = useCallback(() => {
-    if (!savedMarks) return;
-    layerRef.current?.retain([]);
-    layerRef.current?.clear();
-    void savedMarks.clear().then((done) => {
-      if (done) setNotice({ message: m.marks_cleared(), tone: "info" });
-    });
-  }, [savedMarks, setNotice]);
   const onEdit = useCallback(
     (next: string) => {
       markEdit(next);
@@ -883,45 +397,13 @@ export function App() {
     [markEdit, edit],
   );
 
-  // The exporters work from the paginated pages the audience sees, as copies they may change.
-  // Each slide takes the saved marks drawn on its present text (decision 105), unless left out.
-  // A section's speaker notes go on its last slide (decision 114), for the print that asks.
-  // They come from the whole plan: a choice of sections (decision 100) cuts the pages, and the
-  // comment above the first heading stays with the cover whatever is chosen (decision 107).
-  const notes = useMemo(() => speakerNotes(plan), [plan]);
-  const chosenNotes = [...notes.keys()].some((id) => selection.chosen.has(id));
-  const getExportOptions = useCallback(
-    (withMarks: boolean, withNotes: boolean): ExportOptions | null => {
-      if (!controller) return null;
-      const pages = clonePages(controller);
-      const exported = pages.map(({ info, element }, index) => {
-        const marks = withMarks
-          ? (savedMarks?.strokes(info.address, slideFingerprint(element)) ?? [])
-          : [];
-        const isLast = pages[index + 1]?.info.sectionId !== info.sectionId;
-        const sectionNotes = withNotes && isLast ? notes.get(info.sectionId) : undefined;
-        return {
-          address: info.address,
-          title: info.title,
-          element,
-          ...(marks.length > 0 ? { marks } : {}),
-          ...(sectionNotes ? { notes: [...sectionNotes] } : {}),
-        };
-      });
-      return {
-        title: docTitle,
-        size: SLIDE_SIZE,
-        // A section's whiteboard follows its last page when it has marks and marks are wanted (decision 110).
-        slides: withMarks
-          ? withBoardPages(
-              exported,
-              (id) => savedMarks?.strokes(boardAddress(id), BOARD_TEXT) ?? [],
-            )
-          : exported,
-      };
-    },
-    [controller, docTitle, savedMarks, notes],
-  );
+  const { chosenNotes, getExportOptions } = useExportOptions({
+    controller,
+    plan,
+    chosen: selection.chosen,
+    docTitle,
+    savedMarks,
+  });
 
   const oauthClientId = health?.features.includes("oauth") ? health.githubClientId : undefined;
   const signIn = useCallback(() => {
@@ -930,112 +412,55 @@ export function App() {
       .then((mod) => mod.startLogin(oauthClientId))
       .catch(() => setNotice({ message: m.app_sign_in_storage(), tone: "error" }));
   }, [oauthClientId, setNotice]);
-  const openRemote = useCallback(() => {
-    setRemoteOn(true);
-    join.onOpenChange(true);
-  }, [join]);
 
-  const commands: Command[] = [
-    { id: "present", label: m.cmd_present(), run: () => void present() },
-    { id: "presenter", label: m.cmd_presenter(), run: openPresenter },
-    { id: "overview", label: m.cmd_overview(), hint: "O", run: overview.open },
-    { id: "sections", label: m.cmd_sections(), run: sectionPicker.open },
-    ...(layerReady > 0 && view !== "document"
-      ? [
-          boardPage !== null
-            ? { id: "board-close", label: m.cmd_board_close(), hint: "W", run: toggleBoard }
-            : { id: "board-open", label: m.cmd_board_open(), hint: "W", run: toggleBoard },
-        ]
-      : []),
-    { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
-    { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
-    // Touch screens keep CodeMirror and are not offered Monaco.
-    ...(coarse
-      ? []
-      : [
-          storedEditor === "monaco"
-            ? {
-                id: "editor-codemirror",
-                label: m.cmd_editor({ editor: "CodeMirror" }),
-                run: () => setEditorChoice("codemirror"),
-              }
-            : {
-                id: "editor-monaco",
-                label: m.cmd_editor({ editor: "Monaco" }),
-                run: () => setEditorChoice("monaco"),
-              },
-        ]),
-    { id: "share", label: m.cmd_share(), run: share.open },
-    ...(comments.command ? [comments.command] : []),
-    ...(saved.count > 0
-      ? [{ id: "delete-marks", label: m.marks_clear_command(), run: clearMarks.open }]
-      : []),
-    { id: "token", label: m.cmd_token(), run: () => inputs.setTokenOpen(true) },
-    ...(oauthClientId ? [{ id: "sign-in", label: m.cmd_sign_in(), run: signIn }] : []),
-    ...(remoteAvailable ? [{ id: "remote", label: m.cmd_remote(), run: openRemote }] : []),
-    {
-      id: "theme",
-      label: m.theme_switch({ next: NEXT_THEME[theme] }),
-      run: () => setTheme(NEXT_THEME[theme]),
-    },
-    frame === "fill"
-      ? { id: "frame-card", label: m.cmd_present_card(), run: () => setPresentFrame("card") }
-      : { id: "frame-fill", label: m.cmd_present_fill(), run: () => setPresentFrame("fill") },
-    {
-      id: "level-auto",
-      label: m.level_command({ level: m.level_auto_resolved({ resolved }) }),
-      run: () => setLevel("auto"),
-    },
-    ...LEVELS.map((l) => ({
-      id: `level-${String(l.value)}`,
-      label: m.level_command({ level: l.label }),
-      run: () => setLevel(l.value),
-    })),
-    // The language switch (decision 56) offers the languages not in use, each named in itself.
-    ...locales
-      .filter((l) => l !== locale)
-      .map((l: Locale) => ({
-        id: `locale-${l}`,
-        label: m.cmd_language({ language: localeName(l) }),
-        run: () => chooseLocale(l),
-      })),
-    ...workspaceCommands(workspace),
-  ];
+  const commands = appCommands({
+    present,
+    openPresenter,
+    overview,
+    sectionPicker,
+    layerReady,
+    view,
+    boardPage,
+    toggleBoard,
+    show,
+    coarse,
+    storedEditor,
+    share,
+    comments,
+    saved,
+    clearMarks,
+    inputs,
+    oauthClientId,
+    signIn,
+    remoteAvailable,
+    openRemote,
+    theme,
+    setTheme,
+    frame,
+    resolved,
+    setLevel,
+    locale,
+    workspace,
+  });
 
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
-  const moreActions: MoreAction[] = [
-    ...(phone
-      ? [
-          {
-            id: "palette",
-            label: m.cmd_palette(),
-            Icon: Search,
-            run: () => setPaletteOpen(true),
-          },
-        ]
-      : []),
-    { id: "token", label: m.cmd_token(), Icon: KeyRound, run: () => inputs.setTokenOpen(true) },
-    ...(oauthClientId ? [{ id: "sign-in", label: m.cmd_sign_in(), Icon: LogIn, run: signIn }] : []),
-    ...(remoteAvailable
-      ? [{ id: "remote", label: m.cmd_remote(), Icon: Cast, run: openRemote }]
-      : []),
-    { id: "presenter", label: m.cmd_presenter(), Icon: MonitorPlay, run: openPresenter },
-    { id: "sections", label: m.cmd_sections(), Icon: ListChecks, run: sectionPicker.open },
-    ...(comments.moreAction ? [comments.moreAction] : []),
-    ...(saved.count > 0
-      ? [{ id: "delete-marks", label: m.marks_clear_command(), Icon: Trash, run: clearMarks.open }]
-      : []),
-    ...(phone
-      ? [
-          {
-            id: "theme",
-            label: m.theme_switch({ next: NEXT_THEME[theme] }),
-            Icon: ThemeIcon,
-            run: () => setTheme(NEXT_THEME[theme]),
-          },
-        ]
-      : []),
-  ];
+  const moreActions = appMoreActions({
+    phone,
+    setPaletteOpen,
+    inputs,
+    oauthClientId,
+    signIn,
+    remoteAvailable,
+    openRemote,
+    openPresenter,
+    sectionPicker,
+    comments,
+    saved,
+    clearMarks,
+    theme,
+    setTheme,
+    ThemeIcon,
+  });
 
   const onDrop = (event: DragEvent) => {
     event.preventDefault();

@@ -58,9 +58,9 @@ type OnPaste = NonNullable<ExcalidrawProps["onPaste"]>;
 type Scene = Parameters<OnChange>;
 
 /** Typing and dragging fire onChange constantly; a save waits for this pause. */
-export const SAVE_DELAY_MS = 400;
+const SAVE_DELAY_MS = 400;
 
-export interface SketchDialogProps {
+interface SketchDialogProps {
   /** The diagram's Mermaid source as written in the document. */
   source: string;
   /** 1-based position among the document's diagrams, for the title and file names. */
@@ -113,7 +113,7 @@ const EXPORTS = [
 const EXCALIDRAW_LANG = { en: "en", tr: "tr-TR" } as const;
 
 /** The diagram type from its first line (`flowchart`, `sequenceDiagram`, …), for the title. */
-export function diagramKind(source: string): string {
+function diagramKind(source: string): string {
   const first = prepareDiagramSource(source)
     .split(/\r?\n/)
     .map((line) => line.trim())

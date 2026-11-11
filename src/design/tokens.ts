@@ -144,5 +144,3 @@ export const tokens = {
     target: "44px",
   },
 } as const;
-
-export type ColorToken = keyof typeof tokens.colors;

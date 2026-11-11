@@ -32,7 +32,7 @@ export const MAX_DOCUMENT_POINTS = 100_000;
 /** Numbers one read may hand to the parser, kept or refused: twice what a full document holds. */
 export const MAX_PARSED_NUMBERS = 4 * MAX_DOCUMENT_POINTS;
 /** The longest document key a record may carry (the comments' alias check uses the same). */
-export const MAX_DOCUMENT_KEY_CHARS = 4096;
+const MAX_DOCUMENT_KEY_CHARS = 4096;
 
 export interface SavedStroke {
   tool: MarkTool;
@@ -41,7 +41,7 @@ export interface SavedStroke {
   points: readonly number[];
 }
 
-export interface SavedSlide {
+interface SavedSlide {
   /** The slide address, `<section-id>/<n>` (rule 7). */
   slide: string;
   /** The fingerprint of the slide's text when the marks were made (markKeys.ts). */

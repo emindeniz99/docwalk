@@ -149,7 +149,7 @@ export type Resolved =
   | { status: "orphaned"; label: string };
 
 /** How an anchor reads when its target is gone: what it pointed at, as written. */
-export function describeAnchor(anchor: Anchor): string {
+function describeAnchor(anchor: Anchor): string {
   if (anchor.kind === "heading") return m.anchor_heading({ slug: anchor.slug });
   const number = anchor.diagram + 1;
   return anchor.heading

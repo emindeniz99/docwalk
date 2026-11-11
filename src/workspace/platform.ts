@@ -17,7 +17,7 @@ type DirectoryPicker = (options?: {
   mode?: "read" | "readwrite";
 }) => Promise<FileSystemDirectoryHandle>;
 
-export interface ObserverRecord {
+interface ObserverRecord {
   type: string;
   relativePathComponents: string[];
 }

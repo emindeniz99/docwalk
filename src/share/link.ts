@@ -15,7 +15,7 @@ import { FRAGMENT_MAX_CHARS, FRAGMENT_WARN_CHARS, type ShareLink } from "./types
 
 export type ShareLinkResult = { ok: true; link: ShareLink } | { ok: false; message: string };
 
-export interface ShareLinkInput {
+interface ShareLinkInput {
   source: DocumentSource;
   markdown: string;
   /** The page's own URL; only its origin and path are used. */

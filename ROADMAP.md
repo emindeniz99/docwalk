@@ -1,6 +1,6 @@
 # Roadmap: docwalk
 
-Dated 2026-11-09. Update this file when an item ships or a deferred item's
+Dated 2026-11-11. Update this file when an item ships or a deferred item's
 trigger fires, and delete the entry in the same commit.
 
 ## v1
@@ -179,6 +179,15 @@ for a new version once an hour while visible and online, and F6 reaches the
 update prompt; `pnpm size` starts size-limit through Node, so it runs on
 Windows. `e2e/canvas.spec.ts` (7) and `e2e/pwa.spec.ts` (12) pass on
 Chromium here.
+
+Done 2026-11-11 (decisions 125 and 126): the simplification pass, with nothing
+a user sees changed and no test assertion touched. `src/App.tsx` went from
+1,466 to 891 lines; its jobs moved into one hook each in their area's folder.
+The follower mirror draws pen and arrow marks with `markSvg.ts` (`mirrorView.ts`
+251 to 188 lines). Three unused definitions went, and 131 symbols only their
+own file uses lost `export`. The health check no longer loads the sign-in
+chunk. App shell 430.7 to 432.1 kB gzip; first load 994 kB, 84 files, before
+and after.
 
 ## Follow-ups
 
@@ -374,57 +383,24 @@ Later rounds:
   lock and no frame switch on the follow page; the frame follows what this
   browser chose in another docwalk tab.
 
+- Simplification pass (decisions 125 and 126), left as found: `findText` in
+  `src/shell/slideSearch.ts` is called only by its own test; `sameList` in
+  `mirrorFeed.ts` and `mirrorStore.ts` and `sectionOf` in `annotate/board.ts`
+  and `deck/focusTargets.ts` look alike and differ in an edge case; unused CSS
+  rules were not looked for; `shell/appCommands.ts` takes about 27 values from
+  App to build the palette and More menu lists. First-load candidates measured
+  and left are in row 126. On a 4-core machine with two Playwright workers,
+  `e2e/mirror.spec.ts:100` and `e2e/diagram-tour-mirror.spec.ts:104` failed once
+  on `main` before the pass and pass alone with `--workers=1`: a race to find
+  (CONTRIBUTING, Picking up work 5).
+
 ## Next up
 
-### 1. Simplification pass (owner, 2026-11-09)
-
-Do this before any new feature. Nothing a user sees may change. Estimate:
-half a day for one agent; the code is not hard, but it is fiddly.
-
-Why now: PR #5 added about 11,700 lines of app code. `src/App.tsx` is 1,466
-lines with 88 hooks, and duplicated helpers make each change touch several
-files. Size is no longer the pressure: decision 124 raised the budget to a
-3 MB warning and a 5 MB failure (993 kB used).
-
-Steps, one commit per step, with `pnpm check` green after each:
-
-1. **Measure first** and write the numbers into the branch's first commit
-   body: `pnpm size` (app shell), the first-load total and its eight largest
-   files (`e2e/perf.spec.ts` prints both on Chromium), and line counts of the
-   files below.
-2. **Split `src/App.tsx`** into hooks and components with one job each
-   (presenting state, the remote room, comments wiring, the workspace,
-   keyboard handling). Move code; do not rewrite it.
-3. **Merge duplicated helpers** between the follower-mirror modules
-   (`src/annotate/mirrorFeed.ts`, `mirrorStore.ts`, `mirrorView.ts`,
-   `mirrorTypes.ts`, `mirrorSchema.ts`: about 1,300 lines) and
-   `src/deck/focus.ts` (875 lines). Find what really repeats before merging.
-4. **Delete dead code**: unused exports, branches no test reaches, leftovers
-   from PR #5. Mention anything you are unsure of instead of deleting it.
-5. **Look at the first load.** Find what the default view loads that it
-   does not need at once (a mode only some users open, a library used after a
-   click). Move it to a lazy chunk where that is cheap and record the
-   trade-off; the budget no longer requires it (decision 124).
-
-Rules:
-
-- One agent, one branch (for example `refactor/simplify`): parallel agents
-  would collide in `App.tsx`.
-- Tests stay green and unchanged. A test that must change because code moved
-  changes its import only, never its assertions. If an assertion seems to need
-  changing, stop: that is a behaviour change.
-- Before merging: `pnpm check`, the full end-to-end suite on Chromium, Firefox
-  and WebKit, and screenshots of the edit view, present mode and a phone view
-  next to the same screenshots taken before the pass. Look at them.
-- Done means: the same tests pass, the screenshots match, and the merge commit
-  body gives the before and after numbers from step 1 (shell size, first load,
-  line counts). Update MEMORY and remove this entry in the same branch.
-
-### 2. Pan and zoom in the focus views that feel like Excalidraw (owner, 2026-11-09)
+### 1. Pan and zoom in the focus views that feel like Excalidraw (owner, 2026-11-09)
 
 A bug fix with a decision row (it refines the focus-view rows). Estimate:
-one to two days. It can run before or after the pass, but not beside it,
-because both touch `src/deck/focus.ts`.
+one to two days. The simplification pass (decision 125) left
+`src/deck/focus.ts` as it was, so the line numbers below still hold.
 
 What the owner saw: in an opened Mermaid diagram, two-finger scrolling on a
 trackpad does not move the diagram, and pinch zoom jumps too far at once.
@@ -458,7 +434,7 @@ and check the total zoom stays within the gesture's size, that a plain wheel
 pans and does not zoom, and the same for the code and table views. A hand check
 on a Mac trackpad and an iPad is still needed; record it.
 
-### 3. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
+### 2. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
 
 The owner's idea: besides slides (pages) and the document view (one column),
 show the Markdown the way Prezi does. All sections sit on one large canvas;
@@ -484,7 +460,7 @@ needs its own name ("map mode" here). Questions to settle:
   first load inside decision 43 (lazy chunk).
 - **Accessibility and motion:** keyboard moves between sections, the camera
   respects `prefers-reduced-motion`, and screen readers get document order.
-- **Reuse:** pan and zoom from item 2, the focus views, the pen and laser
+- **Reuse:** pan and zoom from item 1, the focus views, the pen and laser
   layer, and the overview's section frames.
 
 A cheaper first step that delivers part of it: the document view gets
@@ -492,7 +468,7 @@ click-to-open for diagrams, tables, code and images. Today only the slides open
 the focus view (`openDiagramFocus` and `openBlockFocus` in
 `src/deck/focus.ts` are wired into `Deck.tsx` only).
 
-### 4. Small UX fixes seen on 2026-11-09
+### 3. Small UX fixes seen on 2026-11-09
 
 From screenshots of the sample and a feature document on desktop and phone:
 
@@ -508,17 +484,17 @@ From screenshots of the sample and a feature document on desktop and phone:
 - The one-time "Tap or move to show controls" hint sits over slide content on
   a phone; check it against short and tall slides.
 
-### 5. A review of PR #5's feature code and a real-device UX pass
+### 4. A review of PR #5's feature code and a real-device UX pass
 
 The security review on 2026-11-09 read the risky parts of PR #5 (rendering,
 the room protocol, the workspace, dependencies); the rest of its roughly
 11,700 lines of app code was covered by tests but not read line by line, and
 no one has walked the new features on real devices. After the simplification
-pass: a code review of the remaining feature code (focus views, tour,
+pass (done 2026-11-11): a code review of the remaining feature code (focus views, tour,
 whiteboard, countdown, saved marks, comments round two) and a hand test on a
 Mac trackpad, an iPhone and an iPad, with findings written here.
 
-### 6. The next feature round
+### 5. The next feature round
 
 Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
 for this round is built. After the pass, re-check the survey as its "Re-check"

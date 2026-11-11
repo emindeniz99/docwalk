@@ -20,15 +20,15 @@ import "./share.css";
 // Message functions, so each render reads the current UI language.
 export const PRIVACY_NOTE = m.share_privacy;
 
-export const COMMENTS_PRIVACY_NOTE = m.share_comments_privacy;
+const COMMENTS_PRIVACY_NOTE = m.share_comments_privacy;
 
-export const COMMENTS_NAMES_NOTE = m.share_comments_names;
+const COMMENTS_NAMES_NOTE = m.share_comments_names;
 
-export const COMMENTS_DROPPED = m.share_comments_dropped;
+const COMMENTS_DROPPED = m.share_comments_dropped;
 
 type CopyStatus = "" | "copied" | "manual";
 
-export interface ShareDialogProps {
+interface ShareDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   source: DocumentSource;

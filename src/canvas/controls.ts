@@ -16,7 +16,7 @@ function setLabel(element: Element, label: string): void {
 }
 
 /** Applies the names to what is in `root` now. */
-export function nameExcalidrawControls(root: ParentNode, menuLabel: string): void {
+function nameExcalidrawControls(root: ParentNode, menuLabel: string): void {
   for (const menu of root.querySelectorAll(MENU)) setLabel(menu, menuLabel);
   for (const zoom of root.querySelectorAll(ZOOM)) {
     // Excalidraw's own title, translated, then what the button reads.

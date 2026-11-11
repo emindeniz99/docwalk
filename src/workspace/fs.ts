@@ -24,7 +24,7 @@ function segments(path: string): string[] {
 }
 
 /** The directory at `path` (`""` is the root); creates missing folders when asked. */
-export async function directoryAt(
+async function directoryAt(
   root: FileSystemDirectoryHandle,
   path: string,
   create = false,
