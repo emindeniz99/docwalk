@@ -188,26 +188,34 @@ function mountView(
       event.stopPropagation();
       return;
     }
+    // Ctrl/Cmd/Alt with +, - or 0 is the browser's page zoom: the view leaves it alone.
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
     if (event.key === "Tab") {
-      // Keep focus in the view: past the last stop comes the first, and back.
+      // Keep focus in the view: the browser moves it between the stops, links in a
+      // table included, and past the last stop comes the first, and back.
       const stops = [
-        ...overlay.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]'),
-      ];
-      const first = stops[0];
-      const last = stops.at(-1);
-      const active = document.activeElement as HTMLElement | null;
-      let target: HTMLElement | undefined;
-      if (!active || !stops.includes(active)) target = event.shiftKey ? last : first;
-      else if (event.shiftKey && active === first) target = last;
-      else if (!event.shiftKey && active === last) target = first;
-      if (target) {
+        ...overlay.querySelectorAll<HTMLElement>(
+          'a[href], summary, button:not(:disabled), [tabindex="0"]',
+        ),
+      ].filter((el) => el.tabIndex >= 0);
+      const active = document.activeElement;
+      const way = event.shiftKey
+        ? Node.DOCUMENT_POSITION_PRECEDING
+        : Node.DOCUMENT_POSITION_FOLLOWING;
+      const onward =
+        active instanceof HTMLElement &&
+        active !== overlay &&
+        overlay.contains(active) &&
+        stops.some((stop) => active.compareDocumentPosition(stop) & way);
+      const target = event.shiftKey ? stops.at(-1) : stops[0];
+      if (!onward && target) {
         event.preventDefault();
         target.focus();
       }
     } else if (event.key === "Escape") close(true);
-    else if (event.key === "+" || event.key === "=") view.zoomIn();
-    else if (event.key === "-") view.zoomOut();
-    else if (event.key === "0") view.fit();
+    else if (plain && (event.key === "+" || event.key === "=")) view.zoomIn();
+    else if (plain && event.key === "-") view.zoomOut();
+    else if (plain && event.key === "0") view.fit();
     // The page behind is inert, but its shortcuts listen on the window: O, the pen
     // letters, Ctrl+K and the clicker keys must not reach it from here.
     event.stopPropagation();
