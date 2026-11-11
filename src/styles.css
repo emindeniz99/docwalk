@@ -528,11 +528,12 @@ section[data-docwalk-id] {
 }
 
 /* Code, tables and images open in the focus view; the pointer says so, as it does for diagrams. */
-.docwalk-slide-body [data-docwalk-focus] {
+/* The document view opens them too (decision 129). */
+:is(.docwalk-slide-body, .docwalk-document) [data-docwalk-focus] {
   cursor: zoom-in;
 }
 
-.docwalk-slide-body [data-docwalk-focus]:focus-visible {
+:is(.docwalk-slide-body, .docwalk-document) [data-docwalk-focus]:focus-visible {
   outline: 2px solid var(--dw-color-focus);
   outline-offset: 2px;
 }

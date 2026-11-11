@@ -141,7 +141,7 @@ describe("what a click in the document view does not open (decision 87's excepti
     expect(overlay()).toBeNull();
     // The link went to its heading, as the document view's links do.
     expect(document.activeElement?.textContent).toBe("Later");
-    await userEvent.click(table.querySelector<HTMLElement>("th")!);
+    await userEvent.click(table.querySelector<HTMLElement>("td")!);
     expect(overlay()?.dataset["kind"]).toBe("table");
   });
 
@@ -165,6 +165,7 @@ describe("followers (decisions 106 and 129)", () => {
     cleanups.push(observeFocus((event) => events.push(event)));
     await userEvent.click(await marked(article, "pre"));
     expect(overlay()?.dataset["kind"]).toBe("code");
+    await userEvent.keyboard("{Escape}");
     await userEvent.click(article.querySelector<HTMLElement>(".docwalk-diagram")!);
     expect(overlay()?.dataset["kind"]).toBe("diagram");
     expect(events.filter((e) => e.kind === "open" || e.kind === "close")).toEqual([]);
