@@ -1,5 +1,5 @@
 import { TriangleAlert } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Button } from "react-aria-components";
 import { m } from "../paraglide/messages.js";
 import {
@@ -69,6 +69,14 @@ export function CountdownControls({ countdown, onChange, now }: CountdownControl
   const [invalid, setInvalid] = useState(false);
   const fieldId = useId();
   const errorId = useId();
+  // Start and Reset unmount the control that held focus (decision 135). The
+  // press sets this; the replacing control takes focus when it mounts.
+  const focusOnMount = useRef(false);
+  const takeFocus = (node: HTMLElement | null) => {
+    if (!node || !focusOnMount.current) return;
+    focusOnMount.current = false;
+    node.focus();
+  };
 
   if (!countdown) {
     return (
@@ -80,7 +88,10 @@ export function CountdownControls({ countdown, onChange, now }: CountdownControl
           const minutes = parseMinutes(text);
           const started = minutes === null ? null : startCountdown(minutes, Date.now());
           setInvalid(started === null);
-          if (started) onChange(started);
+          if (started) {
+            focusOnMount.current = true;
+            onChange(started);
+          }
         }}
       >
         <label htmlFor={fieldId} className="docwalk-presenter-label">
@@ -88,6 +99,7 @@ export function CountdownControls({ countdown, onChange, now }: CountdownControl
         </label>
         <div className="docwalk-presenter-target-row">
           <input
+            ref={takeFocus}
             id={fieldId}
             className="docwalk-presenter-target-input"
             type="text"
@@ -103,7 +115,7 @@ export function CountdownControls({ countdown, onChange, now }: CountdownControl
           </Button>
         </div>
         {invalid && (
-          <span id={errorId} className="docwalk-presenter-target-error">
+          <span id={errorId} className="docwalk-presenter-target-error" role="alert">
             {m.presenter_target_invalid({ min: MIN_TARGET_MINUTES, max: MAX_TARGET_MINUTES })}
           </span>
         )}
@@ -120,12 +132,16 @@ export function CountdownControls({ countdown, onChange, now }: CountdownControl
           {over && <TriangleAlert size={14} aria-hidden="true" />}
           {over ? m.presenter_countdown_over() : m.presenter_countdown_left()}
         </span>
-        <span role="timer" aria-label={m.presenter_countdown_left()}>
+        <span
+          role="timer"
+          aria-label={over ? m.presenter_countdown_over() : m.presenter_countdown_left()}
+        >
           {formatRemaining(remainingMs(countdown, now))}
         </span>
       </div>
       <div className="docwalk-presenter-countdown-buttons">
         <Button
+          ref={takeFocus}
           className="docwalk-presenter-text-control"
           onPress={() =>
             onChange(
@@ -143,6 +159,7 @@ export function CountdownControls({ countdown, onChange, now }: CountdownControl
             // The field comes back with the last minutes in it: starting again is one press.
             setText(String(Math.round(countdown.targetMs / 60_000)));
             setInvalid(false);
+            focusOnMount.current = true;
             onChange(null);
           }}
         >
