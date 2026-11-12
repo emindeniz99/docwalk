@@ -426,7 +426,13 @@ Later rounds:
   safe-area insets are untested, and iOS fonts may set the counter wider (21 px
   spare at 667 px with three digits). A talk of only full slides never shows
   the hint. DESIGN.md still describes the More tools menu for the edit preview
-  only. "taşma notu" (decision 135) also waits for the owner's word.
+  only. "taşma notu" (decision 135) also waits for the owner's word. The hint
+  counts text that is `visibility: hidden` as content, which keeps it off
+  reveal.js fragments not yet shown; a slide change during its 5 s can leave
+  it over the next slide's content; with the whiteboard open it is measured
+  against the slide under the board. On touch the tooltip never opens, so the
+  icon Exit shows no Esc hint there. With Exit's tooltip open, Escape exits
+  through Exit's own action and focus lands on the deck.
 
 ## Next up
 
