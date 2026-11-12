@@ -291,6 +291,38 @@ describe("the marks of one document", () => {
     expect(await store.load(DOC)).toEqual([]);
   });
 
+  test("a gesture that draws nothing on a slide whose text changed leaves the waiting record alone (decision 105)", async () => {
+    // The marks wait for "aa" to come back. On "bb" the slide shows none of them, so a click with
+    // the eraser, an arrow too short to draw or Clear marks reports an empty slide.
+    const store = memoryMarksStore();
+    const marks = await loadMarks(store, DOC, vi.fn());
+    marks.put("intro/1", "aa", strokes);
+    marks.put("intro/1", "bb", []);
+    await marks.settled();
+    expect(marks.strokes("intro/1", "aa")).toEqual(strokes);
+    expect(marks.size).toBe(1);
+    expect((await loadMarks(store, DOC, vi.fn())).strokes("intro/1", "aa")).toEqual(strokes);
+    // Back on the text they were drawn on, an empty slide deletes them as before.
+    marks.put("intro/1", "aa", []);
+    await marks.settled();
+    expect(marks.size).toBe(0);
+    expect(await store.load(DOC)).toEqual([]);
+  });
+
+  test("a new mark on the changed text replaces the waiting record (decision 105)", async () => {
+    const store = memoryMarksStore();
+    const marks = await loadMarks(store, DOC, vi.fn());
+    marks.put("intro/1", "aa", strokes);
+    const fresh = [pen([5, 5, 50, 50])];
+    marks.put("intro/1", "bb", fresh);
+    await marks.settled();
+    expect(marks.strokes("intro/1", "aa")).toEqual([]);
+    expect(marks.strokes("intro/1", "bb")).toEqual(fresh);
+    expect(readSlides(DOC, await store.load(DOC))).toEqual([
+      { slide: "intro/1", text: "bb", strokes: fresh },
+    ]);
+  });
+
   test("a save past a cap keeps the last saved marks and says so once", async () => {
     const store = memoryMarksStore();
     const problem = vi.fn<(kind: "full" | "failed") => void>();
@@ -342,6 +374,52 @@ describe("the marks of one document", () => {
     expect(marks.strokes("intro/1", "dd")).toEqual([pen()]);
     expect(marks.strokes("intro/1", "cc")).toEqual([]);
     expect(await store.load(OLD)).toHaveLength(1);
+  });
+
+  test("a move that fails midway leaves the new key empty and the old records in place, so the next open tries again (decisions 120, 132)", async () => {
+    const OLD = "url:https://docs.example/plan.md?t=secret";
+    const NEW = "url:https://docs.example/plan.md";
+    const base = memoryMarksStore();
+    await base.put(record({ doc: OLD, slide: "intro/1", text: "aa" }));
+    await base.put(record({ doc: OLD, slide: "risks/1", text: "bb" }));
+    // A disk with room for one record. Each write is all or nothing, as an IndexedDB
+    // transaction is: a write of more than one record fails whole.
+    let room = 1;
+    const cramped: MarksStore = {
+      ...base,
+      put: async (r) => {
+        if (room-- <= 0) throw new Error("QuotaExceededError");
+        await base.put(r);
+      },
+      clear: async (doc, replacement) => {
+        if ((replacement?.length ?? 0) > room) throw new Error("QuotaExceededError");
+        await base.clear(doc, replacement);
+      },
+    };
+
+    const marks = await loadMarks(cramped, NEW, vi.fn(), OLD);
+    expect(marks.size).toBe(0);
+    expect(await base.load(NEW)).toEqual([]);
+    expect(readSlides(OLD, await base.load(OLD)).map((s) => s.slide)).toEqual([
+      "intro/1",
+      "risks/1",
+    ]);
+
+    // With room again, the next open moves both and the key with the token is gone.
+    const again = await loadMarks(base, NEW, vi.fn(), OLD);
+    expect(again.size).toBe(2);
+    expect(readSlides(NEW, await base.load(NEW))).toHaveLength(2);
+    expect(await base.load(OLD)).toEqual([]);
+  });
+
+  test("an old key that holds nothing valid is cleared, so the query it carries does not stay (decision 132)", async () => {
+    const store = memoryMarksStore();
+    const OLD = "url:https://docs.example/plan.md?t=secret";
+    const NEW = "url:https://docs.example/plan.md";
+    await store.put(record({ doc: OLD, strokes: [{ tool: "pen" } as SavedStroke] }));
+    const marks = await loadMarks(store, NEW, vi.fn(), OLD);
+    expect(marks.size).toBe(0);
+    expect(await store.load(OLD)).toEqual([]);
   });
 
   test("clear deletes every slide of the document, and only of that document", async () => {

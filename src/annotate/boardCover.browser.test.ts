@@ -1,6 +1,15 @@
+import { act, createElement as h } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, test } from "vitest";
 import { userEvent } from "vitest/browser";
+import "virtual:docwalk-tokens.css";
+import "../styles.css";
+import type { DeckController } from "../deck/controller";
+import { Deck } from "../deck/Deck";
+import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import { coverPage } from "./boardCover";
+import { createAnnotationLayer } from "./layer";
+import type { AnnotationLayer } from "./types";
 
 /**
  * While a whiteboard is open the page under it must not take keyboard focus:
@@ -9,7 +18,16 @@ import { coverPage } from "./boardCover";
  * back only what it set, and only on the page it set it on.
  */
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let root: Root | null = null;
+let layer: AnnotationLayer | null = null;
+
 afterEach(() => {
+  layer?.destroy();
+  layer = null;
+  act(() => root?.unmount());
+  root = null;
   document.body.replaceChildren();
 });
 
@@ -118,5 +136,52 @@ describe("coverPage", () => {
     expect(page.inert).toBe(true);
     expect(nested.inert).toBe(false);
     expect(overlay.inert).toBe(false);
+  });
+});
+
+/** A reveal.js deck of two slides, the first with a link, and its controller once it is up. */
+async function realDeck(): Promise<DeckController> {
+  const container = document.createElement("div");
+  Object.assign(container.style, { display: "grid", width: "1280px", height: "800px" });
+  document.body.append(container);
+  root = createRoot(container);
+  let ready: DeckController | null = null;
+  const plan = sectionize(parseMarkdown("## One\n\n[A link](#two)\n\n## Two\n\nBeta.\n"), "auto");
+  act(() =>
+    root!.render(
+      h(Deck, {
+        plan,
+        onReady: (c: DeckController | null) => {
+          if (c) ready = c;
+        },
+      }),
+    ),
+  );
+  await expect.poll(() => ready, { timeout: 20_000, interval: 10 }).not.toBeNull();
+  return ready!;
+}
+
+describe("the cover on a real deck (decision 110)", () => {
+  test("asking for the slide already on screen keeps the page under an open board inert", async () => {
+    // reveal.js updates every slide's `inert` on any slide(), the same index too, and fires no
+    // slidechanged then: the board stays open over a page whose links Tab could reach again.
+    const controller = await realDeck();
+    const stage = controller.stage();
+    const current = controller.current()!;
+    layer = createAnnotationLayer(stage);
+    layer.setKey(`${current.address}#x`, current.address);
+    layer.setBoard({ key: "one/board#0", address: "one/board" });
+    const page = stage.querySelector<HTMLElement>(":scope > section.present")!;
+    expect(page.inert).toBe(true);
+
+    expect(controller.goTo(current.address)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(layer.board()).toBe("one/board");
+    expect(page.classList.contains("present")).toBe(true);
+    expect(page.inert).toBe(true);
+
+    // Closing the board still gives the page back.
+    layer.setBoard(null);
+    expect(page.inert).toBe(false);
   });
 });

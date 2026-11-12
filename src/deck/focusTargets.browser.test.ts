@@ -195,6 +195,45 @@ describe.each(KINDS)("the $kind focus view reuses the diagram view", ({ doc, sel
   });
 });
 
+describe("Tab in a view whose copy holds links (decisions 87 and 132)", () => {
+  // A link is a stop the view did not list: the trap sent the Tab after it back to the
+  // start, so a keyboard user never reached the second link or the toolbar.
+  test("Tab visits every link and every toolbar button in order, wraps only at the ends, and Shift+Tab reverses", async () => {
+    const deck = mountDeck(
+      "## Links\n\n| Name | Where |\n| --- | --- |\n| docs | [guide](https://example.invalid/guide) |\n| spec | [rules](https://example.invalid/rules) |\n\n## Next\n\nMore.\n",
+    );
+    await deck.ready();
+    const block = present(deck).querySelector<HTMLElement>("table")!;
+    block.focus();
+    await userEvent.keyboard("{Enter}");
+    const dialog = overlay()!;
+    const links = [...dialog.querySelectorAll<HTMLElement>("a[href]")];
+    expect(links).toHaveLength(2);
+    const stage = dialog.querySelector<HTMLElement>(".docwalk-focus-stage")!;
+    const buttons = [
+      ...dialog.querySelectorAll<HTMLButtonElement>(".docwalk-focus-toolbar button:not(:disabled)"),
+    ];
+    // The view opens on Close, the last stop; the first Tab wraps to the start.
+    const order = [stage, ...links, ...buttons];
+    expect(document.activeElement).toBe(order.at(-1));
+
+    const forward: (Element | null)[] = [];
+    for (let i = 0; i < order.length; i++) {
+      await userEvent.tab();
+      forward.push(document.activeElement);
+    }
+    expect(forward).toEqual(order);
+
+    const back: (Element | null)[] = [];
+    for (let i = 0; i < order.length; i++) {
+      await userEvent.tab({ shift: true });
+      back.push(document.activeElement);
+    }
+    expect(back).toEqual(order.toReversed().slice(1).concat(order.at(-1)!));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+});
+
 describe("what a click on a block does not open", () => {
   test("a link inside a table follows the link and opens nothing", async () => {
     const deck = mountDeck("## T\n\n| A |\n| --- |\n| [home](#t) |\n");

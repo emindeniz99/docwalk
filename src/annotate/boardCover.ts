@@ -8,6 +8,12 @@
  * touches the current page only, and the undo puts back only what the cover
  * set: a page that was inert already stays inert, and a page that stopped
  * being current meanwhile belongs to reveal.js again.
+ *
+ * reveal.js also clears `inert` on the current page whenever it is asked for
+ * a slide, the one on screen too, and then fires no `slidechanged` that
+ * would close the board (reveal.js 6.0.2 has no event after that update).
+ * So while the cover holds, a page that is still current and loses `inert`
+ * gets it back.
  */
 
 /**
@@ -24,7 +30,12 @@ export function coverPage(stage: HTMLElement): () => void {
   }
   if (page.inert) return () => {};
   page.inert = true;
+  const keep = new MutationObserver(() => {
+    if (!page.inert && page.classList.contains("present")) page.inert = true;
+  });
+  keep.observe(page, { attributes: true, attributeFilter: ["inert"] });
   return () => {
+    keep.disconnect();
     if (page.classList.contains("present")) page.inert = false;
   };
 }

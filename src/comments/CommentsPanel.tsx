@@ -141,6 +141,19 @@ function anchorOptions(
   return { headings, diagramNodes };
 }
 
+/** The key of the new comment's text in `Drafts`; comment ids are strings, so it cannot clash. */
+const NEW_COMMENT = Symbol("new comment");
+
+/**
+ * Text typed into the panel and not yet added or saved (decision 135): the
+ * new comment's text, and each open edit's text by comment id. Closing the
+ * panel unmounts the forms; this outlives them, in memory only, for one
+ * document. The forms own the live text and copy it here as it changes.
+ */
+type Drafts = Map<string | typeof NEW_COMMENT, string>;
+
+const noDrafts = (): Drafts => new Map();
+
 /**
  * The comments panel (decision 55): add, edit, resolve and delete comments,
  * import and export the sidecar. A side panel beside the deck on wide
@@ -149,6 +162,15 @@ function anchorOptions(
  */
 export function CommentsPanel(props: CommentsPanelProps) {
   const titleId = useId();
+  // This component stays mounted while the panel is closed, so drafts kept
+  // here survive a close. Another document drops them; a key that arrives
+  // while the panel is already open is this document's first, and keeps them.
+  const [drafts, setDrafts] = useState(noDrafts);
+  const [draftKey, setDraftKey] = useState(props.api.key);
+  if (draftKey !== props.api.key) {
+    setDraftKey(props.api.key);
+    if (draftKey !== null) setDrafts(noDrafts());
+  }
   if (props.sheet) {
     return (
       <ModalOverlay
@@ -159,18 +181,18 @@ export function CommentsPanel(props: CommentsPanelProps) {
       >
         <Modal className="docwalk-comments docwalk-comments-sheet">
           <Dialog className="docwalk-comments-dialog" aria-labelledby={titleId}>
-            <PanelBody {...props} titleId={titleId} />
+            <PanelBody {...props} titleId={titleId} drafts={drafts} />
           </Dialog>
         </Modal>
       </ModalOverlay>
     );
   }
   if (!props.isOpen) return null;
-  return <SidePanel {...props} titleId={titleId} />;
+  return <SidePanel {...props} titleId={titleId} drafts={drafts} />;
 }
 
 /** Wide screens: a column beside the deck, not modal, so the deck stays usable while commenting. */
-function SidePanel(props: CommentsPanelProps & { titleId: string }) {
+function SidePanel(props: CommentsPanelProps & { titleId: string; drafts: Drafts }) {
   const { titleId } = props;
   // The deck pane narrows when this column mounts and widens when it goes;
   // reveal.js lays the slide out again only on a window resize.
@@ -207,8 +229,9 @@ function PanelBody({
   onClose,
   sidecarName,
   titleId,
+  drafts,
   focusTitle = false,
-}: CommentsPanelProps & { titleId: string; focusTitle?: boolean }) {
+}: CommentsPanelProps & { titleId: string; drafts: Drafts; focusTitle?: boolean }) {
   const [status, setStatus] = useState<CommentNotice | null>(null);
   const [show, setShow] = useState<"open" | "resolved">("open");
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -232,14 +255,18 @@ function PanelBody({
   const resolved = api.comments.map((c) => ({
     comment: c,
     where: resolveAnchor(c.anchor, index, nodes),
+    key: currentKey(c.anchor, index),
   }));
   const orphaned = resolved.filter((r) => r.where.status === "orphaned");
+  // Every node of one diagram has the same order: the anchor key keeps each
+  // node's comments together, one group per node (decision 132).
   const attached = resolved
     .filter((r) => r.where.status === "attached")
     .toSorted(
       (a, b) =>
         (a.where.status === "attached" ? a.where.order : 0) -
           (b.where.status === "attached" ? b.where.order : 0) ||
+        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) ||
         a.comment.created - b.comment.created,
     );
   const openCount = attached.filter((r) => !r.comment.resolved).length;
@@ -248,9 +275,8 @@ function PanelBody({
 
   const groups: { key: string; label: string; sectionId: string | null; items: DocComment[] }[] =
     [];
-  for (const { comment, where } of shown) {
+  for (const { comment, where, key } of shown) {
     if (where.status !== "attached") continue;
-    const key = currentKey(comment.anchor, index);
     const last = groups.at(-1);
     if (last?.key === key) last.items.push(comment);
     else groups.push({ key, label: where.label, sectionId: where.sectionId, items: [comment] });
@@ -330,6 +356,7 @@ function PanelBody({
         diagramNodes={diagramNodes}
         options={options}
         initial={focusAnchor ?? defaultAnchor}
+        drafts={drafts}
         onAdded={() => {
           setShow("open");
           announce({ message: m.comments_added(), tone: "info" });
@@ -382,6 +409,7 @@ function PanelBody({
                     key={c.id}
                     comment={c}
                     api={api}
+                    drafts={drafts}
                     announce={announce}
                     removed={removed}
                   />
@@ -406,6 +434,7 @@ function PanelBody({
                   key={comment.id}
                   comment={comment}
                   api={api}
+                  drafts={drafts}
                   announce={announce}
                   removed={removed}
                   anchorLabel={where.label}
@@ -423,7 +452,11 @@ function PanelBody({
         // The file would delete comments here: they stay until this is pressed (decision 119).
         <Button
           className="docwalk-button docwalk-comments-status-action"
-          onPress={() => announce(status.action!.run())}
+          onPress={() => {
+            const next = status.action!.run();
+            // A notice without an action takes this button away with it.
+            (next.action ? announce : removed)(next);
+          }}
         >
           {status.action.label}
         </Button>
@@ -460,6 +493,7 @@ function AddComment({
   diagramNodes,
   options,
   initial,
+  drafts,
   onAdded,
 }: {
   api: CommentsApi;
@@ -467,11 +501,22 @@ function AddComment({
   diagramNodes: Option[];
   options: Map<string, Option>;
   initial: Anchor | null;
+  drafts: Drafts;
   onAdded: () => void;
 }) {
   const initialKey = initial ? anchorKey(initial) : null;
   const [picked, setPicked] = useState<string | null>(null);
-  const [text, setText] = useState("");
+  const [text, setTextState] = useState(drafts.get(NEW_COMMENT) ?? "");
+  const setText = (next: string) => {
+    setTextState(next);
+    drafts.set(NEW_COMMENT, next);
+  };
+  // Another document's panel starts empty, also when it stays open across the switch.
+  const [seenDrafts, setSeenDrafts] = useState(drafts);
+  if (seenDrafts !== drafts) {
+    setSeenDrafts(drafts);
+    setTextState(drafts.get(NEW_COMMENT) ?? "");
+  }
   const textRef = useRef<HTMLTextAreaElement>(null);
   // A marker or a new slide changes the default and drops an earlier pick
   // (adjusted during render, React's pattern for state that follows a prop).
@@ -598,22 +643,54 @@ function AddComment({
 function CommentItem({
   comment,
   api,
+  drafts,
   announce,
   removed,
   anchorLabel,
 }: {
   comment: DocComment;
   api: CommentsApi;
+  drafts: Drafts;
   announce: (n: CommentNotice) => void;
   /** Announces a change that takes the comment out of its list, and moves focus. */
   removed: (n: CommentNotice) => void;
   /** Shown for an orphaned comment: what it used to point at. */
   anchorLabel?: string;
 }) {
-  const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
-  const [draft, setDraft] = useState(comment.text);
+  // An edit left open when the panel closed opens again with its text.
+  const kept = drafts.get(comment.id);
+  const [mode, setMode] = useState<"view" | "edit" | "delete">(
+    kept === undefined ? "view" : "edit",
+  );
+  const [draft, setDraftState] = useState(kept ?? comment.text);
+  const setDraft = (next: string) => {
+    setDraftState(next);
+    drafts.set(comment.id, next);
+  };
   const edited = comment.updated > comment.created && !comment.resolved;
   const locale = useLocale();
+
+  // Save and Cancel take the focused button away: focus goes to the button
+  // that replaces it, so Escape still reaches the panel (decision 135).
+  // Escape out of an edit lands on the comment itself: the Edit button's
+  // tooltip would open on keyboard focus and take the next Escape.
+  const itemRef = useRef<HTMLLIElement>(null);
+  const focusNext = useRef<"edit" | "delete" | "item" | null>(null);
+  useEffect(() => {
+    const target = focusNext.current;
+    if (target === null) return;
+    focusNext.current = null;
+    if (target === "item") itemRef.current?.focus();
+    else itemRef.current?.querySelector<HTMLElement>(`[data-comment-action="${target}"]`)?.focus();
+  });
+  const view = (focus: "edit" | "delete" | "item") => {
+    focusNext.current = focus;
+    setMode("view");
+  };
+  const endEdit = (focus: "edit" | "item" = "edit") => {
+    drafts.delete(comment.id);
+    view(focus);
+  };
 
   let body: ReactNode;
   if (mode === "edit") {
@@ -624,8 +701,18 @@ function CommentItem({
           e.preventDefault();
           if (draft.trim() === "") return;
           api.update(comment.id, draft);
-          setMode("view");
+          endEdit();
           announce({ message: m.comments_saved(), tone: "info" });
+        }}
+        onKeyDown={(e) => {
+          // Escape cancels the edit first; the next one closes the panel. Stopped
+          // here, so neither the side panel nor the sheet's dialog sees this one.
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setDraftState(comment.text);
+            endEdit("item");
+          }
         }}
       >
         <TextField
@@ -644,8 +731,8 @@ function CommentItem({
           <Button
             className="docwalk-button"
             onPress={() => {
-              setDraft(comment.text);
-              setMode("view");
+              setDraftState(comment.text);
+              endEdit();
             }}
           >
             {m.cancel()}
@@ -688,7 +775,7 @@ function CommentItem({
             >
               {m.ws_delete()}
             </Button>
-            <Button className="docwalk-button" onPress={() => setMode("view")}>
+            <Button className="docwalk-button" onPress={() => view("delete")}>
               {m.cancel()}
             </Button>
           </div>
@@ -696,6 +783,7 @@ function CommentItem({
           <div className="docwalk-comments-actions">
             <IconButton
               label={m.comments_edit()}
+              data-comment-action="edit"
               onPress={() => {
                 setDraft(comment.text);
                 setMode("edit");
@@ -720,7 +808,11 @@ function CommentItem({
                 <Check size={16} aria-hidden="true" />
               )}
             </IconButton>
-            <IconButton label={m.comments_delete()} onPress={() => setMode("delete")}>
+            <IconButton
+              label={m.comments_delete()}
+              data-comment-action="delete"
+              onPress={() => setMode("delete")}
+            >
               <Trash2 size={16} aria-hidden="true" />
             </IconButton>
           </div>
@@ -730,7 +822,12 @@ function CommentItem({
   }
 
   return (
-    <li className="docwalk-comments-item" data-resolved={comment.resolved || undefined}>
+    <li
+      ref={itemRef}
+      tabIndex={-1}
+      className="docwalk-comments-item"
+      data-resolved={comment.resolved || undefined}
+    >
       {anchorLabel && <p className="docwalk-comments-was">{anchorLabel}</p>}
       {body}
     </li>

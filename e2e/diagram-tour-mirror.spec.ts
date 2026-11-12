@@ -113,7 +113,11 @@ test("the follower rings the node the presenter's tour is on, step by step, and 
   await expect(status(presenter)).toContainText("Client. Node 1 of 4.");
   await expect(status(follower)).toContainText("Client. Node 1 of 4.");
   await expect.poll(() => ringedNode(follower)).toBe("a");
-  expect(await ringedNode(presenter)).toBe("a");
+  // The path is sent at once, and each page draws its first ring after its own animation
+  // frames. The presenter's page is behind the follower's here, where Chromium gives it
+  // about one frame a second, so the follower's ring can be there first. Later rings are
+  // drawn with the status.
+  await expect.poll(() => ringedNode(presenter)).toBe("a");
 
   await presenter.keyboard.press("ArrowRight");
   await presenter.keyboard.press("ArrowRight");
@@ -155,6 +159,9 @@ test("a follower that steps on its own keeps its steps until the presenter's pat
 
   await presenter.keyboard.press("t");
   await expect.poll(() => ringedNode(follower)).toBe("a");
+  // The presenter's own first ring can come after the follower's (see the test above);
+  // it has to be drawn before "still on a" below can be read once.
+  await expect.poll(() => ringedNode(presenter)).toBe("a");
   await follower.getByRole("button", { name: "Next node" }).click();
   await follower.getByRole("button", { name: "Next node" }).click();
   await expect.poll(() => ringedNode(follower)).toBe("c");

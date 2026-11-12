@@ -14,9 +14,9 @@ import { useLazyDialog } from "../shell/useLazyDialog";
 import { BOARD_TEXT, boardKey, isBoardAddress, sectionOf } from "./board";
 import { markKeys, slideFingerprints } from "./markKeys";
 import type { MirrorFeed } from "./mirrorFeed";
-import { marksSaver } from "./savedMarks";
+import { marksSaver, type DocumentMarks } from "./savedMarks";
 import { penInUse, stylusDraws, subscribePenInUse, subscribeStylusDraws } from "./stylus";
-import type { AnnotationLayer } from "./types";
+import type { AnnotationLayer, AnnotationLayerOptions } from "./types";
 import { useSavedMarks } from "./useSavedMarks";
 
 /** What the layer asks of the stylus setting and latch (decision 110). */
@@ -32,6 +32,31 @@ const STYLUS_INPUT = {
     };
   },
 };
+
+/**
+ * What the layer of this screen is made with: the saved marks it draws, and
+ * the stylus. A follow screen only receives (decisions 88, 110): it has no
+ * tool, no undo and no stylus input, so no pointer draws there.
+ */
+export function layerOptions(marks: DocumentMarks, follow: boolean): AnnotationLayerOptions {
+  const saved = (key: string, address: string) => marks.forKey(key, address);
+  return follow ? { saved } : { saved, input: STYLUS_INPUT };
+}
+
+/**
+ * "Delete saved marks": every slide's marks and their undo history, then the
+ * records. An open whiteboard closes first, so the slide under it is the one
+ * `clear` empties and `retain` drops the board's drawing with the rest.
+ */
+export function deleteEveryMark(
+  layer: AnnotationLayer | null,
+  marks: DocumentMarks,
+): Promise<boolean> {
+  layer?.setBoard(null);
+  layer?.retain([]);
+  layer?.clear();
+  return marks.clear();
+}
 
 /**
  * Pen and arrow marks saved per document and slide (decision 105), under the
@@ -92,10 +117,7 @@ export function useSavedMarksLayer({
       }
       let layer = layerRef.current;
       if (!layer) {
-        layer = createAnnotationLayer(controller.stage(), {
-          saved: (key, address) => savedMarks.forKey(key, address),
-          input: STYLUS_INPUT,
-        });
+        layer = createAnnotationLayer(controller.stage(), layerOptions(savedMarks, follow));
         // What it draws goes to the mirror (decision 88) and into the saved marks (decision
         // 105). It keeps its observers across rebuilds, so this runs once per document.
         layer.observe((event) => mirrorFeed.ingest(event));
@@ -128,15 +150,12 @@ export function useSavedMarksLayer({
       cancelled = true;
       stop?.();
     };
-  }, [controller, mirrorFeed, savedMarks, layerRef, setBoardState, setLayerReady]);
+  }, [controller, follow, mirrorFeed, savedMarks, layerRef, setBoardState, setLayerReady]);
 
-  // "Delete saved marks": the records, then every slide's marks and their undo history.
   const clearMarks = useLazyDialog();
   const deleteSavedMarks = useCallback(() => {
     if (!savedMarks) return;
-    layerRef.current?.retain([]);
-    layerRef.current?.clear();
-    void savedMarks.clear().then((done) => {
+    void deleteEveryMark(layerRef.current, savedMarks).then((done) => {
       if (done) setNotice({ message: m.marks_cleared(), tone: "info" });
     });
   }, [savedMarks, setNotice, layerRef]);

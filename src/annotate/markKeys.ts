@@ -9,9 +9,9 @@ import { markKey } from "./savedMarks";
  *
  * The key is the slide address plus a hash of the slide body's text. Slide
  * chrome that follows the UI language (the "· continued" marker, the hidden
- * "Footnotes" label, the note under the body) and Mermaid's per-render
- * `<style>` blocks are left out, so a language switch or a re-render alone
- * never drops a mark.
+ * "Footnotes" label, the note under the body, a failed diagram's note) and
+ * Mermaid's per-render `<style>` blocks are left out, so a language switch or
+ * a re-render alone never drops a mark.
  */
 export function markKeys(stage: HTMLElement): Map<string, string> {
   const keys = new Map<string, string>();
@@ -43,7 +43,7 @@ function contentText(page: HTMLElement): string {
   if (!body) return "";
   const copy = body.cloneNode(true) as Element;
   for (const chrome of copy.querySelectorAll(
-    ".docwalk-continued, [data-footnotes] > .sr-only, style",
+    ".docwalk-continued, [data-footnotes] > .sr-only, .docwalk-diagnostic, style",
   ))
     chrome.remove();
   return copy.textContent ?? "";

@@ -455,29 +455,76 @@ is mirrored from it. The questions above still wait for the owner.
 
 ### 2. Small UX fixes seen on 2026-11-09
 
-From screenshots of the sample and a feature document on desktop and phone:
+Done 2026-11-11: the status bar counts "overflow notes" (decision 130; the
+Turkish text waits for a glossary word in CONTEXT.md, candidates "taşma notu"
+and "sığmama notu"), and code in the source editor has a neutral colour of its
+own in CodeMirror and Monaco (decision 131).
 
-- The status bar says "7 notes" for overflow notes, and speaker notes
-  (decision 79) are now also "notes". Rename one of them, for example
-  "7 overflow notes".
-- The editor colours fenced code with the link colour (`.dw-tok-code` in
-  `src/editor/editor.css` uses `--link`), so code blocks look red, as if
-  something were wrong. Give code its own neutral token in DESIGN.md.
-- On a phone in landscape, the shown presenting controls take two rows and
-  cover about a third of the slide until they hide (decision 77 accepted the
-  overlay); look for a one-row layout.
-- The one-time "Tap or move to show controls" hint sits over slide content on
-  a phone; check it against short and tall slides.
+Measured on 2026-11-11 and waiting for the owner, because each changes a row
+the owner accepted (75, 77, 108, 110). Chromium only, with touch emulation;
+no WebKit, no real safe-area insets.
 
-### 3. A review of PR #5's feature code and a real-device UX pass
+- Phone landscape, presenting controls. At 844, 734 and 667 px wide the bar
+  takes two rows, 120 px, and covers 31 to 35% of the slide; one row needs 951
+  to 959 px. Every control is 44 px while presenting, and the "More tools" menu
+  of 110 works only in the edit preview with a mouse. One row at all three
+  widths (68 px, 17 to 19% of the slide, every target still 44 px) needs three
+  things together: that menu takes Rectangle, Ellipse, Whiteboard and Clear
+  marks while presenting on a narrow head, Exit becomes an icon button, and
+  the slide address leaves the bar. At 667 px about 1 px is to spare. Smaller
+  38 px targets break DESIGN.md's 44 px rule and still wrap at 667; a bar that
+  scrolls sideways hides 6 to 8 controls.
+- The first-use hint. It covers nothing in portrait, on a short slide or on
+  the sample's first slide; in landscape it covers the last two or three lines
+  of a slide filled to the bottom. No free area fits the pill there (side bars
+  66 to 76 px against a 201 px pill, 420 px in Turkish). The choice: show it
+  only when its box overlaps no slide content and try again at the next hide,
+  or keep it as it is (once per browser, 5 s).
 
-The security review on 2026-11-09 read the risky parts of PR #5 (rendering,
-the room protocol, the workspace, dependencies); the rest of its roughly
-11,700 lines of app code was covered by tests but not read line by line, and
-no one has walked the new features on real devices. After the simplification
-pass (done 2026-11-11): a code review of the remaining feature code (focus views, tour,
-whiteboard, countdown, saved marks, comments round two) and a hand test on a
-Mac trackpad, an iPhone and an iPad, with findings written here.
+### 3. A real-device UX pass, and what the review of PR #5 left
+
+The code review is done (2026-11-11): three reviewers read the focus views
+and tour, the whiteboard, stylus and saved marks, and the countdown and
+comments. Decision 132 lists the thirteen defects fixed. Found and not fixed,
+smallest first; each needs a failing test before code:
+
+- Comments: a reopened comment reads "edited" although its text never changed
+  (`CommentsPanel.tsx`, `edited` comes from `updated` alone). After Save or
+  Cancel of an edit, Cancel of a delete, or "Delete N comments", focus falls to
+  `<body>` and Escape no longer closes the panel. Closing the panel, or Escape
+  inside its text field, discards typed text.
+- Countdown: the timer's `aria-label` stays "Time left" once over (row 80 says
+  it changes), and the invalid-minutes message is not announced. Start and
+  Reset drop focus to `<body>` in the presenter window.
+- Eraser (drauu 1.0): a drag cut short by a slide change or the whiteboard
+  toggle removes strokes from the screen and not from the saved record, so they
+  return after a reload; an eraser click that erases nothing adds an empty undo
+  step and drops redo. Both sit in drauu's eraser model.
+- Code view: a raw-HTML `<pre>` with `<br>` or an image loses them in the focus
+  view (`intoLines` keeps text nodes only). Fenced code is unaffected.
+- Suspected, not shown from the code: a `#doc=…&c=…` link pasted into a tab
+  that shows another document may merge its comments into the wrong one; two
+  fast edits may detach a draft's comments; the glow on commented diagram nodes
+  shows while presenting; a link or file can overwrite a local comment's text
+  if it knows the id (row 65's "last edit wins"); a stage constructor that
+  throws leaves the page inert under an empty focus overlay; saved marks are
+  left out of an export when a slide's text changed after the last rebuild; the
+  annotation layer is never built if IndexedDB never answers.
+
+- Left by the fixes of 132: a comment stored before 132 on a second heading
+  with an empty slug (slug `-1`), or on a diagram node under such a heading,
+  now lists as orphaned (nothing is deleted); a slide that shows a failed
+  diagram's note gets a new fingerprint once, so its saved marks wait until it
+  is marked again; Delete saved marks closes an open whiteboard; a held file or
+  paste draft gets its alias when it opens, not at its first edit; on a layout
+  that types `+` or `-` with AltGr the zoom keys do nothing in the view (the
+  buttons work); when the old and the new key of a `?src=` document hold more
+  than 500 comments together, the move of 120 fails at every open and the old
+  key stays.
+
+Still owed, by hand: the new features on a Mac trackpad, an iPhone and an
+iPad (focus views and their pan and zoom, the tour, the whiteboard and stylus,
+the countdown on a phone, saved marks, comments), with findings written here.
 
 ### 4. The next feature round
 
