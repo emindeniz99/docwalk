@@ -18,12 +18,13 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
   type DragEvent,
 } from "react";
-import { Button, ToggleButton, ToggleButtonGroup } from "react-aria-components";
+import { Button, ToggleButton, ToggleButtonGroup, Tooltip } from "react-aria-components";
 import { useSketchRequest } from "./canvas/request";
 import { useCommentsUi } from "./comments/useCommentsUi";
 import type { DeckController, SlideInfo } from "./deck/controller";
@@ -57,6 +58,7 @@ import { LevelSelect } from "./shell/LevelSelect";
 import { ModShortcut } from "./shell/ModShortcut";
 import { MoreMenu } from "./shell/MoreMenu";
 import { Outline, OutlineSheet } from "./shell/Outline";
+import { QuietTooltipTrigger } from "./shell/QuietTooltipTrigger";
 import { useTheme } from "./shell/theme";
 import { useAppKeys } from "./shell/useAppKeys";
 import { useBlockSizeProperty } from "./shell/useBlockSizeProperty";
@@ -127,6 +129,56 @@ const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
 
 /** Narrow screens move the palette trigger and theme into the overflow menu. */
 const PHONE = "(max-width: 640px)";
+
+/**
+ * Exit, while presenting. On a head too narrow for one row it is an icon
+ * (decision 133, styles.css): its word and Esc leave the eye, stay its
+ * accessible name, and show in a tooltip. A wide head shows them on the
+ * button, so the tooltip opens only while the label is out of sight.
+ */
+function ExitButton({ onPress }: { onPress: () => void }) {
+  const label = useRef<HTMLSpanElement>(null);
+  const [iconOnly, setIconOnly] = useState(false);
+  useEffect(() => {
+    const el = label.current;
+    if (!el) return;
+    // The visually hidden label is 1 px wide; the shown one is a word wide.
+    const observer = new ResizeObserver(([entry]) =>
+      setIconOnly((entry?.contentRect.width ?? 0) < 2),
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  // An open tooltip closes on Escape from a capture listener on document and
+  // stops the key there, so the app's Escape out of presenting never sees it.
+  // A listener on the same node still runs: while Exit's tooltip is open, that
+  // Escape exits here. A key a drawing tool or the whiteboard claimed first
+  // (window capture, decision 110) arrives marked handled and is left alone.
+  const exit = useEffectEvent(onPress);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!iconOnly) return;
+    const onKey = (event: KeyboardEvent) => {
+      const tooltipOpen = button.current?.hasAttribute("aria-describedby") ?? false;
+      if (event.key === "Escape" && !event.defaultPrevented && tooltipOpen) exit();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [iconOnly]);
+  return (
+    <QuietTooltipTrigger delay={500} isDisabled={!iconOnly}>
+      <Button ref={button} className="docwalk-button docwalk-exit" onPress={onPress}>
+        <X size={18} aria-hidden="true" className="docwalk-exit-icon" />
+        <span ref={label} className="docwalk-exit-label">
+          {m.app_exit()} <kbd>Esc</kbd>
+        </span>
+      </Button>
+      <Tooltip className="docwalk-tooltip" offset={6}>
+        {m.app_exit()} <kbd>Esc</kbd>
+      </Tooltip>
+    </QuietTooltipTrigger>
+  );
+}
 
 export function App() {
   // ?view=follow: a read-only screen that follows a presenter (decision 8).
@@ -730,8 +782,7 @@ export function App() {
             )}
             {comments.chip}
             {view === "present" && (
-              <Button
-                className="docwalk-button docwalk-exit"
+              <ExitButton
                 onPress={() => {
                   // This button unmounts on exit; keep focus on the deck, as Escape does.
                   deckRef.current?.querySelector<HTMLElement>(".reveal")?.focus();
@@ -740,9 +791,7 @@ export function App() {
                   if (document.fullscreenElement) void document.exitFullscreen();
                   else show("edit");
                 }}
-              >
-                {m.app_exit()} <kbd>Esc</kbd>
-              </Button>
+              />
             )}
             {!follow && (
               <div className="docwalk-stage-tools">

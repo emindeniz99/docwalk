@@ -647,13 +647,17 @@ const unit = (n: number) => Math.min(1, Math.max(0, n));
  * Splits the children of a `<code>` into one block per line. A line holds
  * its own newline, so the text of the lines joined is the text of the code.
  * Colour spans keep their place: an element that spans a line break is
- * opened again on the next line. Only text nodes and shells of the copy are
- * used, so nothing in a listing can become markup.
+ * opened again on the next line. A `<br>` (raw HTML in a `<pre>`) ends a line
+ * as a newline does: it becomes that line's newline, so the lines joined are
+ * the text with a newline for each `<br>`, and a selection copies the break.
+ * Any other element with no children, such as an image, is kept in its place
+ * on its line (decision 135). Only text, shallow clones of the copy's nodes
+ * and shells are used, so nothing in a listing can become markup.
  */
 function intoLines(code: Element): HTMLElement[] {
   const lines: HTMLElement[] = [];
   let line: HTMLElement | null = null;
-  const place = (text: string, shells: Element[]) => {
+  const place = (text: string | Node, shells: Element[]) => {
     if (!line) {
       line = document.createElement("span");
       line.className = LINE_CLASS;
@@ -676,6 +680,11 @@ function intoLines(code: Element): HTMLElement[] {
         if (text !== "") place(text, shells);
         if (!last) line = null;
       });
+    } else if (node instanceof Element && node.localName === "br") {
+      place("\n", shells);
+      line = null;
+    } else if (node instanceof Element && !node.hasChildNodes()) {
+      place(node.cloneNode(false), shells);
     } else if (node instanceof Element) {
       for (const child of node.childNodes) walk(child, [...shells, node]);
     }

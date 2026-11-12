@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
+import { m } from "../paraglide/messages.js";
 
 /**
  * Presenting chrome that steps aside (decision 75). On a phone the bar
@@ -52,6 +53,12 @@ const BAR = ".docwalk-preview-head";
 const CHROME = `${BAR}, .reveal .controls`;
 /** Open layers that keep the chrome up: the overview, the palette, a menu, diagram focus. */
 const OPEN_LAYER = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+/** The first-time hint (App.tsx): an empty live region until it shows. */
+const HINT = ".docwalk-chrome-hint";
+/** The slide the room is looking at. */
+const CURRENT_SLIDE = ".reveal .slides > section.present";
+/** Slide content that counts whole: images, diagrams, code and tables. */
+const SOLID_CONTENT = "img, svg, pre, table, video, canvas";
 /** Things on a slide a tap is meant for. */
 const SLIDE_TARGET = "a, button, input, summary, img, pre, table, .docwalk-diagram";
 const TABBABLE =
@@ -86,6 +93,71 @@ const QUIET_KEYS = new Set([
 /** True for a key press that should leave hidden chrome hidden. */
 function isQuietKey(event: Pick<KeyboardEvent, "key">): boolean {
   return QUIET_KEYS.has(event.key);
+}
+
+// ---- The first-time hint and the slide's content (decision 134) ----------
+
+/** Whether `box` shares any area with one of `others`; boxes that only touch do not. */
+export function overlapsAny(box: DOMRectReadOnly, others: Iterable<DOMRectReadOnly>): boolean {
+  for (const o of others) {
+    if (o.left < box.right && box.left < o.right && o.top < box.bottom && box.top < o.bottom)
+      return true;
+  }
+  return false;
+}
+
+/**
+ * What the room reads on a slide, as boxes from the rendered page (rule 2):
+ * one box per line of text, so the space beside a short last line stays
+ * free, and images, diagrams, code and tables whole. Hidden text (speaker
+ * notes) has no boxes; empty boxes are dropped.
+ */
+export function slideContentBoxes(slide: Element): DOMRect[] {
+  const boxes: DOMRect[] = [];
+  const keep = (box: DOMRect) => {
+    if (box.width > 0 && box.height > 0) boxes.push(box);
+  };
+  const solid = [...slide.querySelectorAll(SOLID_CONTENT)];
+  const walker = document.createTreeWalker(slide, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    // Text inside a solid element is covered by that element's box.
+    if (!node.textContent?.trim() || solid.some((el) => el.contains(node))) continue;
+    // A label clipped to 1 px (GitHub's `.sr-only` Footnotes heading) is read aloud,
+    // never seen, though its text lays out past its box. Layout size, not screen
+    // size: reveal.js scales the slide.
+    const parent = node.parentElement;
+    if (parent instanceof HTMLElement && parent.offsetWidth <= 1 && parent.offsetHeight <= 1)
+      continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    for (const box of range.getClientRects()) keep(box);
+  }
+  // Nested solid elements (an svg in a diagram's pre) add nothing to their parent's box.
+  for (const el of solid)
+    if (!solid.some((outer) => outer !== el && outer.contains(el)))
+      keep(el.getBoundingClientRect());
+  return boxes;
+}
+
+/**
+ * Whether the hint, shown now, would cover none of the current slide's
+ * content. The hint is measured from a hidden copy of its element with its
+ * text: the live region itself stays empty, so nothing is announced for a
+ * hint that does not show.
+ */
+function hintFits(root: HTMLElement): boolean {
+  const hint = root.querySelector(HINT);
+  const slide = root.querySelector(CURRENT_SLIDE);
+  if (!hint || !slide) return true;
+  const probe = hint.cloneNode(false) as HTMLElement;
+  probe.removeAttribute("role");
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.visibility = "hidden";
+  probe.textContent = m.present_controls_hint();
+  hint.after(probe);
+  const box = probe.getBoundingClientRect();
+  probe.remove();
+  return !overlapsAny(box, slideContentBoxes(slide));
 }
 
 // ---- Stored preferences ---------------------------------------------------
@@ -225,6 +297,7 @@ export function usePresentChrome({
     let isHidden = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let hintTimer: ReturnType<typeof setTimeout> | undefined;
+    let hintFrame = 0;
     let drawing = false;
     let overBar = false;
     let last: { x: number; y: number } | null = null;
@@ -253,13 +326,22 @@ export function usePresentChrome({
       isHidden = next;
       setHidden(next);
       clearTimeout(hintTimer);
-      if (next && !read(CHROME_HINT_KEY)) {
-        write(CHROME_HINT_KEY, true);
-        setHint(true);
-        hintTimer = setTimeout(() => setHint(false), CHROME_HINT_MS);
-      } else {
-        setHint(false);
-      }
+      cancelAnimationFrame(hintFrame);
+      setHint(false);
+      if (!next || read(CHROME_HINT_KEY)) return;
+      // The hint shows only where it covers no slide content (decision 134).
+      // The card frame re-scales the slide once the bar has gone (a resize
+      // a frame later), so the slide is read two frames on. A hint that would
+      // cover content is not shown and not counted as seen: the next hide
+      // tries again.
+      hintFrame = requestAnimationFrame(() => {
+        hintFrame = requestAnimationFrame(() => {
+          if (!isHidden || !hintFits(root)) return;
+          write(CHROME_HINT_KEY, true);
+          setHint(true);
+          hintTimer = setTimeout(() => setHint(false), CHROME_HINT_MS);
+        });
+      });
     };
     const schedule = () => {
       clearTimeout(timer);
@@ -371,6 +453,7 @@ export function usePresentChrome({
     return () => {
       clearTimeout(timer);
       clearTimeout(hintTimer);
+      cancelAnimationFrame(hintFrame);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("pointermove", onMove, true);
       window.removeEventListener("pointerdown", onDown, true);

@@ -6,19 +6,14 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-2026-11-11: v1 and the v2 workspace and agent work are built, and decision
-rows run to 126. The simplification pass (125, 126) is done:
-`src/App.tsx` composes hooks that hold one job each (`useRemoteRoom`,
-`usePresenterWindow`, `useAnnotationLayer`, `useSavedMarksLayer`,
-`usePresenting`, `useEditorSync`, `useAppKeys`, `shell/appCommands.ts`). Pan
-and zoom in the focus views follow the gesture (127, 128; `deck/wheelGesture.ts`),
-tested with synthetic events only: the hand check is in ROADMAP "Follow-ups".
-The document view opens the focus views too (129, `deck/focusWiring.ts`). The
-next task is ROADMAP "Next up" 1, map mode: its questions wait for the owner,
-and so do two of the small UX fixes ("Next up" 2) and the Turkish word for an
-overflow note. A review of PR #5's feature code found twenty defects; decision
-132 fixes thirteen and ROADMAP "Next up" 3 lists the rest, which an agent can
-take next, each from a failing test.
+2026-11-12: v1 and the v2 workspace and agent work are built, and decision
+rows run to 135. In the fork since 2026-11-11: the simplification pass (125,
+126; `src/App.tsx` composes one hook per job), pan and zoom in the focus views
+(127, 128), focus views in the document view (129), small UX fixes (130, 131,
+133, 134), and a review of PR #5's feature code with its fixes (132, 135).
+Rows 133 and 134 and the Turkish "taşma notu" are proposed and wait for the
+owner. What is left needs the owner: map mode's questions (ROADMAP "Next up"
+1), hand tests on real devices (2) and the next feature round (3).
 
 The project is public at github.com/emindeniz99/docwalk with the static
 build on GitHub Pages (`deploy-pages.yml` runs after CI passes on `main`, or
@@ -96,6 +91,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-11: Panzoom 4.6 draws on the next frame and its `zoomToPoint` assumes the element sits at its parent's top left: for several wheel events in one frame, or a centred canvas, compute the focal point from the layout box (`offsetLeft`, which a transform does not change) and call `zoom(next, { focal })`; a test waits a frame before it measures. Synthetic PointerEvents bypass `touch-action`, so a pinch test proves the arithmetic, not that a browser delivers the moves. `scrollLeft` keeps whole pixels in Chromium: carry the lost fraction into the next step or forty small steps drift by pixels. `git merge -F -` does not read stdin; write the message to a file.
 - 2026-11-11: The deck stays mounted, only `hidden`, while the document view shows, so anything the deck does on `slidechanged` or teardown also runs then: a module-wide close must check that the view's block is inside the deck's root (`closeContentFocus(root)`). CI's WebKit e2e leg takes 28 to 30 minutes against a 30-minute job limit; run 43083163225 was cancelled mid-suite with no failure printed.
 - 2026-11-11: Several agents can fix different files in one checkout at once if none commits, stashes or runs the whole gate: each runs only its own test files, and the lead commits by path (tests, then code) and runs `pnpm check` once. A test that needs a hook's inner steps gets them as exported functions, and its red commit then fails on the missing export, not on the bug: say so in the commit. reveal.js 6.0.2's `slide()` to the index already shown clears `inert` on the page and fires no event; watch the attribute. An empty-slug heading (`## ???`) is where two slug sources disagree: take ids from `plan.headingIds`, never from a second `GithubSlugger`.
+- 2026-11-12: Under Playwright, Chromium gives a page that is not in front about one animation frame a second while it reports itself visible: what the older page of a two-page test draws after `requestAnimationFrame` needs a retrying assertion, and the other page's state proves nothing (`bringToFront()` moves the slow frames). `locator.boundingBox()` is two calls and returns null for an element replaced in between, and a throw inside `expect.poll` is not retried: return a failing value. Load can hide a race; repeat with and without it. A container query cannot change its own container's padding: query the parent. A locator or helper that finds an element by an accessible name breaks when a fix changes that name; search tests and e2e for the old name first.
 
 ## Done
 

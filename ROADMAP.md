@@ -417,6 +417,23 @@ Later rounds:
   as on a slide; `e2e/document-mode.spec.ts` ran on Chromium here, Firefox and
   WebKit in the fork's CI.
 
+- Presenting bar and hint on narrow screens (decisions 133 and 134, proposed):
+  under 1000 px of pane width the bar keeps one row (menu for four tools, icon
+  Exit, no address). Built on the lead's recommendation; the owner confirms or
+  picks another layout. The width is read from the deck pane, not the bar's
+  head as row 133 says, because a container cannot change its own padding.
+  Chromium with touch emulation only: WebKit, Firefox, a real iPhone and its
+  safe-area insets are untested, and iOS fonts may set the counter wider (21 px
+  spare at 667 px with three digits). A talk of only full slides never shows
+  the hint. DESIGN.md still describes the More tools menu for the edit preview
+  only. "taşma notu" (decision 135) also waits for the owner's word. The hint
+  counts text that is `visibility: hidden` as content, which keeps it off
+  reveal.js fragments not yet shown; a slide change during its 5 s can leave
+  it over the next slide's content; with the whiteboard open it is measured
+  against the slide under the board. On touch the tooltip never opens, so the
+  icon Exit shows no Esc hint there. With Exit's tooltip open, Escape exits
+  through Exit's own action and focus lands on the deck.
+
 ## Next up
 
 ### 1. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
@@ -453,55 +470,27 @@ opens the focus view on a click or Enter for diagrams, tables, code and loaded
 images, through the wiring the deck uses (`src/deck/focusWiring.ts`). Nothing
 is mirrored from it. The questions above still wait for the owner.
 
-### 2. Small UX fixes seen on 2026-11-09
-
-Done 2026-11-11: the status bar counts "overflow notes" (decision 130; the
-Turkish text waits for a glossary word in CONTEXT.md, candidates "taşma notu"
-and "sığmama notu"), and code in the source editor has a neutral colour of its
-own in CodeMirror and Monaco (decision 131).
-
-Measured on 2026-11-11 and waiting for the owner, because each changes a row
-the owner accepted (75, 77, 108, 110). Chromium only, with touch emulation;
-no WebKit, no real safe-area insets.
-
-- Phone landscape, presenting controls. At 844, 734 and 667 px wide the bar
-  takes two rows, 120 px, and covers 31 to 35% of the slide; one row needs 951
-  to 959 px. Every control is 44 px while presenting, and the "More tools" menu
-  of 110 works only in the edit preview with a mouse. One row at all three
-  widths (68 px, 17 to 19% of the slide, every target still 44 px) needs three
-  things together: that menu takes Rectangle, Ellipse, Whiteboard and Clear
-  marks while presenting on a narrow head, Exit becomes an icon button, and
-  the slide address leaves the bar. At 667 px about 1 px is to spare. Smaller
-  38 px targets break DESIGN.md's 44 px rule and still wrap at 667; a bar that
-  scrolls sideways hides 6 to 8 controls.
-- The first-use hint. It covers nothing in portrait, on a short slide or on
-  the sample's first slide; in landscape it covers the last two or three lines
-  of a slide filled to the bottom. No free area fits the pill there (side bars
-  66 to 76 px against a 201 px pill, 420 px in Turkish). The choice: show it
-  only when its box overlaps no slide content and try again at the next hide,
-  or keep it as it is (once per browser, 5 s).
-
-### 3. A real-device UX pass, and what the review of PR #5 left
+### 2. A real-device UX pass, and what the review of PR #5 left
 
 The code review is done (2026-11-11): three reviewers read the focus views
 and tour, the whiteboard, stylus and saved marks, and the countdown and
 comments. Decision 132 lists the thirteen defects fixed. Found and not fixed,
 smallest first; each needs a failing test before code:
 
-- Comments: a reopened comment reads "edited" although its text never changed
-  (`CommentsPanel.tsx`, `edited` comes from `updated` alone). After Save or
-  Cancel of an edit, Cancel of a delete, or "Delete N comments", focus falls to
-  `<body>` and Escape no longer closes the panel. Closing the panel, or Escape
-  inside its text field, discards typed text.
-- Countdown: the timer's `aria-label` stays "Time left" once over (row 80 says
-  it changes), and the invalid-minutes message is not announced. Start and
-  Reset drop focus to `<body>` in the presenter window.
+- Comments: a reopened comment reads "edited" although its text never changed.
+  A comment stores one time for any change, and a reopen must move it for
+  merges to work, so the label needs a stored time of the last text change
+  (an optional `edited` field in `DocComment`, set by `update` only): a change
+  to the share and sidecar format, for the owner. Drafts typed in the panel are
+  lost when presenting starts, because the whole panel unmounts there.
+- Countdown: pressing Start twice with an invalid target announces the
+  message once.
 - Eraser (drauu 1.0): a drag cut short by a slide change or the whiteboard
   toggle removes strokes from the screen and not from the saved record, so they
   return after a reload; an eraser click that erases nothing adds an empty undo
   step and drops redo. Both sit in drauu's eraser model.
-- Code view: a raw-HTML `<pre>` with `<br>` or an image loses them in the focus
-  view (`intoLines` keeps text nodes only). Fenced code is unaffected.
+- Code view: a line of a raw `<pre>` that holds only an image is labelled
+  "Line N, empty"; its alt text would need a new string.
 - Suspected, not shown from the code: a `#doc=…&c=…` link pasted into a tab
   that shows another document may merge its comments into the wrong one; two
   fast edits may detach a draft's comments; the glow on commented diagram nodes
@@ -526,7 +515,7 @@ Still owed, by hand: the new features on a Mac trackpad, an iPhone and an
 iPad (focus views and their pan and zoom, the tour, the whiteboard and stylus,
 the countdown on a phone, saved marks, comments), with findings written here.
 
-### 4. The next feature round
+### 3. The next feature round
 
 Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
 for this round is built. After the pass, re-check the survey as its "Re-check"

@@ -1068,6 +1068,63 @@ kbd {
   color: var(--dw-color-on-primary);
 }
 
+/*
+ * One row of presenting controls on a narrow head (decision 133). In full the
+ * row needs about 960 px with a two-digit counter, and a phone in landscape
+ * wrapped it to two rows that covered a third of the slide. Below 1000 px,
+ * on touch and mouse alike, Rectangle, Ellipse, Whiteboard and Clear marks
+ * move into the More tools menu, Exit becomes an icon, the slide address
+ * leaves the bar (it stays in the URL and the overview, rule 7), and the side
+ * padding and the gaps between the bar's parts narrow. Every control stays
+ * 44 px; the row then needs about 645 px with a three-digit counter, so it
+ * holds at a 667 px head with some 20 px to spare. The query reads
+ * the deck pane, which the head spans edge to edge while presenting, because
+ * a container cannot restyle its own padding. The edit preview keeps the
+ * rules above (decisions 108 and 110).
+ */
+.docwalk-app[data-view="present"] .docwalk-deck-pane {
+  container: docwalk-present-pane / inline-size;
+}
+
+@container docwalk-present-pane (width < 1000px) {
+  .docwalk-app[data-view="present"] .docwalk-preview-head {
+    column-gap: var(--dw-space-sm);
+    padding-inline: var(--dw-space-md);
+  }
+
+  .docwalk-app[data-view="present"] .docwalk-preview-address,
+  .docwalk-app[data-view="present"] .docwalk-preview-head .docwalk-annotate-overflow {
+    display: none;
+  }
+
+  .docwalk-app[data-view="present"]
+    .docwalk-preview-head
+    .docwalk-annotate-button.docwalk-annotate-more {
+    display: inline-flex;
+  }
+
+  .docwalk-app[data-view="present"] .docwalk-exit {
+    justify-content: center;
+    width: var(--dw-space-target);
+    min-width: var(--dw-space-target);
+    padding: 0;
+  }
+
+  .docwalk-app[data-view="present"] .docwalk-exit-icon {
+    display: block;
+  }
+
+  /* Out of sight, still the button's name; the tooltip shows it (App.tsx). */
+  .docwalk-app[data-view="present"] .docwalk-exit-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 .docwalk-preview-head[hidden] {
   display: none;
 }
@@ -1446,6 +1503,18 @@ kbd {
   border-radius: var(--dw-radius-lg);
   background: var(--dw-color-stage-raised);
   color: var(--dw-color-stage-ink);
+}
+
+/* Exit's icon shows only on a narrow presenting head (decision 133, above). */
+.docwalk-exit-icon {
+  display: none;
+}
+
+/* The word and its key keep the button's spacing, as when they were its own items. */
+.docwalk-exit-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
 }
 
 .docwalk-loading {

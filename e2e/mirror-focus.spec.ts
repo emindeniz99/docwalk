@@ -222,9 +222,12 @@ test("a follower's table view scrolls with the presenter's, as a share of how fa
   await stage.hover();
   await presenter.mouse.wheel(reach * 0.6, 0);
   await expect.poll(() => scrolledAcross(presenter)).toBeGreaterThan(0.3);
-  const across = await scrolledAcross(presenter);
+  // Both shares are read on every try: an engine that animates a wheel scroll is still
+  // moving when the presenter first passes 0.3, and the follower ends where the presenter ends.
   await expect
-    .poll(async () => Math.abs((await scrolledAcross(follower)) - across))
+    .poll(async () =>
+      Math.abs((await scrolledAcross(follower)) - (await scrolledAcross(presenter))),
+    )
     .toBeLessThan(0.02);
   await shot(follower, "follower-table-scrolled");
 
