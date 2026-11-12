@@ -18,6 +18,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -148,9 +149,25 @@ function ExitButton({ onPress }: { onPress: () => void }) {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  // An open tooltip closes on Escape from a capture listener on document and
+  // stops the key there, so the app's Escape out of presenting never sees it.
+  // A listener on the same node still runs: while Exit's tooltip is open, that
+  // Escape exits here. A key a drawing tool or the whiteboard claimed first
+  // (window capture, decision 110) arrives marked handled and is left alone.
+  const exit = useEffectEvent(onPress);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!iconOnly) return;
+    const onKey = (event: KeyboardEvent) => {
+      const tooltipOpen = button.current?.hasAttribute("aria-describedby") ?? false;
+      if (event.key === "Escape" && !event.defaultPrevented && tooltipOpen) exit();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [iconOnly]);
   return (
     <QuietTooltipTrigger delay={500} isDisabled={!iconOnly}>
-      <Button className="docwalk-button docwalk-exit" onPress={onPress}>
+      <Button ref={button} className="docwalk-button docwalk-exit" onPress={onPress}>
         <X size={18} aria-hidden="true" className="docwalk-exit-icon" />
         <span ref={label} className="docwalk-exit-label">
           {m.app_exit()} <kbd>Esc</kbd>

@@ -1510,6 +1510,13 @@ kbd {
   display: none;
 }
 
+/* The word and its key keep the button's spacing, as when they were its own items. */
+.docwalk-exit-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dw-space-sm);
+}
+
 .docwalk-loading {
   margin: var(--dw-space-lg) var(--dw-space-xl);
   color: var(--muted);

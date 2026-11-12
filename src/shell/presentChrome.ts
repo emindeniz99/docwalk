@@ -122,6 +122,12 @@ export function slideContentBoxes(slide: Element): DOMRect[] {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     // Text inside a solid element is covered by that element's box.
     if (!node.textContent?.trim() || solid.some((el) => el.contains(node))) continue;
+    // A label clipped to 1 px (GitHub's `.sr-only` Footnotes heading) is read aloud,
+    // never seen, though its text lays out past its box. Layout size, not screen
+    // size: reveal.js scales the slide.
+    const parent = node.parentElement;
+    if (parent instanceof HTMLElement && parent.offsetWidth <= 1 && parent.offsetHeight <= 1)
+      continue;
     const range = document.createRange();
     range.selectNodeContents(node);
     for (const box of range.getClientRects()) keep(box);
