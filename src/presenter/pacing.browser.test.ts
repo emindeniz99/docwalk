@@ -124,8 +124,10 @@ async function start(el: HTMLElement, minutes: string) {
   await setTarget(el, minutes);
   await press(el, "Start");
 }
+// The countdown's timer under either name: it becomes "Over time" past zero (decision 135).
 const left = (el: HTMLElement) =>
-  el.querySelector('[role="timer"][aria-label="Time left"]')?.textContent ?? null;
+  el.querySelector('[role="timer"][aria-label="Time left"], [role="timer"][aria-label="Over time"]')
+    ?.textContent ?? null;
 const bar = (el: HTMLElement, name: string) =>
   el.querySelector<HTMLElement>(`[role="progressbar"][aria-label="${name}"]`);
 const verdict = (el: HTMLElement) =>
