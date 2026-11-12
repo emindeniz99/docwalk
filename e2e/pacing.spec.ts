@@ -44,7 +44,9 @@ async function setUp(page: Page, context: BrowserContext): Promise<Page> {
 
 const nowTitle = (presenter: Page) =>
   presenter.locator(".docwalk-presenter-current .docwalk-presenter-title");
-const timeLeft = (presenter: Page) => presenter.getByRole("timer", { name: "Time left" });
+// The countdown's timer under either name: it becomes "Over time" past zero (decision 135).
+const timeLeft = (presenter: Page) =>
+  presenter.getByRole("timer", { name: /^(Time left|Over time)$/ });
 const elapsed = (presenter: Page) => presenter.getByRole("timer", { name: "Elapsed time" });
 const bar = (presenter: Page, name: "Time used" | "Slides") =>
   presenter.getByRole("progressbar", { name });
@@ -152,6 +154,8 @@ test("running over the target shows negative time and a warning in words and an 
   await jump(context, presenter, "03:00");
   await expect.poll(() => seconds(timeLeft(presenter))).toBeLessThan(0);
   await expect(timeLeft(presenter)).toHaveText(/^−\d+:\d\d$/);
+  // A screen reader hears the same words the eye reads (decision 135).
+  await expect(presenter.getByRole("timer", { name: "Over time" })).toBeVisible();
   const over = presenter.locator('[data-over="true"]');
   await expect(over).toContainText("Over time");
   await expect(over.locator("svg")).toBeVisible();
