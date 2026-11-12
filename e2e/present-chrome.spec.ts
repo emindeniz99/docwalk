@@ -37,6 +37,17 @@ async function useCardFrame(page: Page) {
   await page.addInitScript(() => localStorage.setItem("docwalk.presentCardFrame", "true"));
 }
 
+/**
+ * Presenting stays in the window, as on an iPhone, where a page cannot take
+ * fullscreen. A test of a phone-sized bar needs it: headless Firefox really
+ * enters fullscreen and its screen is 1366 px wide, whatever the viewport.
+ */
+async function refuseFullscreen(page: Page) {
+  await page.addInitScript(() => {
+    Element.prototype.requestFullscreen = () => Promise.reject(new Error("refused"));
+  });
+}
+
 async function waitHidden(page: Page) {
   await expect(app(page)).toHaveAttribute("data-chrome", "hidden", { timeout: HIDE_TIMEOUT });
 }
@@ -298,6 +309,7 @@ for (const viewport of [
 ]) {
   test.describe(`presenting on a ${viewport.width}x${viewport.height} phone in landscape`, () => {
     test.use({ viewport, hasTouch: true });
+    test.beforeEach(({ page }) => refuseFullscreen(page));
 
     test("the controls keep one row of 44 px targets, and the bar covers under 22% of the slide", async ({
       page,
@@ -396,6 +408,7 @@ for (const viewport of [
 
 test.describe("presenting on a phone in Turkish", () => {
   test.use({ viewport: { width: 734, height: 343 }, hasTouch: true, locale: "tr-TR" });
+  test.beforeEach(({ page }) => refuseFullscreen(page));
 
   test("the icon-only Exit keeps its Turkish name", async ({ page }) => {
     await page.goto("/");
@@ -470,11 +483,7 @@ const exitTooltip = (page: Page) => page.locator(".docwalk-tooltip").filter({ ha
  */
 test.describe("Escape with the icon Exit's tooltip open on an 844x390 window", () => {
   test.use({ viewport: { width: 844, height: 390 } });
-  test.beforeEach(({ page }) =>
-    page.addInitScript(() => {
-      Element.prototype.requestFullscreen = () => Promise.reject(new Error("refused"));
-    }),
-  );
+  test.beforeEach(({ page }) => refuseFullscreen(page));
 
   test("with Exit focused from the keyboard", async ({ page }) => {
     await present(page);
@@ -547,6 +556,7 @@ const hintSeen = (page: Page) => page.evaluate((key) => localStorage.getItem(key
  */
 test.describe("the first-use hint on a 734x343 phone in landscape", () => {
   test.use({ viewport: { width: 734, height: 343 }, hasTouch: true });
+  test.beforeEach(({ page }) => refuseFullscreen(page));
 
   test("over a slide filled to the bottom it stays away and is not counted as seen", async ({
     page,
