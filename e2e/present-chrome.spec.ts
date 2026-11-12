@@ -434,8 +434,73 @@ for (const viewport of [
       expect(layout.controls).toHaveLength(14);
       expect(new Set(layout.controls.map((c) => Math.round(c.top))).size).toBe(1);
     });
+
+    test("Exit keeps the button's gap between its word and its key", async ({ page }) => {
+      // Before decision 133 the word and the key were the button's own flex
+      // items, spaced by its gap; a collapsed space between them made Exit narrower.
+      await present(page);
+      const { gap, columnGap } = await page.locator(".docwalk-exit").evaluate((button) => {
+        const kbd = button.querySelector("kbd");
+        const word = [...button.querySelectorAll("*"), button]
+          .flatMap((el) => [...el.childNodes])
+          .find((n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim() === "Exit");
+        if (!kbd || !word) throw new Error("no word or key");
+        const range = document.createRange();
+        range.selectNodeContents(word);
+        return {
+          gap: kbd.getBoundingClientRect().left - range.getBoundingClientRect().right,
+          columnGap: Number.parseFloat(getComputedStyle(button).columnGap),
+        };
+      });
+      expect(Math.abs(gap - columnGap), `gap ${gap}, column-gap ${columnGap}`).toBeLessThanOrEqual(
+        0.5,
+      );
+    });
   });
 }
+
+/** The icon Exit's tooltip, "Exit Esc". */
+const exitTooltip = (page: Page) => page.locator(".docwalk-tooltip").filter({ hasText: "Exit" });
+
+/**
+ * One Escape leaves presenting while the icon Exit's tooltip is open. The
+ * tooltip ("Exit Esc") stops Escape on its way to the app's handler to close
+ * itself; before decision 133 Exit had no tooltip and one Escape left.
+ * Windowed, as when fullscreen is refused (iOS, an iframe).
+ */
+test.describe("Escape with the icon Exit's tooltip open on an 844x390 window", () => {
+  test.use({ viewport: { width: 844, height: 390 } });
+  test.beforeEach(({ page }) =>
+    page.addInitScript(() => {
+      Element.prototype.requestFullscreen = () => Promise.reject(new Error("refused"));
+    }),
+  );
+
+  test("with Exit focused from the keyboard", async ({ page }) => {
+    await present(page);
+    // From the hidden bar, Tab lands on its first control (decision 75); the next Tab is Exit.
+    await waitHidden(page);
+    await page.locator(".reveal").focus();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Slide overview" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.locator(".docwalk-exit")).toBeFocused();
+    await expect(exitTooltip(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(app(page)).not.toHaveAttribute("data-view", "present");
+  });
+
+  test("with the mouse resting on Exit", async ({ page }) => {
+    await present(page);
+    const box = await page.locator(".docwalk-exit").boundingBox();
+    if (!box) throw new Error("no Exit");
+    await page.mouse.move(box.x + 10, box.y + 10);
+    await page.mouse.move(box.x + 20, box.y + 20, { steps: 3 });
+    await expect(exitTooltip(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(app(page)).not.toHaveAttribute("data-view", "present");
+  });
+});
 
 /** The current slide's text lines, images, diagrams, code and tables, as boxes. */
 function hintOverlaps(page: Page) {

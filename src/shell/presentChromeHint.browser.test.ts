@@ -65,6 +65,27 @@ describe("slideContentBoxes", () => {
     for (const b of boxes) expect(b.right).toBeLessThanOrEqual(120 + 0.5);
   });
 
+  test("a label clipped to 1 px, such as GitHub's Footnotes heading, is no content", () => {
+    // GitHub renders the heading of a slide's footnotes as `.sr-only`
+    // (src/render/content.css): read aloud, never seen. Its text still lays out
+    // past its 1 px box, so counting it would keep the hint off every slide
+    // with footnotes.
+    const s = slide(`
+      <section data-footnotes style="position: relative">
+        <h2 class="sr-only" style="position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0">Footnotes</h2>
+        <ol style="margin: 0"><li>A note.</li></ol>
+      </section>`);
+    const boxes = slideContentBoxes(s);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]!.width).toBeGreaterThan(1);
+
+    // reveal.js scales the 1280x720 slide up on a large screen (1.5 at 1920 px),
+    // where the 1 px label measures more than 1 px on screen.
+    s.style.transform = "scale(2)";
+    s.style.transformOrigin = "0 0";
+    expect(slideContentBoxes(s)).toHaveLength(1);
+  });
+
   test("images, diagrams, code and tables count whole; hidden text and blank space do not", () => {
     const s = slide(`
       <img alt="" width="50" height="40" style="display: block">
