@@ -364,7 +364,7 @@ describe("the marks of one document", () => {
     expect(await store.load(OLD)).toEqual([]);
   });
 
-  test("an old key is left alone once the new key has marks of its own", async () => {
+  test("the new key's own record of a slide wins over the old key's, and the old key goes (decision 136)", async () => {
     const store = memoryMarksStore();
     const OLD = "url:https://docs.example/plan.md?t=secret";
     const NEW = "url:https://docs.example/plan.md";
@@ -373,7 +373,48 @@ describe("the marks of one document", () => {
     const marks = await loadMarks(store, NEW, vi.fn(), OLD);
     expect(marks.strokes("intro/1", "dd")).toEqual([pen()]);
     expect(marks.strokes("intro/1", "cc")).toEqual([]);
-    expect(await store.load(OLD)).toHaveLength(1);
+    // Decision 120 left this key alone; 136 deletes it, since it may carry a token.
+    expect(await store.load(OLD)).toEqual([]);
+  });
+
+  test("an old key left beside a new key that has marks is merged and deleted at the next open (decision 136)", async () => {
+    // A failed move followed by a mark drawn under the new key made the new key non-empty:
+    // no later open looked at the old key again, and the token in it stayed in the database
+    // for good. Comments move every time (132).
+    const store = memoryMarksStore();
+    const OLD = "url:https://docs.example/plan.md?t=secret";
+    const NEW = "url:https://docs.example/plan.md";
+    await store.put(record({ doc: NEW, slide: "intro/1", text: "dd" }));
+    await store.put(record({ doc: OLD, slide: "intro/1", text: "cc" }));
+    await store.put(record({ doc: OLD, slide: "risks/1", text: "bb" }));
+
+    const marks = await loadMarks(store, NEW, vi.fn(), OLD);
+    // The new key's record of a slide is the later one, so it stays; the old key adds what
+    // the new key lacks.
+    expect(marks.strokes("intro/1", "dd")).toEqual([pen()]);
+    expect(marks.strokes("intro/1", "cc")).toEqual([]);
+    expect(marks.strokes("risks/1", "bb")).toEqual([pen()]);
+    expect(readSlides(NEW, await store.load(NEW)).map((s) => [s.slide, s.text])).toEqual([
+      ["intro/1", "dd"],
+      ["risks/1", "bb"],
+    ]);
+    expect(await store.load(OLD)).toEqual([]);
+  });
+
+  test("past the per-document cap the move changes nothing and the old key stays, as for comments", async () => {
+    // A move that kept only what fits would drop marks unseen (decision 105's caps).
+    const store = memoryMarksStore();
+    const OLD = "url:https://docs.example/plan.md?t=secret";
+    const NEW = "url:https://docs.example/plan.md";
+    const full = Array.from({ length: 20 }, () => pen(Array.from({ length: 3000 }, () => 5)));
+    for (const i of [1, 2, 3])
+      await store.put(record({ doc: NEW, slide: `h${i}/1`, text: "aa", strokes: full }));
+    await store.put(record({ doc: OLD, slide: "h4/1", text: "aa", strokes: full }));
+
+    const marks = await loadMarks(store, NEW, vi.fn(), OLD);
+    expect(marks.size).toBe(3);
+    expect(readSlides(NEW, await store.load(NEW))).toHaveLength(3);
+    expect(readSlides(OLD, await store.load(OLD)).map((s) => s.slide)).toEqual(["h4/1"]);
   });
 
   test("a move that fails midway leaves the new key empty and the old records in place, so the next open tries again (decisions 120, 132)", async () => {
