@@ -342,7 +342,7 @@ export async function loadMarks(
   /**
    * The key `doc` had before decision 120: at every open its records move
    * to `doc` in one transaction with the delete of the old key, as comments
-   * do (decision 136). A slide `doc` already has keeps its own record. An
+   * do (decision 137). A slide `doc` already has keeps its own record. An
    * old key with no valid record is cleared all the same: it may carry a
    * query token.
    */

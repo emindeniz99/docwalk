@@ -364,7 +364,7 @@ describe("the marks of one document", () => {
     expect(await store.load(OLD)).toEqual([]);
   });
 
-  test("the new key's own record of a slide wins over the old key's, and the old key goes (decision 136)", async () => {
+  test("the new key's own record of a slide wins over the old key's, and the old key goes (decision 137)", async () => {
     const store = memoryMarksStore();
     const OLD = "url:https://docs.example/plan.md?t=secret";
     const NEW = "url:https://docs.example/plan.md";
@@ -373,11 +373,11 @@ describe("the marks of one document", () => {
     const marks = await loadMarks(store, NEW, vi.fn(), OLD);
     expect(marks.strokes("intro/1", "dd")).toEqual([pen()]);
     expect(marks.strokes("intro/1", "cc")).toEqual([]);
-    // Decision 120 left this key alone; 136 deletes it, since it may carry a token.
+    // Decision 120 left this key alone; 137 deletes it, since it may carry a token.
     expect(await store.load(OLD)).toEqual([]);
   });
 
-  test("an old key left beside a new key that has marks is merged and deleted at the next open (decision 136)", async () => {
+  test("an old key left beside a new key that has marks is merged and deleted at the next open (decision 137)", async () => {
     // A failed move followed by a mark drawn under the new key made the new key non-empty:
     // no later open looked at the old key again, and the token in it stayed in the database
     // for good. Comments move every time (132).

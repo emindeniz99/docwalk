@@ -519,7 +519,7 @@ smallest first; each needs a failing test before code:
   that types `+` or `-` with AltGr the zoom keys do nothing in the view (the
   buttons work); when the old and the new key of a `?src=` document hold more
   than 500 comments together, the move of 120 fails at every open and the old
-  key stays. Marks do the same past 105's caps (decision 136).
+  key stays. Marks do the same past 105's caps (decision 137).
 
 Still owed, by hand: the new features on a Mac trackpad, an iPhone and an
 iPad (focus views and their pan and zoom, the tour, the whiteboard and stylus,
