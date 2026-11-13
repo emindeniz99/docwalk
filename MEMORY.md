@@ -6,8 +6,8 @@ significant work; prune past ~100 lines. One dated line per entry; rewrite
 
 ## Now
 
-2026-11-12: v1 and the v2 workspace and agent work are built, and decision
-rows run to 135. In the fork since 2026-11-11: the simplification pass (125,
+2026-11-13: v1 and the v2 workspace and agent work are built, and decision
+rows run to 137. In the fork since 2026-11-11: the simplification pass (125,
 126; `src/App.tsx` composes one hook per job), pan and zoom in the focus views
 (127, 128), focus views in the document view (129), small UX fixes (130, 131,
 133, 134), and a review of PR #5's feature code with its fixes (132, 135).
@@ -95,6 +95,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 
 ## Done
 
+- 2026-11-13: Low findings of PR #6's review fixed on `fix/pr6-review`: marks move from a `?src=` document's old key at every open (137), a blocked image in the code view is no button, and row 132 and ROADMAP state the marks and comments its fixes left behind.
 - 2026-11-11: The simplification pass (125, 126) on `claude/docwalk-fork-sync-tasks-6l4rzp`: numbers in the merge commit body and ROADMAP.
 - 2026-11-09: The two items the review left open fixed on `fix/open-gaps`: sketches key by origin and path with a one-time move (122), and the palette's title filter folds once and runs `indexOf` (123); MEMORY pruned under 100 lines.
 - 2026-11-09: Security review of PR #5 fixed on `fix/review-pr5` (116 to 121): linear palette search, signed countdown with `p=` in the remote link, hello again only for signed states, held tombstones, origin-and-path `?src=` keys with a one-time move, a free temporary name for case-only renames, notes marked not private.

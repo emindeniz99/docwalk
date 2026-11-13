@@ -3,6 +3,7 @@ import type { FocusViewKind } from "../annotate/mirrorTypes";
 import { requestSketch } from "../canvas/request";
 import { nodesInDiagram } from "../comments/diagramNodes";
 import { m } from "../paraglide/messages.js";
+import { BLOCKED_IMAGE_CLASS } from "../render/toHtml";
 import type { DiagramTour } from "./diagramTour";
 import { emitFocus } from "./focusEvents";
 import { FOCUS_VIEW_CLASS } from "./focusView";
@@ -651,8 +652,10 @@ const unit = (n: number) => Math.min(1, Math.max(0, n));
  * as a newline does: it becomes that line's newline, so the lines joined are
  * the text with a newline for each `<br>`, and a selection copies the break.
  * Any other element with no children, such as an image, is kept in its place
- * on its line (decision 135). Only text, shallow clones of the copy's nodes
- * and shells are used, so nothing in a listing can become markup.
+ * on its line (decision 135). A blocked image loses its button (decision 33):
+ * the view has no click-to-load, and the line is the only control. Only text,
+ * shallow clones of the copy's nodes and shells are used, so nothing in a
+ * listing can become markup.
  */
 function intoLines(code: Element): HTMLElement[] {
   const lines: HTMLElement[] = [];
@@ -684,7 +687,10 @@ function intoLines(code: Element): HTMLElement[] {
       place("\n", shells);
       line = null;
     } else if (node instanceof Element && !node.hasChildNodes()) {
-      place(node.cloneNode(false), shells);
+      const copy = node.cloneNode(false) as Element;
+      if (copy.classList.contains(BLOCKED_IMAGE_CLASS))
+        for (const attr of ["role", "tabindex", "aria-label", "title"]) copy.removeAttribute(attr);
+      place(copy, shells);
     } else if (node instanceof Element) {
       for (const child of node.childNodes) walk(child, [...shells, node]);
     }
