@@ -9,7 +9,7 @@
 import { nodesInDiagram, sourceNodeId } from "../comments/diagramNodes";
 import type { DiagramEdge } from "./mermaid";
 
-export interface GraphNode {
+interface GraphNode {
   /** The id written in the Mermaid source. */
   id: string;
   label: string;
@@ -17,7 +17,7 @@ export interface GraphNode {
   elements: SVGGElement[];
 }
 
-export interface GraphEdge {
+interface GraphEdge {
   path: SVGPathElement;
   /** Node numbers from 1 in `nodes` order; `null` when an end is not a node (a subgraph, `[*]`). */
   from: number | null;

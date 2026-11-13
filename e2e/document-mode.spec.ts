@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { opfsTest, ready } from "./helpers";
+import { opfsTest, ready, replaceSource } from "./helpers";
 
 /**
  * Document mode as a reading view: it stays inside the window, the outline is
@@ -137,6 +137,29 @@ test("the preview follows the cursor into a section typed just now", async ({ pa
   await expect(page.locator(".docwalk-preview-address")).toHaveText(/^added-here\//, {
     timeout: 10_000,
   });
+});
+
+test("in document mode a click on a diagram opens the focus view and Escape closes it", async ({
+  page,
+}) => {
+  // Decision 129: a reader of the whole document enlarges a diagram as a slide's viewer does.
+  await ready(page);
+  await replaceSource(
+    page,
+    "# Flow\n\n```mermaid\nflowchart LR\n  a[Start] --> b[Done]\n```\n\nAfter.\n",
+  );
+  await page.getByRole("radio", { name: "Document" }).click();
+  const diagram = page.locator(".docwalk-document .docwalk-diagram");
+  await expect(diagram.locator("svg")).toBeVisible();
+  await diagram.click();
+  const view = page.locator(".docwalk-focus");
+  await expect(view).toBeVisible();
+  await expect(view).toHaveAttribute("data-kind", "diagram");
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveCount(0);
+  await expect(diagram).toBeFocused();
+  await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "document");
 });
 
 test("the export status appears and fades without moving the header buttons", async ({ page }) => {

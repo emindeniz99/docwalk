@@ -16,13 +16,13 @@ import { slideAddress } from "./pages";
  * is not on the page the follower shows, or the image is not loaded here,
  * nothing opens and nothing is said; the next change of slide or focus op
  * tries again. A view the follower closes itself stays closed until the
- * presenter opens another; one that a rebuild or a change of slide closed
+ * presenter opens another, across rebuilds of this deck: the store holds
+ * that, not this function. One that a rebuild or a change of slide closed
  * opens again when the follower is back.
  */
 export function followFocus(controller: DeckController, store: MirrorStore): () => void {
   let handle: MirroredFocus | null = null;
   let shown: string | null = null;
-  let dismissed: string | null = null;
   // What the open view was last given; the store hands out a new object for each change.
   let view: FocusMirror["view"] | undefined;
   let lines: FocusMirror["lines"] | undefined;
@@ -38,13 +38,13 @@ export function followFocus(controller: DeckController, store: MirrorStore): () 
   const apply = () => {
     const focus = store.focus;
     if (!focus) {
-      dismissed = null;
       shut();
       return;
     }
     const key = `${focus.block} ${focus.n} ${focus.slide}`;
     if (!handle || shown !== key) {
-      if (dismissed === key) return;
+      // The store clears the dismissal when the presenter opens another view or closes this one.
+      if (store.focusDismissed) return;
       shut();
       // The block is not on the page this follower shows (yet): the next slide change tries again.
       const block = findBlock(controller.stage(), focus);
@@ -54,7 +54,7 @@ export function followFocus(controller: DeckController, store: MirrorStore): () 
         if (handle !== next) return;
         handle = null;
         shown = null;
-        if (byViewer) dismissed = key;
+        if (byViewer) store.focusDismissed = true;
       });
       if (!next) return;
       handle = next;

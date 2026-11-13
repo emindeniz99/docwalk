@@ -19,7 +19,7 @@ export const TOUR_MAX_NEIGHBOURS_READ = 6;
 export type TourPath = readonly number[];
 
 /** One edge of the diagram as node numbers; `null` when an end is not a node. */
-export interface TourEdge {
+interface TourEdge {
   readonly from: number | null;
   readonly to: number | null;
 }

@@ -27,7 +27,7 @@ const RefreshSchema = v.object({
   refreshExpiresAt: v.pipe(v.number(), v.finite()),
 });
 
-export type RefreshRecord = v.InferOutput<typeof RefreshSchema>;
+type RefreshRecord = v.InferOutput<typeof RefreshSchema>;
 
 /** `sessionStorage`, or null where it is missing or throws (privacy modes, sandboxed frames). */
 export function sessionStore(): StorageLike | null {

@@ -44,26 +44,26 @@ import type { RemoteMessage } from "./types";
 /** sessionStorage key: the room survives a reload of the presenter tab, so phones stay joined. */
 export const ROOM_STORAGE_KEY = "docwalk.remote-room";
 /** A remote laser point disappears after this long without an update (a phone that dropped out). */
-export const LASER_IDLE_MS = 3000;
+const LASER_IDLE_MS = 3000;
 /** Distinct participant ids remembered per role; a hostile key holder cannot grow this without bound. */
 const MAX_TRACKED = 1000;
 /** An agent asking for the slide list waits at most this long for the deck to catch up with the document. */
-export const DECK_WAIT_MS = 10_000;
+const DECK_WAIT_MS = 10_000;
 /**
  * A follower's hello (and the room reopening) makes the presenter resend the
  * mirrored marks of the current slide, this long after the state has gone
  * out (decision 88), and never before the gap the last resync earned: at
  * least 2 s, longer the more its frames cost (`resyncGapMs`, decision 103).
  */
-export const RESYNC_DELAY_MS = 150;
+const RESYNC_DELAY_MS = 150;
 /**
  * A hello gets the state at once; the hellos that follow within this long
  * share one more state at its end, read from the deck as it is then
  * (decision 103). A change of slide still sends its state at once.
  */
-export const HELLO_STATE_GAP_MS = 250;
+const HELLO_STATE_GAP_MS = 250;
 
-export interface RemoteHostOptions {
+interface RemoteHostOptions {
   controller: DeckController | null;
   /**
    * Share link for followers (`?src=`, `?repo=` or `#doc=`); null when the

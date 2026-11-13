@@ -96,7 +96,7 @@ interface Client {
   languages: Set<string>;
 }
 
-export interface ShikiClientOptions {
+interface ShikiClientOptions {
   createWorker?: () => WorkerLike;
   /** How long a worker may keep blocks waiting without an answer. */
   silenceMs?: number;

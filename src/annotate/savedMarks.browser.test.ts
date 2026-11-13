@@ -6,6 +6,7 @@ import { openMarksStore } from "./marksStore";
 import type { MarkEvent } from "./mirrorTypes";
 import { loadMarks, marksSaver, readSlides, type MarksStore, type StoredSlide } from "./savedMarks";
 import type { AnnotationLayer } from "./types";
+import { deleteEveryMark } from "./useSavedMarksLayer";
 
 /**
  * Saved marks through the real layer and the real IndexedDB (decision 105).
@@ -218,7 +219,92 @@ describe("saved marks across a reload", () => {
   });
 });
 
+describe("saved marks that wait for their text (decision 105)", () => {
+  test("a gesture that draws nothing on the changed text leaves the waiting marks for the old text", async () => {
+    const db = freshDb();
+    const first = await session(db);
+    first.layer.setMode("pen");
+    stroke(first.host, [40, 60], [360, 240]);
+    await first.reload();
+
+    // The slide's text is now "cc": it shows nothing, and its saver names the new text.
+    const store = await openMarksStore(db);
+    const marks = await loadMarks(store, DOC, vi.fn());
+    const host = document.createElement("div");
+    Object.assign(host.style, { width: "400px", height: "300px", margin: "0" });
+    document.body.append(host);
+    const layer = createAnnotationLayer(host, {
+      saved: (key, address) => marks.forKey(key, address),
+    });
+    layers.push(layer);
+    layer.observe(
+      marksSaver(
+        () => marks,
+        () => "cc",
+      ),
+    );
+    layer.setKey("a/1#cc", "a/1");
+    expect(shown(host)).toHaveLength(0);
+    // A click with the eraser, then Clear marks: each one reports an empty slide.
+    layer.setMode("eraser");
+    stroke(host, [200, 150], [200, 150]);
+    layer.clear();
+    await marks.settled();
+    expect(readSlides(DOC, await store.load(DOC))).toHaveLength(1);
+
+    const back = await session(db);
+    expect(shown(back.host)).toHaveLength(1);
+  });
+});
+
+describe("Delete saved marks", () => {
+  test("with the whiteboard open it clears the board and the slide under it, history too, and nothing comes back when the board closes", async () => {
+    const db = freshDb();
+    const page = await session(db);
+    page.layer.setMode("pen");
+    stroke(page.host, [40, 60], [360, 240]);
+    page.layer.setBoard({ key: "a/board#0", address: "a/board" });
+    stroke(page.host, [40, 240], [360, 60]);
+    expect(shown(page.host)).toHaveLength(1);
+
+    expect(await deleteEveryMark(page.layer, page.marks)).toBe(true);
+    expect(shown(page.host)).toHaveLength(0);
+    page.layer.setBoard(null);
+    expect(shown(page.host)).toHaveLength(0);
+    // No undo brings a deleted mark back either.
+    page.layer.undo();
+    expect(shown(page.host)).toHaveLength(0);
+    page.layer.setBoard({ key: "a/board#0", address: "a/board" });
+    page.layer.undo();
+    expect(shown(page.host)).toHaveLength(0);
+    page.layer.setBoard(null);
+    await page.marks.settled();
+    expect(await page.store.load(DOC)).toEqual([]);
+    await page.reload();
+
+    const next = await session(db);
+    expect(shown(next.host)).toHaveLength(0);
+    expect(next.marks.size).toBe(0);
+  });
+});
+
 describe("the IndexedDB store", () => {
+  test("a clear that writes a replacement is one transaction: a record the store refuses leaves both keys as they were (decision 132)", async () => {
+    const store = await openMarksStore(freshDb());
+    await store.put(rec("old", "x/1"));
+    // No document key: IndexedDB refuses the record when it is written.
+    const refused = { ...rec("new", "y/1"), doc: undefined } as unknown as StoredSlide;
+    await expect(store.clear("old", [rec("new", "x/1"), refused])).rejects.toMatchObject({
+      name: "DataError",
+    });
+    expect(readSlides("old", await store.load("old"))).toHaveLength(1);
+    expect(await store.load("new")).toEqual([]);
+
+    await store.clear("old", [rec("new", "x/1")]);
+    expect(await store.load("old")).toEqual([]);
+    expect(readSlides("new", await store.load("new")).map((s) => s.slide)).toEqual(["x/1"]);
+  });
+
   test("reads one document's slides, not those of a document whose key starts the same", async () => {
     const store: MarksStore = await openMarksStore(freshDb());
     await store.put(rec("sha256:a", "x/1"));

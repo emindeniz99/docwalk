@@ -15,7 +15,7 @@ export interface PngFile {
   blob: Blob;
 }
 
-export interface PngHooks {
+interface PngHooks {
   /** Called before each slide is rendered, with its 1-based number. */
   onSlide?: (current: number, total: number) => void;
   /** Where each finished file goes; defaults to a browser download. */

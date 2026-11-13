@@ -49,12 +49,19 @@ const documentRange = (doc: string) => IDBKeyRange.bound([doc], [doc, []]);
 function idbStore(db: IDBDatabase): MarksStore {
   /**
    * A write counts once its transaction commits: a full disk aborts the
-   * transaction after the request itself has succeeded.
+   * transaction after the request itself has succeeded. A request that
+   * throws (a record IndexedDB refuses) aborts it too, so the requests
+   * before it are undone instead of committed.
    */
   const write = (act: (slides: IDBObjectStore) => void) =>
     new Promise<void>((resolve, reject) => {
       const tx = db.transaction(SLIDES, "readwrite");
-      act(tx.objectStore(SLIDES));
+      try {
+        act(tx.objectStore(SLIDES));
+      } catch (error) {
+        tx.abort();
+        throw error;
+      }
       tx.addEventListener("complete", () => resolve());
       tx.addEventListener("error", () => reject(tx.error ?? new Error("IndexedDB write failed")));
       tx.addEventListener("abort", () => reject(tx.error ?? new Error("IndexedDB write aborted")));
@@ -71,7 +78,11 @@ function idbStore(db: IDBDatabase): MarksStore {
       ),
     put: (record) => write((slides) => slides.put(record)),
     remove: (doc, slide) => write((slides) => slides.delete([doc, slide])),
-    clear: (doc) => write((slides) => slides.delete(documentRange(doc))),
+    clear: (doc, replacement = []) =>
+      write((slides) => {
+        slides.delete(documentRange(doc));
+        for (const record of replacement) slides.put(record);
+      }),
   };
 }
 

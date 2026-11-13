@@ -10,8 +10,8 @@ import type { Locale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import type { SectionPlan } from "../sectioning/sectionize";
 import { createDeckController, type DeckController } from "./controller";
-import { closeContentFocus, openBlockFocus, openDiagramFocus } from "./focus";
-import { FOCUS_ATTR, markFocusTarget, markFocusTargets } from "./focusTargets";
+import { markFocusTargets } from "./focusTargets";
+import { wireFocusTargets } from "./focusWiring";
 import {
   fitDiagrams,
   releaseImageSizes,
@@ -157,43 +157,14 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
         const address = fragmentAddress(href);
         if (target) focusTarget(target);
         else if (address) controller?.goTo(address);
-        return;
       }
-      const diagram = (event.target as Element).closest<HTMLElement>(".docwalk-diagram");
-      if (diagram) {
-        openDiagramFocus(diagram);
-        return;
-      }
-      // A code block, table or loaded image (decision 87). A link inside it is followed, and
-      // a click that ends a text selection is not a request to open anything.
-      const block = (event.target as Element).closest<HTMLElement>(`[${FOCUS_ATTR}]`);
-      if (!block || (event.target as Element).closest("a")) return;
-      const selection = getSelection();
-      if (selection && !selection.isCollapsed && selection.containsNode(block, true)) return;
-      openBlockFocus(block);
     };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Enter") return;
-      const diagram = (event.target as Element).closest<HTMLElement>(".docwalk-diagram");
-      // Only the block itself: Enter on a link inside a table follows the link.
-      const block = event.target instanceof HTMLElement && event.target.hasAttribute(FOCUS_ATTR);
-      if (!diagram && !block) return;
-      // Otherwise the key's default action clicks the Close button the view has just focused.
-      event.preventDefault();
-      if (diagram) openDiagramFocus(diagram);
-      else openBlockFocus(event.target as HTMLElement);
-    };
-    // An image that finishes loading later (a click on its placeholder, a slow host) becomes
-    // a target then; `load` does not bubble, so listen while it travels down.
-    const onImageLoad = (event: Event) => {
-      if (event.target instanceof HTMLImageElement) markFocusTarget(event.target);
-    };
+    // Diagrams, code blocks, tables and loaded images open the focus view (decision 87).
+    const focusWiring = wireFocusTargets(revealEl);
     const onResize = () => {
       if (deck) Object.assign(deck.getConfig(), frameOptions(revealEl, fillRef.current));
     };
     revealEl.addEventListener("click", onClick);
-    revealEl.addEventListener("keydown", onKey);
-    revealEl.addEventListener("load", onImageLoad, true);
     const stopClickToLoad = enableClickToLoad(revealEl);
 
     void (async () => {
@@ -254,7 +225,7 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
       if (cancelled) return;
       reveal.current = { deck, el: revealEl };
       // The copy in a code, table or image view belongs to one slide.
-      deck.on("slidechanged", closeContentFocus);
+      deck.on("slidechanged", focusWiring.closeContent);
       localizeRevealChrome(revealEl);
 
       const overflowing: DeckReport["overflowing"] = [];
@@ -278,10 +249,11 @@ export function Deck({ plan, locale, onReport, onReady, fill = false }: DeckProp
     return () => {
       cancelled = true;
       // Before the deck goes: the view's copy is of a slide that is about to be replaced.
-      closeContentFocus();
+      // Only this deck's: a view opened from the document view is not (decision 129).
+      focusWiring.closeContent();
       revealEl.removeEventListener("click", onClick);
-      revealEl.removeEventListener("keydown", onKey);
-      revealEl.removeEventListener("load", onImageLoad, true);
+      // A diagram view stays open over a rebuild (decision 87), so only the listeners go.
+      focusWiring.stop();
       stopClickToLoad();
       onReady?.(null);
       hadFocus.current = revealEl.contains(document.activeElement);

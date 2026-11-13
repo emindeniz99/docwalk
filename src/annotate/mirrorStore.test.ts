@@ -236,6 +236,23 @@ describe("laser and focus", () => {
     store.apply({ op: "focus-close" });
     expect(store.focus).toBeNull();
   });
+
+  test("a follower's dismissal holds through the same view's changes and a resync, and ends with another view or a close", () => {
+    // Decisions 106 and 132: the store outlives the follower's deck, so the dismissal lives here.
+    const store = new MirrorStore();
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 1 });
+    expect(store.focusDismissed).toBe(false);
+    store.focusDismissed = true;
+    store.apply({ op: "focus-view", scale: 2, x: 0, y: 0 });
+    store.apply({ op: "focus-tour", path: [1, 2] });
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 1 });
+    expect(store.focusDismissed).toBe(true);
+    store.apply({ op: "focus-open", slide: "d/1", diagram: 2 });
+    expect(store.focusDismissed).toBe(false);
+    store.focusDismissed = true;
+    store.apply({ op: "focus-close" });
+    expect(store.focusDismissed).toBe(false);
+  });
 });
 
 describe("the code, table and image views (decision 106)", () => {

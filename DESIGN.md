@@ -9,6 +9,7 @@ colors:
   border-strong: "#d6d6d1"
   ink: "#17181c"
   ink-muted: "#5c5e66"
+  editor-code: "#3a3d47"
   primary: "#e5532d"
   on-primary: "#1a0702"
   primary-ink: "#b8381a"
@@ -33,6 +34,7 @@ colors:
   border-dark: "#2c2f38"
   ink-dark: "#eceef2"
   ink-muted-dark: "#a1a5b0"
+  editor-code-dark: "#b9bcc6"
   primary-ink-dark: "#ff8a6b"
   focus-dark: "#7aa2ff"
   note-surface-dark: "#2a2412"
@@ -158,6 +160,12 @@ components:
     textColor: "{colors.primary-ink}"
   link-dark:
     textColor: "{colors.primary-ink-dark}"
+  editor-code:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.editor-code}"
+  editor-code-dark:
+    backgroundColor: "{colors.surface-dark}"
+    textColor: "{colors.editor-code-dark}"
   app:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.ink}"
@@ -358,6 +366,12 @@ gains a border, so colour-blind readers see the state too.
   measured. A diff line keeps its `+` or `-`, so colour is not the only cue.
   Every token passes 4.5:1 on its surface (lowest: `code-keyword` on
   `canvas`, 4.9:1; `src/design/contrast.test.ts` computes them).
+- `editor-code` colours inline and fenced code in the source editor, and
+  `editor-code-dark` in the dark theme (decision 131). It is a neutral grey
+  between `ink` and `ink-muted`, so code in the source does not look like an
+  error in the accent; links in the editor keep `primary-ink`. It passes
+  10.8:1 on `surface` and 9.8:1 on the `canvas` of the current line; the
+  dark value 9.3:1 on `surface-dark` and 10.0:1 on `canvas-dark`.
 - Every text pair passes WCAG 2.2 AA: 4.5:1 for body text, 3:1 for text
   24px and larger. The lowest pair in the file is `primary` on `stage`
   (4.8:1), used only for the progress bar, not text. Ratios were computed

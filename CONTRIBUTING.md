@@ -128,6 +128,8 @@ them and must stay at zero findings.
   that needs more (a deploy, a release) gets it. Keep the repository's
   default token read-only.
 - Pin every action to a full commit SHA with its tag in a comment.
+- Pin only a release published at least 7 days ago, the same age rule as
+  dependencies.
 - Set `persist-credentials: false` on every checkout that does not push.
 - Never put event fields an outsider controls (PR titles, branch names,
   comments) straight into a `run:` script; pass them through `env:`.

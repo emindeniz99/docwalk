@@ -40,7 +40,7 @@
   "app_status": "Status",
   "app_status_diagram_errors": "{count, plural, one {# diagram error} other {# diagram errors}}",
   "app_status_level": "Slides at {level}",
-  "app_status_notes": "{count, plural, one {# note} other {# notes}}",
+  "app_status_notes": "{count, plural, one {# overflow note} other {# overflow notes}}",
   "app_status_offline": "Nothing uploaded · works offline",
   "app_status_rendering": "Rendering…",
   "app_untitled": "Untitled",

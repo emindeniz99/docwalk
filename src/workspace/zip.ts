@@ -24,7 +24,7 @@ export const MAX_ARCHIVE_ENTRIES = 2000;
 /** Input is fed to the inflater in slices this big, so no single output chunk can be huge. */
 const SLICE = 16 * 1024;
 
-export interface ArchiveContents {
+interface ArchiveContents {
   files: { path: string; data: Uint8Array<ArrayBuffer> }[];
   folders: string[];
   /** Entries left out: not a document, too large, hidden, or with an unsafe name. */

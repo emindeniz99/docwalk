@@ -7,7 +7,7 @@ import type { editor } from "monaco-editor/editor";
  * values whenever light/dark changes; there is no second copy of the palette
  * to drift from DESIGN.md.
  */
-export interface Palette {
+interface Palette {
   dark: boolean;
   bg: string;
   surface: string;
@@ -16,6 +16,7 @@ export interface Palette {
   fg: string;
   muted: string;
   link: string;
+  code: string;
   focus: string;
   noteBg: string;
   noteBorder: string;
@@ -29,6 +30,7 @@ const VARS = {
   fg: "--fg",
   muted: "--muted",
   link: "--link",
+  code: "--editor-code",
   focus: "--focus",
   noteBg: "--note-bg",
   noteBorder: "--note-border",
@@ -58,9 +60,9 @@ const fg = (hex: string) => (hex ? { foreground: hex.slice(1) } : {});
 
 /**
  * Markdown highlighting kept as plain as the CodeMirror editor's
- * (editor.css): headings and markers in weight, links and code in the link
- * colour, quotes and HTML muted. Diagnostics are yellow, never red
- * (DESIGN.md `note-*`), whatever severity Monaco gives them.
+ * (editor.css): headings and markers in weight, links in the link colour,
+ * code in the editor's code colour, quotes and HTML muted. Diagnostics are
+ * yellow, never red (DESIGN.md `note-*`), whatever severity Monaco gives them.
  */
 export function monacoTheme(p: Palette): editor.IStandaloneThemeData {
   const colors: Record<string, string> = {
@@ -110,10 +112,12 @@ export function monacoTheme(p: Palette): editor.IStandaloneThemeData {
       { token: "keyword", ...fg(p.fg), fontStyle: "bold" },
       { token: "strong", fontStyle: "bold" },
       { token: "emphasis", fontStyle: "italic" },
-      { token: "string", ...fg(p.link) },
+      // Fences and indented code; `string.target` (`{…}`) keeps the link colour it had.
+      { token: "string", ...fg(p.code) },
+      { token: "string.target", ...fg(p.link) },
       { token: "string.link", ...fg(p.link) },
-      { token: "variable", ...fg(p.link) },
-      { token: "variable.source", ...fg(p.link) },
+      { token: "variable", ...fg(p.code) },
+      { token: "variable.source", ...fg(p.code) },
       { token: "comment", ...fg(p.muted), fontStyle: "italic" },
       { token: "meta.separator", ...fg(p.muted) },
       { token: "tag", ...fg(p.muted) },

@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Root } from "mdast";
+import { FOCUS_ATTR, markFocusTargets } from "../deck/focusTargets";
+import { wireFocusTargets } from "../deck/focusWiring";
 import { purifyHtml } from "../deck/purify";
 import { renderDiagrams } from "../deck/mermaid";
 import "../render/content.css";
@@ -100,6 +102,9 @@ export function DocumentView({
       focusTarget(target);
     };
     el.addEventListener("click", onClick);
+    // Diagrams, code blocks, tables and loaded images open the focus view, as on a slide
+    // (decision 129). Nothing is mirrored: a block here has no slide address (decision 106).
+    const focusWiring = wireFocusTargets(el);
     let live = true;
     // Beside the diagrams, not before them: colours change no height, so a
     // pending scroll target needs no second pass for them. Formulas do, so
@@ -111,6 +116,8 @@ export function DocumentView({
     // formulas are drawn (an equation replaces its source block).
     const markScrollable = () => {
       for (const box of el.querySelectorAll<HTMLElement>("table, pre, .docwalk-math-display")) {
+        // A focus target is a tab stop whether it scrolls or not.
+        if (box.hasAttribute(FOCUS_ATTR)) continue;
         if (box.scrollWidth > box.clientWidth || box.scrollHeight > box.clientHeight) {
           box.tabIndex = 0;
         } else {
@@ -126,6 +133,8 @@ export function DocumentView({
     ]).then(() => {
       if (!live) return;
       drawn.current = true;
+      // Marked once drawn, as the deck marks its finished pages: a diagram's source is no code block.
+      markFocusTargets(el);
       markScrollable();
       const kept = pending.current;
       pending.current = null;
@@ -137,6 +146,9 @@ export function DocumentView({
     observer.observe(el);
     return () => {
       el.removeEventListener("click", onClick);
+      // The view shows a copy of a document that is about to be replaced or left (decision 129).
+      focusWiring.close();
+      focusWiring.stop();
       live = false;
       observer.disconnect();
       stopClickToLoad();

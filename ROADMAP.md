@@ -1,6 +1,6 @@
 # Roadmap: docwalk
 
-Dated 2026-11-09. Update this file when an item ships or a deferred item's
+Dated 2026-11-11. Update this file when an item ships or a deferred item's
 trigger fires, and delete the entry in the same commit.
 
 ## v1
@@ -180,6 +180,15 @@ update prompt; `pnpm size` starts size-limit through Node, so it runs on
 Windows. `e2e/canvas.spec.ts` (7) and `e2e/pwa.spec.ts` (12) pass on
 Chromium here.
 
+Done 2026-11-11 (decisions 125 and 126): the simplification pass, with nothing
+a user sees changed and no test assertion touched. `src/App.tsx` went from
+1,466 to 891 lines; its jobs moved into one hook each in their area's folder.
+The follower mirror draws pen and arrow marks with `markSvg.ts` (`mirrorView.ts`
+251 to 188 lines). Three unused definitions went, and 131 symbols only their
+own file uses lost `export`. The health check no longer loads the sign-in
+chunk. App shell 430.7 to 432.1 kB gzip; first load 994 kB, 84 files, before
+and after.
+
 ## Follow-ups
 
 Needs the owner:
@@ -196,15 +205,11 @@ Needs the owner:
   The workflow has not run yet.
 - First npm publish of `docwalk-mcp`: trusted publishing cannot create a
   package, so the owner publishes the first version by hand.
-- Escape in real fullscreen with a dialog open (see below): Chromium's
-  Keyboard Lock would fix it but makes users hold Escape to leave
-  fullscreen, and Firefox and Safari lack it. Keep the current behaviour,
-  or accept that trade on Chromium.
 - CI, Lighthouse, zizmor, the Pages deploy and the nightly Stryker run
   have all run on GitHub. zizmor runs with `--offline` and no token, so its
   online audits stay off. All seven pinned actions' tags matched their SHAs
-  on 2026-11-09. `pnpm/action-setup` v6.1.1 dates from 2026-11-03: decide
-  whether the 7-day age rule covers actions.
+  on 2026-11-09. The 7-day age rule covers actions too (owner, 2026-11-13;
+  CONTRIBUTING, "GitHub Actions").
 - A real `showDirectoryPicker` folder on a real disk in desktop Chrome:
   handle kept in IndexedDB, permission asked again on return. Every test
   uses an OPFS handle in its place.
@@ -213,6 +218,14 @@ Needs the owner:
 
 Later rounds:
 
+- CI speed, on the same runners (no extra jobs or sharding: the owner wants
+  no added runner cost). In November 2026 the e2e legs took about 15 min
+  (Chromium), 13 (Firefox) and 26 (WebKit); Playwright uses 2 workers on
+  GitHub's 4-core runner. Branch `ci/three-workers` sets 3 workers in
+  `playwright.config.ts`: compare three CI runs of it with `main`, adopt it
+  with `--no-ff` only if WebKit is faster and no test flakes, else delete the
+  branch. Then find the 10 slowest tests (Playwright's report) and shorten
+  their waits on the condition they need, not on a fixed time.
 - Remote links made before decision 117 carry no `p=` (the presenter's
   public state key), so a phone or agent that joined with one shows no
   countdown and never says hello again (118) until the presenter shares a new
@@ -306,7 +319,10 @@ Later rounds:
   selects a word in code or a table opens the view on its first click; the
   view is not in any export, and the presenter window shows no focus view
   (decisions 88 and 106). Clear in the code view disables itself while
-  focused, so focus falls to the page and Escape no longer closes the view.
+  focused, so focus falls to the page and Escape no longer closes the view. A
+  blocked image in the table view keeps its load button, a tab stop that
+  loads nothing there (read from `cleanCopy` in `src/deck/focus.ts`, not
+  tested); the code view drops that button since 2026-11-13.
 - Mirrored focus views (decision 106): a table split differently on two
   screens can open a different part of it on the follower; a follower that
   has not loaded the image opens nothing.
@@ -353,7 +369,9 @@ Later rounds:
   load; a language outside the 24 stays plain.
 - While presenting in real fullscreen, Escape with a dialog open closes the
   dialog and leaves fullscreen (browsers keep the key); presenting goes on
-  windowed until a second Escape.
+  windowed until a second Escape. The owner keeps this (2026-11-13): Chromium's
+  Keyboard Lock would fix it but makes users hold Escape to leave fullscreen,
+  and Firefox and Safari lack it.
 - Presenting controls (decision 75): check on a real iPhone, in Safari and
   from the Home Screen, since Playwright's WebKit emulates no notch or
   safe-area insets (Chromium's CDP override stands in for the tests).
@@ -374,151 +392,158 @@ Later rounds:
   lock and no frame switch on the follow page; the frame follows what this
   browser chose in another docwalk tab.
 
+- Simplification pass (decisions 125 and 126), left as found: `findText` in
+  `src/shell/slideSearch.ts` is called only by its own test; `sameList` in
+  `mirrorFeed.ts` and `mirrorStore.ts` and `sectionOf` in `annotate/board.ts`
+  and `deck/focusTargets.ts` look alike and differ in an edge case; unused CSS
+  rules were not looked for; `shell/appCommands.ts` takes about 27 values from
+  App to build the palette and More menu lists. First-load candidates measured
+  and left are in row 126. On a 4-core machine with two Playwright workers,
+  `e2e/mirror.spec.ts:100` and `e2e/diagram-tour-mirror.spec.ts:104` failed once
+  on `main` before the pass and pass alone with `--workers=1`: a race to find
+  (CONTRIBUTING, Picking up work 5).
+
+- Pan and zoom in the focus views (decisions 127 and 128), built and tested
+  with synthetic events in Chromium only. Owed, by hand: a Mac trackpad
+  (two-finger scroll pans, a pinch feels proportional; the factor is
+  `exp(-deltaY * 0.01)` with 10 px per event at most) in Chrome, Firefox and
+  Safari; whether Safari sends both `gesturechange` and `ctrlKey` wheel events
+  for one pinch, which would zoom twice; an iPad and a phone. On a touch screen
+  the code and table views allow native panning (`touch-action: pan-x pan-y`),
+  and a browser that takes two moving fingers for a pan sends `pointercancel`,
+  which would end the pinch after a few moves: if so, those views need
+  `touch-action: none` and their own one-finger scroll. iOS gesture events may
+  carry no `clientX`, and the zoom then centres on the top left. A code or
+  table view that starts with no room to scroll drifts a few pixels under the
+  pointer until it can scroll. The app shell grew 0.9 kB (433.0 kB gzip).
+
+- Focus views in the document view (decision 129): when the view closes
+  because the document is rendered again or the reader leaves the document
+  view, keyboard focus lands on `<body>`, not on a block (nothing stays inert,
+  and Tab and the shortcuts work); the built app's test opens a diagram only,
+  the other kinds rest on browser tests; a `<summary>` or a blocked image's
+  placeholder inside a table does its own action and opens the table view too,
+  as on a slide; `e2e/document-mode.spec.ts` ran on Chromium here, Firefox and
+  WebKit in the fork's CI.
+
+- Presenting bar and hint on narrow screens (decisions 133 and 134, accepted
+  by the owner on 2026-11-13):
+  under 1000 px of pane width the bar keeps one row (menu for four tools, icon
+  Exit, no address). While shown it covers the slide's title on a phone; if
+  that bothers on a real iPhone, the owner's fallback is the bar at the bottom
+  edge. The width is read from the deck pane, not the bar's
+  head as row 133 says, because a container cannot change its own padding.
+  Chromium with touch emulation only: WebKit, Firefox, a real iPhone and its
+  safe-area insets are untested, and iOS fonts may set the counter wider (21 px
+  spare at 667 px with three digits). A talk of only full slides never shows
+  the hint. DESIGN.md still describes the More tools menu for the edit preview
+  only. For decision 135 the owner chose "taşma uyarısı" (2026-11-13): change
+  `app_status_notes` in `messages/tr.json` and the CONTEXT glossary row from
+  "taşma notu", in one small commit. The hint
+  counts text that is `visibility: hidden` as content, which keeps it off
+  reveal.js fragments not yet shown; a slide change during its 5 s can leave
+  it over the next slide's content; with the whiteboard open it is measured
+  against the slide under the board. On touch the tooltip never opens, so the
+  icon Exit shows no Esc hint there. With Exit's tooltip open, Escape exits
+  through Exit's own action and focus lands on the deck.
+
 ## Next up
 
-### 1. Simplification pass (owner, 2026-11-09)
+### 1. Map mode: the whole document on one zoomable canvas (decision 136)
 
-Do this before any new feature. Nothing a user sees may change. Estimate:
-half a day for one agent; the code is not hard, but it is fiddly.
+The owner's idea (2026-11-09), designed with the owner on 2026-11-13: besides
+slides and the one-column document view, a "Map" view (Turkish "Harita") shows
+every section on one large canvas, the way Prezi does. You zoom out to see the
+whole document and in to read a section; presenting moves the camera from
+section to section. Decision 136 holds the settled design; build it from there.
+A large feature: plan it as weeks, built in the steps below, each on its own
+branch with a failing test first.
 
-Why now: PR #5 added about 11,700 lines of app code. `src/App.tsx` is 1,466
-lines with 88 hooks, and duplicated helpers make each change touch several
-files. Size is no longer the pressure: decision 124 raised the budget to a
-3 MB warning and a 5 MB failure (993 kB used).
+Settled (decision 136):
 
-Steps, one commit per step, with `pnpm check` green after each:
+- **Layout from the headings only:** one column per `##` section, its `###`
+  parts stacked inside. No new Markdown syntax (rule 1).
+- **Frames grow with their content.** No pagination; a block taller than the
+  screen opens in the focus view (decision 129's wiring, `src/deck/focusWiring.ts`).
+- **Route and roaming:** arrow keys follow document order with a smooth camera
+  move (instant under `prefers-reduced-motion`); mouse and trackpad roam with
+  decision 127's pan and zoom; one key zooms out to the whole map.
+- **Followers** follow the presenter's section by default, may roam, and have
+  one key back to the presenter. Use the signed room messages (73, 88, 103);
+  a section address (rule 7), not a camera position, is what is sent.
+- **First version:** reading and presenting only. Not in it: the pen on the
+  canvas, dragging frames, export. Those are later rows.
+- **Name:** "Map" tab beside Edit and Document; not "Canvas" (decision 54) or
+  "Overview".
 
-1. **Measure first** and write the numbers into the branch's first commit
-   body: `pnpm size` (app shell), the first-load total and its eight largest
-   files (`e2e/perf.spec.ts` prints both on Chromium), and line counts of the
-   files below.
-2. **Split `src/App.tsx`** into hooks and components with one job each
-   (presenting state, the remote room, comments wiring, the workspace,
-   keyboard handling). Move code; do not rewrite it.
-3. **Merge duplicated helpers** between the follower-mirror modules
-   (`src/annotate/mirrorFeed.ts`, `mirrorStore.ts`, `mirrorView.ts`,
-   `mirrorTypes.ts`, `mirrorSchema.ts`: about 1,300 lines) and
-   `src/deck/focus.ts` (875 lines). Find what really repeats before merging.
-4. **Delete dead code**: unused exports, branches no test reaches, leftovers
-   from PR #5. Mention anything you are unsure of instead of deleting it.
-5. **Look at the first load.** Find what the default view loads that it
-   does not need at once (a mode only some users open, a library used after a
-   click). Move it to a lazy chunk where that is cheap and record the
-   trade-off; the budget no longer requires it (decision 124).
+Suggested steps:
 
-Rules:
+1. Layout: a pure function from the sectioned AST to frame rectangles, unit
+   tested (no frame overlaps, document order left to right, every section
+   once).
+2. The view: render frames into one transformed layer, reuse 127's pan and
+   zoom, draw Mermaid only for frames near the viewport, and keep the new code
+   in a lazy chunk (first-load budget, decision 124).
+3. Route: arrow keys, zoom-out key, camera animation, reduced motion, screen
+   readers reading in document order, a URL address per section.
+4. Focus view and laser on the map.
+5. Followers: section-follow plus roam and back-to-presenter, with the
+   existing room tests extended.
 
-- One agent, one branch (for example `refactor/simplify`): parallel agents
-  would collide in `App.tsx`.
-- Tests stay green and unchanged. A test that must change because code moved
-  changes its import only, never its assertions. If an assertion seems to need
-  changing, stop: that is a behaviour change.
-- Before merging: `pnpm check`, the full end-to-end suite on Chromium, Firefox
-  and WebKit, and screenshots of the edit view, present mode and a phone view
-  next to the same screenshots taken before the pass. Look at them.
-- Done means: the same tests pass, the screenshots match, and the merge commit
-  body gives the before and after numbers from step 1 (shell size, first load,
-  line counts). Update MEMORY and remove this entry in the same branch.
+Done means: a browser test per step, the end-to-end suite on Chromium,
+Firefox and WebKit, axe on the map view, before and after screenshots of the
+sample document on desktop and phone, and a hand check on a Mac trackpad and
+an iPad recorded here.
 
-### 2. Pan and zoom in the focus views that feel like Excalidraw (owner, 2026-11-09)
+### 2. A real-device UX pass, and what the review of PR #5 left
 
-A bug fix with a decision row (it refines the focus-view rows). Estimate:
-one to two days. It can run before or after the pass, but not beside it,
-because both touch `src/deck/focus.ts`.
+The code review is done (2026-11-11): three reviewers read the focus views
+and tour, the whiteboard, stylus and saved marks, and the countdown and
+comments. Decision 132 lists the thirteen defects fixed. Found and not fixed,
+smallest first; each needs a failing test before code:
 
-What the owner saw: in an opened Mermaid diagram, two-finger scrolling on a
-trackpad does not move the diagram, and pinch zoom jumps too far at once.
+- Comments: a reopened comment reads "edited" although its text never changed.
+  A comment stores one time for any change, and a reopen must move it for
+  merges to work, so the label needs a stored time of the last text change
+  (an optional `edited` field in `DocComment`, set by `update` only): a change
+  to the share and sidecar format, for the owner. Drafts typed in the panel are
+  lost when presenting starts, because the whole panel unmounts there.
+- Countdown: pressing Start twice with an invalid target announces the
+  message once.
+- Eraser (drauu 1.0): a drag cut short by a slide change or the whiteboard
+  toggle removes strokes from the screen and not from the saved record, so they
+  return after a reload; an eraser click that erases nothing adds an empty undo
+  step and drops redo. Both sit in drauu's eraser model.
+- Code view: a line of a raw `<pre>` that holds only an image is labelled
+  "Line N, empty"; its alt text would need a new string.
+- Suspected, not shown from the code: a `#doc=…&c=…` link pasted into a tab
+  that shows another document may merge its comments into the wrong one; two
+  fast edits may detach a draft's comments; the glow on commented diagram nodes
+  shows while presenting; a link or file can overwrite a local comment's text
+  if it knows the id (row 65's "last edit wins"); a stage constructor that
+  throws leaves the page inert under an empty focus overlay; saved marks are
+  left out of an export when a slide's text changed after the last rebuild; the
+  annotation layer is never built if IndexedDB never answers.
 
-Cause, found in `src/deck/focus.ts` on 2026-11-09:
+- Left by the fixes of 132: a comment stored before 132 under GitHub's old
+  `-1` slug of a second heading with an empty slug, or on a diagram node under
+  such a heading, now lists as orphaned, because anchors take the fallback id
+  from `headingIds` (`src/comments/anchors.ts`); nothing is deleted. Marks
+  saved before 132 on a slide that shows a failed diagram no longer show:
+  their fingerprint held the diagnostic's text, which `src/annotate/markKeys.ts`
+  now leaves out, and marking the slide again replaces them (a one-time loss,
+  noted in row 132); Delete saved marks closes an open whiteboard; a held file or
+  paste draft gets its alias when it opens, not at its first edit; on a layout
+  that types `+` or `-` with AltGr the zoom keys do nothing in the view (the
+  buttons work); when the old and the new key of a `?src=` document hold more
+  than 500 comments together, the move of 120 fails at every open and the old
+  key stays. Marks do the same past 105's caps (decision 137).
 
-- A wheel event without Ctrl or Cmd returns early (`onWheel`), so a
-  two-finger trackpad scroll, which arrives as exactly that, does nothing.
-- `@panzoom/panzoom`'s `zoomWithWheel` with `step: 0.25` multiplies the
-  scale by 1.25 per wheel event, whatever the event's size. A trackpad pinch
-  sends dozens of small events (`ctrlKey` set, small `deltaY`), so one gesture
-  zooms many times over. The code and table focus views do the same with
-  `SCALE_STEP = 0.25` per event.
+Still owed, by hand: the new features on a Mac trackpad, an iPhone and an
+iPad (focus views and their pan and zoom, the tour, the whiteboard and stylus,
+the countdown on a phone, saved marks, comments), with findings written here.
 
-Target behaviour, as in Excalidraw and Figma:
-
-- Two-finger scroll (wheel without Ctrl/Cmd) pans by `deltaX` and `deltaY`;
-  Shift turns a vertical wheel into a horizontal pan.
-- Pinch, and Ctrl/Cmd + wheel, zoom smoothly in proportion to `deltaY`
-  (for example `scale *= Math.exp(-deltaY * k)`, with `deltaMode` lines and
-  pages converted to pixels), around the pointer, within the current limits.
-- A mouse wheel without a modifier still pans, so nothing zooms by accident.
-- Safari's `gesturestart`/`gesturechange` pinch and two-finger touch
-  (pan and pinch together) on phones and tablets work the same way.
-- The keyboard and the zoom buttons keep their fixed steps.
-- Only the focus overlay takes the wheel; a diagram on a slide or in the
-  document still scrolls the page.
-
-Tests: browser tests that send a pinch as forty small `ctrlKey` wheel events
-and check the total zoom stays within the gesture's size, that a plain wheel
-pans and does not zoom, and the same for the code and table views. A hand check
-on a Mac trackpad and an iPad is still needed; record it.
-
-### 3. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
-
-The owner's idea: besides slides (pages) and the document view (one column),
-show the Markdown the way Prezi does. All sections sit on one large canvas;
-you zoom out to see the whole document and zoom in to read a section. The
-presentation moves the camera from section to section in document order.
-Clicking a diagram, table, code block or image opens it in the focus view.
-
-This is a large feature (weeks, not days). Grill it into decisions before any
-code. "Canvas mode" already names the Excalidraw sketch (decision 54), so this
-needs its own name ("map mode" here). Questions to settle:
-
-- **Layout from structure only** (rule 1, no new syntax): for example one
-  column per `##` section with its `###` parts stacked inside, or a tree
-  from the heading levels. Does the viewer let people drag frames, and is
-  that viewer state (rule 1), never written into the Markdown?
-- **Pagination:** a frame grows with its content, so rule 3's overflow
-  handling has nothing to split; atomic blocks that are too big for the
-  screen go to the focus view.
-- **Addressing and sync:** links and followers address a section
-  (rule 7); does the camera follow the presenter, and is it mirrored like the
-  laser (decisions 88, 103)?
-- **Performance:** render Mermaid only for frames near the view, and keep the
-  first load inside decision 43 (lazy chunk).
-- **Accessibility and motion:** keyboard moves between sections, the camera
-  respects `prefers-reduced-motion`, and screen readers get document order.
-- **Reuse:** pan and zoom from item 2, the focus views, the pen and laser
-  layer, and the overview's section frames.
-
-A cheaper first step that delivers part of it: the document view gets
-click-to-open for diagrams, tables, code and images. Today only the slides open
-the focus view (`openDiagramFocus` and `openBlockFocus` in
-`src/deck/focus.ts` are wired into `Deck.tsx` only).
-
-### 4. Small UX fixes seen on 2026-11-09
-
-From screenshots of the sample and a feature document on desktop and phone:
-
-- The status bar says "7 notes" for overflow notes, and speaker notes
-  (decision 79) are now also "notes". Rename one of them, for example
-  "7 overflow notes".
-- The editor colours fenced code with the link colour (`.dw-tok-code` in
-  `src/editor/editor.css` uses `--link`), so code blocks look red, as if
-  something were wrong. Give code its own neutral token in DESIGN.md.
-- On a phone in landscape, the shown presenting controls take two rows and
-  cover about a third of the slide until they hide (decision 77 accepted the
-  overlay); look for a one-row layout.
-- The one-time "Tap or move to show controls" hint sits over slide content on
-  a phone; check it against short and tall slides.
-
-### 5. A review of PR #5's feature code and a real-device UX pass
-
-The security review on 2026-11-09 read the risky parts of PR #5 (rendering,
-the room protocol, the workspace, dependencies); the rest of its roughly
-11,700 lines of app code was covered by tests but not read line by line, and
-no one has walked the new features on real devices. After the simplification
-pass: a code review of the remaining feature code (focus views, tour,
-whiteboard, countdown, saved marks, comments round two) and a hand test on a
-Mac trackpad, an iPhone and an iPad, with findings written here.
-
-### 6. The next feature round
+### 3. The next feature round
 
 Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
 for this round is built. After the pass, re-check the survey as its "Re-check"

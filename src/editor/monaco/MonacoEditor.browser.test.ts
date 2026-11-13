@@ -84,4 +84,31 @@ describe("MonacoEditor theme", () => {
     const colours = new Set(spans.map((s) => getComputedStyle(s).color));
     expect([...colours]).toEqual([resolved("--fg")]);
   });
+
+  test.each(["light", "dark"])(
+    "%s: code uses the editor's code colour and links the link colour (decision 131)",
+    async (theme) => {
+      // Code in the link colour, the brand's red, made a document with code
+      // look as if something were wrong. axe does not judge syntax colours.
+      document.documentElement.setAttribute("data-theme", theme);
+      const box = mount(
+        "Some `inline` code and [a link](https://example.com).\n\n```\nfenced\n```\n",
+      );
+      await monaco.colorize("", "markdown", {});
+      const colourOf = (text: string) => {
+        const span = [...box.querySelectorAll<HTMLElement>(".view-line span span")].find(
+          (s) => s.textContent === text,
+        );
+        return span ? getComputedStyle(span).color : null;
+      };
+      expect(resolved("--editor-code")).not.toBe(resolved("--link"));
+      // Monaco paints the grammar's tokens in idle time, which can take a while.
+      await expect
+        .poll(() => colourOf("`inline`"), { timeout: 10_000 })
+        .toBe(resolved("--editor-code"));
+      expect(colourOf("fenced")).toBe(resolved("--editor-code"));
+      expect(colourOf("```")).toBe(resolved("--editor-code"));
+      expect(colourOf("](https://example.com)")).toBe(resolved("--link"));
+    },
+  );
 });

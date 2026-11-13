@@ -175,23 +175,68 @@ test("a formula built to run for seconds leaves the deck responsive", async ({ p
     "",
   ].join("\n");
   await ready(page);
+  // The longest time the page goes without a frame while it builds the deck that holds the
+  // formulas: from the moment they are in the page, as source, until reveal.js has the
+  // finished pages. Replacing the 52-slide sample in the editor comes before that and is not
+  // the formulas' work: with the CPU slowed six times it held Chromium's page for 250 to
+  // 530 ms, the same with no formula in the new document.
   await page.evaluate(() => {
-    const w = window as unknown as { dwGap: number };
-    w.dwGap = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
-      w.dwGap = Math.max(w.dwGap, now - last);
+    const frames = { longest: 0, gaps: [] as string[], started: false, ended: false };
+    (window as unknown as { dwFrames: typeof frames }).dwFrames = frames;
+    const toDraw = ".reveal code.language-math:not(.docwalk-math-error)";
+    let start = 0;
+    let last = 0;
+    const count = () => {
+      const now = performance.now();
+      const gap = now - last;
+      frames.longest = Math.max(frames.longest, gap);
+      if (gap >= 100) {
+        frames.gaps.push(
+          `${Math.round(gap)} ms at ${Math.round(last - start)} ms, ${document.querySelectorAll(toDraw).length} still to draw`,
+        );
+      }
       last = now;
+    };
+    const tick = () => {
+      if (frames.ended) return;
+      if (frames.started) count();
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
+    // A change of the page is seen before the next frame, so a formula that holds the thread
+    // from the moment it arrives is counted, and so is one that holds it until the deck is ready.
+    const observer = new MutationObserver(() => {
+      if (!frames.started) {
+        if (!document.querySelector(toDraw)) return;
+        frames.started = true;
+        start = last = performance.now();
+      } else if (document.querySelector(".reveal.ready")) {
+        count();
+        frames.ended = true;
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
   });
   await replaceSource(page, doc);
   const formulas = slide(page, "formulas");
   await expect(formulas.locator("p > math")).toHaveCount(1, { timeout: 15_000 });
   await expect(formulas.locator("code.docwalk-math-error")).toHaveCount(2);
-  const gap = await page.evaluate(() => (window as unknown as { dwGap: number }).dwGap);
-  expect(gap).toBeLessThan(500);
+  const read = () =>
+    page.evaluate(
+      () =>
+        (window as unknown as { dwFrames: { longest: number; gaps: string[]; ended: boolean } })
+          .dwFrames,
+    );
+  // The recorder has to have seen the formulas arrive and the deck finish, or it measured nothing.
+  await expect.poll(async () => (await read()).ended).toBe(true);
+  const { longest, gaps } = await read();
+  expect(longest, `gaps of 100 ms or more: ${gaps.join("; ") || "none"}`).toBeLessThan(500);
 });
 
 test("document mode draws the formulas and the shortcode", async ({ page }) => {

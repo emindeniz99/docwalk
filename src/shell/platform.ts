@@ -1,5 +1,5 @@
 /** What the browser says about its platform: `userAgentData` (Chromium) first, the user agent string otherwise. */
-export interface PlatformHints {
+interface PlatformHints {
   userAgent: string;
   userAgentData?: { platform: string } | undefined;
 }

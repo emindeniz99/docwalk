@@ -13,7 +13,7 @@ import rawPageCss from "./page.css?raw";
 import type { ExportOptions, ExportSlide } from "./types";
 
 /** Whether an export may keep a reference to this (absolute) URL. */
-export type ResourcePolicy = (url: URL) => boolean;
+type ResourcePolicy = (url: URL) => boolean;
 
 /** Nothing outside the file: only `data:` URLs and local fragments survive. */
 export const offline: ResourcePolicy = () => false;

@@ -12,7 +12,7 @@
  */
 
 /** Distinct senders remembered; matches the presenter's participant bound. */
-export const MAX_SENDERS = 1000;
+const MAX_SENDERS = 1000;
 
 export class ReplayGuard {
   private readonly last = new Map<string, number>();

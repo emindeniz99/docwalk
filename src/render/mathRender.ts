@@ -27,7 +27,7 @@ const REMEMBERED_OVERRUNS = 100;
 const LATE_TIMER_MS = 100;
 
 /** The part of `Worker` the renderer uses; a test passes its own. */
-export type MathWorkerLike = Pick<Worker, "postMessage" | "terminate" | "addEventListener">;
+type MathWorkerLike = Pick<Worker, "postMessage" | "terminate" | "addEventListener">;
 
 /** The one `new Worker`; Vite only bundles the worker for this literal form. */
 export function startMathWorker(): MathWorkerLike {
@@ -37,7 +37,7 @@ export function startMathWorker(): MathWorkerLike {
   });
 }
 
-export interface MathRendererOptions {
+interface MathRendererOptions {
   createWorker?: () => MathWorkerLike;
   deadlineMs?: number;
   /** How long a worker may take to say `ready`. */

@@ -77,7 +77,7 @@ test("edit view: header, outline, source and stage have names and roles", async 
         - paragraph: Beta.
   `);
   await expect(page.getByRole("contentinfo", { name: "Status" })).toMatchAriaSnapshot(`
-    - contentinfo "Status": /3 slides.*0 notes.*0 diagram errors/
+    - contentinfo "Status": /3 slides.*0 overflow notes.*0 diagram errors/
   `);
 });
 

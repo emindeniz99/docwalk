@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
  */
 export const OPEN_SKETCH_EVENT = "docwalk:open-sketch";
 
-export interface SketchRequest {
+interface SketchRequest {
   /** The diagram's Mermaid source as the document has it (before the security pre-pass). */
   source: string;
   /** 1-based position among the deck's diagrams, or null when unknown. */

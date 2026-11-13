@@ -32,7 +32,7 @@ export const MAX_DOCUMENT_POINTS = 100_000;
 /** Numbers one read may hand to the parser, kept or refused: twice what a full document holds. */
 export const MAX_PARSED_NUMBERS = 4 * MAX_DOCUMENT_POINTS;
 /** The longest document key a record may carry (the comments' alias check uses the same). */
-export const MAX_DOCUMENT_KEY_CHARS = 4096;
+const MAX_DOCUMENT_KEY_CHARS = 4096;
 
 export interface SavedStroke {
   tool: MarkTool;
@@ -41,7 +41,7 @@ export interface SavedStroke {
   points: readonly number[];
 }
 
-export interface SavedSlide {
+interface SavedSlide {
   /** The slide address, `<section-id>/<n>` (rule 7). */
   slide: string;
   /** The fingerprint of the slide's text when the marks were made (markKeys.ts). */
@@ -165,7 +165,11 @@ export interface MarksStore {
   load(doc: string): Promise<unknown>;
   put(record: StoredSlide): Promise<void>;
   remove(doc: string, slide: string): Promise<void>;
-  clear(doc: string): Promise<void>;
+  /**
+   * Deletes every record of `doc`. With `replacement`, writes those records
+   * in the same transaction: either all of it happens or none of it.
+   */
+  clear(doc: string, replacement?: readonly StoredSlide[]): Promise<void>;
 }
 
 const recordId = (doc: string, slide: string) => JSON.stringify([doc, slide]);
@@ -182,8 +186,9 @@ export function memoryMarksStore(): MarksStore {
     remove: async (doc, slide) => {
       records.delete(recordId(doc, slide));
     },
-    clear: async (doc) => {
+    clear: async (doc, replacement = []) => {
       for (const [key, r] of records) if (r.doc === doc) records.delete(key);
+      for (const r of replacement) records.set(recordId(r.doc, r.slide), r);
     },
   };
 }
@@ -239,9 +244,11 @@ export class DocumentMarks {
   }
 
   /**
-   * Saves what a slide shows now; no strokes deletes its record. Returns
-   * false, and keeps the slide's last saved marks, when the slide or the
-   * document would pass a cap.
+   * Saves what a slide shows now; no strokes deletes its record, but only
+   * when the record was drawn on this text: a record that waits for its old
+   * text is replaced by a new mark, never deleted by a gesture that drew
+   * nothing (decision 105). Returns false, and keeps the slide's last saved
+   * marks, when the slide or the document would pass a cap.
    */
   put(address: string, fingerprint: string, strokes: readonly SavedStroke[]): boolean {
     // The empty key is no document (marks that are never kept): nothing to hold, nothing to say.
@@ -253,6 +260,8 @@ export class DocumentMarks {
     }
     const kept = strokes.map(({ tool, color, points }) => ({ tool, color, points: [...points] }));
     const before = this.slides.get(address);
+    // The slide shows none of a waiting record's marks, so an empty slide says nothing about them.
+    if (kept.length === 0 && before !== undefined && before.text !== fingerprint) return true;
     const points = this.points - (before ? pointsOf(before.strokes) : 0) + pointsOf(kept);
     const record: StoredSlide = { doc: this.doc, slide: address, text: fingerprint, strokes: kept };
     const fits =
@@ -330,7 +339,13 @@ export async function loadMarks(
   store: MarksStore,
   doc: string,
   onProblem: (problem: MarksProblem) => void,
-  /** The key `doc` had before decision 120: its records move to `doc` once, when `doc` has none. */
+  /**
+   * The key `doc` had before decision 120: at every open its records move
+   * to `doc` in one transaction with the delete of the old key, as comments
+   * do (decision 137). A slide `doc` already has keeps its own record. An
+   * old key with no valid record is cleared all the same: it may carry a
+   * query token.
+   */
   legacy: string | null = null,
 ): Promise<DocumentMarks> {
   let slides: SavedSlide[];
@@ -339,16 +354,24 @@ export async function loadMarks(
   } catch {
     return new DocumentMarks(doc, [], null, onProblem);
   }
-  if (slides.length === 0 && legacy !== null && legacy !== doc) {
+  if (legacy !== null && legacy !== doc) {
     try {
-      const old = readSlides(legacy, await store.load(legacy));
-      if (old.length > 0) {
-        for (const slide of old) await store.put({ doc, ...slide });
-        await store.clear(legacy);
-        slides = old;
+      const raw = await store.load(legacy);
+      if (Array.isArray(raw) && raw.length > 0) {
+        const have = new Set(slides.map((slide) => slide.slide));
+        const moved = readSlides(legacy, raw)
+          .filter((slide) => !have.has(slide.slide))
+          .map((slide) => ({ doc, ...slide }));
+        const merged = readSlides(doc, [...slides.map((slide) => ({ doc, ...slide })), ...moved]);
+        // Past a cap the move changes nothing, as for comments: keeping only what fits
+        // would drop marks unseen.
+        if (merged.length === slides.length + moved.length) {
+          await store.clear(legacy, moved);
+          slides = merged;
+        }
       }
     } catch {
-      // The old records stay; the next open tries again.
+      // Nothing moved and the old records stay; the next open tries again.
     }
   }
   return new DocumentMarks(doc, slides, store, onProblem);
