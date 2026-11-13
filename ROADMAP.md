@@ -205,15 +205,11 @@ Needs the owner:
   The workflow has not run yet.
 - First npm publish of `docwalk-mcp`: trusted publishing cannot create a
   package, so the owner publishes the first version by hand.
-- Escape in real fullscreen with a dialog open (see below): Chromium's
-  Keyboard Lock would fix it but makes users hold Escape to leave
-  fullscreen, and Firefox and Safari lack it. Keep the current behaviour,
-  or accept that trade on Chromium.
 - CI, Lighthouse, zizmor, the Pages deploy and the nightly Stryker run
   have all run on GitHub. zizmor runs with `--offline` and no token, so its
   online audits stay off. All seven pinned actions' tags matched their SHAs
-  on 2026-11-09. `pnpm/action-setup` v6.1.1 dates from 2026-11-03: decide
-  whether the 7-day age rule covers actions.
+  on 2026-11-09. The 7-day age rule covers actions too (owner, 2026-11-13;
+  CONTRIBUTING, "GitHub Actions").
 - A real `showDirectoryPicker` folder on a real disk in desktop Chrome:
   handle kept in IndexedDB, permission asked again on return. Every test
   uses an OPFS handle in its place.
@@ -373,7 +369,9 @@ Later rounds:
   load; a language outside the 24 stays plain.
 - While presenting in real fullscreen, Escape with a dialog open closes the
   dialog and leaves fullscreen (browsers keep the key); presenting goes on
-  windowed until a second Escape.
+  windowed until a second Escape. The owner keeps this (2026-11-13): Chromium's
+  Keyboard Lock would fix it but makes users hold Escape to leave fullscreen,
+  and Firefox and Safari lack it.
 - Presenting controls (decision 75): check on a real iPhone, in Safari and
   from the Home Screen, since Playwright's WebKit emulates no notch or
   safe-area insets (Chromium's CDP override stands in for the tests).
