@@ -417,16 +417,20 @@ Later rounds:
   as on a slide; `e2e/document-mode.spec.ts` ran on Chromium here, Firefox and
   WebKit in the fork's CI.
 
-- Presenting bar and hint on narrow screens (decisions 133 and 134, proposed):
+- Presenting bar and hint on narrow screens (decisions 133 and 134, accepted
+  by the owner on 2026-11-13):
   under 1000 px of pane width the bar keeps one row (menu for four tools, icon
-  Exit, no address). Built on the lead's recommendation; the owner confirms or
-  picks another layout. The width is read from the deck pane, not the bar's
+  Exit, no address). While shown it covers the slide's title on a phone; if
+  that bothers on a real iPhone, the owner's fallback is the bar at the bottom
+  edge. The width is read from the deck pane, not the bar's
   head as row 133 says, because a container cannot change its own padding.
   Chromium with touch emulation only: WebKit, Firefox, a real iPhone and its
   safe-area insets are untested, and iOS fonts may set the counter wider (21 px
   spare at 667 px with three digits). A talk of only full slides never shows
   the hint. DESIGN.md still describes the More tools menu for the edit preview
-  only. "taşma notu" (decision 135) also waits for the owner's word. The hint
+  only. For decision 135 the owner chose "taşma uyarısı" (2026-11-13): change
+  `app_status_notes` in `messages/tr.json` and the CONTEXT glossary row from
+  "taşma notu", in one small commit. The hint
   counts text that is `visibility: hidden` as content, which keeps it off
   reveal.js fragments not yet shown; a slide change during its 5 s can leave
   it over the next slide's content; with the whiteboard open it is measured
@@ -436,39 +440,51 @@ Later rounds:
 
 ## Next up
 
-### 1. Map mode: the whole document on one zoomable canvas (owner idea, 2026-11-09)
+### 1. Map mode: the whole document on one zoomable canvas (decision 136)
 
-The owner's idea: besides slides (pages) and the document view (one column),
-show the Markdown the way Prezi does. All sections sit on one large canvas;
-you zoom out to see the whole document and zoom in to read a section. The
-presentation moves the camera from section to section in document order.
-Clicking a diagram, table, code block or image opens it in the focus view.
+The owner's idea (2026-11-09), designed with the owner on 2026-11-13: besides
+slides and the one-column document view, a "Map" view (Turkish "Harita") shows
+every section on one large canvas, the way Prezi does. You zoom out to see the
+whole document and in to read a section; presenting moves the camera from
+section to section. Decision 136 holds the settled design; build it from there.
+A large feature: plan it as weeks, built in the steps below, each on its own
+branch with a failing test first.
 
-This is a large feature (weeks, not days). Grill it into decisions before any
-code. "Canvas mode" already names the Excalidraw sketch (decision 54), so this
-needs its own name ("map mode" here). Questions to settle:
+Settled (decision 136):
 
-- **Layout from structure only** (rule 1, no new syntax): for example one
-  column per `##` section with its `###` parts stacked inside, or a tree
-  from the heading levels. Does the viewer let people drag frames, and is
-  that viewer state (rule 1), never written into the Markdown?
-- **Pagination:** a frame grows with its content, so rule 3's overflow
-  handling has nothing to split; atomic blocks that are too big for the
-  screen go to the focus view.
-- **Addressing and sync:** links and followers address a section
-  (rule 7); does the camera follow the presenter, and is it mirrored like the
-  laser (decisions 88, 103)?
-- **Performance:** render Mermaid only for frames near the view, and keep the
-  first load inside decision 43 (lazy chunk).
-- **Accessibility and motion:** keyboard moves between sections, the camera
-  respects `prefers-reduced-motion`, and screen readers get document order.
-- **Reuse:** pan and zoom from decision 127, the focus views, the pen and laser
-  layer, and the overview's section frames.
+- **Layout from the headings only:** one column per `##` section, its `###`
+  parts stacked inside. No new Markdown syntax (rule 1).
+- **Frames grow with their content.** No pagination; a block taller than the
+  screen opens in the focus view (decision 129's wiring, `src/deck/focusWiring.ts`).
+- **Route and roaming:** arrow keys follow document order with a smooth camera
+  move (instant under `prefers-reduced-motion`); mouse and trackpad roam with
+  decision 127's pan and zoom; one key zooms out to the whole map.
+- **Followers** follow the presenter's section by default, may roam, and have
+  one key back to the presenter. Use the signed room messages (73, 88, 103);
+  a section address (rule 7), not a camera position, is what is sent.
+- **First version:** reading and presenting only. Not in it: the pen on the
+  canvas, dragging frames, export. Those are later rows.
+- **Name:** "Map" tab beside Edit and Document; not "Canvas" (decision 54) or
+  "Overview".
 
-The cheaper first step is done (decision 129, 2026-11-11): the document view
-opens the focus view on a click or Enter for diagrams, tables, code and loaded
-images, through the wiring the deck uses (`src/deck/focusWiring.ts`). Nothing
-is mirrored from it. The questions above still wait for the owner.
+Suggested steps:
+
+1. Layout: a pure function from the sectioned AST to frame rectangles, unit
+   tested (no frame overlaps, document order left to right, every section
+   once).
+2. The view: render frames into one transformed layer, reuse 127's pan and
+   zoom, draw Mermaid only for frames near the viewport, and keep the new code
+   in a lazy chunk (first-load budget, decision 124).
+3. Route: arrow keys, zoom-out key, camera animation, reduced motion, screen
+   readers reading in document order, a URL address per section.
+4. Focus view and laser on the map.
+5. Followers: section-follow plus roam and back-to-presenter, with the
+   existing room tests extended.
+
+Done means: a browser test per step, the end-to-end suite on Chromium,
+Firefox and WebKit, axe on the map view, before and after screenshots of the
+sample document on desktop and phone, and a hand check on a Mac trackpad and
+an iPad recorded here.
 
 ### 2. A real-device UX pass, and what the review of PR #5 left
 
