@@ -18,7 +18,7 @@ export function normalizeQuery(query: string): string {
   return query.trim().replace(/\s+/g, " ").normalize("NFC");
 }
 
-export interface TextMatch {
+interface TextMatch {
   start: number;
   end: number;
 }
@@ -84,13 +84,13 @@ function foldLetter(letter: string, locale: string): string {
  * the letter it came from, so a match in the folded text maps back to the
  * page's own indices.
  */
-export interface FoldedText {
+interface FoldedText {
   folded: string;
   starts: Int32Array;
   ends: Int32Array;
 }
 
-export function foldText(text: string, locale: string): FoldedText {
+function foldText(text: string, locale: string): FoldedText {
   const parts: string[] = [];
   for (const letter of text) parts.push(foldLetter(letter, locale));
   const folded = parts.join("");
@@ -188,7 +188,7 @@ export function titleMatches(
   return findFolded(folded, lastQuery.folded) !== null;
 }
 
-export interface Snippet {
+interface Snippet {
   before: string;
   match: string;
   after: string;
@@ -218,7 +218,7 @@ export function snippetAround(text: string, { start, end }: TextMatch): Snippet 
   };
 }
 
-export interface TextHit<T> {
+interface TextHit<T> {
   slide: T;
   snippet: Snippet;
 }

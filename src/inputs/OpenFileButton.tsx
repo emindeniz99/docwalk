@@ -5,7 +5,7 @@ import { m } from "../paraglide/messages.js";
 import { loadFromFile } from "./load";
 import type { LoadResult } from "./types";
 
-export interface OpenFileButtonProps {
+interface OpenFileButtonProps {
   /** The loaded document or why it was refused (wrong type, too large, not UTF-8). */
   onLoad: (result: LoadResult) => void;
 }

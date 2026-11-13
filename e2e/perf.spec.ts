@@ -95,6 +95,11 @@ test("the default view downloads less than decision 124's 5 MB of JS and CSS (gz
   for (const file of files.toSorted((a, b) => b.gzip - a.gzip).slice(0, 8))
     console.log(`  ${(file.gzip / 1000).toFixed(1)} kB  ${file.url}`);
   budget(info, `First load, ${files.length} files`, total / 1000, SIZE_WARN / 1000, "kB");
+  // Sign-in code is for a callback or a session to keep fresh, never for /api/health (decision 126).
+  expect(
+    files.map((file) => file.url).filter((url) => /\/oauth-[^/]+\.js$/.test(url)),
+    "sign-in chunks in the first load",
+  ).toEqual([]);
   expect(total, "gzip bytes of same-origin JS and CSS").toBeLessThanOrEqual(SIZE_LIMIT);
 });
 

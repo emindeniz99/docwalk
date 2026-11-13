@@ -63,11 +63,11 @@ import {
 /** The browser workspace saves this long after the last keystroke. */
 export const AUTOSAVE_MS = 500;
 /** A local folder without `FileSystemObserver` is checked this often for changes on disk. */
-export const POLL_MS = 1000;
+const POLL_MS = 1000;
 /** Without `FileSystemObserver`, the tree of a local folder is listed this often while the page is visible. */
-export const LIST_POLL_MS = 3000;
+const LIST_POLL_MS = 3000;
 
-export interface WorkspaceInputs {
+interface WorkspaceInputs {
   doc: LoadedDocument | null;
   openDocument: (doc: LoadedDocument) => void;
   closeDocument: () => void;
@@ -82,7 +82,7 @@ export interface WorkspaceInputs {
 }
 
 /** A dialog the workspace needs answered; App renders it (src/workspace/WorkspaceDialogs.tsx). */
-export type WorkspaceDialog =
+type WorkspaceDialog =
   | { kind: "new-file"; dir: string }
   | { kind: "new-folder"; dir: string }
   | { kind: "new-project" }

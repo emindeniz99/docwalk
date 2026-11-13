@@ -37,23 +37,37 @@ async function shot(page: Page, name: string) {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
-/** Where the centre of `el` sits inside `frame`, as fractions of the frame. */
-async function inside(el: Locator, frame: Locator) {
+/**
+ * Where the centre of `el` sits inside `frame`, as fractions of the frame, or
+ * null when either has no box: `boundingBox()` finds an element and measures
+ * it in two steps, and one that left the page in between has none.
+ */
+async function spot(el: Locator, frame: Locator) {
   const [a, f] = await Promise.all([el.boundingBox(), frame.boundingBox()]);
-  if (!a || !f) throw new Error("nothing to measure");
+  if (!a || !f) return null;
   return { x: (a.x + a.width / 2 - f.x) / f.width, y: (a.y + a.height / 2 - f.y) / f.height };
+}
+
+/** `spot` for an element that stays in the page. */
+async function inside(el: Locator, frame: Locator) {
+  const at = await spot(el, frame);
+  if (!at) throw new Error("nothing to measure");
+  return at;
 }
 
 /**
  * Waits until the follower's copy of a mark sits where the presenter's does,
  * within 0.03 of the slide on both axes. A pen stroke reaches followers in
  * 80 ms chunks while it is drawn, so the copy exists from its first chunk
- * on; measuring as soon as it existed read a partial stroke.
+ * on; measuring as soon as it existed read a partial stroke. The overlay
+ * draws a new element for each chunk, so the one just found can be gone
+ * before it is measured: that read counts as not there yet.
  */
 async function expectSameSpot(mine: { x: number; y: number }, theirs: Locator, frame: Locator) {
   await expect
     .poll(async () => {
-      const at = await inside(theirs, frame);
+      const at = await spot(theirs, frame);
+      if (!at) return Number.POSITIVE_INFINITY;
       return Math.max(Math.abs(mine.x - at.x), Math.abs(mine.y - at.y));
     })
     .toBeLessThan(0.03);

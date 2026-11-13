@@ -10,13 +10,13 @@ import { MAX_DOCUMENT_BYTES, type DocumentSource, type LoadError, type LoadResul
 /** `fetch` as the loaders use it; tests pass a fake. */
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
-export interface FetchOptions {
+interface FetchOptions {
   fetch?: FetchLike;
   signal?: AbortSignal;
 }
 
 /** Hosts that serve raw GitHub content and load without a confirmation (decision 6). */
-export const TRUSTED_HOSTS: readonly string[] = [
+const TRUSTED_HOSTS: readonly string[] = [
   "raw.githubusercontent.com",
   "gist.githubusercontent.com",
 ];
@@ -71,10 +71,10 @@ const valid = <T>(schema: v.GenericSchema<unknown, T>, input: unknown): input is
 
 // ---- URL policy -----------------------------------------------------------
 
-export type UrlCheck = { ok: true; url: URL; trusted: boolean } | { ok: false; message: string };
+type UrlCheck = { ok: true; url: URL; trusted: boolean } | { ok: false; message: string };
 
 /** True for the raw GitHub hosts on the default port. The parser has already turned IDN into punycode. */
-export function isTrustedUrl(url: URL): boolean {
+function isTrustedUrl(url: URL): boolean {
   return url.protocol === "https:" && url.port === "" && TRUSTED_HOSTS.includes(url.hostname);
 }
 
@@ -109,7 +109,7 @@ export type InputRequest =
   | { kind: "repo"; repo: string; path: string; ref: string | null };
 
 /** `null`: the link names no document. `invalid`: it names one in a shape docwalk will not load. */
-export type ParsedInput = InputRequest | { kind: "invalid"; message: string } | null;
+type ParsedInput = InputRequest | { kind: "invalid"; message: string } | null;
 
 /**
  * Reads `?src=<url>` or `?repo=<owner>/<name>&path=<path>[&ref=<ref>]`. A
@@ -303,7 +303,7 @@ export async function loadFromUrl(
   return finish(response, { kind: "url", url: final.href, trusted: isTrustedUrl(final) });
 }
 
-export interface RepoLoadRequest {
+interface RepoLoadRequest {
   repo: string;
   path: string;
   ref: string | null;

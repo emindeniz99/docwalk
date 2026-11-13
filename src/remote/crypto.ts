@@ -361,7 +361,7 @@ export interface Seal {
   counter: number;
 }
 
-export interface Sealed extends Seal {
+interface Sealed extends Seal {
   message: RemoteMessage;
   /** True when the frame carried a signature that verifies under the room's state key (decrypt's `verifier`). */
   signed: boolean;

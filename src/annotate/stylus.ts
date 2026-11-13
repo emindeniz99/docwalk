@@ -10,7 +10,7 @@ import { useSyncExternalStore } from "react";
 // ---- The setting ----------------------------------------------------------
 
 /** Set ("true") when the viewer turned "Stylus draws, fingers change slides" off. */
-export const STYLUS_AS_MOUSE_KEY = "docwalk.stylusAsMouse";
+const STYLUS_AS_MOUSE_KEY = "docwalk.stylusAsMouse";
 
 function readAsMouse(): boolean {
   try {
@@ -88,7 +88,7 @@ export function notePenOn(stage: HTMLElement): () => void {
 // ---- Pen drags ------------------------------------------------------------
 
 /** A pen that moves further than this many CSS px while down is drawing, not tapping. */
-export const PEN_DRAG_PX = 4;
+const PEN_DRAG_PX = 4;
 
 /** How long after the pen lifts a click may still arrive. */
 const CLICK_WINDOW_MS = 500;

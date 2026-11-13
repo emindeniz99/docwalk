@@ -10,6 +10,7 @@ import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import { clonePages, type DeckController } from "./controller";
 import { Deck } from "./Deck";
 import { openMirroredFocus } from "./focus";
+import { observeFocus } from "./focusEvents";
 import { findBlock, locateBlock } from "./focusTargets";
 import { isOverviewKey } from "./useOverviewShortcut";
 
@@ -83,6 +84,10 @@ const lines = () => [
   ...document.querySelectorAll<HTMLElement>(".docwalk-focus .docwalk-code-line"),
 ];
 const marked = () => lines().filter((l) => l.getAttribute("aria-pressed") === "true");
+const joined = () =>
+  lines()
+    .map((l) => l.textContent)
+    .join("");
 const clearButton = () =>
   document.querySelector<HTMLElement>('.docwalk-focus [aria-label="Clear all marked lines"]')!;
 
@@ -192,6 +197,45 @@ describe.each(KINDS)("the $kind focus view reuses the diagram view", ({ doc, sel
     const stage = overlay()!.querySelector<HTMLElement>(".docwalk-focus-stage")!;
     expect(stage.querySelector("[id]")).toBeNull();
     expect(stage.querySelector("[data-docwalk-focus]")).toBeNull();
+  });
+});
+
+describe("Tab in a view whose copy holds links (decisions 87 and 132)", () => {
+  // A link is a stop the view did not list: the trap sent the Tab after it back to the
+  // start, so a keyboard user never reached the second link or the toolbar.
+  test("Tab visits every link and every toolbar button in order, wraps only at the ends, and Shift+Tab reverses", async () => {
+    const deck = mountDeck(
+      "## Links\n\n| Name | Where |\n| --- | --- |\n| docs | [guide](https://example.invalid/guide) |\n| spec | [rules](https://example.invalid/rules) |\n\n## Next\n\nMore.\n",
+    );
+    await deck.ready();
+    const block = present(deck).querySelector<HTMLElement>("table")!;
+    block.focus();
+    await userEvent.keyboard("{Enter}");
+    const dialog = overlay()!;
+    const links = [...dialog.querySelectorAll<HTMLElement>("a[href]")];
+    expect(links).toHaveLength(2);
+    const stage = dialog.querySelector<HTMLElement>(".docwalk-focus-stage")!;
+    const buttons = [
+      ...dialog.querySelectorAll<HTMLButtonElement>(".docwalk-focus-toolbar button:not(:disabled)"),
+    ];
+    // The view opens on Close, the last stop; the first Tab wraps to the start.
+    const order = [stage, ...links, ...buttons];
+    expect(document.activeElement).toBe(order.at(-1));
+
+    const forward: (Element | null)[] = [];
+    for (let i = 0; i < order.length; i++) {
+      await userEvent.tab();
+      forward.push(document.activeElement);
+    }
+    expect(forward).toEqual(order);
+
+    const back: (Element | null)[] = [];
+    for (let i = 0; i < order.length; i++) {
+      await userEvent.tab({ shift: true });
+      back.push(document.activeElement);
+    }
+    expect(back).toEqual(order.toReversed().slice(1).concat(order.at(-1)!));
+    expect(dialog.contains(document.activeElement)).toBe(true);
   });
 });
 
@@ -380,6 +424,77 @@ describe("line marks in code", () => {
     expect(stage.textContent).toContain("<script>globalThis.pwned = 2</script>");
     await new Promise((r) => setTimeout(r, 50));
     expect((globalThis as { pwned?: number }).pwned).toBeUndefined();
+  });
+});
+
+describe("line marks in a raw-HTML <pre> (decision 135)", () => {
+  const BREAKS = "## P\n\n<pre>line 1<br>line 2<br>line 3</pre>\n";
+  const ICON = "/icons/icon-192.png";
+  const IMAGES = `## P\n\n<pre>before <img src="${ICON}" alt="logo"> after\n<img src="${ICON}" alt="mark">\nend</pre>\n`;
+  test("a <br> ends a line, so each line of the slide is its own toggle", async () => {
+    // The sanitizer keeps <br> in a <pre>; the slide shows three lines. Lines were built
+    // from text nodes only, so the view joined them into one: "line 1line 2line 3".
+    await openCode(BREAKS);
+    expect(lines().length).toBe(3);
+    expect(lines().map((l) => l.getAttribute("aria-label"))).toEqual([
+      "Line 1: line 1",
+      "Line 2: line 2",
+      "Line 3: line 3",
+    ]);
+    expect(lines().map((l) => l.getAttribute("role"))).toEqual(["button", "button", "button"]);
+    // A <br> line ends with a newline as any other line, so a selection copies the break.
+    expect(joined()).toBe("line 1\nline 2\nline 3");
+  });
+
+  test("marking line 2 of a <br> listing reports line 2 to the mirror", async () => {
+    // Decision 106: the follower runs the same split, so the numbers must match the slide.
+    const events: unknown[] = [];
+    const stop = observeFocus((event) => {
+      if (event.kind === "lines") events.push(event);
+    });
+    try {
+      await openCode(BREAKS);
+      await userEvent.click(lines()[1]!);
+      expect(events).toEqual([{ kind: "lines", lines: [2] }]);
+      expect(marked()).toEqual([lines()[1]]);
+    } finally {
+      stop();
+    }
+  });
+
+  test("an image in a <pre> stays in its line, as the slide's copy has it", async () => {
+    // Lines were built from text nodes only, so an element without text was dropped.
+    const deck = mountDeck(IMAGES);
+    await deck.ready();
+    const pre = present(deck).querySelector<HTMLElement>("pre")!;
+    const original = pre.textContent;
+    // By key: a click could land on an image, which opens the image's own view.
+    pre.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(overlay()!.getAttribute("aria-label")).toBe("Code, full screen");
+    expect(lines().length).toBe(3);
+    const [first, second, third] = lines();
+    const firstImages = [...first!.querySelectorAll("img")];
+    expect(firstImages.map((img) => img.getAttribute("alt"))).toEqual(["logo"]);
+    expect(first!.textContent).toBe("before  after\n");
+    // The image sits between the two words, not after them.
+    expect(firstImages[0]!.previousSibling?.textContent).toBe("before ");
+    const secondImages = [...second!.querySelectorAll("img")];
+    expect(secondImages.map((img) => img.getAttribute("alt"))).toEqual(["mark"]);
+    // Only the copy's attributes: the slide's focus marks are taken off by the copy.
+    expect(secondImages[0]!.getAttributeNames().toSorted()).toEqual(["alt", "src"]);
+    expect(secondImages[0]!.getAttribute("src")).toBe(ICON);
+    expect(third!.querySelector("img")).toBeNull();
+    // A line that holds only an image has no text, and is named as an empty line.
+    expect(second!.getAttribute("aria-label")).toBe("Line 2, empty");
+    expect(joined()).toBe(original);
+  });
+
+  test("fenced code splits into the same lines as before", async () => {
+    // The highlighter's spans hold text; a fenced block has no <br> and no empty element.
+    await openCode();
+    expect(lines().length).toBe(5);
+    expect(joined()).toBe('const a = 1;\n\nfunction f() {\n  return "x";\n}\n');
   });
 });
 

@@ -420,6 +420,50 @@ describe.each([codemirror, monacoCandidate])("SourceEditor contract: $name", (ca
   });
 });
 
+/** A semantic variable as the browser resolves it (rgb()), for comparison with computed styles. */
+function resolved(variable: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = `var(${variable})`;
+  document.body.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color;
+}
+
+const colour = (el: Element) => getComputedStyle(el).color;
+
+describe("CodeMirror's colour for code (decision 131)", () => {
+  // Code in the link colour, the brand's red, made a document with code look
+  // as if something were wrong. Code takes a neutral of its own; links keep
+  // theirs. axe does not judge syntax colours, so the computed styles are read.
+  afterEach(() => document.documentElement.removeAttribute("data-theme"));
+
+  test.each(["light", "dark"])(
+    "%s: inline and fenced code use the editor's code colour, links the link colour",
+    async (theme) => {
+      document.documentElement.setAttribute("data-theme", theme);
+      frame = document.createElement("div");
+      Object.assign(frame.style, { display: "flex", width: "600px", height: "240px" });
+      document.body.append(frame);
+      root = createRoot(frame);
+      const value = "Some `inline` code and [a link](https://example.com).\n\n```\nfenced\n```\n";
+      flushSync(() => root!.render(createElement(SourceEditor, { ...baseProps, value })));
+      await painted();
+      const code = [...frame.querySelectorAll(".dw-tok-code")];
+      expect(code.map((el) => el.textContent)).toEqual(
+        expect.arrayContaining([expect.stringContaining("inline"), "fenced"]),
+      );
+      expect(resolved("--editor-code")).not.toBe(resolved("--link"));
+      for (const el of code) expect(colour(el)).toBe(resolved("--editor-code"));
+      const link = [...frame.querySelectorAll(".dw-tok-link")].find(
+        (el) => el.textContent === "a link",
+      );
+      expect(link).toBeDefined();
+      expect(colour(link!)).toBe(resolved("--link"));
+    },
+  );
+});
+
 describe("CodeMirror's own words (decision 56)", () => {
   afterEach(() => {
     chooseLocale("en");

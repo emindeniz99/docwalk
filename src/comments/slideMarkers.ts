@@ -28,7 +28,7 @@ const STAGE_WIDTH = 1280;
 /** Layout requests that arrive together are done together. A timer, not an animation frame: a hidden tab gets none. */
 const LAYOUT_MS = 16;
 
-export interface SlideMarkers {
+interface SlideMarkers {
   /** Sets what to mark and lays the layer out now. */
   update(index: AnchorIndex, comments: readonly DocComment[]): void;
   /** Lays the layer out for the current slide, now and again a moment later. */

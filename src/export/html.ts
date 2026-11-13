@@ -4,7 +4,7 @@ import { buildPages, offline, pageCss, writeHead } from "./pages";
 import type { ExportOptions } from "./types";
 
 /** Fonts are embedded only while they stay under this size (raw bytes). */
-export const FONT_BUDGET_BYTES = 1_500_000;
+const FONT_BUDGET_BYTES = 1_500_000;
 
 /**
  * The exported file needs nothing from anywhere: no scripts at all, inline

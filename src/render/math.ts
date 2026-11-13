@@ -53,15 +53,15 @@ export const MATH_TIMEOUT_MS = 5000;
  * (the ones that ran out are refused at once). Time spent yielded between
  * formulas does not count.
  */
-export const MATH_BUDGET_MS = 3000;
+const MATH_BUDGET_MS = 3000;
 
 /** How long the loop works before it hands the thread back; about one frame. */
-export const MATH_SLICE_MS = 16;
+const MATH_SLICE_MS = 16;
 
 /** A formula in, its `<math>` out; `null` means show the source. Rejects when the renderer is gone. */
 export type MathBuilder = (tex: string, display: boolean) => Promise<Element | null>;
 
-export interface MathOptions {
+interface MathOptions {
   /** Checked once the builder is in, before each formula and after it: a stale build leaves its formulas alone. */
   stop?: () => boolean;
   timeoutMs?: number;

@@ -76,9 +76,3 @@ export interface AnnotationLayerOptions {
     subscribe?(listener: () => void): () => void;
   };
 }
-
-/** Implemented in ./layer.ts as `createAnnotationLayer(host, options)`. */
-export type CreateAnnotationLayer = (
-  host: HTMLElement,
-  options?: AnnotationLayerOptions,
-) => AnnotationLayer;

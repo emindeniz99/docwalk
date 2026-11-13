@@ -98,11 +98,22 @@ async function mountDeck(markdown = DOC) {
   const onReady = (c: DeckController | null) => {
     if (c) readies.push(c);
   };
-  act(() => root!.render(h(Deck, { plan: sectionize(parseMarkdown(markdown), "auto"), onReady })));
+  const show = (md: string) =>
+    act(() => root!.render(h(Deck, { plan: sectionize(parseMarkdown(md), "auto"), onReady })));
+  show(markdown);
   await expect.poll(() => readies.length, { timeout: 20_000, interval: 10 }).toBeGreaterThan(0);
   const controller = readies.at(-1)!;
   const address = (title: string) => controller.slides().find((s) => s.title === title)!.address;
-  return { container, controller, address };
+  /** Renders `md` in place of the deck, as an edit or a language switch does, and returns the new controller. */
+  const rebuild = async (md: string) => {
+    const before = readies.length;
+    show(md);
+    await expect
+      .poll(() => readies.length, { timeout: 20_000, interval: 10 })
+      .toBeGreaterThan(before);
+    return readies.at(-1)!;
+  };
+  return { container, controller, address, rebuild };
 }
 
 /** A follower's side: a store the room fills, followed by the deck. */
@@ -326,6 +337,53 @@ describe("a follower opens the presenter's view on its own copy (decision 106)",
     controller.goTo(address("Code"));
     await expect.poll(() => view()?.dataset["kind"]).toBe("code");
     expect(pressed()).toEqual([2]);
+  });
+
+  // RemoteFollower starts followFocus again for each controller, and a rebuild brings a new
+  // one (decision 132). A dismissal held by the old one was lost, and the view came back.
+  test("a dismissal outlives a rebuild of the follower's deck, until the presenter opens another", async () => {
+    const { controller, address, rebuild } = await mountDeck();
+    const store = new MirrorStore();
+    const stopFirst = followFocus(controller, store);
+    controller.goTo(address("Code"));
+    store.apply({ op: "focus-open", slide: address("Code"), code: 1 });
+    expect(view()?.dataset["kind"]).toBe("code");
+    await userEvent.keyboard("{Escape}");
+    expect(view()).toBeNull();
+
+    stopFirst();
+    const rebuilt = await rebuild(DOC.replace("More.", "More, edited."));
+    expect(rebuilt).not.toBe(controller);
+    cleanups.push(followFocus(rebuilt, store));
+    rebuilt.goTo(address("Code"));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    expect(view(), "the follower closed it; a rebuild is not the presenter's new view").toBeNull();
+    store.apply({ op: "focus-view", scale: 2, x: 0, y: 0 });
+    expect(view()).toBeNull();
+
+    store.apply({ op: "focus-open", slide: address("Code"), code: 2 });
+    expect(view()?.dataset["kind"]).toBe("code");
+    expect(lines()).toHaveLength(4);
+  });
+
+  test("a view the presenter closes and opens again while the follower rebuilds opens on the new deck", async () => {
+    // Closing ends the dismissal (decision 106), even when no deck was there to hear it.
+    const { controller, address, rebuild } = await mountDeck();
+    const store = new MirrorStore();
+    const stopFirst = followFocus(controller, store);
+    controller.goTo(address("Code"));
+    store.apply({ op: "focus-open", slide: address("Code"), code: 1 });
+    await userEvent.keyboard("{Escape}");
+    expect(view()).toBeNull();
+
+    stopFirst();
+    store.apply({ op: "focus-close" });
+    store.apply({ op: "focus-open", slide: address("Code"), code: 1 });
+    const rebuilt = await rebuild(DOC.replace("More.", "More, edited."));
+    cleanups.push(followFocus(rebuilt, store));
+    rebuilt.goTo(address("Code"));
+    await expect.poll(() => view()?.dataset["kind"]).toBe("code");
+    expect(lines()).toHaveLength(2);
   });
 
   test("a mark the follower makes itself stays until the presenter's next change of marks", async () => {

@@ -5,7 +5,7 @@ import { prepareDiagramSource } from "../deck/mermaid";
 type Elements = ReturnType<typeof convertToExcalidrawElements>;
 type Files = NonNullable<Awaited<ReturnType<typeof parseMermaidToExcalidraw>>["files"]>;
 
-export interface ConvertedDiagram {
+interface ConvertedDiagram {
   elements: Elements;
   files: Files;
 }

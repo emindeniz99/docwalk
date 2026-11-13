@@ -1,10 +1,8 @@
-import { getStroke } from "perfect-freehand";
 import { boardAddress, sectionOf } from "./board";
 import { coverPage } from "./boardCover";
 import "./mirror.css";
 import type { MirrorStore, StoredStroke } from "./mirrorStore";
-import { COORD_MAX, MIRROR_HEIGHT, MIRROR_LASER_IDLE_MS, MIRROR_WIDTH } from "./mirrorTypes";
-import { outlinePath } from "./outline";
+import { MIRROR_HEIGHT, MIRROR_LASER_IDLE_MS, MIRROR_WIDTH } from "./mirrorTypes";
 import { strokeElement } from "./markSvg";
 
 /**
@@ -27,10 +25,6 @@ import { strokeElement } from "./markSvg";
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const PEN_SIZE = 4;
-/** drauu's arrowhead: a marker 4 stroke widths wide, 16 px at a stroke width of 4. */
-const HEAD_LENGTH = 16;
-const HEAD_HALF_WIDTH = 8;
 /** Changes that arrive together are drawn together. A timer, not an animation frame: a hidden tab gets none. */
 const REDRAW_MS = 16;
 
@@ -40,54 +34,6 @@ export interface MirrorView {
   /** Moves the overlay to a new host: a deck rebuild replaces the stage mid-talk. */
   moveTo(host: HTMLElement): void;
   destroy(): void;
-}
-
-const gridX = (n: number) => (n * MIRROR_WIDTH) / COORD_MAX;
-const gridY = (n: number) => (n * MIRROR_HEIGHT) / COORD_MAX;
-
-function drawPen(points: number[]): SVGPathElement {
-  const path = document.createElementNS(SVG_NS, "path");
-  const pairs: number[][] = [];
-  for (let i = 0; i + 1 < points.length; i += 2) {
-    pairs.push([gridX(points[i]!), gridY(points[i + 1]!), 0.5]);
-  }
-  // The options of drauu's stylus, so the presenter's stroke and its copy match.
-  const outline = getStroke(pairs, {
-    size: PEN_SIZE,
-    thinning: 0.9,
-    simulatePressure: false,
-    start: { taper: 5 },
-    end: { taper: 5 },
-  });
-  path.setAttribute("d", outlinePath(outline));
-  return path;
-}
-
-function drawArrow(points: number[]): SVGGElement {
-  const group = document.createElementNS(SVG_NS, "g");
-  const x1 = gridX(points[0]!);
-  const y1 = gridY(points[1]!);
-  const x2 = gridX(points[2]!);
-  const y2 = gridY(points[3]!);
-  const line = document.createElementNS(SVG_NS, "line");
-  line.setAttribute("x1", String(x1));
-  line.setAttribute("y1", String(y1));
-  line.setAttribute("x2", String(x2));
-  line.setAttribute("y2", String(y2));
-  const length = Math.hypot(x2 - x1, y2 - y1) || 1;
-  const dx = (x2 - x1) / length;
-  const dy = (y2 - y1) / length;
-  // The head's tip is half its length past the line's end, as drauu's marker puts it.
-  const half = HEAD_LENGTH / 2;
-  const tip = `${x2 + dx * half} ${y2 + dy * half}`;
-  const baseX = x2 - dx * half;
-  const baseY = y2 - dy * half;
-  const left = `${baseX - dy * HEAD_HALF_WIDTH} ${baseY + dx * HEAD_HALF_WIDTH}`;
-  const right = `${baseX + dy * HEAD_HALF_WIDTH} ${baseY - dx * HEAD_HALF_WIDTH}`;
-  const head = document.createElementNS(SVG_NS, "path");
-  head.setAttribute("d", `M ${tip} L ${left} L ${right} Z`);
-  group.append(line, head);
-  return group;
 }
 
 /**
@@ -103,18 +49,6 @@ function sameStroke(before: StoredStroke, next: StoredStroke): boolean {
     before.points.length === next.points.length &&
     before.points.every((n, i) => n === next.points[i])
   );
-}
-
-function draw(stroke: StoredStroke): SVGElement | null {
-  if (stroke.tool === "arrow") {
-    // An arrow needs both ends; a shorter list is a stroke that is still arriving.
-    return stroke.points.length >= 4 ? drawArrow(stroke.points) : null;
-  }
-  if (stroke.tool === "rect" || stroke.tool === "ellipse") {
-    // The saved marks and exports draw shapes the same way (decision 110).
-    return strokeElement(stroke, MIRROR_WIDTH, MIRROR_HEIGHT);
-  }
-  return stroke.points.length >= 2 ? drawPen(stroke.points) : null;
 }
 
 /**
@@ -183,7 +117,10 @@ export function attachMirror(
       live.add(stroke.id);
       let entry = drawn.get(stroke.id);
       if (!entry || !sameStroke(entry.from, stroke)) {
-        const element = draw(stroke);
+        // Drawn as the saved marks and exports draw them (decisions 105, 110), with drauu's
+        // stylus options and arrowhead, so the presenter's stroke and its copy match. A shorter
+        // list than a stroke needs is one still arriving, and draws nothing.
+        const element = strokeElement(stroke, MIRROR_WIDTH, MIRROR_HEIGHT);
         if (!element) {
           drawn.delete(stroke.id);
           continue;

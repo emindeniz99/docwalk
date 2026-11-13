@@ -14,7 +14,7 @@ import { MATH_LIMITS, MAX_TREE_TEXT, MathTooLarge, type MathLimits } from "./mat
  * but nothing added them up: stacked, they drew text 587 px above the slide
  * body with no note (rule 3). A formula's real raises are a fraction of an em.
  */
-export const MAX_VOFFSET_EM = 3;
+const MAX_VOFFSET_EM = 3;
 
 /** Em per unit for what Temml writes in `voffset`: `em`, or the CSS absolute units. */
 const EM_PER_UNIT: Readonly<Record<string, number>> = {
@@ -44,7 +44,7 @@ function voffsetEm(value: string): number | null {
  * lengths are 0.5 em or less except the 3.5 em minimum of `\xrightarrow`;
  * `\quad` and `\qquad` are 1 em and 2 em. 4 em keeps all of those.
  */
-export const MAX_LENGTH_EM = 4;
+const MAX_LENGTH_EM = 4;
 
 /** The attributes `fromTree` holds to `MAX_LENGTH_EM`. `voffset` has its own rule. */
 const SPACING_ATTRIBUTES: ReadonlySet<string> = new Set(["width", "lspace", "rspace"]);

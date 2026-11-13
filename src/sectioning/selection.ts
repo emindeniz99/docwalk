@@ -7,9 +7,9 @@ import type { SectionPlan } from "./sectionize";
  *   removed or renamed them); the whole document is shown and the viewer is
  *   told why.
  */
-export type SelectionStatus = "all" | "some" | "unknown";
+type SelectionStatus = "all" | "some" | "unknown";
 
-export interface SelectionResult {
+interface SelectionResult {
   status: SelectionStatus;
   /** What the deck is built from: the input itself for `all` and `unknown`. */
   plan: SectionPlan;

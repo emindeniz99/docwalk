@@ -13,6 +13,7 @@ export const tokens = {
     "border-strong": "#d6d6d1",
     ink: "#17181c",
     "ink-muted": "#5c5e66",
+    "editor-code": "#3a3d47",
     primary: "#e5532d",
     "on-primary": "#1a0702",
     "primary-ink": "#b8381a",
@@ -37,6 +38,7 @@ export const tokens = {
     "border-dark": "#2c2f38",
     "ink-dark": "#eceef2",
     "ink-muted-dark": "#a1a5b0",
+    "editor-code-dark": "#b9bcc6",
     "primary-ink-dark": "#ff8a6b",
     "focus-dark": "#7aa2ff",
     "note-surface-dark": "#2a2412",
@@ -144,5 +146,3 @@ export const tokens = {
     target: "44px",
   },
 } as const;
-
-export type ColorToken = keyof typeof tokens.colors;

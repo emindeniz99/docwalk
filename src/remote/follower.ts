@@ -16,7 +16,7 @@ import type { RemoteMessage, RoomCredentials } from "./types";
 
 export type FollowState = Omit<Extract<RemoteMessage, { type: "state" }>, "type">;
 
-export interface RemoteFollowerOptions {
+interface RemoteFollowerOptions {
   /** From `parseJoinFragment(location.hash)`; null, or no view or state key, connects nothing. */
   creds: RoomCredentials | null;
   /** The follower's deck once its document has loaded; null until then. */
@@ -53,7 +53,7 @@ export interface RemoteFollower {
  * fewer pages and lack `<section>/<n>`: it then shows the last page of that
  * section it has, rather than staying on a stale slide.
  */
-export function followAddress(controller: DeckController, address: string): void {
+function followAddress(controller: DeckController, address: string): void {
   if (controller.goTo(address)) return;
   const cut = address.lastIndexOf("/");
   if (cut < 0) return;
@@ -82,7 +82,7 @@ export function followedDocument(state: FollowState): string | null {
 }
 
 /** The link when it is on `base`'s origin, else null. */
-export function sameOriginLink(link: string | null, base: string): string | null {
+function sameOriginLink(link: string | null, base: string): string | null {
   if (!link) return null;
   try {
     return new URL(link).origin === new URL(base).origin ? link : null;

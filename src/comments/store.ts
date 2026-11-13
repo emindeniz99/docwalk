@@ -42,6 +42,13 @@ export interface CommentStore {
    * would pass the per-document cap.
    */
   merge(key: string, incoming: CommentSet): Promise<CommentSet>;
+  /**
+   * Merges the record under `from` into the one under `to` and deletes it, in
+   * one transaction, and returns what `to` holds now (decision 120's move,
+   * decision 132): either both happen or neither does. A missing `from` writes
+   * nothing. Rejects, and changes nothing, past the per-document cap.
+   */
+  move(from: string, to: string): Promise<CommentSet>;
   /** Deletes a document's record, tombstones included: the document itself is gone. */
   remove(key: string): Promise<void>;
   getAlias(name: string): Promise<string | null>;
@@ -52,6 +59,16 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     req.addEventListener("success", () => resolve(req.result));
     req.addEventListener("error", () => reject(req.error ?? new Error("IndexedDB request failed")));
+  });
+}
+
+/** Resolves once the transaction has committed: a request's success can still be rolled back. */
+function committed(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.addEventListener("complete", () => resolve());
+    tx.addEventListener("abort", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted")),
+    );
   });
 }
 
@@ -123,6 +140,15 @@ export function memoryStore(): CommentStore {
       docs.set(key, { comments: merged.comments, deleted: merged.deleted });
       return read(key);
     },
+    move: async (from, to) => {
+      const old = docs.get(from);
+      if (!old) return read(to);
+      const merged = mergeSets(await read(to), old);
+      if (!merged) throw new Error(OVER_CAP);
+      docs.set(to, { comments: merged.comments, deleted: merged.deleted });
+      docs.delete(from);
+      return read(to);
+    },
     remove: async (key) => {
       docs.delete(key);
     },
@@ -166,6 +192,39 @@ function transact(
   });
 }
 
+/** `CommentStore.move` in one readwrite transaction: the write to `to` and the delete of `from` commit together. */
+function moveRecord(db: IDBDatabase, from: string, to: string): Promise<CommentSet> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DOCS, "readwrite");
+    const os = tx.objectStore(DOCS);
+    let result: CommentSet | undefined;
+    const getFrom = os.get(from);
+    const getTo = os.get(to);
+    // Requests in one transaction complete in order: both reads are in.
+    getTo.addEventListener("success", () => {
+      try {
+        if (getFrom.result === undefined) {
+          result = validSet(getTo.result);
+          return;
+        }
+        const merged = mergeSets(validSet(getTo.result), validSet(getFrom.result));
+        if (!merged) throw new Error(OVER_CAP);
+        result = { comments: merged.comments, deleted: merged.deleted };
+        if (result.comments.length === 0 && result.deleted.length === 0) os.delete(to);
+        else os.put({ key: to, comments: result.comments, deleted: result.deleted });
+        os.delete(from);
+      } catch (error) {
+        tx.abort();
+        reject(error);
+      }
+    });
+    tx.addEventListener("complete", () => resolve(result ?? { comments: [], deleted: [] }));
+    tx.addEventListener("abort", () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted")),
+    );
+  });
+}
+
 function idbStore(db: IDBDatabase): CommentStore {
   const tx = (store: string, mode: IDBTransactionMode) =>
     db.transaction(store, mode).objectStore(store);
@@ -183,8 +242,11 @@ function idbStore(db: IDBDatabase): CommentStore {
         if (!merged) throw new Error(OVER_CAP);
         return { comments: merged.comments, deleted: merged.deleted };
       }),
+    move: (from, to) => moveRecord(db, from, to),
     remove: async (key) => {
-      await request(tx(DOCS, "readwrite").delete(key));
+      const os = tx(DOCS, "readwrite");
+      os.delete(key);
+      await committed(os.transaction);
     },
     getAlias: async (name) => {
       const rec: unknown = await request(tx(ALIASES, "readonly").get(name));
@@ -193,7 +255,9 @@ function idbStore(db: IDBDatabase): CommentStore {
       return typeof target === "string" && target.length <= 4096 ? target : null;
     },
     setAlias: async (name, key) => {
-      await request(tx(ALIASES, "readwrite").put({ name, key }));
+      const os = tx(ALIASES, "readwrite");
+      os.put({ name, key });
+      await committed(os.transaction);
     },
   };
 }

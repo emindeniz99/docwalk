@@ -37,7 +37,7 @@ import {
  * Node-run unit tests import it.
  */
 
-export type MirrorSink = (op: MirrorOp) => void;
+type MirrorSink = (op: MirrorOp) => void;
 
 interface Live {
   slide: string;

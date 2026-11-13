@@ -8,8 +8,8 @@ import type { SavedStroke } from "./savedMarks";
  * strokes with it, and the exports draw a slide's marks over the page. Every
  * element is made here with `createElementNS` and `setAttribute` from the
  * stroke's numbers; the tool and colour come from fixed lists, so nothing
- * stored is ever parsed as markup. The shapes match mirrorView.ts, which
- * matches drauu's pen and arrow.
+ * stored is ever parsed as markup. mirrorView.ts draws the presenter's live
+ * marks with it too; the pen and arrow match drauu's.
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";

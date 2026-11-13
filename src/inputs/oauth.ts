@@ -4,11 +4,11 @@
  * nothing. The token lands in `sessionStorage` through token.ts. In static
  * mode `/api/health` is missing and none of this is offered.
  */
-import { useEffect, useState } from "react";
 import * as v from "valibot";
 import { m } from "../paraglide/messages.js";
-import type { HealthResponse, RefreshRequest, TokenRequest, TokenResponse } from "../api/types";
-import { readCapped, type FetchLike } from "./load";
+import type { RefreshRequest, TokenRequest, TokenResponse } from "../api/types";
+import { ClientIdSchema, readJson } from "./health";
+import type { FetchLike } from "./load";
 import {
   clearToken,
   readRefresh,
@@ -30,8 +30,6 @@ const REFRESH_LEAD_MS = 5 * 60_000;
 const REFRESH_RETRY_MS = 60_000;
 /** setTimeout's largest delay. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
-/** Largest JSON body read from `/api`. */
-const MAX_API_BYTES = 16 * 1024;
 /** Longest page address kept for the return trip (a long `#doc=` share fragment can exceed it). */
 const MAX_RETURN_TO = 64 * 1024;
 
@@ -62,16 +60,10 @@ function environment(overrides: Partial<OAuthEnv>): OAuthEnv {
   };
 }
 
+// The health check lives in ./health so a visit that never signs in loads none of this (decision 126).
+export { fetchApiHealth } from "./health";
+
 // ---- Validation -----------------------------------------------------------
-
-/** GitHub App client ids (`Iv1.…`, `Iv23…`). */
-const ClientIdSchema = v.pipe(v.string(), v.regex(/^[A-Za-z0-9._-]{1,128}$/));
-
-const HealthSchema = v.object({
-  ok: v.literal(true),
-  features: v.pipe(v.array(v.string()), v.maxLength(32)),
-  githubClientId: v.optional(v.string()),
-});
 
 const TokenResponseSchema = v.object({
   access_token: v.pipe(v.string(), v.regex(/^[A-Za-z0-9_]{20,255}$/)),
@@ -100,64 +92,6 @@ const CallbackSchema = v.object({
   state: v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{22,128}$/)),
 });
 
-async function readJson(response: Response): Promise<unknown> {
-  const body = await readCapped(response, MAX_API_BYTES);
-  if (!body.ok) return null;
-  try {
-    return JSON.parse(new TextDecoder().decode(body.bytes)) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-// ---- Health ---------------------------------------------------------------
-
-/**
- * GET /api/health, or null in static mode. A static host may answer with the
- * SPA's index.html and a 200, so the body is validated, not the status.
- */
-export async function fetchApiHealth(
-  fetchImpl: FetchLike = (input, init) => globalThis.fetch(input, init),
-): Promise<HealthResponse | null> {
-  try {
-    const response = await fetchImpl("/api/health", {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) return null;
-    const parsed = v.safeParse(HealthSchema, await readJson(response));
-    if (!parsed.success) return null;
-    const clientId = parsed.output.githubClientId;
-    const hasClientId = clientId !== undefined && v.safeParse(ClientIdSchema, clientId).success;
-    // Unknown features from a newer Worker are ignored; "oauth" without a client id is unusable.
-    const features = parsed.output.features.filter(
-      (f): f is "oauth" | "remote" => f === "remote" || (f === "oauth" && hasClientId),
-    );
-    return {
-      ok: true,
-      features: [...new Set(features)],
-      ...(hasClientId && features.includes("oauth") ? { githubClientId: clientId } : {}),
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** The Worker's features, or null while unknown and in static mode: hide OAuth and remote until then. */
-export function useApiHealth(fetchImpl?: FetchLike): HealthResponse | null {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  useEffect(() => {
-    let live = true;
-    void fetchApiHealth(fetchImpl).then((result) => {
-      if (live) setHealth(result);
-    });
-    return () => {
-      live = false;
-    };
-  }, [fetchImpl]);
-  return health;
-}
-
 // ---- PKCE -----------------------------------------------------------------
 
 function base64url(bytes: Uint8Array): string {
@@ -177,7 +111,7 @@ export async function pkceChallenge(verifier: string): Promise<string> {
 }
 
 /** `<origin>/?oauth=callback`, the one redirect URI the Worker accepts. */
-export function callbackUrl(origin: string): string {
+function callbackUrl(origin: string): string {
   return `${origin}/?oauth=callback`;
 }
 
@@ -217,7 +151,7 @@ export async function startLogin(clientId: string, env: Partial<OAuthEnv> = {}):
   return url.href;
 }
 
-export type LoginResult =
+type LoginResult =
   | { kind: "none" }
   | { kind: "signed-in"; token: string; stopRefresh: () => void }
   | { kind: "error"; message: string };

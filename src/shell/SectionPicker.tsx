@@ -16,7 +16,7 @@ import { IconButton } from "./IconButton";
 import "./sections.css";
 
 /** One checkbox: the section's id and the name the viewer reads. */
-export interface PickerSection {
+interface PickerSection {
   id: string;
   label: string;
 }

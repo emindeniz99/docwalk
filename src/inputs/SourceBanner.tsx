@@ -14,7 +14,7 @@ import { m } from "../paraglide/messages.js";
 import "./inputs.css";
 import type { DocumentSource } from "./types";
 
-export interface SourceBannerProps {
+interface SourceBannerProps {
   /** Where the current document came from; the sample shows no banner. */
   source: DocumentSource | null;
   /**

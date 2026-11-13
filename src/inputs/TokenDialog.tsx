@@ -20,10 +20,10 @@ import "./inputs.css";
 import { clearToken, parseToken, readToken, storePastedToken } from "./token";
 
 /** GitHub's page for a new fine-grained token, and the list to review or revoke them (decision 35). */
-export const NEW_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
-export const TOKENS_URL = "https://github.com/settings/personal-access-tokens";
+const NEW_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
+const TOKENS_URL = "https://github.com/settings/personal-access-tokens";
 
-export interface TokenDialogProps {
+interface TokenDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   /** The token now in effect: the saved one, or null after "Forget token". */

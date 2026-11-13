@@ -8,7 +8,7 @@ import { parseUnicodeRange, rangeCoversText } from "./cssText";
  * policy, so an export never carries a reference the caller did not allow.
  */
 
-export interface SheetRule {
+interface SheetRule {
   /** The rule's text, wrapped in its sheet's media query when it has one. */
   cssText: string;
   /** The URL relative `url()`s in the rule resolve against. */
@@ -63,7 +63,7 @@ function fontFace(rule: CSSFontFaceRule): SheetRule["fontFace"] {
   };
 }
 
-export interface InlinedFonts {
+interface InlinedFonts {
   /** `@font-face` rules with `data:` sources, or "" when fonts were not embedded. */
   css: string;
   /** A CSS comment saying what happened, for the reader of an exported file. */

@@ -25,7 +25,7 @@ import { documentText } from "./documentText";
  * so the result is the same for slides reveal.js is hiding.
  */
 
-export interface PaginateOptions {
+interface PaginateOptions {
   size: { width: number; height: number };
 }
 

@@ -1,5 +1,7 @@
+import GithubSlugger, { slug } from "github-slugger";
+import type { Heading } from "mdast";
 import { describe, expect, test } from "vitest";
-import { parseMarkdown, sectionize } from "../sectioning/sectionize";
+import { anchoredHeadings, headingText, parseMarkdown, sectionize } from "../sectioning/sectionize";
 import {
   anchorKey,
   buildAnchorIndex,
@@ -90,6 +92,74 @@ describe("anchor index", () => {
   test("a sub-heading belongs to the slide section that shows it, at any slide level", () => {
     expect(indexFor(DOC).bySlug.get("detail")?.sectionId).toBe("goals-1");
     expect(indexFor(DOC, 3).bySlug.get("detail")?.sectionId).toBe("detail");
+  });
+
+  test("a heading whose GitHub slug is empty takes the id its section has, never an empty slug (decision 132)", () => {
+    // An empty slug fails the stored anchor's schema: the comment would be
+    // dropped on the next load and an export or share link refused whole.
+    const root = parseMarkdown("# Ledger\n\n## ???\n\nText.\n\n## 🚀\n\nMore.\n");
+    const plan = sectionize(root);
+    const index = buildAnchorIndex(root, plan);
+    expect(index.headings.map((h) => h.slug)).toEqual([
+      "ledger",
+      "heading-3f-3f-3f",
+      "heading-1f680",
+    ]);
+    // The slide that shows each of them has that id, so a marker and "Show on slide" find it.
+    expect(index.headings.slice(1).map((h) => h.sectionId)).toEqual([
+      "heading-3f-3f-3f",
+      "heading-1f680",
+    ]);
+    expect(index.bySlug.has("")).toBe(false);
+  });
+
+  test("two headings with empty slugs get two ids, the same the deck gives them", () => {
+    const root = parseMarkdown("## ???\n\nOne.\n\n## ???\n\nTwo.\n");
+    const index = buildAnchorIndex(root, sectionize(root));
+    expect(index.headings.map((h) => [h.slug, h.sectionId])).toEqual([
+      ["heading-3f-3f-3f", "heading-3f-3f-3f"],
+      ["heading-3f-3f-3f-2", "heading-3f-3f-3f-2"],
+    ]);
+    expect(index.bySlug.size).toBe(2);
+  });
+
+  test("every heading with a non-empty slug keeps GitHub's slug, so stored comments still attach", () => {
+    // Comments written before decision 132 are stored under GitHub slugs;
+    // duplicates, nested headings and empty slugs between them must not
+    // shift a single one.
+    const markdown = [
+      "# Ledger",
+      "## Goals",
+      "> ## Goals",
+      "## Goals",
+      "- ### Detail",
+      "## Detail",
+      "## ???",
+      "## Goals",
+      "## 🚀",
+      "### Detail",
+      "## -1",
+    ].join("\n\nText.\n\n");
+    const root = parseMarkdown(markdown);
+    // The slugs the index used to give: a bare GithubSlugger over every anchored heading.
+    const slugger = new GithubSlugger();
+    const github = new Map(anchoredHeadings(root).map((h) => [h, slugger.slug(headingText(h))]));
+    const index = buildAnchorIndex(root, sectionize(root));
+    const topLevel = root.children.filter((n): n is Heading => n.type === "heading");
+    expect(index.headings).toHaveLength(topLevel.length);
+    const kept = topLevel.flatMap((h, i) =>
+      slug(headingText(h)) === "" ? [] : [[index.headings[i]!.slug, github.get(h)]],
+    );
+    for (const [now, before] of kept) expect(now).toBe(before);
+    expect(kept.map(([now]) => now)).toEqual([
+      "ledger",
+      "goals",
+      "goals-2",
+      "detail-1",
+      "goals-3",
+      "detail-2",
+      "-1-1",
+    ]);
   });
 
   test("only mermaid blocks are diagrams, numbered per heading", () => {

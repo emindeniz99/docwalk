@@ -55,6 +55,12 @@ export class MirrorStore {
   /** The page the open whiteboard covers (decision 110); its marks are the strokes of the board address. */
   board: string | null = null;
   focus: FocusMirror | null = null;
+  /**
+   * The follower closed the open view itself (decision 106). Kept here, not by
+   * the deck that showed it, so it outlives a rebuild of that deck (decision
+   * 132). A view of another block, or a close, clears it.
+   */
+  focusDismissed = false;
   /** Least recently touched first, so the first key is the one to forget. */
   private readonly slides = new Map<string, Map<number, StoredStroke>>();
   private readonly listeners = new Set<() => void>();
@@ -138,6 +144,7 @@ export class MirrorStore {
         const place = focusPlaceOf(op);
         if (open?.slide === place.slide && open.block === place.block && open.n === place.n) break;
         this.focus = { ...place, view: null, lines: [], tour: [] };
+        this.focusDismissed = false;
         changed = true;
         break;
       }
@@ -168,6 +175,7 @@ export class MirrorStore {
       case "focus-close":
         changed = this.focus !== null;
         this.focus = null;
+        this.focusDismissed = false;
         break;
     }
     if (changed) for (const listener of this.listeners) listener();

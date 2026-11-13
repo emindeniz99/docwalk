@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedDocument } from "../inputs/types";
 import { m } from "../paraglide/messages.js";
-import { draftWouldBeReplaced } from "../share/draft";
+import { draftHeld, draftWouldBeReplaced } from "../share/draft";
 import { readAuthor, writeAuthor } from "./author";
 import { contentKey, DRAFT_ALIAS, legacySourceKey, sourceKey } from "./identity";
 import { commentsParam, decodeComments, hashWithoutComments } from "./payload";
@@ -64,9 +64,9 @@ export interface CommentsApi {
   importFile: (file: File) => Promise<CommentNotice>;
 }
 
-export const IMPORT_TOO_LARGE = m.comments_import_too_large;
-export const IMPORT_OVER_CAP = (): string => m.comments_import_over_cap({ max: MAX_COMMENTS });
-export const LINK_COMMENTS_IGNORED = m.comments_link_ignored;
+const IMPORT_TOO_LARGE = m.comments_import_too_large;
+const IMPORT_OVER_CAP = (): string => m.comments_import_over_cap({ max: MAX_COMMENTS });
+const LINK_COMMENTS_IGNORED = m.comments_link_ignored;
 
 interface State extends CommentSet {
   key: string | null;
@@ -338,15 +338,12 @@ export function useComments({
         loadFailed = true;
       }
       // Decision 120: a `?src=` key used to keep the query, where a token can sit. What is
-      // stored under that key moves to the new one, once, and the old record goes.
+      // stored under that key moves to the new one and the old record goes, in one
+      // transaction; a record still there at a later open moves then (decision 132).
       const legacy = legacySourceKey(doc.source);
-      if (legacy && !loadFailed && loaded.comments.length === 0 && loaded.deleted.length === 0) {
+      if (legacy && !loadFailed) {
         try {
-          const old = await store.read(legacy);
-          if (old.comments.length > 0 || old.deleted.length > 0) {
-            loaded = await store.merge(next, old);
-            await store.remove(legacy);
-          }
+          loaded = await store.move(legacy, next);
         } catch {
           // The old record stays where it is; the next open tries again.
         }
@@ -368,6 +365,18 @@ export function useComments({
       live = false;
     };
   }, [doc, store]);
+
+  // "Replace draft" makes the open text the draft without an edit (src/shell/useDocument.ts
+  // `replaceDraft`) and renders the page again: the alias moves then, so a reload
+  // finds this document's comments, not the old draft's (decisions 65 and 132).
+  // After the identity effect, so the key read here is this document's.
+  useEffect(() => {
+    const key = stateRef.current.key;
+    if (!store || !doc || key === null || aliased.current === key || !draftHeld()) return;
+    if (doc.source.kind !== "paste" && doc.source.kind !== "file") return;
+    aliased.current = key;
+    void store.setAlias(DRAFT_ALIAS, key).catch(() => {});
+  });
 
   // ---- Mutations -----------------------------------------------------------
   const change = useCallback(

@@ -81,7 +81,7 @@ const PresenterRequest = v.variant("type", [
   v.object({ type: v.literal("countdown"), countdown: v.nullable(CountdownSchema) }),
 ]);
 
-export interface PresenterBridgeOptions {
+interface PresenterBridgeOptions {
   getState: () => PresenterState;
   goTo: (address: string) => boolean;
   step: (direction: 1 | -1) => void;
@@ -186,7 +186,7 @@ export interface PresenterConnection {
   close(): void;
 }
 
-export interface ConnectPresenterOptions {
+interface ConnectPresenterOptions {
   /** `false` when no state arrived for `DISCONNECT_AFTER_MS`, `true` when one arrives again. */
   onConnectionChange?: (connected: boolean) => void;
   /** Called with each laser or mark op from the audience window that validates (decision 88). */

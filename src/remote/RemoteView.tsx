@@ -26,7 +26,7 @@ import type { RemoteMessage, RoomCredentials } from "./types";
 import "./remote.css";
 
 /** While a finger rests on the pad, its point is repeated this often so the presenter's idle timeout does not hide it. */
-export const LASER_REPEAT_MS = 1000;
+const LASER_REPEAT_MS = 1000;
 /**
  * The presenter answers every hello, step and goto with its state. Without
  * an answer in this long, the presenter's tab is closed, reloading or
@@ -44,7 +44,7 @@ export const STATUS_TEXT: Record<RemoteStatus, () => string> = {
 /** The relay is connected but the presenter does not answer. */
 export const PRESENTER_AWAY = m.phone_presenter_away;
 
-export interface RemoteViewProps {
+interface RemoteViewProps {
   /** From `parseJoinFragment(location.hash)`; null, or no control key (a follow link), shows what is wrong with the link. */
   creds: RoomCredentials | null;
   socketFactory?: SocketFactory;

@@ -3,7 +3,7 @@ import { MATH_DISPLAY_CLASS } from "../render/math";
 /** Pixels of overflow ignored, so sub-pixel rounding never raises a diagnostic. */
 export const OVERFLOW_TOLERANCE_PX = 4;
 
-export interface Overflow {
+interface Overflow {
   x: number;
   y: number;
 }
@@ -26,10 +26,10 @@ export interface SlideMeasurement {
  * Below this scale, Mermaid's 16 px labels render under ~10 px: too small to
  * read from across a room. A design choice, not a sourced standard.
  */
-export const READABLE_SCALE = 0.65;
+const READABLE_SCALE = 0.65;
 
 /** Share of the slide body a diagram may take, so the text around it stays on the slide. */
-export const DIAGRAM_HEIGHT_SHARE = 0.6;
+const DIAGRAM_HEIGHT_SHARE = 0.6;
 
 function overflowOf(el: HTMLElement): Overflow {
   const x = el.scrollWidth - el.clientWidth;

@@ -11,7 +11,7 @@
 const INLINE_IMAGE = /^data:image\//i;
 
 /** True for a file whose bytes travel inside the scene. */
-export function isInlineFile(file: unknown): boolean {
+function isInlineFile(file: unknown): boolean {
   if (typeof file !== "object" || file === null) return false;
   const dataURL = (file as { dataURL?: unknown }).dataURL;
   return typeof dataURL === "string" && INLINE_IMAGE.test(dataURL);
