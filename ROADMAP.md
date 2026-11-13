@@ -219,6 +219,10 @@ Needs the owner:
   uses an OPFS handle in its place.
 - `vite-plugin-pwa` stays out while `trustPolicy: no-downgrade` rejects
   workbox-build; the in-house plugin is the workaround, not a policy change.
+- Decisions 133 and 134 (the one-row presenting bar and the hint that yields)
+  are proposed and built; row 135 is accepted except its Turkish word, "taşma
+  notu". The owner confirms each or picks another (see "Presenting bar and
+  hint on narrow screens" below).
 
 Later rounds:
 
@@ -315,7 +319,10 @@ Later rounds:
   selects a word in code or a table opens the view on its first click; the
   view is not in any export, and the presenter window shows no focus view
   (decisions 88 and 106). Clear in the code view disables itself while
-  focused, so focus falls to the page and Escape no longer closes the view.
+  focused, so focus falls to the page and Escape no longer closes the view. A
+  blocked image in the table view keeps its load button, a tab stop that
+  loads nothing there (read from `cleanCopy` in `src/deck/focus.ts`, not
+  tested); the code view drops that button since 2026-11-13.
 - Mirrored focus views (decision 106): a table split differently on two
   screens can open a different part of it on the follower; a follower that
   has not loaded the image opens nothing.
@@ -500,16 +507,19 @@ smallest first; each needs a failing test before code:
   left out of an export when a slide's text changed after the last rebuild; the
   annotation layer is never built if IndexedDB never answers.
 
-- Left by the fixes of 132: a comment stored before 132 on a second heading
-  with an empty slug (slug `-1`), or on a diagram node under such a heading,
-  now lists as orphaned (nothing is deleted); a slide that shows a failed
-  diagram's note gets a new fingerprint once, so its saved marks wait until it
-  is marked again; Delete saved marks closes an open whiteboard; a held file or
+- Left by the fixes of 132: a comment stored before 132 under GitHub's old
+  `-1` slug of a second heading with an empty slug, or on a diagram node under
+  such a heading, now lists as orphaned, because anchors take the fallback id
+  from `headingIds` (`src/comments/anchors.ts`); nothing is deleted. Marks
+  saved before 132 on a slide that shows a failed diagram no longer show:
+  their fingerprint held the diagnostic's text, which `src/annotate/markKeys.ts`
+  now leaves out, and marking the slide again replaces them (a one-time loss,
+  noted in row 132); Delete saved marks closes an open whiteboard; a held file or
   paste draft gets its alias when it opens, not at its first edit; on a layout
   that types `+` or `-` with AltGr the zoom keys do nothing in the view (the
   buttons work); when the old and the new key of a `?src=` document hold more
   than 500 comments together, the move of 120 fails at every open and the old
-  key stays.
+  key stays. Marks do the same past 105's caps (decision 136).
 
 Still owed, by hand: the new features on a Mac trackpad, an iPhone and an
 iPad (focus views and their pan and zoom, the tour, the whiteboard and stylus,
