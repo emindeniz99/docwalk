@@ -340,9 +340,10 @@ export async function loadMarks(
   doc: string,
   onProblem: (problem: MarksProblem) => void,
   /**
-   * The key `doc` had before decision 120: its records move to `doc` once,
-   * when `doc` has none, in one transaction with the delete of the old key.
-   * An old key with no valid record is cleared all the same: it may carry a
+   * The key `doc` had before decision 120: at every open its records move
+   * to `doc` in one transaction with the delete of the old key, as comments
+   * do (decision 136). A slide `doc` already has keeps its own record. An
+   * old key with no valid record is cleared all the same: it may carry a
    * query token.
    */
   legacy: string | null = null,
@@ -353,16 +354,21 @@ export async function loadMarks(
   } catch {
     return new DocumentMarks(doc, [], null, onProblem);
   }
-  if (slides.length === 0 && legacy !== null && legacy !== doc) {
+  if (legacy !== null && legacy !== doc) {
     try {
       const raw = await store.load(legacy);
-      const old = readSlides(legacy, raw);
       if (Array.isArray(raw) && raw.length > 0) {
-        await store.clear(
-          legacy,
-          old.map((slide) => ({ doc, ...slide })),
-        );
-        slides = old;
+        const have = new Set(slides.map((slide) => slide.slide));
+        const moved = readSlides(legacy, raw)
+          .filter((slide) => !have.has(slide.slide))
+          .map((slide) => ({ doc, ...slide }));
+        const merged = readSlides(doc, [...slides.map((slide) => ({ doc, ...slide })), ...moved]);
+        // Past a cap the move changes nothing, as for comments: keeping only what fits
+        // would drop marks unseen.
+        if (merged.length === slides.length + moved.length) {
+          await store.clear(legacy, moved);
+          slides = merged;
+        }
       }
     } catch {
       // Nothing moved and the old records stay; the next open tries again.
