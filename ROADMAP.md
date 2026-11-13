@@ -222,6 +222,14 @@ Needs the owner:
 
 Later rounds:
 
+- CI speed, on the same runners (no extra jobs or sharding: the owner wants
+  no added runner cost). In November 2026 the e2e legs took about 15 min
+  (Chromium), 13 (Firefox) and 26 (WebKit); Playwright uses 2 workers on
+  GitHub's 4-core runner. Branch `ci/three-workers` sets 3 workers in
+  `playwright.config.ts`: compare three CI runs of it with `main`, adopt it
+  with `--no-ff` only if WebKit is faster and no test flakes, else delete the
+  branch. Then find the 10 slowest tests (Playwright's report) and shorten
+  their waits on the condition they need, not on a fixed time.
 - Remote links made before decision 117 carry no `p=` (the presenter's
   public state key), so a phone or agent that joined with one shows no
   countdown and never says hello again (118) until the presenter shares a new
