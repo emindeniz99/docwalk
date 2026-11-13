@@ -224,7 +224,14 @@ Later rounds:
   GitHub's 4-core runner. Branch `ci/three-workers` sets 3 workers in
   `playwright.config.ts`: compare three CI runs of it with `main`, adopt it
   with `--no-ff` only if WebKit is faster and no test flakes, else delete the
-  branch. Then find the 10 slowest tests (Playwright's report) and shorten
+  branch. Run 1 (2026-11-13, run 43420626794): Chromium 9.5 min, Firefox
+  13.6, WebKit 19.7, but WebKit failed `e2e/math.spec.ts` "a formula built to
+  run for seconds leaves the deck responsive" (longest frame gap 632 ms, limit
+  500): the third worker competes with the page for the CPU that test
+  measures. The check job's typecheck failure in that run is fixed on the
+  branch. Before more runs, decide how the frame-gap tests keep their machine
+  to themselves (for example a project with `workers: 1` run after the
+  others), never by raising the 500 ms limit. Then find the 10 slowest tests (Playwright's report) and shorten
   their waits on the condition they need, not on a fixed time.
 - Remote links made before decision 117 carry no `p=` (the presenter's
   public state key), so a phone or agent that joined with one shows no
