@@ -490,6 +490,30 @@ describe("line marks in a raw-HTML <pre> (decision 135)", () => {
     expect(joined()).toBe(original);
   });
 
+  test("a blocked image in a <pre> is no button in the view, so Tab never stops on it", async () => {
+    // Decision 33: on the slide the placeholder is a button that loads the image. The view has
+    // no click-to-load, so a copy that kept the button's role, tab stop and label was a dead
+    // tab stop inside a line, announced as an action that does nothing.
+    const deck = mountDeck(
+      '## P\n\n<pre>before <img src="https://images.invalid/chart.png" alt="chart"> after\nend</pre>\n',
+    );
+    await deck.ready();
+    const pre = present(deck).querySelector<HTMLElement>("pre")!;
+    const placeholder = pre.querySelector("img")!;
+    expect(placeholder.classList.contains("docwalk-blocked-image")).toBe(true);
+    expect(placeholder.getAttribute("role")).toBe("button");
+    pre.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(overlay()!.getAttribute("aria-label")).toBe("Code, full screen");
+    const copy = lines()[0]!.querySelector("img")!;
+    expect(copy.getAttribute("alt")).toBe("chart");
+    expect(
+      ["role", "tabindex", "aria-label", "title"].filter((attr) => copy.hasAttribute(attr)),
+    ).toEqual([]);
+    // Nothing is fetched from the view either: the copy still has no src.
+    expect(copy.hasAttribute("src")).toBe(false);
+  });
+
   test("fenced code splits into the same lines as before", async () => {
     // The highlighter's spans hold text; a fenced block has no <br> and no empty element.
     await openCode();
