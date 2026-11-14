@@ -16,7 +16,7 @@ const WCAG_22_AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 async function readyTr(page: Page) {
   await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slayt/, { timeout: 30_000 });
   // The count beside it names overflow notes, not speaker notes (decisions 130 and 135).
-  await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ taşma notu/);
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ taşma uyarısı/);
 }
 
 async function expectNoSeriousViolations(page: Page) {

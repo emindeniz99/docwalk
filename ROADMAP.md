@@ -450,9 +450,8 @@ Later rounds:
   safe-area insets are untested, and iOS fonts may set the counter wider (21 px
   spare at 667 px with three digits). A talk of only full slides never shows
   the hint. DESIGN.md still describes the More tools menu for the edit preview
-  only. For decision 135 the owner chose "taşma uyarısı" (2026-11-13): change
-  `app_status_notes` in `messages/tr.json` and the CONTEXT glossary row from
-  "taşma notu", in one small commit. The hint
+  only. For decision 135 the owner chose "taşma uyarısı" (2026-11-13); the
+  message file, the glossary row and the e2e check use it now. The hint
   counts text that is `visibility: hidden` as content, which keeps it off
   reveal.js fragments not yet shown; a slide change during its 5 s can leave
   it over the next slide's content; with the whiteboard open it is measured
