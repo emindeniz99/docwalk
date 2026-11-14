@@ -13,6 +13,9 @@ names things; use its words in code, docs and commit messages.
   with `--project chromium`).
 - Write tests that say why the behaviour matters. Layout and pagination
   tests run in a real browser, never jsdom.
+- An end-to-end test that measures time (a frame gap, a load or repaginate
+  budget) takes the `@timing` tag. CI runs those alone on one worker after
+  the rest, because other workers on the runner would disturb the measure.
 - Add a dependency only at a version published at least 7 days ago; pnpm
   refuses younger ones. Do not lower `minimumReleaseAge`.
 - Keep personal data out of the project, fixtures and screenshots included.
