@@ -218,13 +218,26 @@ Needs the owner:
 
 Later rounds:
 
+- Node pin: Dependabot's npm updater runs Node 24.22.3 (a security release of
+  2026-11-10) and fails every npm update with `tool_version_not_supported`
+  against the exact 24.22.2 pin. On or after 2026-11-17, when 24.22.3 clears
+  the 7-day age rule, move `devEngines.runtime` in `package.json` and the
+  README's setup line to it on a branch, run `mise install` and the full gate,
+  and merge with `--no-ff`. Until then no npm update PRs arrive.
 - CI speed, on the same runners (no extra jobs or sharding: the owner wants
   no added runner cost). In November 2026 the e2e legs took about 15 min
   (Chromium), 13 (Firefox) and 26 (WebKit); Playwright uses 2 workers on
   GitHub's 4-core runner. Branch `ci/three-workers` sets 3 workers in
   `playwright.config.ts`: compare three CI runs of it with `main`, adopt it
   with `--no-ff` only if WebKit is faster and no test flakes, else delete the
-  branch. Then find the 10 slowest tests (Playwright's report) and shorten
+  branch. Run 1 (2026-11-13, run 43420626794): Chromium 9.5 min, Firefox
+  13.6, WebKit 19.7, but WebKit failed `e2e/math.spec.ts` "a formula built to
+  run for seconds leaves the deck responsive" (longest frame gap 632 ms, limit
+  500): the third worker competes with the page for the CPU that test
+  measures. The check job's typecheck failure in that run is fixed on the
+  branch. Before more runs, decide how the frame-gap tests keep their machine
+  to themselves (for example a project with `workers: 1` run after the
+  others), never by raising the 500 ms limit. Then find the 10 slowest tests (Playwright's report) and shorten
   their waits on the condition they need, not on a fixed time.
 - Remote links made before decision 117 carry no `p=` (the presenter's
   public state key), so a phone or agent that joined with one shows no

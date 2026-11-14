@@ -44,6 +44,11 @@ function resolved(variable: string): string {
   return color;
 }
 
+/** Monaco's model tokenization part; `forceTokenization` is public at runtime, not in its types. */
+interface Tokenization {
+  forceTokenization(lineNumber: number): void;
+}
+
 const painted = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
 describe("MonacoEditor theme", () => {
@@ -95,6 +100,14 @@ describe("MonacoEditor theme", () => {
         "Some `inline` code and [a link](https://example.com).\n\n```\nfenced\n```\n",
       );
       await monaco.colorize("", "markdown", {});
+      // Monaco paints the grammar's tokens from idle callbacks, and on a busy
+      // test page (CI runs every browser file at once) idle time can be
+      // withheld past any timeout. Tokenize now, so the test checks the
+      // theme's colours rather than the browser's idle scheduling.
+      for (const model of monaco.getModels()) {
+        const part = (model as unknown as { tokenization?: Tokenization }).tokenization;
+        part?.forceTokenization(model.getLineCount());
+      }
       const colourOf = (text: string) => {
         const span = [...box.querySelectorAll<HTMLElement>(".view-line span span")].find(
           (s) => s.textContent === text,
@@ -102,7 +115,7 @@ describe("MonacoEditor theme", () => {
         return span ? getComputedStyle(span).color : null;
       };
       expect(resolved("--editor-code")).not.toBe(resolved("--link"));
-      // Monaco paints the grammar's tokens in idle time, which can take a while.
+      // The view repaints the tokenized lines on a following frame.
       await expect
         .poll(() => colourOf("`inline`"), { timeout: 10_000 })
         .toBe(resolved("--editor-code"));
