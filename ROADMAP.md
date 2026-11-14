@@ -450,9 +450,8 @@ Later rounds:
   safe-area insets are untested, and iOS fonts may set the counter wider (21 px
   spare at 667 px with three digits). A talk of only full slides never shows
   the hint. DESIGN.md still describes the More tools menu for the edit preview
-  only. For decision 135 the owner chose "taşma uyarısı" (2026-11-13): change
-  `app_status_notes` in `messages/tr.json` and the CONTEXT glossary row from
-  "taşma notu", in one small commit. The hint
+  only. For decision 135 the owner chose "taşma uyarısı" (2026-11-13); the
+  message file, the glossary row and the e2e check use it now. The hint
   counts text that is `visibility: hidden` as content, which keeps it off
   reveal.js fragments not yet shown; a slide change during its 5 s can leave
   it over the next slide's content; with the whiteboard open it is measured
@@ -521,14 +520,15 @@ smallest first; each needs a failing test before code:
   (an optional `edited` field in `DocComment`, set by `update` only): a change
   to the share and sidecar format, for the owner. Drafts typed in the panel are
   lost when presenting starts, because the whole panel unmounts there.
-- Countdown: pressing Start twice with an invalid target announces the
-  message once.
 - Eraser (drauu 1.0): a drag cut short by a slide change or the whiteboard
   toggle removes strokes from the screen and not from the saved record, so they
-  return after a reload; an eraser click that erases nothing adds an empty undo
-  step and drops redo. Both sit in drauu's eraser model.
-- Code view: a line of a raw `<pre>` that holds only an image is labelled
-  "Line N, empty"; its alt text would need a new string.
+  return after a reload. This sits in drauu's eraser model and is left. (An
+  eraser click that erased nothing no longer adds an undo step: `layer.ts`
+  hands drauu none, 2026-11-14.)
+- Fixed 2026-11-14 on `fix/next-up-2`: Start pressed twice with an invalid
+  countdown target announces the message each time; an image-only line of a
+  code view is named by its alt text (138); a blocked image in the table view
+  is no button.
 - Suspected, not shown from the code: a `#doc=…&c=…` link pasted into a tab
   that shows another document may merge its comments into the wrong one; two
   fast edits may detach a draft's comments; the glow on commented diagram nodes

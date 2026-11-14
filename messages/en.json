@@ -232,6 +232,7 @@
   "focus_label_table": "Table, full screen",
   "focus_line": "Line {number}: {text}",
   "focus_line_empty": "Line {number}, empty",
+  "focus_line_image": "Line {number}, image: {alt}",
   "focus_sketch": "Sketch",
   "focus_sketch_title": "Open as sketch",
   "focus_zoom_in": "Zoom in",

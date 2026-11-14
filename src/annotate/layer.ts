@@ -1,4 +1,4 @@
-import { createDrauu, type Drauu, type DrawingMode } from "@drauu/core";
+import { createDrauu, type Drauu, type DrawingMode, type EraserModel } from "@drauu/core";
 import { getStroke } from "perfect-freehand";
 import "./layer.css";
 import {
@@ -177,12 +177,40 @@ export function createAnnotationLayer(
   /** True while a pen drag is handed to drauu: its own `pointerdown` is not a new drag. */
   let handingOver = false;
 
+  /**
+   * drauu's eraser returns an undo step for every drag, even one that erased
+   * nothing, and a new step drops the redo list. Wrapped once per drawing, it
+   * hands back no step when nothing was erased: drauu cancels such a drag.
+   */
+  const quieted = new WeakSet<Drauu>();
+  function quietEraser(drawing: Drauu) {
+    if (drawing.mode !== "eraseLine" || quieted.has(drawing)) return;
+    quieted.add(drawing);
+    const model = drawing.model as EraserModel;
+    let erased = false;
+    const { onStart, onMove, onEnd } = model;
+    model.onStart = (point) => {
+      erased = false;
+      return onStart.call(model, point);
+    };
+    model.onMove = (point) => {
+      const hit = onMove.call(model, point);
+      if (hit) erased = true;
+      return hit;
+    };
+    model.onEnd = () => {
+      const step = onEnd.call(model);
+      return erased ? step : (false as unknown as typeof step);
+    };
+  }
+
   function createDrawing(): Drauu {
     const svg = surface("draw");
     root.insertBefore(svg, laser);
     const drawing = createDrauu({ el: svg, brush: { mode: "stylus", color, size: PEN_SIZE } });
     applyTool(drawing);
     drawing.on("start", () => {
+      quietEraser(drawing);
       if (drawing !== active) return;
       // A pen drag with no tool chosen is a pen stroke (decision 110).
       const tool = isMarkTool(mode) ? mode : handingOver ? "pen" : null;

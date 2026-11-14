@@ -91,6 +91,20 @@ describe("a refused target", () => {
     // Without a role the message appears silently: the user pressed Start and heard nothing.
     expect(message?.getAttribute("role")).toBe("alert");
   });
+
+  test("is announced again when Start is pressed a second time with the same refusal", async () => {
+    // A screen reader speaks an alert when it is inserted. An alert that stays in place with
+    // the same text is silent, so the second press looked like it did nothing.
+    const el = mount(h(Stateful));
+    await expect.poll(() => field(el)).not.toBeNull();
+    await typeMinutes(el, "0");
+    press(button(el, "Start"));
+    await expect.poll(() => el.querySelector('[role="alert"]')).not.toBeNull();
+    const first = el.querySelector('[role="alert"]');
+    press(button(el, "Start"));
+    await expect.poll(() => el.querySelector('[role="alert"]')).not.toBe(first);
+    expect(el.querySelector('[role="alert"]')).not.toBeNull();
+  });
 });
 
 describe("focus after Start and Reset", () => {

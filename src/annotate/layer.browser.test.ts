@@ -204,6 +204,45 @@ describe("annotation layer (decision 29)", () => {
     expect(marks(host)).toBe(0);
   });
 
+  test("an eraser pass that erases nothing keeps redo, so an undone mark can still come back", () => {
+    // drauu pushes an undo step for every eraser drag, empty or not, and a new step drops
+    // the redo list: a stray eraser click then lost the mark the presenter had just undone.
+    const { host } = mount();
+    layer!.setMode("pen");
+    stroke(host, [50, 100], [350, 100]);
+    stroke(host, [50, 200], [350, 200]);
+    layer!.undo();
+    expect(marks(host)).toBe(1);
+    layer!.setMode("eraser");
+    stroke(host, [380, 20], [380, 280]);
+    expect(marks(host)).toBe(1);
+    layer!.redo();
+    expect(marks(host)).toBe(2);
+  });
+
+  test("an eraser pass that erases nothing adds no undo step, so one undo takes back the last mark", () => {
+    const { host } = mount();
+    layer!.setMode("pen");
+    stroke(host, [50, 100], [350, 100]);
+    layer!.setMode("eraser");
+    stroke(host, [380, 20], [380, 280]);
+    layer!.undo();
+    expect(marks(host)).toBe(0);
+  });
+
+  test("an eraser pass that erases a mark is still one undo step", () => {
+    const { host } = mount();
+    layer!.setMode("pen");
+    stroke(host, [50, 150], [350, 150]);
+    layer!.setMode("eraser");
+    stroke(host, [200, 50], [200, 250]);
+    expect(marks(host)).toBe(0);
+    layer!.undo();
+    expect(marks(host)).toBe(1);
+    layer!.redo();
+    expect(marks(host)).toBe(0);
+  });
+
   test("the laser trail removes itself shortly after the pointer stops, leaving the slide clean", async () => {
     vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
     const { host } = mount();

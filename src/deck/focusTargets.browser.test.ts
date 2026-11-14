@@ -485,9 +485,20 @@ describe("line marks in a raw-HTML <pre> (decision 135)", () => {
     expect(secondImages[0]!.getAttributeNames().toSorted()).toEqual(["alt", "src"]);
     expect(secondImages[0]!.getAttribute("src")).toBe(ICON);
     expect(third!.querySelector("img")).toBeNull();
-    // A line that holds only an image has no text, and is named as an empty line.
-    expect(second!.getAttribute("aria-label")).toBe("Line 2, empty");
+    // A line that holds only an image has no text: it is named by the image's alt text,
+    // not as an empty line, so a screen reader user hears what the line shows.
+    expect(second!.getAttribute("aria-label")).toBe("Line 2, image: mark");
     expect(joined()).toBe(original);
+  });
+
+  test("a line that holds only an image with no alt text is still named as empty", async () => {
+    // Nothing to read: an invented name would be worse than "empty".
+    const deck = mountDeck(`## P\n\n<pre>a\n<img src="${ICON}" alt="">\nb</pre>\n`);
+    await deck.ready();
+    const pre = present(deck).querySelector<HTMLElement>("pre")!;
+    pre.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(lines()[1]!.getAttribute("aria-label")).toBe("Line 2, empty");
   });
 
   test("a blocked image in a <pre> is no button in the view, so Tab never stops on it", async () => {
@@ -530,6 +541,30 @@ describe("tables", () => {
     const ids = [...document.querySelectorAll("[id]")].map((el) => el.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(overlay()!.querySelector('a[href^="#"]')).toBeNull();
+  });
+
+  test("a blocked image in a cell is no button in the view, so Tab never stops on it", async () => {
+    // Decision 33: the view has no click-to-load. The table copy kept the placeholder's role,
+    // tab stop and label, as the code view's copy did before c7ea980: a dead tab stop that
+    // is announced as an action that does nothing.
+    const deck = mountDeck(
+      "## T\n\n| A | B |\n| --- | --- |\n| ![chart](https://images.invalid/chart.png) | x |\n",
+    );
+    await deck.ready();
+    const table = present(deck).querySelector<HTMLElement>("table")!;
+    const placeholder = table.querySelector("img")!;
+    expect(placeholder.classList.contains("docwalk-blocked-image")).toBe(true);
+    expect(placeholder.getAttribute("role")).toBe("button");
+    // By key: a click could land on the image, which runs the placeholder's own action.
+    table.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(overlay()!.getAttribute("aria-label")).toBe("Table, full screen");
+    const copy = overlay()!.querySelector("img")!;
+    expect(copy.getAttribute("alt")).toBe("chart");
+    expect(
+      ["role", "tabindex", "aria-label", "title"].filter((attr) => copy.hasAttribute(attr)),
+    ).toEqual([]);
+    expect(copy.hasAttribute("src")).toBe(false);
   });
 
   test("hostile cell markup never runs in the copy", async () => {

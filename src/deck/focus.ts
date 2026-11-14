@@ -620,6 +620,12 @@ const SCALE_STEP = 0.25;
 const FIT_MIN = 0.75;
 const FIT_MAX = 3;
 
+/** A blocked image's placeholder is a button on the slide (decision 33); the view has no click-to-load. */
+function stripPlaceholderButton(el: Element): void {
+  if (!el.classList.contains(BLOCKED_IMAGE_CLASS)) return;
+  for (const attr of ["role", "tabindex", "aria-label", "title"]) el.removeAttribute(attr);
+}
+
 /**
  * The copy of a slide element that goes into the view, taken from the
  * sanitized DOM with `cloneNode`: no HTML is parsed (rule 5). Everything that
@@ -633,6 +639,7 @@ function cleanCopy<T extends HTMLElement>(origin: T): T {
     el.removeAttribute("id");
     el.removeAttribute("aria-labelledby");
     el.removeAttribute("aria-describedby");
+    stripPlaceholderButton(el);
     if (el.localName === "a" && el.getAttribute("href")?.startsWith("#")) {
       el.removeAttribute("href");
     }
@@ -688,8 +695,7 @@ function intoLines(code: Element): HTMLElement[] {
       line = null;
     } else if (node instanceof Element && !node.hasChildNodes()) {
       const copy = node.cloneNode(false) as Element;
-      if (copy.classList.contains(BLOCKED_IMAGE_CLASS))
-        for (const attr of ["role", "tabindex", "aria-label", "title"]) copy.removeAttribute(attr);
+      stripPlaceholderButton(copy);
       place(copy, shells);
     } else if (node instanceof Element) {
       for (const child of node.childNodes) walk(child, [...shells, node]);
@@ -862,11 +868,18 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
     const text = (row.textContent ?? "").replace(/\n$/, "");
     row.setAttribute("role", "button");
     row.setAttribute("aria-pressed", "false");
+    // A line of only images is named by their alt text; with none, it is empty.
+    const alt = [...row.querySelectorAll("img")]
+      .map((img) => img.getAttribute("alt")?.trim() ?? "")
+      .filter(Boolean)
+      .join(", ");
     row.setAttribute(
       "aria-label",
-      text.trim() === ""
-        ? m.focus_line_empty({ number: i + 1 })
-        : m.focus_line({ number: i + 1, text }),
+      text.trim() !== ""
+        ? m.focus_line({ number: i + 1, text })
+        : alt !== ""
+          ? m.focus_line_image({ number: i + 1, alt })
+          : m.focus_line_empty({ number: i + 1 }),
     );
     row.tabIndex = i === 0 ? 0 : -1;
   });

@@ -67,6 +67,9 @@ interface CountdownControlsProps {
 export function CountdownControls({ countdown, onChange, now }: CountdownControlsProps) {
   const [text, setText] = useState("");
   const [invalid, setInvalid] = useState(false);
+  // Each refusal gets a new alert node: a screen reader speaks an alert when it is
+  // inserted, so one that stays in place would be silent on the second press.
+  const [refusals, setRefusals] = useState(0);
   const fieldId = useId();
   const errorId = useId();
   // Start and Reset unmount the control that held focus (decision 135). The
@@ -88,6 +91,7 @@ export function CountdownControls({ countdown, onChange, now }: CountdownControl
           const minutes = parseMinutes(text);
           const started = minutes === null ? null : startCountdown(minutes, Date.now());
           setInvalid(started === null);
+          if (started === null) setRefusals((n) => n + 1);
           if (started) {
             focusOnMount.current = true;
             onChange(started);
@@ -115,7 +119,7 @@ export function CountdownControls({ countdown, onChange, now }: CountdownControl
           </Button>
         </div>
         {invalid && (
-          <span id={errorId} className="docwalk-presenter-target-error" role="alert">
+          <span key={refusals} id={errorId} className="docwalk-presenter-target-error" role="alert">
             {m.presenter_target_invalid({ min: MIN_TARGET_MINUTES, max: MAX_TARGET_MINUTES })}
           </span>
         )}
