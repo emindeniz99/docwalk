@@ -209,7 +209,9 @@ test.describe("a browser that cannot or will not lock the screen", () => {
     await present(page);
     expect(await page.evaluate(() => navigator.wakeLock === undefined)).toBe(true);
     await leave(page);
-    await present(page);
+    // Presenting again on the same page. A reload first only rendered the sample a second time.
+    await page.getByRole("button", { name: "Present" }).click();
+    await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "present");
     await leave(page);
     const presenter = await openPresenter(page, context);
     await expect(presenter.getByRole("timer", { name: "Elapsed time" })).toBeVisible();
