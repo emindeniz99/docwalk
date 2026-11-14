@@ -532,6 +532,30 @@ describe("tables", () => {
     expect(overlay()!.querySelector('a[href^="#"]')).toBeNull();
   });
 
+  test("a blocked image in a cell is no button in the view, so Tab never stops on it", async () => {
+    // Decision 33: the view has no click-to-load. The table copy kept the placeholder's role,
+    // tab stop and label, as the code view's copy did before c7ea980: a dead tab stop that
+    // is announced as an action that does nothing.
+    const deck = mountDeck(
+      '## T\n\n| A | B |\n| --- | --- |\n| ![chart](https://images.invalid/chart.png) | x |\n',
+    );
+    await deck.ready();
+    const table = present(deck).querySelector<HTMLElement>("table")!;
+    const placeholder = table.querySelector("img")!;
+    expect(placeholder.classList.contains("docwalk-blocked-image")).toBe(true);
+    expect(placeholder.getAttribute("role")).toBe("button");
+    // By key: a click could land on the image, which runs the placeholder's own action.
+    table.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(overlay()!.getAttribute("aria-label")).toBe("Table, full screen");
+    const copy = overlay()!.querySelector("img")!;
+    expect(copy.getAttribute("alt")).toBe("chart");
+    expect(
+      ["role", "tabindex", "aria-label", "title"].filter((attr) => copy.hasAttribute(attr)),
+    ).toEqual([]);
+    expect(copy.hasAttribute("src")).toBe(false);
+  });
+
   test("hostile cell markup never runs in the copy", async () => {
     const deck = mountDeck(
       '## H\n\n<table><tr><td><img src="/icons/icon-192.png" onerror="globalThis.pwned = 1">' +
