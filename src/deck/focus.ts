@@ -868,11 +868,18 @@ function textStage(stage: HTMLElement, origin: HTMLElement, kind: "code" | "tabl
     const text = (row.textContent ?? "").replace(/\n$/, "");
     row.setAttribute("role", "button");
     row.setAttribute("aria-pressed", "false");
+    // A line of only images is named by their alt text; with none, it is empty.
+    const alt = [...row.querySelectorAll("img")]
+      .map((img) => img.getAttribute("alt")?.trim() ?? "")
+      .filter(Boolean)
+      .join(", ");
     row.setAttribute(
       "aria-label",
-      text.trim() === ""
-        ? m.focus_line_empty({ number: i + 1 })
-        : m.focus_line({ number: i + 1, text }),
+      text.trim() !== ""
+        ? m.focus_line({ number: i + 1, text })
+        : alt !== ""
+          ? m.focus_line_image({ number: i + 1, alt })
+          : m.focus_line_empty({ number: i + 1 }),
     );
     row.tabIndex = i === 0 ? 0 : -1;
   });

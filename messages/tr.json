@@ -232,6 +232,7 @@
   "focus_label_table": "Tablo, tam ekran",
   "focus_line": "Satır {number}: {text}",
   "focus_line_empty": "Satır {number}, boş",
+  "focus_line_image": "Satır {number}, görsel: {alt}",
   "focus_sketch": "Çizim",
   "focus_sketch_title": "Çizim olarak aç",
   "focus_zoom_in": "Yakınlaştır",
