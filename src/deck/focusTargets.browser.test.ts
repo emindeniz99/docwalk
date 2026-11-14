@@ -548,7 +548,7 @@ describe("tables", () => {
     // tab stop and label, as the code view's copy did before c7ea980: a dead tab stop that
     // is announced as an action that does nothing.
     const deck = mountDeck(
-      '## T\n\n| A | B |\n| --- | --- |\n| ![chart](https://images.invalid/chart.png) | x |\n',
+      "## T\n\n| A | B |\n| --- | --- |\n| ![chart](https://images.invalid/chart.png) | x |\n",
     );
     await deck.ready();
     const table = present(deck).querySelector<HTMLElement>("table")!;
