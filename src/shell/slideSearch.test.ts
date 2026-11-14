@@ -336,6 +336,16 @@ describe("titleMatches: the palette's title filter (decision 123)", () => {
     ["", "a", EN],
     ["ＡＢＣ report", "abc", EN],
     ["カタカナ", "かたかな", EN],
+    // Both ends of the katakana block fold to hiragana, and nothing else does.
+    ["ァ", "ぁ", EN],
+    ["ヶ", "ゖ", EN],
+    ["ヽ", "ゝ", EN],
+    // Letters that only look equal: ß is not "ss", a soft hyphen is not nothing.
+    ["Straße", "strasse", EN],
+    ["re\u00adtries", "retries", EN],
+    // A ligature is one letter: a query may not start or end inside it.
+    ["oﬃce", "fi", EN],
+    ["oﬃce", "ﬃ", EN],
   ];
 
   test.each(cases)(
@@ -379,5 +389,172 @@ describe("titleMatches: a hostile 2 MB heading (decision 123)", () => {
   test("a match at the very end is still found in both locales", () => {
     expect(titleMatches(`${BIG}retry budget`, "RETRY BUDGET", EN, {})).toBe(true);
     expect(titleMatches(`${BIG}son`, "IŞIK. SON", TR, {})).toBe(true);
+  });
+});
+
+describe("findText: a match is made of whole letters", () => {
+  // The folded text is longer than the page text for a ligature (ﬃ folds to
+  // ffi), so a match is mapped back to page indices only when it starts and
+  // ends on a letter boundary. A highlight that covered half of a letter
+  // would cut the page's own character in two.
+  test("a query that starts inside a ligature finds nothing, even when what follows is a letter", () => {
+    expect(findText("\ufb03", "fi", EN)).toBeNull();
+    expect(findText("\ufb03x", "ix", EN)).toBeNull();
+  });
+
+  test("a query that ends inside a ligature finds nothing", () => {
+    expect(findText("\ufb03", "ff", EN)).toBeNull();
+    expect(findText("x\ufb03", "xff", EN)).toBeNull();
+  });
+
+  test("a query that spells the whole ligature highlights that one character", () => {
+    expect(findText("a \ufb03 b", "ffi", EN)).toEqual({ start: 2, end: 3 });
+  });
+
+  test("a later whole-letter match is found after an earlier one that cut a letter", () => {
+    expect(findText("\ufb03 ffi", "ffi", EN)).toEqual({ start: 0, end: 1 });
+    expect(findText("\ufb03x ffi", "fi", EN)).toEqual({ start: 4, end: 6 });
+  });
+});
+
+describe("findText: folding keeps the collator's verdicts, edge cases", () => {
+  test("the first and last katakana of the block match their hiragana", () => {
+    expect(found("ァ", "ぁ")).toBe("ァ");
+    expect(found("ヶ", "ゖ")).toBe("ヶ");
+    expect(found("ぁ", "ァ")).toBe("ぁ");
+    expect(found("ゖ", "ヶ")).toBe("ゖ");
+  });
+
+  test("ß is a letter of its own, as the title filter always treated it", () => {
+    expect(found("Straße", "strasse")).toBeNull();
+    expect(found("Straße", "STRASSE")).toBeNull();
+    expect(found("Straße", "straße")).toBe("Straße");
+  });
+
+  test("an invisible character in the page stays a letter, so it does not glue words together", () => {
+    // Folding it away would let "retries" find "re<soft hyphen>tries", which
+    // the filter this replaced (React Aria's) never did.
+    expect(found("re\u00adtries", "retries")).toBeNull();
+    expect(found("re\u00adtries", "re\u00adtries")).toBe("re\u00adtries");
+  });
+});
+
+describe("searchText: the snippet is cut from the page's own text", () => {
+  test("a slide with a decomposed accent still gets a snippet that holds the match, not its neighbour", () => {
+    // "e" + U+0301 composes to one code unit. Folding a composed copy would
+    // shift every index by one, and the snippet would show "etries " instead.
+    const deck = [slide(0, "Cafe\u0301 au lait: retries are bounded")];
+    const { hits } = searchText(deck, "retries", EN, () => false);
+    expect(hits[0]?.snippet.match).toBe("retries");
+    expect(hits[0]?.snippet.before).toBe("Cafe\u0301 au lait: ");
+  });
+
+  test("the same slide answers in the locale asked for, not the one it was last searched in", () => {
+    // The fold is kept per slide; a Turkish search must not read an English fold.
+    const deck = [slide(0, "geçiyordu hemen")];
+    expect(searchText(deck, "geciyordu", EN, () => false).total).toBe(1);
+    expect(searchText(deck, "geciyordu", TR, () => false).total).toBe(0);
+    expect(searchText(deck, "geciyordu", EN, () => false).total).toBe(1);
+  });
+
+  test("a slide whose text changed is searched again, not answered from the old fold", () => {
+    const edited = slide(0, "nothing of interest");
+    expect(searchText([edited], "retries", EN, () => false).total).toBe(0);
+    edited.text = "now the retries appear";
+    const { hits, total } = searchText([edited], "retries", EN, () => false);
+    expect(total).toBe(1);
+    expect(hits[0]?.snippet.match).toBe("retries");
+  });
+});
+
+describe("titleMatches: what the filter remembers between keystrokes", () => {
+  test("the same query gives each locale its own verdict, whichever was asked last", () => {
+    // I folds to i in English and to ı in Turkish; a remembered English query
+    // would make the Turkish title below miss.
+    expect(titleMatches("ışık", "IŞIK", EN)).toBe(false);
+    expect(titleMatches("ışık", "IŞIK", TR)).toBe(true);
+    expect(titleMatches("ışık", "IŞIK", EN)).toBe(false);
+  });
+
+  test("a title kept under an owner is searched composed, like the query", () => {
+    const owner = {};
+    expect(titleMatches("Cafe\u0301 notes", "café notes", EN, owner)).toBe(true);
+  });
+
+  test("a title kept under an owner is read again once its text changed", () => {
+    const owner = {};
+    expect(titleMatches("Failure handling", "rollout", EN, owner)).toBe(false);
+    expect(titleMatches("Rollout plan", "rollout", EN, owner)).toBe(true);
+  });
+
+  test("a title kept under an owner is read again once the locale changed", () => {
+    const owner = {};
+    expect(titleMatches("geçiyordu", "gec", EN, owner)).toBe(true);
+    expect(titleMatches("geçiyordu", "gec", TR, owner)).toBe(false);
+  });
+});
+
+describe("snippetAround: where the cut falls", () => {
+  const run = (before: number, word: string, after: number, unit = "x", tail = "y") => {
+    const text = `${unit.repeat(before)}${word}${tail.repeat(after)}`;
+    const start = unit.length * before;
+    return { text, snippet: snippetAround(text, { start, end: start + word.length }) };
+  };
+
+  test("a word with no space around it is cut at 40 before and 60 after, not kept whole", () => {
+    const { snippet } = run(100, "retries", 100);
+    expect(snippet.before).toBe(`…${"x".repeat(40)}`);
+    expect(snippet.after).toBe(`${"y".repeat(60)}…`);
+  });
+
+  test("a space right after the match is not a cut point when nothing but one long word follows", () => {
+    // Cutting there would leave no context after the match at all.
+    const text = `retries ${"z".repeat(100)}`;
+    const s = snippetAround(text, { start: 0, end: 7 });
+    expect(s.after).toBe(`${text.slice(7, 67)}…`);
+  });
+
+  test("a space right at the match start is not a cut point either: the context stays before the match", () => {
+    const text = `${"a".repeat(50)} b${"c".repeat(10)}`;
+    const s = snippetAround(text, { start: 50, end: 52 });
+    expect(s.before).toBe(`…${"a".repeat(40)}`);
+    expect(s.match).toBe(" b");
+  });
+
+  test.each([
+    ["the smallest low surrogate", "\u{10000}"],
+    ["the largest low surrogate", "\u{10FFFF}"],
+    ["an ordinary emoji", "\u{1F680}"],
+  ])("a cut never leaves half of a pair before the match: %s", (_name, pair) => {
+    // The "x" shifts the pairs so that the 40th unit before the match is a low surrogate.
+    const text = `${pair.repeat(100)}xretries`;
+    const start = pair.length * 100 + 1;
+    const s = snippetAround(text, { start, end: start + 7 });
+    expect(s.before).toBe(`…${pair.repeat(19)}x`);
+    expect(s.match).toBe("retries");
+  });
+
+  test("a cut before the match keeps a plain character that merely sorts above the low surrogates", () => {
+    // U+E000 is above 0xDFFF: it is a whole character, so nothing is skipped.
+    const { snippet } = run(100, "retries", 0, "\ue000");
+    expect(snippet.before).toBe(`…${"\ue000".repeat(40)}`);
+  });
+
+  test.each([
+    ["the smallest high surrogate", "\u{10000}"],
+    ["the largest high surrogate", "\u{10FFFF}"],
+    ["an ordinary emoji", "\u{1F680}"],
+  ])("a cut never leaves half of a pair after the match: %s", (_name, pair) => {
+    // The "x" shifts the pairs so that the 60th unit after the match is a high surrogate.
+    const text = `retries${"x"}${pair.repeat(100)}`;
+    const s = snippetAround(text, { start: 0, end: 7 });
+    expect(s.after).toBe(`x${pair.repeat(29)}…`);
+  });
+
+  test("a pair is dropped only when the cut falls inside it, not when one follows the cut", () => {
+    // The 60th unit after the match is the first half of a pair: the pair goes.
+    const text = `retries${"a".repeat(59)}\u{1F680}bbbb`;
+    const s = snippetAround(text, { start: 0, end: 7 });
+    expect(s.after).toBe(`${"a".repeat(59)}…`);
   });
 });

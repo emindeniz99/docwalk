@@ -282,7 +282,18 @@ Later rounds:
 - CI and quality: mutation survivors are reported, not fixed, except in
   `src/share/fragment.ts`, whose tests now hold real documents that only its
   schema refuses (65 to 68 killed on 2026-11-09; the 8 left are equivalent
-  mutants, such as padding that `atob` does not need); Lighthouse SEO has a
+  mutants, such as padding that `atob` does not need); on 2026-11-14 tests
+  killed survivors in three more modules (one file at a time, scores before
+  and after): `src/sectioning/sectionize.ts` 94.83 to 98.52, `src/url/state.ts`
+  86.38 to 92.02, `src/shell/slideSearch.ts` 76.45 to 90.35 (93.44 in the run
+  before the last test; its caches are module-wide, so a mutant's verdict can
+  depend on which mutants ran before it, and two runs of the same tests can
+  differ by a few points). The mutants left are equivalent: caches and their
+  limits, guards that the id regex, the parser round trip or `indexOf` repeat
+  one step later, `position?.` (the parser always sets a position), and the
+  fold's `\s+` and Turkish lower-casing branch. Not fixed, and a different
+  decision from the old title filter: "oﬃce" now matches "ffi", which React
+  Aria's window did not. Lighthouse SEO has a
   0.95 floor since 2026-11-09 (decision 104). "Editing the source … notes in the gutter"
   (`e2e/app.spec.ts`) failed once on WebKit; on 2026-11-09 the stale-deck
   note on line 1 was fixed (cosmetic, not the cause) and the test waits for

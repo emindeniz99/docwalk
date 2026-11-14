@@ -340,3 +340,74 @@ describe("properties", () => {
     },
   );
 });
+
+describe("mutation survivors: the title rule, ids, heading text and level lists", () => {
+  test("a lone H1 is a slide, not a cover: with nothing under it there is no document to title", () => {
+    const p = plan("# Only\n\nbody\n");
+    expect(p.titleHeading).toBeNull();
+    expect(p.levels).toEqual([1]);
+    expect(p.sections.map((s) => s.kind)).toEqual(["content"]);
+  });
+
+  test("an H1 that comes after another heading is never the document title", () => {
+    // A "# Late" below a "##" is a section break of the document, not its name.
+    const p = plan("## Intro\n\ntext\n\n# Late\n\ntext\n");
+    expect(p.titleHeading).toBeNull();
+    expect(p.sections.map((s) => s.kind)).toEqual(["content", "content"]);
+  });
+
+  test("a level list is deduplicated and sorted, so the shallowest level is the one that gets title slides", () => {
+    const p = plan("# One\n\nx\n\n## Two\n\ny\n\n### Three\n\nz\n\n#### Four\n\nw\n", [4, 2, 3, 3]);
+    expect(p.levels).toEqual([2, 3, 4]);
+    expect(p.sections.map((s) => `${s.kind}:${s.title}`)).toEqual([
+      "title:One",
+      "content:Two",
+      "content:Three",
+      "content:Four",
+    ]);
+  });
+
+  test("a fallback anchor stays short however long the emoji heading is", () => {
+    const text = "🚀".repeat(12);
+    expect(ids(plan(`## ${text}\n\nx\n`))).toEqual([`heading-${Array(8).fill("1f680").join("-")}`]);
+  });
+
+  test("content before the first heading is an unnamed slide that belongs to no section", () => {
+    const p = plan("Some intro text.\n\n## A\n\na\n");
+    const [lead] = p.sections;
+    expect(lead).toMatchObject({ id: "intro", kind: "content", heading: null, title: "" });
+    expect(lead?.breadcrumb).toEqual([]);
+  });
+
+  test("a part id never collides with a heading's anchor, however many collide in a row", () => {
+    // "## A part 2" and "## A part 2 2" already own a-part-2 and a-part-2-2, so
+    // the part a break makes after "## A" must step to the next free number:
+    // two slides with one id would make a link open the wrong one.
+    const md = "## A\n\nx\n\n---\n\ny\n\n## A part 2\n\nz\n\n## A part 2 2\n\nw\n";
+    expect(ids(plan(md))).toEqual(["a", "a-part-2-3", "a-part-2", "a-part-2-2"]);
+  });
+
+  test("a heading's title collapses runs of whitespace and drops the edges, as a reader sees it", () => {
+    // A no-break space is whitespace to `\s` but the Markdown parser keeps it.
+    const p = plan("##  Foo    bar\n\nx\n\n## Next\n\nn\n");
+    expect(p.sections[0]?.title).toBe("Foo bar");
+  });
+});
+
+describe("section lines and parts, for editor sync", () => {
+  const md = "Lead text.\n\n## A\n\nx\n\n---\n\ny\n\n## B\n\nz\n";
+
+  test("every section reports the 1-based source line it starts on, so the editor can follow the slide", () => {
+    expect(plan(md).sections.map((s) => s.line)).toEqual([1, 3, 9, 11]);
+  });
+
+  test("a part made by a thematic break is a content slide, so it is paginated like any other", () => {
+    expect(plan(md).sections.map((s) => s.kind)).toEqual([
+      "content",
+      "content",
+      "content",
+      "content",
+    ]);
+    expect(ids(plan(md))).toEqual(["intro", "a", "a-part-2", "b"]);
+  });
+});

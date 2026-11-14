@@ -424,3 +424,46 @@ describe("withoutDocumentLink", () => {
     );
   });
 });
+
+describe("mutation survivors: limits, spelling of keys, and what format leaves alone", () => {
+  test("the longest link format can write still parses: 200 four-byte characters and a five-digit page", () => {
+    // 200 * 12 characters of id, "/" and "99999" is the exact length the cap is built for.
+    const id = "\u{1D49C}".repeat(200);
+    const written = formatViewerUrl(new URL(BASE), { address: `${id}/99999` });
+    expect(written.hash.length - 1).toBe(200 * 12 + 6);
+    expect(parseViewerUrl(written).address).toBe(`${id}/99999`);
+  });
+
+  test("a parameter with no value is not read as its own name, so ?sections is not the id 'sections'", () => {
+    expect(parse("/?sections").sections).toBeNull();
+    expect(parse("/?sections&view=present").view).toBe("present");
+  });
+
+  test("a plus in a key is a space, so ?sec+tions is a different parameter, not ?sections", () => {
+    expect(parse("/?sec+tions=a-b").sections).toBeNull();
+    expect(parse("/?lev+el=2").level).toBeNull();
+    // Writing a setting does not remove or replace a lookalike either.
+    expect(format("/?sec+tions=a", { sections: ["b"] }).search).toBe("?sec+tions=a&sections=b");
+  });
+
+  test("a level list is written sorted and once, so the same choice is always the same link", () => {
+    expect(format("/", { level: [3, 1, 3, 2] }).search).toBe("?level=1%2C2%2C3");
+  });
+
+  test("an id that cannot be encoded is dropped, not thrown at: a lone surrogate has no percent form", () => {
+    expect(() => format("/?sections=a", { sections: ["ok", "\ud800"] })).not.toThrow();
+    expect(format("/?sections=a", { sections: ["ok", "\ud800"] }).search).toBe("");
+    expect(sectionsFitInLink(["ok", "\ud800"])).toBe(false);
+  });
+
+  test("an empty choice always fits a link, because it writes nothing", () => {
+    expect(sectionsFitInLink([])).toBe(true);
+  });
+
+  test("leaving the view out keeps the view in the link", () => {
+    const url = format("/?view=present&level=2#intro/1", { address: "next/2" });
+    expect(url.search).toBe("?view=present&level=2");
+    expect(url.hash).toBe("#next/2");
+    expect(format("/?view=present", { level: 3 }).search).toBe("?view=present&level=3");
+  });
+});
