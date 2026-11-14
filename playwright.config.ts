@@ -46,6 +46,8 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
   fullyParallel: true,
+  // CI sets the worker count per engine (.github/workflows/ci.yml) and runs
+  // tests tagged @timing alone on one worker in a step of their own.
   // A `test.only` left in after debugging would make every CI job run that
   // one test and pass; on CI it fails the run instead.
   forbidOnly: Boolean(process.env.CI),

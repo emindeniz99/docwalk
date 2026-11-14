@@ -198,32 +198,34 @@ test("in the Turkish UI the section is named in Turkish and a capital I finds do
 test.describe("typing in a large document", () => {
   test.skip(({ browserName }) => browserName !== "chromium", "frame gaps are measured on Chromium");
 
-  test("typing a long query into the 809-line fixture never blocks a frame for long", async ({
-    page,
-  }) => {
-    // The palette scans every page's text on each key. A frame that waits
-    // this long would show as a stutter while typing.
-    const FRAME_LIMIT_MS = 250;
-    await ready(page);
-    const box = await openPalette(page);
-    await page.evaluate(() => {
-      const w = window as unknown as { frameGap: number };
-      w.frameGap = 0;
-      let last = performance.now();
-      const tick = () => {
-        const now = performance.now();
-        w.frameGap = Math.max(w.frameGap, now - last);
-        last = now;
+  test(
+    "typing a long query into the 809-line fixture never blocks a frame for long",
+    { tag: "@timing" },
+    async ({ page }) => {
+      // The palette scans every page's text on each key. A frame that waits
+      // this long would show as a stutter while typing.
+      const FRAME_LIMIT_MS = 250;
+      await ready(page);
+      const box = await openPalette(page);
+      await page.evaluate(() => {
+        const w = window as unknown as { frameGap: number };
+        w.frameGap = 0;
+        let last = performance.now();
+        const tick = () => {
+          const now = performance.now();
+          w.frameGap = Math.max(w.frameGap, now - last);
+          last = now;
+          requestAnimationFrame(tick);
+        };
         requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-    await box.pressSequentially("clients retry with the same idempotency key", { delay: 20 });
-    await expect(palette(page).locator("mark").first()).toBeVisible();
-    const gap = await page.evaluate(() => (window as unknown as { frameGap: number }).frameGap);
-    console.log(
-      `longest frame gap while typing: ${Math.round(gap)} ms (limit ${FRAME_LIMIT_MS} ms)`,
-    );
-    expect(gap).toBeLessThan(FRAME_LIMIT_MS);
-  });
+      });
+      await box.pressSequentially("clients retry with the same idempotency key", { delay: 20 });
+      await expect(palette(page).locator("mark").first()).toBeVisible();
+      const gap = await page.evaluate(() => (window as unknown as { frameGap: number }).frameGap);
+      console.log(
+        `longest frame gap while typing: ${Math.round(gap)} ms (limit ${FRAME_LIMIT_MS} ms)`,
+      );
+      expect(gap).toBeLessThan(FRAME_LIMIT_MS);
+    },
+  );
 });

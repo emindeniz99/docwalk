@@ -103,27 +103,35 @@ test("the default view downloads less than decision 124's 5 MB of JS and CSS (gz
   expect(total, "gzip bytes of same-origin JS and CSS").toBeLessThanOrEqual(SIZE_LIMIT);
 });
 
-test("the fixture opens ready to present within decision 43's 1.5 s", async ({ page }, info) => {
-  // Measured from navigation start, so it covers loading the app, fetching
-  // the document, rendering every diagram and paginating.
-  const { at } = await openFixture(page);
-  await page.getByRole("button", { name: "Present" }).click();
-  await expect(page.locator("[data-view='present']")).toBeVisible();
-  const presented = await page.evaluate(() => performance.now());
-  budget(info, "Open the fixture in presentation mode", presented, OPEN_BUDGET_MS, "ms");
-  expect(at, "status bar reported the slides").toBeGreaterThan(0);
-  expect(presented).toBeLessThan(OPEN_BUDGET_MS * TIME_MARGIN);
-});
+test(
+  "the fixture opens ready to present within decision 43's 1.5 s",
+  { tag: "@timing" },
+  async ({ page }, info) => {
+    // Measured from navigation start, so it covers loading the app, fetching
+    // the document, rendering every diagram and paginating.
+    const { at } = await openFixture(page);
+    await page.getByRole("button", { name: "Present" }).click();
+    await expect(page.locator("[data-view='present']")).toBeVisible();
+    const presented = await page.evaluate(() => performance.now());
+    budget(info, "Open the fixture in presentation mode", presented, OPEN_BUDGET_MS, "ms");
+    expect(at, "status bar reported the slides").toBeGreaterThan(0);
+    expect(presented).toBeLessThan(OPEN_BUDGET_MS * TIME_MARGIN);
+  },
+);
 
-test("an edit to the fixture repaginates within decision 43's 300 ms", async ({ page }, info) => {
-  const { slides } = await openFixture(page);
-  await page.locator(".cm-content").click();
-  await page.keyboard.press("ControlOrMeta+End");
-  // One input event, like a paste: the edit ends the moment it lands.
-  await page.keyboard.insertText("\n\n## Timing probe\n\nA new section adds a slide.\n");
-  const typed = await page.evaluate(() => performance.now());
-  const { at } = await slidesReported(page, slides);
-  const rebuild = at - typed - REBUILD_DELAY_MS;
-  budget(info, "Repaginate after an edit", rebuild, REPAGINATE_BUDGET_MS, "ms");
-  expect(rebuild).toBeLessThan(REPAGINATE_BUDGET_MS * TIME_MARGIN);
-});
+test(
+  "an edit to the fixture repaginates within decision 43's 300 ms",
+  { tag: "@timing" },
+  async ({ page }, info) => {
+    const { slides } = await openFixture(page);
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    // One input event, like a paste: the edit ends the moment it lands.
+    await page.keyboard.insertText("\n\n## Timing probe\n\nA new section adds a slide.\n");
+    const typed = await page.evaluate(() => performance.now());
+    const { at } = await slidesReported(page, slides);
+    const rebuild = at - typed - REBUILD_DELAY_MS;
+    budget(info, "Repaginate after an edit", rebuild, REPAGINATE_BUDGET_MS, "ms");
+    expect(rebuild).toBeLessThan(REPAGINATE_BUDGET_MS * TIME_MARGIN);
+  },
+);
