@@ -1,5 +1,6 @@
-# Node and pnpm versions live in package.json (`devEngines.runtime` for Node,
-# `packageManager` for pnpm). This file only tells mise to honour them, so no
-# version is declared in two places.
+# Node's exact version lives in .tool-versions, which mise and CI's
+# setup-node both read; package.json's `devEngines.runtime` only gates a
+# range, so tools that bring their own Node (Dependabot) are not refused.
+# pnpm's version lives in package.json (`packageManager`).
 [settings]
-idiomatic_version_file_enable_tools = ["node", "pnpm"]
+idiomatic_version_file_enable_tools = ["pnpm"]
