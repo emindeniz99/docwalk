@@ -46,10 +46,8 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
   fullyParallel: true,
-  // GitHub's Linux runner has 4 cores; Playwright's CI default is half of
-  // them. A third worker shortens the long WebKit leg on the same machine.
-  // Tests tagged @timing run alone on one worker in a CI step of their own.
-  ...(process.env.CI ? { workers: 3 } : {}),
+  // CI sets the worker count per engine (.github/workflows/ci.yml) and runs
+  // tests tagged @timing alone on one worker in a step of their own.
   // A `test.only` left in after debugging would make every CI job run that
   // one test and pass; on CI it fails the run instead.
   forbidOnly: Boolean(process.env.CI),

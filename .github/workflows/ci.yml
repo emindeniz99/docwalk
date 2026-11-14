@@ -66,12 +66,19 @@ jobs:
       matrix:
         include:
           # The sub-path project runs once, in Chromium, beside the main suite.
+          # Workers per engine on the 4-core runner, measured over three runs
+          # each in November 2026: a third worker cut Chromium from about 15
+          # to 11 minutes and Firefox from 16 to 13; WebKit gained nothing and
+          # varied from 20 to 30 minutes, so it keeps two.
           - engine: chromium
             projects: --project chromium --project static-subpath
+            workers: 3
           - engine: firefox
             projects: --project firefox
+            workers: 3
           - engine: webkit
             projects: --project webkit
+            workers: 2
     name: e2e (${{ matrix.engine }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,10 +101,11 @@ jobs:
       - name: End-to-end (built app)
         env:
           PROJECTS: ${{ matrix.projects }}
+          WORKERS: ${{ matrix.workers }}
         # PROJECTS is a fixed matrix value, split into flags on purpose.
         run: |
           # shellcheck disable=SC2086 # word splitting is the point here
-          pnpm exec playwright test $PROJECTS --grep-invert @timing
+          pnpm exec playwright test $PROJECTS --grep-invert @timing --workers "$WORKERS"
       # Tests tagged @timing measure frame gaps and load times, which other
       # workers on the same runner would disturb, so they run after the rest
       # on one worker. They run even when the step above failed.
