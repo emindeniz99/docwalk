@@ -485,9 +485,20 @@ describe("line marks in a raw-HTML <pre> (decision 135)", () => {
     expect(secondImages[0]!.getAttributeNames().toSorted()).toEqual(["alt", "src"]);
     expect(secondImages[0]!.getAttribute("src")).toBe(ICON);
     expect(third!.querySelector("img")).toBeNull();
-    // A line that holds only an image has no text, and is named as an empty line.
-    expect(second!.getAttribute("aria-label")).toBe("Line 2, empty");
+    // A line that holds only an image has no text: it is named by the image's alt text,
+    // not as an empty line, so a screen reader user hears what the line shows.
+    expect(second!.getAttribute("aria-label")).toBe("Line 2, image: mark");
     expect(joined()).toBe(original);
+  });
+
+  test("a line that holds only an image with no alt text is still named as empty", async () => {
+    // Nothing to read: an invented name would be worse than "empty".
+    const deck = mountDeck(`## P\n\n<pre>a\n<img src="${ICON}" alt="">\nb</pre>\n`);
+    await deck.ready();
+    const pre = present(deck).querySelector<HTMLElement>("pre")!;
+    pre.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(lines()[1]!.getAttribute("aria-label")).toBe("Line 2, empty");
   });
 
   test("a blocked image in a <pre> is no button in the view, so Tab never stops on it", async () => {
