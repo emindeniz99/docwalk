@@ -218,12 +218,6 @@ Needs the owner:
 
 Later rounds:
 
-- Node pin: Dependabot's npm updater runs Node 24.22.3 (a security release of
-  2026-11-10) and fails every npm update with `tool_version_not_supported`
-  against the exact 24.22.2 pin. On or after 2026-11-17, when 24.22.3 clears
-  the 7-day age rule, move `devEngines.runtime` in `package.json` and the
-  README's setup line to it on a branch, run `mise install` and the full gate,
-  and merge with `--no-ff`. Until then no npm update PRs arrive.
 - CI speed, on the same runners (no extra jobs or sharding: the owner wants
   no added runner cost). Done on 2026-11-14: tests that measure time carry
   the `@timing` tag and run alone on one worker after the rest (the frame-gap
