@@ -225,9 +225,22 @@ Later rounds:
   workers are set per engine in `ci.yml`. Measured over three runs each, the
   main step took Chromium about 15 min with two workers and 11 with three,
   Firefox 16 and 13, WebKit about 24 and 25 (20 to 30 from run to run), so
-  WebKit keeps two. Next: find the 10 slowest tests (Playwright's report),
-  WebKit's first, and shorten their waits on the condition they need, not on
-  a fixed time.
+  WebKit keeps two. On 2026-11-14 the 10 slowest WebKit tests took 29 to
+  35 s each in a full run, and the median test 13 s. One cost runs through
+  most of them: the 800-line sample takes 6 to 9 s to render on WebKit, and
+  many tests then replace it with a short document of their own. Five of the
+  ten now open their own document by `#doc=` link (`docLink` in
+  `e2e/helpers.ts`), and the wake-lock test presents twice on one load
+  instead of loading the sample again. Medians of three runs each, each test
+  alone on WebKit: saved marks 23.9 to 9.0 s, cursor follow 10.1 to 3.2,
+  phone countdown 26.6 to 19.7, whiteboard 15.5 to 11.5, wake lock 12.1 to
+  8.9, agent long doc 23.3 to 21.7 (its Mermaid chunks now load during the
+  long write instead). Left as they were: the presenter-window audit (axe
+  checks the sample's previews), the display-name comment test (its reload
+  needs the paste kept as the draft) and two workspace tests (a link in the
+  address bar would send them through the workspace's replace guard). Next:
+  about 30 more tests load the sample and then call `replaceSource`; those
+  that need neither the sample nor the paste path can take `docLink`.
 - Remote links made before decision 117 carry no `p=` (the presenter's
   public state key), so a phone or agent that joined with one shows no
   countdown and never says hello again (118) until the presenter shares a new
