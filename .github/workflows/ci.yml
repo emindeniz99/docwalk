@@ -97,7 +97,17 @@ jobs:
         # PROJECTS is a fixed matrix value, split into flags on purpose.
         run: |
           # shellcheck disable=SC2086 # word splitting is the point here
-          pnpm exec playwright test $PROJECTS
+          pnpm exec playwright test $PROJECTS --grep-invert @timing
+      # Tests tagged @timing measure frame gaps and load times, which other
+      # workers on the same runner would disturb, so they run after the rest
+      # on one worker. They run even when the step above failed.
+      - name: End-to-end timing budgets (one worker)
+        if: ${{ !cancelled() }}
+        env:
+          PROJECTS: ${{ matrix.projects }}
+        run: |
+          # shellcheck disable=SC2086 # word splitting is the point here
+          pnpm exec playwright test $PROJECTS --grep @timing --workers 1
       # Decision 42: the sanitizer corpus on every engine. Chromium runs it in
       # `check` with the other browser tests; this job has the engine installed.
       - name: Sanitizer corpus on this engine
