@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { opfsTest, ready, replaceSource } from "./helpers";
+import { docLink, opfsTest, ready, replaceSource } from "./helpers";
 
 /**
  * Document mode as a reading view: it stays inside the window, the outline is
@@ -128,8 +128,9 @@ test("on a 390 px phone the reading view gets most of the screen and the outline
 test("the preview follows the cursor into a section typed just now", async ({ page }) => {
   // The cursor line was matched before the new heading had been paginated,
   // and nothing matched it again once it had: the preview stayed on the
-  // previous slide while the author wrote the new one.
-  await ready(page);
+  // previous slide while the author wrote the new one. A short document has
+  // the same wait for the rebuild without the sample's render on every key.
+  await ready(page, docLink("# Release notes\n\n## Changelog\n\n- First entry.\n"));
   await page.locator(".cm-content").click();
   await page.keyboard.press("Control+End");
   await expect(page.locator(".docwalk-preview-address")).toHaveText(/^changelog\//);

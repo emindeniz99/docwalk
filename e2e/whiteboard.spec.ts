@@ -1,6 +1,6 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { fakeRelay, ready, replaceSource } from "./helpers";
+import { docLink, fakeRelay, ready } from "./helpers";
 
 /**
  * The whiteboard (decision 110) across real pages: the presenter's tab, a
@@ -47,8 +47,7 @@ async function topmost(page: Page): Promise<"page" | "board" | "nothing"> {
 
 async function openPresenterRoom(context: BrowserContext) {
   const presenter = await context.newPage();
-  await ready(presenter);
-  await replaceSource(presenter, DOC);
+  await ready(presenter, docLink(DOC));
   await expect(presenter.locator(".docwalk-outline-item")).toHaveCount(3);
   await presenter.getByRole("button", { name: "More actions" }).click();
   await presenter.getByRole("menuitem", { name: "Remote and followers…" }).click();

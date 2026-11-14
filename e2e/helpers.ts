@@ -1,3 +1,4 @@
+import { deflateRawSync } from "node:zlib";
 import {
   expect,
   test as base,
@@ -38,6 +39,14 @@ export async function ready(page: Page, path = "/") {
     timeout: 30_000,
   });
 }
+
+/**
+ * The `#doc=` share link (decision 7) that opens `markdown` directly. A test
+ * that needs its own document opens this link instead of loading the sample
+ * and replacing it: the sample's 800-line render took 6-9 s of a WebKit test.
+ */
+export const docLink = (markdown: string) =>
+  `/#doc=${deflateRawSync(Buffer.from(markdown, "utf8")).toString("base64url")}`;
 
 /**
  * Replaces the editor's text the way a paste does (one input event, no

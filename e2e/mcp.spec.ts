@@ -4,7 +4,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
-import { opfsTest, outline, ready, replaceSource, SHORT_DOC } from "./helpers";
+import { docLink, opfsTest, outline, ready, replaceSource, SHORT_DOC } from "./helpers";
 
 /**
  * An agent edits the presenter's deck through docwalk-mcp (decision 59).
@@ -188,8 +188,7 @@ test("an agent's tool calls rewrite and steer the presenter's deck, a long doc i
   const relay = await startRelay();
   await fullMode(context, relay.port);
   const page = await context.newPage();
-  await ready(page);
-  await replaceSource(page, SHORT_DOC);
+  await ready(page, docLink(SHORT_DOC));
   await expect(page.locator(".docwalk-outline-item")).toHaveCount(3);
   const link = await agentLink(page, relay.port);
   await switchLabel(page).click();

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import { ready } from "./helpers";
+import { docLink, ready } from "./helpers";
 
 /**
  * Saved marks (decision 105) in the built app. The layer, the store and the
@@ -46,10 +46,17 @@ const rendered = (page: Page) =>
 
 const overlays = (html: string) => (html.match(/class="docwalk-export-marks"/g) ?? []).length;
 
+/**
+ * Text-only, like the sample, so its marks are saved under a hash of the
+ * text. It takes a fraction of the sample's render time, which this test pays
+ * on each of its three loads.
+ */
+const DOC = "# Marked talk\n\n## Summary\n\nA line to draw under.\n\n## Next\n\nNo marks here.\n";
+
 test("a mark survives a reload, goes into the HTML export, and is gone for good once deleted", async ({
   page,
 }) => {
-  await ready(page, "/#summary/1");
+  await ready(page, docLink(DOC));
   await drawLine(page);
   await expect(marks(page)).toHaveCount(1);
 

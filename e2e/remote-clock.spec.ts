@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { fakeWorker, ready, replaceSource } from "./helpers";
+import { docLink, fakeWorker, ready } from "./helpers";
 
 /**
  * The countdown on the phone remote (decision 112), across real pages: the
@@ -42,8 +42,7 @@ test("the phone shows the presenter window's countdown, pausing and closing incl
   test.setTimeout(150_000);
   await fakeWorker(context);
   const audience = await context.newPage();
-  await ready(audience);
-  await replaceSource(audience, DOC);
+  await ready(audience, docLink(DOC));
   await expect(audience.getByRole("option", { name: /Four/ })).toBeVisible({ timeout: 30_000 });
 
   await audience.getByRole("button", { name: "More actions" }).click();
