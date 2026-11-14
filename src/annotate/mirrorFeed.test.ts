@@ -1164,12 +1164,19 @@ describe("sender and receiver agree (a model check)", () => {
     return { want: wanted(), early: got(early), late: got(late) };
   }
 
-  test("after every step of any run both receivers show the model's marks", () => {
-    for (let seed = 1; seed <= 200; seed++) {
-      // run() also compares after every step.
-      const { want, early, late } = run(seed);
-      expect(early, `seed ${seed} at the end, receiver present from the start`).toEqual(want);
-      expect(late, `seed ${seed} at the end, receiver that joined late`).toEqual(want);
-    }
-  });
+  // 200 seeded runs, each compared after every step, take about 2 s alone and
+  // nothing in them waits. Vitest's 5 s default is a hang guard, and the full
+  // suite on four busy cores pushed this past it; 30 s keeps the guard.
+  test(
+    "after every step of any run both receivers show the model's marks",
+    { timeout: 30_000 },
+    () => {
+      for (let seed = 1; seed <= 200; seed++) {
+        // run() also compares after every step.
+        const { want, early, late } = run(seed);
+        expect(early, `seed ${seed} at the end, receiver present from the start`).toEqual(want);
+        expect(late, `seed ${seed} at the end, receiver that joined late`).toEqual(want);
+      }
+    },
+  );
 });
