@@ -30,6 +30,7 @@ import {
   MIN_FRAME_HEIGHT,
   placeFrames,
 } from "./layout";
+import { createMapLaser, type MapLaser } from "./laser";
 import "./map.css";
 import {
   ease,
@@ -82,6 +83,13 @@ export interface MapViewProps {
    * and 147), called only when it differs from the last section known.
    */
   onCurrent?: (sectionId: string) => void;
+  /**
+   * Whether the map's laser is on (decision 149). The app holds it, so the
+   * command palette can switch it too, and switches it off when the map goes.
+   */
+  laser?: boolean;
+  /** `L` or Escape on the pane asks for the laser on or off. */
+  onLaserChange?: (on: boolean) => void;
 }
 
 interface Point {
@@ -207,6 +215,8 @@ interface MapController {
   render: (plan: SectionPlan, loadRemoteImages: boolean) => void;
   /** The deck's sections and slide levels, for the mapping between frames and slides; moves nothing. */
   setDeck: (sections: readonly DeckSection[], levels: readonly number[]) => void;
+  /** The laser on or off (decision 149): the pane marks it and the status says it when it changes. */
+  setLaser: (on: boolean) => void;
   /** A section the reader chose in the shell: its frame, with the move, whatever is current. */
   request: (sectionId: string) => void;
   /** The deck's current section, from outside (an outline entry, a link, a palette result). */
@@ -250,12 +260,25 @@ interface MapController {
  *   another deck section than the current frame's, and is never reported
  *   back. The first one to arrive after a map that opened before the deck
  *   had a current slide places the map there at once, as the opening would.
+ *
+ * Rules this view chose for the laser (step 4, decision 149):
+ * - `L` follows the slides' shortcut: Shift + L is left alone, and a held
+ *   key switches nothing again.
+ * - The dot shows from the next pointer move after the laser goes on, and
+ *   stays while a mouse or pen rests on the pane.
+ * - A mouse or pen press takes keyboard focus to the pane when it is
+ *   elsewhere, so the route's keys keep working while pointing.
+ * - Only a click from a pointer is swallowed; a click from a key or from
+ *   assistive technology (`detail` 0) keeps its meaning.
+ * - After two fingers, the finger left down neither points nor pans until it
+ *   lifts.
  */
 function mountMap(
   pane: HTMLElement,
   layer: HTMLElement,
   status: HTMLElement,
   onCurrent: (sectionId: string) => void,
+  onLaser: (on: boolean) => void,
 ): MapController {
   layer.style.setProperty("--map-min-frame-height", `${MIN_FRAME_HEIGHT}px`);
   /** Null until the opening view. */
@@ -288,6 +311,10 @@ function mountMap(
   let move: { from: Camera; to: () => Camera | null; start: number; frame: number } | null = null;
   /** The heading a link has just focused: its frame is reached by a move, not by the focus rule. */
   let navigated: HTMLElement | null = null;
+  /** The laser's overlay while it is on (decision 149). */
+  let laser: MapLaser | null = null;
+  /** The finger that points: one that came down alone while the laser is on. */
+  let laserTouch: number | null = null;
 
   const write = () => {
     raf = 0;
@@ -565,20 +592,34 @@ function mountMap(
   const onPointerDown = (event: PointerEvent) => {
     selectedAtPress = selectionKey();
     if (!camera) return;
-    // A touch or a press ends a move where it is (decision 145); a tap still chooses.
-    stopMove();
     const at = local(event);
+    if (laser && event.pointerType !== "touch") {
+      // A mouse or pen press points and does nothing else (decision 149); onMouseDown
+      // keeps it from selecting text, dragging a link or focusing what it is on.
+      if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true });
+      laser.point(at.x, at.y);
+      return;
+    }
+    // A touch or a press ends a move where it is (decision 145); a tap still chooses.
+    // A finger that points moves nothing, so it stops nothing either.
+    if (!laser) stopMove();
     if (event.pointerType === "touch") {
       touches.set(event.pointerId, at);
       const down = [...touches];
       if (down.length === 1) {
         panned = false;
-        drag = { id: event.pointerId, last: at, moved: 0 };
+        if (laser) {
+          laserTouch = event.pointerId;
+          laser.point(at.x, at.y);
+        } else drag = { id: event.pointerId, last: at, moved: 0 };
       } else if (down.length === 2) {
         const [[a, pa], [b, pb]] = down as [[number, Point], [number, Point]];
         drag = null;
         panned = true;
         pinching = { ids: [a, b], camera, points: [pa, pb] };
+        // Two fingers pinch and pan, and the dot goes while they do (decision 149).
+        laserTouch = null;
+        laser?.hide();
       }
       return;
     }
@@ -622,6 +663,11 @@ function mountMap(
   let pannedTimer = 0;
   // On the window: a finger or the mouse can be released outside the pane.
   const onPointerUp = (event: PointerEvent) => {
+    // The dot goes when its finger lifts and when the browser takes the pointer (decision 149).
+    if (event.pointerId === laserTouch || event.type === "pointercancel") {
+      laserTouch = null;
+      laser?.hide();
+    }
     if (panned && touches.size <= 1) {
       clearTimeout(pannedTimer);
       pannedTimer = window.setTimeout(() => {
@@ -632,9 +678,9 @@ function mountMap(
     if (!touches.delete(event.pointerId)) return;
     if (pinching && pinching.ids.includes(event.pointerId)) {
       pinching = null;
-      // The finger left down pans on from where it is.
+      // The finger left down pans on from where it is; with the laser on it does nothing.
       const [rest] = touches;
-      if (rest) drag = { id: rest[0], last: rest[1], moved: TAP_SLOP + 1 };
+      if (rest && !laser) drag = { id: rest[0], last: rest[1], moved: TAP_SLOP + 1 };
     }
   };
 
@@ -645,6 +691,12 @@ function mountMap(
    * and a link, a block or text keep their own meaning (decision 145).
    */
   const onClick = (event: MouseEvent) => {
+    // A pointer's click with the laser on opens nothing, follows nothing and chooses nothing (decision 149).
+    if (laser && event.detail !== 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (panned) {
       panned = false;
       event.preventDefault();
@@ -715,9 +767,39 @@ function mountMap(
     });
   };
 
+  // The laser's pointer (decision 149): a mouse or pen over the pane, or the finger that points.
+  const onLaserMove = (event: PointerEvent) => {
+    if (!laser || (event.pointerType === "touch" && event.pointerId !== laserTouch)) return;
+    const at = local(event);
+    laser.point(at.x, at.y);
+  };
+  const onPointerLeave = () => laser?.hide();
+  // No text selection, link drag or focus change from a press while the laser is on.
+  const onMouseDown = (event: MouseEvent) => {
+    if (laser) event.preventDefault();
+  };
+
+  /**
+   * `L` switches the laser and Escape switches it off (decision 149), with
+   * the route keys' exclusions. Returns whether the key was the laser's.
+   */
+  const laserKey = (event: KeyboardEvent): boolean => {
+    const toggle = event.key.toLowerCase() === "l" && !event.shiftKey;
+    const off = event.key === "Escape" && laser !== null;
+    if ((!toggle && !off) || event.isComposing) return false;
+    const target = event.target instanceof Element ? event.target : pane;
+    if (usesKey(target, event, pane)) return false;
+    event.preventDefault();
+    // An Escape that switched the laser off does nothing else in the app.
+    if (off) event.stopPropagation();
+    if (!event.repeat) onLaser(toggle ? laser === null : false);
+    return true;
+  };
+
   // The keys of the route (decision 145): on the pane, so only while focus is on the map.
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (laserKey(event)) return;
     if (event.isComposing || !camera || order.length === 0) return;
     const { key } = event;
     // Shift + Space is the previous frame, as on the slides; Shift with a named key is the browser's.
@@ -771,6 +853,9 @@ function mountMap(
   layer.addEventListener("focusin", onFocusIn);
   pane.addEventListener("click", onClick, { capture: true });
   pane.addEventListener("keydown", onKeyDown);
+  pane.addEventListener("pointermove", onLaserMove);
+  pane.addEventListener("pointerleave", onPointerLeave);
+  pane.addEventListener("mousedown", onMouseDown);
   // Back online: a diagram whose code did not load may load now (decision 148).
   const onOnline = () => {
     handle?.retryFailed();
@@ -829,6 +914,19 @@ function mountMap(
       deckSections = sections;
       deckLevels = levels;
     },
+    setLaser(on) {
+      if (on === (laser !== null)) return;
+      if (on) {
+        laser = createMapLaser(pane);
+        pane.dataset["laser"] = "";
+      } else {
+        laser?.dispose();
+        laser = null;
+        laserTouch = null;
+        delete pane.dataset["laser"];
+      }
+      status.textContent = on ? m.map_laser_on() : m.map_laser_off();
+    },
     request(sectionId) {
       deckCurrent = sectionId;
       // Not opened yet: the opening view goes to `deckCurrent`.
@@ -879,7 +977,12 @@ function mountMap(
       layer.removeEventListener("focusin", onFocusIn);
       pane.removeEventListener("click", onClick, { capture: true });
       pane.removeEventListener("keydown", onKeyDown);
+      pane.removeEventListener("pointermove", onLaserMove);
+      pane.removeEventListener("pointerleave", onPointerLeave);
+      pane.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("online", onOnline);
+      laser?.dispose();
+      laser = null;
       clearTimeout(pannedTimer);
     },
   };
@@ -902,6 +1005,8 @@ export default function MapView({
   deckLevels = NO_LEVELS,
   request = null,
   onCurrent,
+  laser = false,
+  onLaserChange,
 }: MapViewProps) {
   const plan = useMemo(() => mapPlan(root), [root]);
   const loadRemoteImages = useLoadRemoteImages();
@@ -912,9 +1017,14 @@ export default function MapView({
   const statusRef = useRef<HTMLParagraphElement>(null);
   const controller = useRef<MapController | null>(null);
   const report = useEffectEvent((sectionId: string) => onCurrent?.(sectionId));
+  const askLaser = useEffectEvent((on: boolean) => onLaserChange?.(on));
   useEffect(() => {
-    const map = mountMap(paneRef.current!, layerRef.current!, statusRef.current!, (id) =>
-      report(id),
+    const map = mountMap(
+      paneRef.current!,
+      layerRef.current!,
+      statusRef.current!,
+      (id) => report(id),
+      (on) => askLaser(on),
     );
     controller.current = map;
     return () => {
@@ -929,6 +1039,9 @@ export default function MapView({
   useEffect(() => {
     controller.current?.setCurrent(current);
   }, [current]);
+  useEffect(() => {
+    controller.current?.setLaser(laser);
+  }, [laser]);
   // A request made before this map mounted (on an earlier visit to the map) is not a new choice.
   const handledSeq = useRef(request?.seq ?? 0);
   useEffect(() => {

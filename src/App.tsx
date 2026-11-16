@@ -406,6 +406,9 @@ export function App() {
   // A section the reader chose in the shell while the map shows: the map moves to
   // its frame even when the deck is already on it (decision 148).
   const [mapRequest, setMapRequest] = useState<MapRequest | null>(null);
+  // The map's laser (decision 149): here, so the palette can switch it; leaving the map switches it off.
+  const [mapLaser, setMapLaser] = useState(false);
+  if (mapLaser && (view !== "map" || follow)) setMapLaser(false);
   const goToAddress = useCallback(
     (address: string, fromMap: boolean) => {
       controller?.goTo(address);
@@ -495,6 +498,8 @@ export function App() {
     view,
     boardPage,
     toggleBoard,
+    mapLaser,
+    toggleMapLaser: () => setMapLaser((on) => !on),
     show,
     coarse,
     storedEditor,
@@ -791,6 +796,8 @@ export function App() {
               deckLevels={plan.levels}
               request={mapRequest}
               onCurrent={onMapCurrent}
+              laser={mapLaser}
+              onLaserChange={setMapLaser}
             />
           </Suspense>
         )}
