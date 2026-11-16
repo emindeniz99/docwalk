@@ -670,11 +670,23 @@ fork, merged with a merge commit.
    ("refined by …"), as the top of `docs/decisions.md` asks.
 
 **Outside the map (lead).** Found by the security review, older than the map:
-a follower's replay guard counts per sender id, and every presenter reconnect
-gets a new one, so recorded presenter states from earlier connections replay
-once per follower. With the map a replay can also switch a follower between
-the map and the slides. The fix belongs with 73: tie states to the newest
-presenter connection.
+a follower's replay guard counts per sender id, and every presenter
+connection gets a new one, so recorded presenter states from earlier
+connections replayed once per follower, and with the map a replay could
+switch a follower between the map and the slides. Fixed on `fix/replay-epoch`
+(decision 170, 2026-11-16, not merged): the presenter's sender id starts with
+the connection's epoch, which it signs, and followers, phones and agents drop
+signed frames from an older epoch. The tab keeps the epoch rising across
+reloads in `sessionStorage`, so a clock set back cannot freeze followers.
+Six tests replay an earlier connection's frames (five in
+`src/remote/remote.browser.test.ts`, one in `mcp/src/room.test.ts`). Gate:
+`pnpm check` green (3674 tests, 36 Worker tests); the room specs (remote,
+remote clock, mcp, follow frame, mirror, mirror focus, diagram tour mirror,
+whiteboard, shapes, stylus) pass on Chromium (39), Firefox and WebKit (36
+each, the 3 CDP pen tests skipped), and the map's follower tests on all
+three (9). Still open, as 170 says: a follower that has just joined or
+reloaded takes an earlier connection's frames until the presenter's first
+frame reaches it.
 
 ### 2. A real-device UX pass, and what the review of PR #5 left
 
