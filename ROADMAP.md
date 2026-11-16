@@ -674,7 +674,7 @@ a follower's replay guard counts per sender id, and every presenter
 connection gets a new one, so recorded presenter states from earlier
 connections replayed once per follower, and with the map a replay could
 switch a follower between the map and the slides. Fixed on `fix/replay-epoch`
-(decision 170, 2026-11-16, not merged): the presenter's sender id starts with
+(decision 170, 2026-11-16, merged in 5ac242c): the presenter's sender id starts with
 the connection's epoch, which it signs, and followers, phones and agents drop
 signed frames from an older epoch. The tab keeps the epoch rising across
 reloads in `sessionStorage`, so a clock set back cannot freeze followers.
