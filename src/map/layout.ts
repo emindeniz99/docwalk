@@ -54,37 +54,19 @@ export interface MapPlacement {
 }
 
 /**
- * Whether a heading at `depth` has text right after it: the test
- * `autoSlideLevel` applies, so a heading followed by another heading or a
- * thematic break does not count.
- */
-function hasHeadingWithText(root: Root, depth: number): boolean {
-  return root.children.some((node, i) => {
-    const next = root.children[i + 1];
-    return (
-      node.type === "heading" &&
-      node.depth === depth &&
-      next !== undefined &&
-      next.type !== "heading" &&
-      next.type !== "thematicBreak"
-    );
-  });
-}
-
-/**
- * The map's plan (decision 140): sections at the document's own level L and
- * at L + 1 when the document has a heading there, with the deck's cover. A
- * document with no L gets the plan of `auto`. Every caller sections the map
- * through here.
+ * The map's plan (decisions 140 and 141): sections at the document's own
+ * level L, and at L + 1 when a top-level heading sits there, whatever follows
+ * it. Every heading above L is a section, text or none, and the deck's cover
+ * stays. A document with no L gets the plan of `auto`. Every caller sections
+ * the map through here.
  */
 export function mapPlan(root: Root): SectionPlan {
   const level = autoSlideLevel(root);
-  const levels: HeadingDepth[] = [];
-  if (level !== null) {
-    levels.push(level);
-    if (level < 6 && hasHeadingWithText(root, level + 1)) levels.push((level + 1) as HeadingDepth);
-  }
-  return sectionize(root, levels, { cover: true });
+  if (level === null) return sectionize(root, "auto");
+  const levels: HeadingDepth[] = [level];
+  const deeper = root.children.some((n) => n.type === "heading" && n.depth === level + 1);
+  if (deeper) levels.push((level + 1) as HeadingDepth);
+  return sectionize(root, levels, { cover: true, emptyTitles: true });
 }
 
 /**

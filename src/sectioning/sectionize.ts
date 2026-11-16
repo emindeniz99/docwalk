@@ -196,11 +196,14 @@ const isDefinition = (node: RootContent): boolean =>
  * Split a parsed document into sections. Never splits with a regex: setext headings and fences are already nodes.
  * `cover` finds the document title under a level list too, as `auto` always does
  * (the map sections at two levels and keeps the deck's cover, decision 140).
+ * `emptyTitles` keeps a heading above the slide level that has no text of its
+ * own as an empty `title` section, where the deck keeps it only as a
+ * breadcrumb (every such heading is a frame on the map, decision 141).
  */
 export function sectionize(
   root: Root,
   option: LevelOption = "auto",
-  { cover = false }: { cover?: boolean } = {},
+  { cover = false, emptyTitles = false }: { cover?: boolean; emptyTitles?: boolean } = {},
 ): SectionPlan {
   const titleHeading = option === "auto" || cover ? findTitleHeading(root) : null;
   const levels = resolveLevels(option, root, titleHeading);
@@ -310,8 +313,11 @@ export function sectionize(
   let lead = 0;
   while (sections[lead]?.heading === null && onlyComments(sections[lead]!.nodes)) lead++;
   const leadingComments = sections.slice(0, lead).flatMap((s) => s.nodes);
-  // A title-level heading with no content of its own is a breadcrumb only.
-  const kept = sections.slice(lead).filter((s) => s.kind !== "title" || s.nodes.length > 0);
+  // A title-level heading with no content of its own is a breadcrumb only,
+  // unless the caller asks for it (the map, decision 141).
+  const kept = sections
+    .slice(lead)
+    .filter((s) => emptyTitles || s.kind !== "title" || s.nodes.length > 0);
   return { levels, titleHeading, sections: kept, headingIds: slugs, definitions, leadingComments };
 }
 
