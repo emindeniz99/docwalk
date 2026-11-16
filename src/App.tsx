@@ -1,8 +1,11 @@
 import {
   Download,
+  FileText,
   LayoutGrid,
+  MapIcon,
   Moon,
   Monitor,
+  Pencil,
   Play,
   Share2,
   Sun,
@@ -72,6 +75,7 @@ import { readInitialSections, useUrlSync } from "./url/useUrlSync";
 import { m } from "./paraglide/messages.js";
 import { FilesPanel } from "./workspace/FilesPanel";
 import { useWorkspace } from "./workspace/useWorkspace";
+import type { MapRequest } from "./map/MapView";
 import { WorkspaceBanner } from "./workspace/WorkspaceBanner";
 import { WorkspaceDialogs } from "./workspace/WorkspaceDialogs";
 
@@ -119,6 +123,8 @@ const ClearMarksDialog = lazy(() =>
 const SketchDialog = lazy(() =>
   import("./canvas/SketchDialog").then((mod) => ({ default: mod.SketchDialog })),
 );
+// The map view is a chunk of its own that the default view never requests (decisions 124, 142).
+const MapView = lazy(() => import("./map/MapView"));
 
 const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
   connecting: m.follow_connecting,
@@ -274,8 +280,8 @@ export function App() {
   // slide; its hash names the place instead.
   const [documentTarget, setDocumentTarget] = useState<DocumentTarget | null>(null);
   const [inDocument, setInDocument] = useState(view === "document");
-  // On a phone the reading view takes the screen and the outline is a sheet.
-  const outlineSheet = phone && view === "document" && !follow;
+  // On a phone the reading view and the map take the screen and the outline is a sheet.
+  const outlineSheet = phone && (view === "document" || view === "map") && !follow;
   const [outlineOpen, setOutlineOpen] = useState(false);
   if (inDocument !== (view === "document")) {
     setInDocument(view === "document");
@@ -316,6 +322,21 @@ export function App() {
     onFollowUpdate,
     onFollowDocument,
   } = useRemoteRoom({ follow, health, loadFromLink, setNotice, setLevel });
+  // A follow screen shows the map while the presenter's state says map (decision 150), once
+  // the presenter's document is here; its deck stays mounted, hidden, on the presenter's slide.
+  const followState = followUpdate.state;
+  const followMap = follow && followState?.view === "map" && doc !== null;
+  const presenterSection = followState
+    ? followState.current.slice(0, Math.max(0, followState.current.lastIndexOf("/")))
+    : null;
+  // reveal.js lays out on window resize, so nudge it when the deck comes back.
+  useEffect(() => {
+    if (!follow) return;
+    const raf = requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    return () => cancelAnimationFrame(raf);
+    // `followMap` is here to nudge on each switch between the map and the slides.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [follow, followMap]);
 
   // Source line of every section, for the editor's reveal, cursor sync and notes.
   const sectionLines = useMemo(
@@ -331,9 +352,9 @@ export function App() {
     view,
     sections: follow ? undefined : sections,
     onLevel: setLevel,
-    // Present needs a user gesture for fullscreen, so a link can open edit or document only.
+    // Present needs a user gesture for fullscreen, so a link can open edit, document or map only.
     onView: (v) => {
-      if (v === "edit" || v === "document") show(v);
+      if (v === "edit" || v === "document" || v === "map") show(v);
     },
   });
 
@@ -371,7 +392,8 @@ export function App() {
   const { frame, staged, fill, chrome, present } = usePresenting({
     view,
     follow,
-    followOpen,
+    // The bar above the map stays up: the idle chrome is the slide's (decision 150).
+    followOpen: followOpen && !followMap,
     mode,
     deckRef,
     layerRef,
@@ -397,12 +419,22 @@ export function App() {
     show,
   });
 
-  const goTo = useCallback(
-    (address: string) => {
+  // A section the reader chose in the shell while the map shows: the map moves to
+  // its frame even when the deck is already on it (decision 148).
+  const [mapRequest, setMapRequest] = useState<MapRequest | null>(null);
+  // The map's laser (decision 149): here, so the palette can switch it; leaving the map switches it off.
+  const [mapLaser, setMapLaser] = useState(false);
+  if (mapLaser && (view !== "map" || follow)) setMapLaser(false);
+  const goToAddress = useCallback(
+    (address: string, fromMap: boolean) => {
       controller?.goTo(address);
-      if (view === "document") {
-        // A reader stays in the reading view, which scrolls to the section.
-        setDocumentTarget({ anchor: sectionAnchor(plan, address.split("/")[0] ?? "") });
+      if (view === "document" || view === "map") {
+        // A reader stays in the reading view, which scrolls to the section. The map
+        // moves to the chosen section's frame, unless the choice was its own.
+        const sectionId = address.split("/")[0] ?? "";
+        if (view === "map" && !fromMap)
+          setMapRequest((last) => ({ sectionId, seq: (last?.seq ?? 0) + 1 }));
+        setDocumentTarget({ anchor: sectionAnchor(plan, sectionId) });
         setOutlineOpen(false);
         return;
       }
@@ -412,6 +444,14 @@ export function App() {
       if (line) requestAnimationFrame(() => setRevealLine(line));
     },
     [controller, view, plan, sectionLines, setOutlineOpen],
+  );
+  const goTo = useCallback((address: string) => goToAddress(address, false), [goToAddress]);
+
+  // The map reports a section, and the deck goes to its first page: pages come
+  // from measured pagination (rule 7), so no frame knows which page holds it (148).
+  const onMapCurrent = useCallback(
+    (sectionId: string) => goToAddress(`${sectionId}/1`, true),
+    [goToAddress],
   );
 
   // Comments (decision 55): App only places the pieces the hook builds.
@@ -474,6 +514,8 @@ export function App() {
     view,
     boardPage,
     toggleBoard,
+    mapLaser,
+    toggleMapLaser: () => setMapLaser((on) => !on),
     show,
     coarse,
     storedEditor,
@@ -535,6 +577,16 @@ export function App() {
     <SourceBanner source={doc.source} />
   );
 
+  const followTheme = (
+    <IconButton
+      className="docwalk-icon-button docwalk-follow-theme"
+      label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
+      onPress={() => setTheme(NEXT_THEME[theme])}
+    >
+      <ThemeIcon size={18} aria-hidden="true" />
+    </IconButton>
+  );
+
   return (
     <div
       className="docwalk-app"
@@ -570,12 +622,23 @@ export function App() {
               selectedKeys={[view === "present" ? "edit" : view]}
               onSelectionChange={(keys) => {
                 const [k] = [...keys];
-                if (k === "edit" || k === "document") show(k);
+                if (k === "edit" || k === "document" || k === "map") show(k);
               }}
               className="docwalk-segmented"
             >
-              <ToggleButton id="edit">{m.app_view_edit()}</ToggleButton>
-              <ToggleButton id="document">{m.app_document()}</ToggleButton>
+              {/* A phone shows the icons; the words stay the names (decision 143, styles.css). */}
+              <ToggleButton id="edit">
+                <Pencil size={18} aria-hidden="true" className="docwalk-view-icon" />
+                <span className="docwalk-view-label">{m.app_view_edit()}</span>
+              </ToggleButton>
+              <ToggleButton id="document">
+                <FileText size={18} aria-hidden="true" className="docwalk-view-icon" />
+                <span className="docwalk-view-label">{m.app_document()}</span>
+              </ToggleButton>
+              <ToggleButton id="map">
+                <MapIcon size={18} aria-hidden="true" className="docwalk-view-icon" />
+                <span className="docwalk-view-label">{m.app_view_map()}</span>
+              </ToggleButton>
             </ToggleButtonGroup>
             <OpenFileButton onLoad={(r) => workspace.guard(() => inputs.apply(r))} />
             <Button className="docwalk-button" isDisabled={!doc} onPress={share.open}>
@@ -748,7 +811,47 @@ export function App() {
             />
           </section>
         )}
-        <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document" && !follow}>
+        {followMap && (
+          <div className="docwalk-follow-map">
+            {/* No header and no view switch on a follow screen: the bar of decision 113. */}
+            <div className="docwalk-preview-head">
+              {subline}
+              {followTheme}
+            </div>
+            <Suspense fallback={<div className="docwalk-map-pane" />}>
+              {/* The presenter's section, followed until the follower roams; a follower's
+                  map reports nothing, so the hidden deck stays on the presenter's slide. */}
+              <MapView
+                root={root}
+                current={presenterSection}
+                deckSections={plan.sections}
+                deckLevels={plan.levels}
+                follow
+              />
+            </Suspense>
+          </div>
+        )}
+        {view === "map" && !follow && (
+          <Suspense fallback={<div className="docwalk-map-pane" />}>
+            {/* The map moves with the deck's current slide and moves it (decision 145);
+                a section left out of the chosen ones is not in the deck, so goTo does nothing. */}
+            <MapView
+              root={root}
+              current={current?.sectionId ?? null}
+              deckSections={plan.sections}
+              deckLevels={plan.levels}
+              request={mapRequest}
+              onCurrent={onMapCurrent}
+              laser={mapLaser}
+              onLaserChange={setMapLaser}
+            />
+          </Suspense>
+        )}
+        <div
+          ref={deckRef}
+          className="docwalk-deck-pane"
+          hidden={((view === "document" || view === "map") && !follow) || followMap}
+        >
           <div className="docwalk-preview-head">
             <strong>
               {current
@@ -759,16 +862,8 @@ export function App() {
             </strong>
             <span className="docwalk-preview-address">{current?.address ?? ""}</span>
             {/* The header is gone on a follow screen (decision 113): its status and theme button live here. */}
-            {follow && subline}
-            {follow && (
-              <IconButton
-                className="docwalk-icon-button docwalk-follow-theme"
-                label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
-                onPress={() => setTheme(NEXT_THEME[theme])}
-              >
-                <ThemeIcon size={18} aria-hidden="true" />
-              </IconButton>
-            )}
+            {follow && !followMap && subline}
+            {follow && !followMap && followTheme}
             {!follow && (
               <IconButton
                 label={m.cmd_overview()}
@@ -904,6 +999,7 @@ export function App() {
             level={level}
             mirror={mirrorFeed}
             countdown={presenterCountdown}
+            mapView={view === "map"}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
             edit={onEdit}

@@ -231,6 +231,7 @@ Add a row here before introducing a new one.
 | section                     | bölüm                       |                                            |
 | section selection           | bölüm seçimi                | "Bölümler: tümü" when there is none        |
 | slide overview              | slaytlara genel bakış       |                                            |
+| map (the view)              | harita                      | not "kanvas" (sketch), "genel bakış"       |
 | task mark                   | görev işareti               | named "tamamlandı", "tamamlanmadı"         |
 | text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |
 | diagram, node               | diyagram, düğüm             |                                            |
@@ -242,6 +243,7 @@ Add a row here before introducing a new one.
 | mark, saved marks           | işaret, kayıtlı işaretler   | pen and arrow marks; "Sil" deletes them    |
 | mirror, mirrored            | yansıtma, yansıtılan        | the presenter's laser and marks on others  |
 | sketch                      | çizim                       |                                            |
+| laser                       | lazer                       |                                            |
 | whiteboard                  | beyaz tahta                 |                                            |
 | rectangle, ellipse          | dikdörtgen, elips           | drawing tools                              |
 | stylus                      | dokunmatik kalem            | the pen tool stays "Kalem"                 |

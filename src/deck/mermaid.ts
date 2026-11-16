@@ -33,6 +33,10 @@ function loadMermaid(): Promise<Mermaid> {
     });
     return mermaid;
   });
+  // A failed load is not kept: the next render tries again (decision 146).
+  loaded.catch(() => {
+    loaded = null;
+  });
   return loaded;
 }
 
@@ -175,12 +179,31 @@ function cloneChildren(from: Node): DocumentFragment {
 function showSvg(host: HTMLElement, nodes: Node) {
   host.replaceChildren(nodes);
   host.classList.remove("docwalk-diagram-error");
+  host.removeAttribute("data-load-failed");
   // The natural size, from the viewBox, lets fitting work without layout.
   const box = host.querySelector("svg")?.viewBox.baseVal;
   if (box && box.width > 0 && box.height > 0) {
     host.dataset["naturalWidth"] = String(box.width);
     host.dataset["naturalHeight"] = String(box.height);
   }
+}
+
+/** The visible note for a diagram that cannot be drawn, with its source beside it (rule 3). */
+function showError(
+  host: HTMLElement,
+  source: string,
+  reason: string,
+  { loadFailed = false }: { loadFailed?: boolean } = {},
+) {
+  const pre = document.createElement("pre");
+  pre.textContent = source;
+  const note = document.createElement("p");
+  note.className = "docwalk-diagnostic";
+  note.textContent = m.diagram_error({ reason });
+  host.replaceChildren(note, pre);
+  host.classList.add("docwalk-diagram-error");
+  host.toggleAttribute("data-load-failed", loadFailed);
+  edgesByHost.delete(host);
 }
 
 /**
@@ -203,7 +226,16 @@ export async function renderDiagram(
     edgesByHost.set(host, hit.edges);
     return { ok: true };
   }
-  const mermaid = await loadMermaid();
+  let mermaid: Mermaid;
+  try {
+    mermaid = await loadMermaid();
+  } catch (error) {
+    // The diagram code did not load (offline before it was cached, a failed
+    // deploy). The import's own message can name the chunk's URL, so the note
+    // gives a fixed reason; the mark lets `renderDiagrams` try again (146).
+    showError(host, source, m.diagram_load_failed(), { loadFailed: true });
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
   const id = `docwalk-mermaid-${++counter}`;
   try {
     // Parse first and refuse a diagram that names a remote image: rendering
@@ -222,16 +254,7 @@ export async function renderDiagram(
     return { ok: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const pre = document.createElement("pre");
-    pre.textContent = source;
-    const note = document.createElement("p");
-    note.className = "docwalk-diagnostic";
-    note.textContent = m.diagram_error({
-      reason: message.split("\n")[0] ?? m.diagram_error_unknown(),
-    });
-    host.replaceChildren(note, pre);
-    host.classList.add("docwalk-diagram-error");
-    edgesByHost.delete(host);
+    showError(host, source, message.split("\n")[0] ?? m.diagram_error_unknown());
     return { ok: false, error: message };
   } finally {
     // Mermaid leaves a temporary container behind when rendering fails.
@@ -248,29 +271,40 @@ export async function renderDiagram(
  * diagram that repeats in a later part still gets its own SVG. `pause` is awaited between
  * two diagrams, for a caller that must hand the main thread back (a Mermaid render is one
  * long task).
+ *
+ * A host whose diagram code did not load keeps its source and is rendered again here, in
+ * document order with the code blocks, so a caller can try a root again (decision 146).
  */
 export async function renderDiagrams(
   root: ParentNode,
   stop: () => boolean = () => false,
   { seen = new Set<string>(), pause }: { seen?: Set<string>; pause?: () => Promise<void> } = {},
 ): Promise<DiagramResult[]> {
-  const blocks = [...root.querySelectorAll<HTMLElement>("pre > code.language-mermaid")];
+  const blocks = [
+    ...root.querySelectorAll<HTMLElement>(
+      "pre > code.language-mermaid, figure.docwalk-diagram[data-load-failed]",
+    ),
+  ];
   const results: DiagramResult[] = [];
-  for (const [i, code] of blocks.entries()) {
+  for (const [i, block] of blocks.entries()) {
     if (i > 0 && pause) await pause();
     if (stop()) break;
-    const pre = code.parentElement as HTMLElement;
-    const host = document.createElement("figure");
-    host.className = "docwalk-diagram";
-    host.tabIndex = 0;
-    // A group, not a button: a button's children are presentational, which
-    // hid the diagram's own labels from screen readers, and its name would
-    // have to contain all of that visible text (WCAG 2.5.3).
-    host.setAttribute("role", "group");
-    host.setAttribute("aria-label", m.diagram_label());
-    const source = code.textContent ?? "";
-    host.dataset["source"] = source;
-    pre.replaceWith(host);
+    let host = block;
+    let source = block.dataset["source"] ?? "";
+    if (block.localName === "code") {
+      const pre = block.parentElement as HTMLElement;
+      host = document.createElement("figure");
+      host.className = "docwalk-diagram";
+      host.tabIndex = 0;
+      // A group, not a button: a button's children are presentational, which
+      // hid the diagram's own labels from screen readers, and its name would
+      // have to contain all of that visible text (WCAG 2.5.3).
+      host.setAttribute("role", "group");
+      host.setAttribute("aria-label", m.diagram_label());
+      source = block.textContent ?? "";
+      host.dataset["source"] = source;
+      pre.replaceWith(host);
+    }
     const key = prepareDiagramSource(source);
     results.push(await renderDiagram(host, source, { reuse: !seen.has(key) }));
     seen.add(key);

@@ -40,6 +40,7 @@ test("edit view: header, outline, source and stage have names and roles", async 
       - radiogroup "View":
         - radio "Edit" [checked]
         - radio "Document"
+        - radio "Map"
       - button "Open file"
       - button "Share"
       - button "Export"
@@ -91,6 +92,7 @@ test("document view: the page reads as one article with the headings in order", 
     - radiogroup "View":
       - radio "Edit"
       - radio "Document" [checked]
+      - radio "Map"
   `);
   await expect(page.getByRole("main")).toMatchAriaSnapshot(`
     - main:

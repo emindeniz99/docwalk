@@ -131,9 +131,9 @@ export function useAnnotationLayer({
     // The first touch should draw: with no drawing tool chosen, the pen is.
     if (layer.board()) setMode((chosen) => (chosen === "off" ? "pen" : chosen));
   }, [controller]);
-  // The deck pane is hidden in the document view; a board there would be open on nothing.
+  // The deck pane is hidden in the document view and the map; a board there would be open on nothing.
   useEffect(() => {
-    if (view === "document") layerRef.current?.setBoard(null);
+    if (view === "document" || view === "map") layerRef.current?.setBoard(null);
   }, [view]);
   useAnnotationShortcuts(
     {

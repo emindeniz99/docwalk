@@ -466,6 +466,78 @@ describe("state signatures (decision 73)", () => {
   });
 });
 
+describe("the presenter's view in state (decision 150)", () => {
+  // A follow screen shows the map while the presenter's state says so. The
+  // field is optional, so a state from a page built before it reads as slides.
+  const STATE = MESSAGES[0]!;
+  const ON_MAP = { ...STATE, view: "map" } as RemoteMessage;
+
+  test("a state with view map arrives as map, and one without it has no view: slides", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    const open = async (message: unknown) =>
+      (await decrypt(key, await encryptRaw(key, sealed(message))))?.message;
+    expect(await open(ON_MAP)).toEqual(ON_MAP);
+    const slides = await open(STATE);
+    expect(slides).toEqual(STATE);
+    expect(slides).not.toHaveProperty("view");
+  });
+
+  test("any other view drops the whole state, as a bad level does: a key holder cannot slip in a surprising value", async () => {
+    // The state's other optional fields (docLinkTooLong, level) take a default
+    // only when absent; a present but wrong value fails the message. view does
+    // the same, so the app never sees a view it does not know.
+    const key = await importKey(createRoomCredentials().key);
+    for (const view of ["slides", "MAP", "map ", "", "overview", 1, 0, true, null, {}, ["map"]]) {
+      const frame = await encryptRaw(key, sealed({ ...STATE, view }));
+      expect([view, await decrypt(key, frame)]).toEqual([view, null]);
+    }
+  });
+
+  test("a signed state with view map verifies, and adding or removing view after signing fails", async () => {
+    // The signature covers the message as sent, so a follower cannot move
+    // other followers onto or off the map by editing the presenter's state.
+    const { view, signer, verifier } = await signedRoom();
+    const onMap = await decrypt(view, await encrypt(view, ON_MAP, SEAL, signer), verifier);
+    expect(onMap?.signed).toBe(true);
+    expect(onMap?.message).toEqual(ON_MAP);
+
+    const plain = async (frame: EncryptedFrame) =>
+      JSON.parse(
+        new TextDecoder().decode(
+          await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: fromBase64Url(frame.iv)! },
+            view,
+            fromBase64Url(frame.data)!,
+          ),
+        ),
+      ) as { s: string; n: number; m: Record<string, unknown>; g: string };
+    const signedOnMap = await plain(await encrypt(view, ON_MAP, SEAL, signer));
+    const { view: _view, ...withoutView } = signedOnMap.m;
+    const removed = await encryptRaw(view, JSON.stringify({ ...signedOnMap, m: withoutView }));
+    expect((await decrypt(view, removed, verifier))?.signed).toBe(false);
+
+    const signedSlides = await plain(await encrypt(view, STATE, SEAL, signer));
+    const added = await encryptRaw(
+      view,
+      JSON.stringify({ ...signedSlides, m: { ...signedSlides.m, view: "map" } }),
+    );
+    expect((await decrypt(view, added, verifier))?.signed).toBe(false);
+  });
+
+  test("a signed state verifies on a page whose schema does not know a field of it", async () => {
+    // How a follower built before 150 sees view: the signature is checked over
+    // the message as it arrived, not over what the schema kept, so the state
+    // still verifies and the unknown field is stripped. Here a field this
+    // build does not know stands in for view.
+    const { view, signer, verifier } = await signedRoom();
+    const newer: unknown = { ...ON_MAP, layout: "columns" };
+    const frame = await encrypt(view, newer as RemoteMessage, SEAL, signer);
+    const opened = await decrypt(view, frame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(ON_MAP);
+  });
+});
+
 describe("join links", () => {
   const creds = presenterCreds;
 

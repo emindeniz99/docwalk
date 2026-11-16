@@ -96,6 +96,11 @@ interface RemoteHostOptions {
    * every change and never to followers.
    */
   countdown?: Countdown | null;
+  /**
+   * True while the presenter is in the map view: states then say `view: "map"`,
+   * and entering or leaving the map sends one (decision 150). Defaults to false.
+   */
+  mapView?: boolean;
 }
 
 export interface RemoteHost {
@@ -185,6 +190,7 @@ export function useRemoteHost({
   onAgentEditRefused,
   mirror = null,
   countdown = null,
+  mapView = false,
 }: RemoteHostOptions): RemoteHost {
   /** Null while a new room's keys are generated (none stored, a duplicated tab, a taken seat). */
   const [creds, setCreds] = useState(readStoredCredentials);
@@ -205,6 +211,7 @@ export function useRemoteHost({
   const controllerRef = useRef(controller);
   const docLinkRef = useRef(docLink);
   const levelRef = useRef(level);
+  const mapViewRef = useRef(mapView);
   const markdownRef = useRef(markdown);
   /** The document the current deck was built from; the slide list is stale while it differs. */
   const builtForRef = useRef<string | null>(null);
@@ -246,6 +253,7 @@ export function useRemoteHost({
       docLink: link ?? null,
       docLinkTooLong: link === null,
       level: typeof lvl === "object" ? [...lvl] : lvl,
+      ...(mapViewRef.current ? { view: "map" as const } : {}),
     };
     const result = await conn.send(state);
     if (result === "too-large" && state.docLink) {
@@ -492,13 +500,15 @@ export function useRemoteHost({
   }, [room, socketFactory, base, sendState, sendCountdown, mirror]);
 
   // Subscribing announces the current slide at once, and again on every change,
-  // including after the deck is rebuilt or the doc link changes.
+  // including after the deck is rebuilt, the doc link changes or the presenter
+  // enters or leaves the map, which changes no slide (decision 150).
   const ready = room !== null;
   useEffect(() => {
     if (!ready || !controller) return;
     docLinkRef.current = docLink;
+    mapViewRef.current = mapView;
     return controller.onChange(() => void sendState());
-  }, [ready, controller, docLink, sendState]);
+  }, [ready, controller, docLink, mapView, sendState]);
 
   // A change of the countdown reaches the phones at once, also the one that ends it.
   useEffect(() => {

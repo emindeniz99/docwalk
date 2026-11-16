@@ -155,7 +155,7 @@ function HostProbe({ report, ...props }: HostProps & { report: (r: RemoteHost) =
   return null;
 }
 
-function mountHost(relay: FakeRelay) {
+function mountHost(relay: FakeRelay, extra: Partial<HostProps> = {}) {
   const result: { current: RemoteHost | null } = { current: null };
   mount(
     h(HostProbe, {
@@ -164,6 +164,7 @@ function mountHost(relay: FakeRelay) {
       enabled: true,
       socketFactory: relay.factory,
       base: BASE,
+      ...extra,
       report: (r: RemoteHost) => (result.current = r),
     }),
   );
@@ -209,6 +210,32 @@ describe("hello again for a new presenter (decision 111)", () => {
     await vi.waitFor(() =>
       expect(second.current!.participants).toEqual({ remotes: 1, followers: 1, agents: 1 }),
     );
+  });
+
+  test("a follower that joined while the presenter's tab reloaded on the map is told map, and slides once it leaves (decision 150)", async () => {
+    // The follower's hello went into a room with no presenter; the state that
+    // answers its hello again is the first it sees, and must say where the
+    // presenter is, or its screen shows slides while the presenter is on the map.
+    const relay = new FakeRelay();
+    const first = mountHost(relay, { mapView: true });
+    const followCreds = await joinCreds(first, "follow");
+    unmount();
+
+    const follower = peer(relay, followCreds, "follower");
+    await opened(follower);
+    const second = mountHost(relay, { mapView: true });
+    await vi.waitFor(() => expect(second.current!.participants.followers).toBe(1));
+    const states = () =>
+      follower.received.filter(
+        (m): m is Extract<RemoteMessage, { type: "state" }> => m.type === "state",
+      );
+    await vi.waitFor(() => expect(states().length).toBeGreaterThan(0));
+    expect(states().every((m) => m.view === "map")).toBe(true);
+
+    const onMap = states().length;
+    mountHost(relay, { mapView: false });
+    await vi.waitFor(() => expect(states().length).toBeGreaterThan(onMap));
+    expect(states().at(-1)).not.toHaveProperty("view");
   });
 
   test("a client says hello again once for a presenter sender it has not seen, and not for more states from the same one", async () => {

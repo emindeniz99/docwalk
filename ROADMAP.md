@@ -503,17 +503,114 @@ Settled (decision 136):
 
 Suggested steps:
 
-1. Layout: a pure function from the sectioned AST to frame rectangles, unit
-   tested (no frame overlaps, document order left to right, every section
-   once).
-2. The view: render frames into one transformed layer, reuse 127's pan and
-   zoom, draw Mermaid only for frames near the viewport, and keep the new code
-   in a lazy chunk (first-load budget, decision 124).
-3. Route: arrow keys, zoom-out key, camera animation, reduced motion, screen
-   readers reading in document order, a URL address per section.
-4. Focus view and laser on the map.
-5. Followers: section-follow plus roam and back-to-presenter, with the
-   existing room tests extended.
+1. Done 2026-11-16 (decisions 139 to 141): `src/map/layout.ts`. `mapPlan`
+   sections the document at its own level `L` and at `L + 1`, with the deck's
+   cover and with every heading above `L` kept as a frame; `mapColumns` opens a
+   column at each heading at `L` or above and stacks the rest; `placeFrames`
+   turns measured heights into rectangles (1280 wide, at least 720 tall, gaps
+   64 and 192). Nothing uses it yet. The sample document gives 23 columns and
+   40 frames. Rows 139 to 141 are the lead's reading of 136 and wait for the
+   owner. For step 2: `MapFrame` carries id, title and depth only, so the view
+   joins back to the plan's sections by id; frames not yet measured are 720
+   tall, so later frames in a column move as heights arrive. For step 3: part
+   ids and part contents differ between the deck's plan and the map's (`## A`,
+   `### X`, a thematic break: the deck has `a, a-part-2`, the map `a, x,
+   x-part-2`), so the address mapping must handle parts; a document with
+   headings but no slide level keeps the deck's plan.
+2. Done 2026-11-16 (decisions 142 to 144): "Map" ("Harita") is a third view
+   beside Edit and Document, in the link as `view=map`, in a lazy chunk the
+   first load never requests. `src/map/frames.ts` draws one section per frame
+   with the slides' pipeline and reports heights; `src/map/camera.ts` is the
+   camera as pure functions; `src/map/MapView.tsx` places the frames on one
+   layer and moves it: a wheel pans, Ctrl/Cmd + wheel and a pinch zoom, one
+   finger pans, a mouse drag on empty map pans. Diagrams draw only near the
+   view. A click or Enter on a block opens the focus view (the part of step 4
+   its marks promised). Rows 142 to 144 are the lead's reading and wait for
+   the owner. Left open, for the owner or a later step:
+   - A wide table or a long code line in a frame is not scrolled in place:
+     the map takes every wheel and touch. It is read in the focus view or with
+     the keyboard.
+   - Zoomed all the way out, the map is not centred and can hang past an edge;
+     step 3's zoom-out key centres it.
+   - In Turkish at 1440 px the header takes two rows with three view choices
+     (143). On a phone the choices are icons.
+   - A frame with no heading (content above the first heading, a document with
+     no headings) has no accessible name. Diagrams keep Mermaid's natural size
+     and are not fitted as on a slide.
+   - Fixed in step 3 (146): when the diagram code failed to load, the figure
+     stayed empty with no note in the deck, the document view and the map.
+   - Chromium only for touch and gestures: real trackpads, Safari's gesture
+     events, an iPad and Firefox's wheel are untested. A tap is told from a pan
+     by 10 px of movement.
+   - For step 3: `MapView` has no way in from outside to move the camera; frame
+     ids at `L + 1` and part ids are not deck addresses (140); the outline and
+     the current slide come from the deck's plan, which follows the level
+     override, and the map does not; arrow keys will meet focused scroll boxes
+     and text; a smooth move must stop for wheel or pointer input and will
+     trigger diagram drawing on the way.
+3. Done 2026-11-16 (decisions 145 to 148): the route. The map has a current
+   frame (`aria-current`, a ring about 3 screen px wide at every zoom, a polite
+   status "Title, 2 of 40"). Arrow keys, Page keys, Space, Home and End walk the
+   frames in document order (`src/map/route.ts`); `0` shows the whole map,
+   centred, and `0` or Enter returns; `+` and `-` zoom. A click on a frame's
+   heading or empty area goes there; while the whole map shows, any click in a
+   frame does. A move takes 300 ms and jumps under reduced motion or in a
+   hidden tab; any input stops it. The link keeps the slide address: the map
+   reports the deck section that holds the frame's first line and the deck
+   goes to that section's first page, so the outline, the status bar and Edit
+   follow. Rows 145 to 148 are the lead's reading and wait for the owner. Left
+   open, for the owner or a later step:
+   - Chromium keeps a failed module request for the life of the page, so a
+     diagram whose code did not load cannot be retried there; the note says to
+     reload (146, 148). Presenter previews show that note per diagram where
+     they showed an error state before.
+   - A URL edited by hand to the section the deck is already on does not move
+     the map; an outline entry, a palette result or a link does (148).
+   - Right-to-left scroll boxes are not handled by the "can this box still
+     scroll" rule for arrow keys.
+   - Not verified: a real screen reader (the status wording, `aria-current` on
+     a labelled section), real touch or trackpad input stopping a move, and
+     the browser's `online` event (tested with a synthetic one).
+   - Found on the way and fixed: under reduced motion the command palette's
+     search box got no focus after focus had moved without a key or pointer
+     (a screen reader, `focus()`); the reduced-motion rule now sets
+     transitions to 0s (`src/styles.css`). React Aria's `runAfterTransition`
+     loses a nested `transitioncancel`; worth reporting upstream.
+   - For step 4: the laser draws in slide coordinates; a frame is a
+     `.docwalk-slide`, but the layer is scaled and moved. For step 5: the map
+     takes a `request` prop (`{ sectionId, seq }`) that always moves it, and
+     `current`, which moves it only when the deck section changes.
+4. Done 2026-11-16 (decision 149; the focus view is 144): the map's own laser
+   (`src/map/laser.ts`). `L` on the pane or the palette switches it, Escape
+   switches it off; a dot with the slides' fading trail is drawn over the pane
+   in screen pixels. While it is on, a mouse, a pen or one finger points and
+   does nothing else; two fingers, the wheel and the route keys work as
+   before. Row 149 is the lead's reading and waits for the owner. Left open:
+   - The Present button still opens the slides: a map is presented by sharing
+     the window. Presenting the map full screen needs a row.
+   - The phone remote's laser shows nothing on the map.
+   - Not verified: a real pen, a real finger (long press, the finger left down
+     after a pinch), Safari's gesture events with the laser on, and
+     `cursor: none` in Firefox and WebKit.
+5. Done 2026-11-16 (decision 150): followers on the map. The signed state
+   carries an optional `view: "map"` while the presenter is on the map; a
+   follow screen then shows the map on the frame of the presenter's section
+   and moves with it, and shows the slides again when the presenter leaves the
+   map. Any pan, zoom, route key or click on the follower's map starts a roam;
+   a "Back to presenter" button or Escape ends it. Nothing is sent by a
+   follower. Row 150 is the lead's reading and waits for the owner. Left open:
+   - Only the section is sent, so a follower sits on the head frame of the
+     presenter's column while the presenter reads a `###` frame of it, and
+     stays behind when the presenter clicks a frame whose section the
+     presenter's own choice of sections leaves out.
+   - The laser, marks, whiteboard and the presenter's focus views are not
+     shown on a follower's map (150).
+   - The follow bar keeps saying "Following the presenter" during a roam: it
+     is the connection's status. The roam is said by the map's status only.
+   - A document too long for the room's link (the sample is) cannot be
+     followed at all, with or without the map.
+   - Not verified: Firefox and WebKit beyond CI, a real second device, and a
+     phone or tablet as the follower.
 
 Done means: a browser test per step, the end-to-end suite on Chromium,
 Firefox and WebKit, axe on the map view, before and after screenshots of the
