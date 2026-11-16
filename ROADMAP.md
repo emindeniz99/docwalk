@@ -683,6 +683,18 @@ and tour, the whiteboard, stylus and saved marks, and the countdown and
 comments. Decision 132 lists the thirteen defects fixed. Found and not fixed,
 smallest first; each needs a failing test before code:
 
+- Code colours on WebKit (found 2026-11-16): a page opened straight on its
+  document (a `#doc=` link, no sample render first) colours the first line of
+  the first `ts` block wrongly: one or two tokens, then the rest of the line as
+  one token, and it changes from run to run. Chromium and Firefox are right.
+  Cause, measured: `src/render/shikiTokens.ts` calls `codeToTokensBase`, whose
+  `tokenizeTimeLimit` defaults to 500 ms a line, and WebKit's regex engine
+  passes that while it compiles a cold grammar; with no limit, 3 of 3 WebKit
+  runs were right, as built 3 of 3 wrong. `e2e/highlight.spec.ts` misses it
+  because it renders the sample first, which warms the grammar. Fix: a
+  decision row first (a limit exists for hostile very long lines, so raise it
+  for a cold grammar's first block, or warm the grammar in the worker first),
+  then a test that opens the document by `docLink` and fails before the fix.
 - Comments: a reopened comment reads "edited" although its text never changed.
   A comment stores one time for any change, and a reopen must move it for
   merges to work, so the label needs a stored time of the last text change
