@@ -227,6 +227,100 @@ describe("level override", () => {
   });
 });
 
+const kinds = (p: SectionPlan) => p.sections.map((s) => `${s.kind}:${s.id}`);
+
+describe("the cover option: the document title under a level list (decision 140)", () => {
+  // The map sections at [L, L + 1] and must keep the deck's cover, so a frame's
+  // id is the id the deck's cover slide has.
+  const withIntro = parseMarkdown("# Ledger\n\nIntro.\n\n## A\n\na\n\n### A1\n\nx\n");
+  const noIntro = parseMarkdown("# Ledger\n\n## A\n\na\n\n### A1\n\nx\n");
+
+  test("a title with an intro is the same cover as under auto", () => {
+    const auto = sectionize(withIntro, "auto");
+    const p = sectionize(withIntro, [2, 3], { cover: true });
+    expect(kinds(p)).toEqual(["cover:ledger", "content:a", "content:a1"]);
+    expect(p.titleHeading).toBe(auto.titleHeading);
+    expect(p.sections[0]).toEqual(auto.sections[0]);
+  });
+
+  test("a title with no intro is kept as an empty cover, as under auto", () => {
+    const p = sectionize(noIntro, [2, 3], { cover: true });
+    expect(kinds(p)).toEqual(["cover:ledger", "content:a", "content:a1"]);
+    expect(p.sections[0]?.nodes).toEqual([]);
+    expect(kinds(sectionize(noIntro, "auto"))[0]).toBe("cover:ledger");
+  });
+
+  test("without the option a level list finds no title, as before", () => {
+    // Today's result, pinned: the deck's level override must not change.
+    for (const options of [undefined, {}, { cover: false }]) {
+      const p = sectionize(withIntro, [2, 3], options);
+      expect(p.titleHeading).toBeNull();
+      expect(kinds(p)).toEqual(["title:ledger", "content:a", "content:a1"]);
+      expect(kinds(sectionize(noIntro, [2, 3], options))).toEqual(["content:a", "content:a1"]);
+    }
+  });
+
+  test("auto finds the title anyway, so the option changes nothing there", () => {
+    const auto = sectionize(withIntro, "auto");
+    expect(sectionize(withIntro, "auto", { cover: true })).toEqual(auto);
+    expect(sectionize(withIntro, "auto", { cover: false })).toEqual(auto);
+  });
+});
+
+describe("the emptyTitles option: headings above the slide level with no text (decision 141)", () => {
+  // The map keeps every heading above L as a frame; the deck keeps such a
+  // heading only as a breadcrumb.
+  const parts = parseMarkdown("# Part one\n\n## A\n\na\n\n# Part two\n\n## B\n\nb\n");
+
+  test("keeps a heading above the slide level as an empty title section with its anchor", () => {
+    const p = sectionize(parts, [2], { emptyTitles: true });
+    expect(kinds(p)).toEqual(["title:part-one", "content:a", "title:part-two", "content:b"]);
+    expect(p.sections[0]?.nodes).toEqual([]);
+    expect(p.sections[2]?.breadcrumb).toEqual([]);
+  });
+
+  test("without it such headings stay breadcrumbs only, as before", () => {
+    for (const options of [undefined, {}, { emptyTitles: false }]) {
+      expect(kinds(sectionize(parts, [2], options))).toEqual(["content:a", "content:b"]);
+    }
+  });
+
+  test("a part after a thematic break keeps its id and number", () => {
+    const root = parseMarkdown("## A\n\na\n\n# Part two\n\n---\n\nx\n\n---\n\ny\n\n## B\n\nb\n");
+    expect(kinds(sectionize(root, [2]))).toEqual([
+      "content:a",
+      "content:part-two-part-2",
+      "content:part-two-part-3",
+      "content:b",
+    ]);
+    expect(kinds(sectionize(root, [2], { emptyTitles: true }))).toEqual([
+      "content:a",
+      "title:part-two",
+      "content:part-two-part-2",
+      "content:part-two-part-3",
+      "content:b",
+    ]);
+  });
+
+  test("leading comments and the cover are the same with it", () => {
+    const root = parseMarkdown("<!-- note -->\n\n# Doc\n\n## A\n\na\n");
+    const before = sectionize(root, "auto");
+    const after = sectionize(root, "auto", { emptyTitles: true });
+    expect(after).toEqual(before);
+    expect(kinds(after)).toEqual(["cover:doc", "content:a"]);
+    expect(after.leadingComments).toHaveLength(1);
+    const listed = sectionize(
+      parseMarkdown("<!-- note -->\n\n# One\n\n# Two\n\n## A\n\na\n"),
+      [2],
+      {
+        emptyTitles: true,
+      },
+    );
+    expect(kinds(listed)).toEqual(["title:one", "title:two", "content:a"]);
+    expect(listed.leadingComments).toHaveLength(1);
+  });
+});
+
 describe("acceptance fixture", () => {
   const p = plan(fixture);
 
