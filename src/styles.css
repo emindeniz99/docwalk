@@ -78,12 +78,18 @@ a {
   outline-offset: 2px;
 }
 
+/*
+ * Transitions get 0s, not 0.01ms: `transition-property` defaults to `all`, so
+ * any duration above zero starts a transition on every style change of every
+ * element. React Aria then waits for them before it moves focus, lost one on
+ * the command palette's overlay, and the search box never got focus.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
   }
 }
 
