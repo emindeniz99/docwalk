@@ -282,6 +282,10 @@ interface MapController {
  *   assistive technology (`detail` 0) keeps its meaning.
  * - After two fingers, the finger left down neither points nor pans until it
  *   lifts.
+ * - A press that began pointing keeps its click swallowed when the laser
+ *   goes off before the release; the laser going on ends a mouse drag.
+ * - While a finger points, a mouse or pen moves no dot.
+ * - Switched on while focus is outside the pane, the pane takes focus.
  *
  * Rules this view chose for a follower's map (step 5, decision 150):
  * - A roam starts with whatever moves the camera by the reader's hand: the
@@ -337,6 +341,8 @@ function mountMap(
   let laser: MapLaser | null = null;
   /** The finger that points: one that came down alone while the laser is on. */
   let laserTouch: number | null = null;
+  /** The last press pointed: its click is swallowed even if the laser went off before the release. */
+  let laserPress = false;
   /** A follower moved the map by hand: the presenter's sections no longer move it (decision 150). */
   let roaming = false;
 
@@ -625,6 +631,7 @@ function mountMap(
 
   const onPointerDown = (event: PointerEvent) => {
     selectedAtPress = selectionKey();
+    laserPress = laser !== null;
     if (!camera) return;
     const at = local(event);
     if (laser && event.pointerType !== "touch") {
@@ -730,7 +737,8 @@ function mountMap(
    */
   const onClick = (event: MouseEvent) => {
     // A pointer's click with the laser on opens nothing, follows nothing and chooses nothing (decision 149).
-    if (laser && event.detail !== 0) {
+    if ((laser || laserPress) && event.detail !== 0) {
+      laserPress = false;
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -813,12 +821,18 @@ function mountMap(
   // The laser's pointer (decision 149): a mouse or pen over the pane, or the finger that points.
   const onLaserMove = (event: PointerEvent) => {
     if (!laser || (event.pointerType === "touch" && event.pointerId !== laserTouch)) return;
+    // One dot: while a finger points, a mouse or pen elsewhere does not move it.
+    if (event.pointerType !== "touch" && laserTouch !== null) return;
     const at = local(event);
     laser.point(at.x, at.y);
   };
   const onPointerLeave = () => laser?.hide();
   // No text selection, link drag or focus change from a press while the laser is on.
   const onMouseDown = (event: MouseEvent) => {
+    if (laser) event.preventDefault();
+  };
+  // No long-press menu and no middle click on a link while pointing.
+  const onLaserHold = (event: MouseEvent) => {
     if (laser) event.preventDefault();
   };
 
@@ -922,6 +936,8 @@ function mountMap(
   pane.addEventListener("pointermove", onLaserMove);
   pane.addEventListener("pointerleave", onPointerLeave);
   pane.addEventListener("mousedown", onMouseDown);
+  pane.addEventListener("contextmenu", onLaserHold);
+  pane.addEventListener("auxclick", onLaserHold, { capture: true });
   // Back online: a diagram whose code did not load may load now (decision 148).
   const onOnline = () => {
     handle?.retryFailed();
@@ -986,6 +1002,10 @@ function mountMap(
       if (on) {
         laser = createMapLaser(pane);
         pane.dataset["laser"] = "";
+        // A mouse drag panning when the laser goes on ends here; two fingers still pinch.
+        drag = null;
+        // Switched on from outside (the palette): the pane takes focus, so Escape reaches it.
+        if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true });
       } else {
         laser?.dispose();
         laser = null;
@@ -1050,6 +1070,8 @@ function mountMap(
       pane.removeEventListener("pointermove", onLaserMove);
       pane.removeEventListener("pointerleave", onPointerLeave);
       pane.removeEventListener("mousedown", onMouseDown);
+      pane.removeEventListener("contextmenu", onLaserHold);
+      pane.removeEventListener("auxclick", onLaserHold, { capture: true });
       window.removeEventListener("online", onOnline);
       laser?.dispose();
       laser = null;
