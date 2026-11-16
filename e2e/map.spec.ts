@@ -851,11 +851,16 @@ test.describe("a follow screen while the presenter is on the map (decision 150)"
     await expect(backButton(follower)).toHaveCount(0);
     await expectNoSeriousViolations(follower);
 
-    // The presenter steps into the next column; the follower's map moves there.
+    // The paste left the presenter on the last slide: Home goes to the first frame,
+    // then Right steps into the next column. The follower's map moves with each.
     await mapRegion(presenter).focus();
+    await presenter.keyboard.press("Home");
+    const first = await current(presenter).getAttribute("data-map-frame");
+    expect(first).not.toBe(opening);
+    await expect(current(follower)).toHaveAttribute("data-map-frame", first!);
     await presenter.keyboard.press("ArrowRight");
     const second = await current(presenter).getAttribute("data-map-frame");
-    expect(second).not.toBe(opening);
+    expect(second).not.toBe(first);
     await expect(current(follower)).toHaveAttribute("data-map-frame", second!);
     await expect.poll(() => inPane(follower, current(follower))).toBe(true);
 
@@ -888,7 +893,7 @@ test.describe("a follow screen while the presenter is on the map (decision 150)"
     // Roam again, by a route key this time, and come back with Escape.
     await mapRegion(follower).focus();
     await follower.keyboard.press("Home");
-    await expect(current(follower)).toHaveAttribute("data-map-frame", opening!);
+    await expect(current(follower)).toHaveAttribute("data-map-frame", first!);
     await expect(backButton(follower)).toBeVisible();
     await follower.keyboard.press("Escape");
     await expect(current(follower)).toHaveAttribute("data-map-frame", third!);
@@ -914,5 +919,59 @@ test.describe("a follow screen while the presenter is on the map (decision 150)"
     await follower.bringToFront();
     await expect(current(follower)).toHaveAttribute("data-map-frame", third!);
     await expect(backButton(follower)).toHaveCount(0);
+  });
+});
+
+test.describe("the presenter's marks while a follower shows the map (decision 150)", () => {
+  test.use({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+
+  test("the mirror layer hides with the deck, the board's closing op on the way to the map throws nothing, and the marks are back on slides", async ({
+    context,
+  }) => {
+    const { presenter, followUrl } = await openRoom(context);
+    await presenter.locator(".docwalk-outline-item").first().click();
+    await expect(presenter.locator(".docwalk-preview-head strong")).toHaveText("1 / 3");
+    const follower = await context.newPage();
+    const errors: string[] = [];
+    follower.on("pageerror", (error) => errors.push(error.message));
+    await ready(follower, followUrl);
+    await expect(follower.locator(".docwalk-preview-head strong").first()).toHaveText("1 / 3");
+    const mirror = follower.locator(".docwalk-mirror");
+    const marks = follower.locator(".docwalk-mirror [data-mark]");
+
+    // A pen stroke on the first slide reaches the follower (decision 88).
+    await presenter.bringToFront();
+    await presenter.getByRole("radio", { name: "Pen" }).click();
+    const r = await boxOf(presenter.locator(".docwalk-annotate"));
+    await presenter.mouse.move(r.x + r.width * 0.2, r.y + r.height * 0.4);
+    await presenter.mouse.down();
+    await presenter.mouse.move(r.x + r.width * 0.6, r.y + r.height * 0.5, { steps: 14 });
+    await presenter.mouse.up();
+    await expect(marks).toHaveCount(1);
+    await expect(marks.first()).toBeVisible();
+
+    // A whiteboard open on the way to the map: leaving for the map closes it (row 143),
+    // and that close reaches the follower as a mirror op around the switch.
+    await presenter.locator(".reveal").focus();
+    await presenter.keyboard.press("w");
+    await expect(presenter.locator(".docwalk-annotate[data-board]")).toHaveCount(1);
+    await presenter.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(presenter)).toHaveCount(3);
+    await follower.bringToFront();
+    await expect(frames(follower)).toHaveCount(3);
+    // Drawn in slide units on the deck's stage, the mirror is not shown on the map.
+    await expect(mirror).toBeHidden();
+    await expect(marks.first()).toBeHidden();
+
+    // Both back on slides: the follower's marks show again, on the presenter's slide.
+    await presenter.bringToFront();
+    await presenter.getByRole("radio", { name: "Edit" }).click();
+    await follower.bringToFront();
+    await expect(follower.locator("[data-map-frame]")).toHaveCount(0);
+    await expect(presentSlide(follower)).toBeVisible();
+    await expect(mirror).toBeVisible();
+    await expect(marks).toHaveCount(1);
+    await expect(marks.first()).toBeVisible();
+    expect(errors, "page errors on the follower").toEqual([]);
   });
 });
