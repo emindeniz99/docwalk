@@ -25,6 +25,7 @@ import {
   type RoomKey,
   toBase64Url,
 } from "./crypto";
+import { presenterSender } from "./replay";
 import type { EncryptedFrame, RemoteMessage } from "./types";
 
 const MESSAGES: RemoteMessage[] = [
@@ -119,6 +120,12 @@ const MESSAGES: RemoteMessage[] = [
 
 /** A seal for tests: any sender id, any counter. */
 const SEAL = { sender: "SenderSender", counter: 1 };
+/**
+ * The presenter's seal: its sender id leads with the connection's epoch and
+ * is 8 characters longer (decision 170). Tests of the size of what the
+ * presenter sends use it, so they measure the real frames.
+ */
+const PRESENTER_SEAL = { sender: presenterSender(Date.now()), counter: 1 };
 
 /** `message` inside a valid seal, as JSON text: a key holder's plaintext. */
 const sealed = (message: unknown) =>
@@ -848,7 +855,7 @@ describe("mirror messages (decision 88)", () => {
       op: "focus-tour",
       path: Array.from({ length: 64 }, (_, i) => 937 + i),
     };
-    const frame = await encrypt(view, widest, SEAL, signer);
+    const frame = await encrypt(view, widest, PRESENTER_SEAL, signer);
     const bytes = JSON.stringify(frame).length;
     expect(bytes).toBeLessThan(1024);
     expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
@@ -873,7 +880,7 @@ describe("mirror messages (decision 88)", () => {
       op: "focus-lines",
       lines: Array.from({ length: 256 }, (_, i) => 100_000 - 255 + i),
     };
-    const frame = await encrypt(view, widest, SEAL, signer);
+    const frame = await encrypt(view, widest, PRESENTER_SEAL, signer);
     const bytes = JSON.stringify(frame).length;
     expect(bytes).toBeLessThan(3 * 1024);
     expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
@@ -906,7 +913,7 @@ describe("mirror messages (decision 88)", () => {
     ];
     for (const message of widest) {
       const { type: _type, ...op } = message as { type: "mirror" } & MirrorOp;
-      const frame = await encrypt(view, message, SEAL, signer);
+      const frame = await encrypt(view, message, PRESENTER_SEAL, signer);
       const bytes = JSON.stringify(frame).length;
       expect(bytes).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
       const opened = await decrypt(view, frame, verifier);
@@ -929,7 +936,7 @@ describe("mirror messages (decision 88)", () => {
       slide: "語".repeat(2048),
       ids: Array.from({ length: 200 }, (_, i) => 2 ** 31 - 1 - i),
     };
-    const frame = await encrypt(view, widest, SEAL, signer);
+    const frame = await encrypt(view, widest, PRESENTER_SEAL, signer);
     expect(JSON.stringify(frame).length).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
     const opened = await decrypt(view, frame, verifier);
     expect(opened?.signed).toBe(true);
@@ -958,7 +965,7 @@ describe("mirror messages (decision 88)", () => {
       let bytes = 0;
       let estimated = 0;
       for (const [i, op] of ops.entries()) {
-        const seal = { sender: SEAL.sender, counter: 10_000_000 + i };
+        const seal = { sender: PRESENTER_SEAL.sender, counter: 10_000_000 + i };
         const frame = await encrypt(view, { type: "mirror", ...op }, seal, signer);
         bytes += JSON.stringify(frame).length;
         estimated += mirrorFrameBytes(op);
@@ -988,7 +995,7 @@ describe("mirror messages (decision 88)", () => {
       points: Array.from({ length: 256 }, () => 4096),
       end: true,
     } as RemoteMessage;
-    const frame = await encrypt(view, widest, SEAL, signer);
+    const frame = await encrypt(view, widest, PRESENTER_SEAL, signer);
     expect(JSON.stringify(frame).length).toBeLessThan(6 * 1024);
   });
 });

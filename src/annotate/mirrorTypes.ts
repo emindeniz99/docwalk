@@ -71,8 +71,11 @@ export const MIRROR_LASER_IDLE_MS = 3000;
  */
 export const RESYNC_MIN_GAP_MS = 2000;
 export const RESYNC_BYTES_PER_SECOND = 64 * 1024;
-/** What a signed, sealed room frame adds to the base64 of its op: seal, signature, tag and frame fields (258 measured). */
-const FRAME_OVERHEAD_BYTES = 260;
+/**
+ * What a signed, sealed room frame adds to the base64 of its op: seal, signature, tag and frame
+ * fields (269 measured with the presenter's 20-character sender id of decision 170; 258 before).
+ */
+const FRAME_OVERHEAD_BYTES = 271;
 const utf8 = new TextEncoder();
 
 /** About what `op` costs as a signed, sealed room frame; src/remote/crypto.test.ts holds it to the real frames. */

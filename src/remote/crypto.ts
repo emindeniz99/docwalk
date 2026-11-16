@@ -354,9 +354,10 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
 /**
- * Who sent a frame and in what order: a random id per connection (randomId)
- * and a counter that only goes up. Both sit inside the ciphertext, so the
- * relay can neither read nor change them; a receiver drops a counter it has
+ * Who sent a frame and in what order: a random id per connection (randomId;
+ * the presenter's leads with its connection's epoch, decision 170) and a
+ * counter that only goes up. Both sit inside the ciphertext, so the relay
+ * can neither read nor change them; a receiver drops a counter it has
  * already seen from that sender (replay.ts).
  */
 export interface Seal {
