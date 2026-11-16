@@ -503,9 +503,20 @@ Settled (decision 136):
 
 Suggested steps:
 
-1. Layout: a pure function from the sectioned AST to frame rectangles, unit
-   tested (no frame overlaps, document order left to right, every section
-   once).
+1. Done 2026-11-16 (decisions 139 to 141): `src/map/layout.ts`. `mapPlan`
+   sections the document at its own level `L` and at `L + 1`, with the deck's
+   cover and with every heading above `L` kept as a frame; `mapColumns` opens a
+   column at each heading at `L` or above and stacks the rest; `placeFrames`
+   turns measured heights into rectangles (1280 wide, at least 720 tall, gaps
+   64 and 192). Nothing uses it yet. The sample document gives 23 columns and
+   40 frames. Rows 139 to 141 are the lead's reading of 136 and wait for the
+   owner. For step 2: `MapFrame` carries id, title and depth only, so the view
+   joins back to the plan's sections by id; frames not yet measured are 720
+   tall, so later frames in a column move as heights arrive. For step 3: part
+   ids and part contents differ between the deck's plan and the map's (`## A`,
+   `### X`, a thematic break: the deck has `a, a-part-2`, the map `a, x,
+   x-part-2`), so the address mapping must handle parts; a document with
+   headings but no slide level keeps the deck's plan.
 2. The view: render frames into one transformed layer, reuse 127's pan and
    zoom, draw Mermaid only for frames near the viewport, and keep the new code
    in a lazy chunk (first-load budget, decision 124).

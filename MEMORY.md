@@ -12,8 +12,10 @@ rows run to 137. In the fork since 2026-11-11: the simplification pass (125,
 (127, 128), focus views in the document view (129), small UX fixes (130, 131,
 133, 134), and a review of PR #5's feature code with its fixes (132, 135).
 Rows 133 and 134 and the Turkish "taşma notu" are proposed and wait for the
-owner. What is left needs the owner: map mode's questions (ROADMAP "Next up"
-1), hand tests on real devices (2) and the next feature round (3).
+owner. Map mode (136) is being built in ROADMAP "Next up" 1's five steps:
+step 1, the layout (`src/map/layout.ts`, decisions 139 to 141), is done on
+2026-11-16 and nothing uses it yet; step 2 is the view. Hand tests on real
+devices (2) and the next feature round (3) need the owner.
 
 The project is public at github.com/emindeniz99/docwalk with the static
 build on GitHub Pages (`deploy-pages.yml` runs after CI passes on `main`, or
@@ -92,6 +94,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-11: The deck stays mounted, only `hidden`, while the document view shows, so anything the deck does on `slidechanged` or teardown also runs then: a module-wide close must check that the view's block is inside the deck's root (`closeContentFocus(root)`). CI's WebKit e2e leg takes 28 to 30 minutes against a 30-minute job limit; run 43083163225 was cancelled mid-suite with no failure printed.
 - 2026-11-11: Several agents can fix different files in one checkout at once if none commits, stashes or runs the whole gate: each runs only its own test files, and the lead commits by path (tests, then code) and runs `pnpm check` once. A test that needs a hook's inner steps gets them as exported functions, and its red commit then fails on the missing export, not on the bug: say so in the commit. reveal.js 6.0.2's `slide()` to the index already shown clears `inert` on the page and fires no event; watch the attribute. An empty-slug heading (`## ???`) is where two slug sources disagree: take ids from `plan.headingIds`, never from a second `GithubSlugger`.
 - 2026-11-12: Under Playwright, Chromium gives a page that is not in front about one animation frame a second while it reports itself visible: what the older page of a two-page test draws after `requestAnimationFrame` needs a retrying assertion, and the other page's state proves nothing (`bringToFront()` moves the slow frames). `locator.boundingBox()` is two calls and returns null for an element replaced in between, and a throw inside `expect.poll` is not retried: return a failing value. Load can hide a race; repeat with and without it. A container query cannot change its own container's padding: query the parent. A locator or helper that finds an element by an accessible name breaks when a fix changes that name; search tests and e2e for the old name first.
+- 2026-11-16: `sectionize` finds the document title only under `auto` and drops a heading above the slide level that has no text of its own; a caller that sections at a level list and needs the deck's cover or those headings passes `{ cover: true, emptyTitles: true }` (the map, decisions 140 and 141). `auto` has one slide level, so "`###` parts" exist only in a plan sectioned at two levels. A unit test cannot import `src/deck/pages.ts`: the node tsconfig has no DOM lib.
 
 ## Done
 
