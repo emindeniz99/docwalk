@@ -23,7 +23,11 @@ import { ZOOM_STEP } from "./route";
  * back from the layer, never with fixed pixel positions.
  */
 
-const outside: { setCurrent: ((id: string | null) => void) | null } = { setCurrent: null };
+const outside: {
+  setCurrent: ((id: string | null) => void) | null;
+  setRequest: ((request: { sectionId: string; seq: number }) => void) | null;
+} = { setCurrent: null, setRequest: null };
+let requests = 0;
 
 let reactRoot: ReactRoot | null = null;
 const cleanups: (() => void)[] = [];
@@ -34,6 +38,7 @@ afterEach(() => {
   reactRoot?.unmount();
   reactRoot = null;
   outside.setCurrent = null;
+  outside.setRequest = null;
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
@@ -118,8 +123,14 @@ interface Mounted {
   layer: HTMLElement;
   /** Every `onCurrent` call, in order. */
   calls: string[];
-  /** The app's current deck section changing from outside (outline, palette, link). */
+  /** The app's current deck section changing from outside (a rebuilt deck, a hash change). */
   setCurrent: (id: string | null) => Promise<void>;
+  /**
+   * The reader choosing a section in the shell (an outline entry, a palette
+   * result), as App's goTo does it: the deck goes there and the map gets a
+   * request of its own (decision 148).
+   */
+  choose: (id: string) => Promise<void>;
 }
 
 interface Options {
@@ -130,12 +141,14 @@ interface Options {
    * back as `current` once React has rendered.
    */
   feedback?: boolean;
+  /** The deck's level; the map sections the document itself. */
+  level?: Parameters<typeof sectionize>[1];
 }
 
 /** MapView with the deck's sections at `auto`, once its first placement is shown. */
 async function mountRoute(
   markdown: string,
-  { current = null, size = PANE, feedback = false }: Options = {},
+  { current = null, size = PANE, feedback = false, level = "auto" }: Options = {},
 ): Promise<Mounted> {
   await page.viewport(size.width + 100, size.height + 100);
   const container = document.createElement("div");
@@ -146,17 +159,22 @@ async function mountRoute(
   });
   document.body.append(container);
   const root = parseMarkdown(markdown);
-  const deckSections = sectionize(root, "auto").sections;
+  const deckPlan = sectionize(root, level);
+  const deckSections = deckPlan.sections;
   const calls: string[] = [];
   function Harness() {
     const [now, setNow] = useState<string | null>(current);
+    const [request, setRequest] = useState<{ sectionId: string; seq: number } | null>(null);
     useEffect(() => {
       outside.setCurrent = setNow;
+      outside.setRequest = setRequest;
     }, []);
     return h(MapView, {
       root,
       current: now,
       deckSections,
+      deckLevels: deckPlan.levels,
+      request,
       onCurrent: (id: string) => {
         calls.push(id);
         if (feedback) setNow(id);
@@ -177,6 +195,15 @@ async function mountRoute(
     calls,
     setCurrent: async (id) => {
       flushSync(() => outside.setCurrent?.(id));
+      await frames(2);
+    },
+    choose: async (id) => {
+      requests += 1;
+      const seq = requests;
+      flushSync(() => {
+        outside.setCurrent?.(id);
+        outside.setRequest?.({ sectionId: id, seq });
+      });
       await frames(2);
     },
   };
@@ -290,6 +317,27 @@ describe("the opening frame (decision 145, Address)", () => {
     // A polite status that spoke on open would talk over the view's own name.
     const m = await mountRoute(ROUTE, { current: "beta" });
     expect(statusOf(m.pane)).toBe("");
+  });
+});
+
+describe("a map that opened before the deck had a slide (decisions 145 and 148)", () => {
+  // Motion is not reduced here, so a move would show as in-between cameras.
+  test("the first section to arrive places the map at once and says nothing; the next one moves it and is said", async () => {
+    const m = await mountRoute(ROUTE);
+    const start = cameraOf(m.layer);
+    flushSync(() => outside.setCurrent?.("beta"));
+    const beta = fittedTo(m, "beta");
+    const first = await recordUntil(m.layer, () => same(cameraOf(m.layer), beta), 3);
+    expect(currentIds(m.container)).toEqual(["beta"]);
+    expect(same(first.at(-1)!, beta)).toBe(true);
+    expect(first.filter((c) => !same(c, start) && !same(c, beta))).toEqual([]);
+    expect(statusOf(m.pane)).toBe("");
+    flushSync(() => outside.setCurrent?.("gamma"));
+    const gamma = fittedTo(m, "gamma");
+    const second = await recordUntil(m.layer, () => same(cameraOf(m.layer), gamma));
+    expect(same(second.at(-1)!, gamma)).toBe(true);
+    expect(second.filter((c) => !same(c, beta) && !same(c, gamma)).length).toBeGreaterThan(0);
+    expect(statusOf(m.pane)).toBe("Gamma, 5 of 6");
   });
 });
 
@@ -590,7 +638,7 @@ describe("the deck section the map reports and follows (decision 145, Address)",
     await press("{ArrowRight}{ArrowRight}");
     const there = m.layer.style.transform;
     expect(currentIds(m.container)).toEqual(["alpha-two"]);
-    // The outline names the same section again (a re-render, a rebuilt deck).
+    // The deck's slide comes back unchanged (a rebuilt deck): nothing moves.
     await m.setCurrent(null);
     await m.setCurrent("alpha");
     expect(currentIds(m.container)).toEqual(["alpha-two"]);
@@ -601,6 +649,74 @@ describe("the deck section the map reports and follows (decision 145, Address)",
     expect(statusOf(m.pane)).toBe("Gamma, 5 of 6");
     // A section the app chose is not reported back.
     expect(m.calls).toEqual([]);
+  });
+});
+
+describe("a choice in the shell (decision 148)", () => {
+  beforeEach(reduceMotion);
+
+  test("choosing the deck's current section moves the map to its frame, the column's head", async () => {
+    // The reader is on a later frame of the column; the outline entry or
+    // palette result for the column's section must still take them there.
+    const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}");
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    await m.choose("alpha");
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expectAt(m, fittedTo(m, "alpha"));
+    expect(statusOf(m.pane)).toBe("Alpha, 1 of 6");
+    expect(m.calls).toEqual([]);
+  });
+
+  test("the same choice twice moves the map twice", async () => {
+    const m = await mountRoute(ROUTE, { current: "beta" });
+    await m.choose("beta");
+    const p = m.pane.getBoundingClientRect();
+    m.pane.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 200,
+        clientX: p.left + 40,
+        clientY: p.top + 40,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await frames(2);
+    expect(same(cameraOf(m.layer), fittedTo(m, "beta"))).toBe(false);
+    await m.choose("beta");
+    expectAt(m, fittedTo(m, "beta"));
+  });
+});
+
+describe("focus follows the route (decision 148)", () => {
+  beforeEach(reduceMotion);
+
+  test("a key that leaves the frame holding focus moves focus to the pane, and the next key still walks", async () => {
+    const m = await mountRoute(ROUTE);
+    const link = frameEl(m.container, "alpha").querySelector<HTMLElement>(
+      'a[href="#gamma-detail"]',
+    )!;
+    link.focus();
+    await frames(1);
+    await press("{ArrowDown}");
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+    expect(document.activeElement).toBe(m.pane);
+    await press("{ArrowDown}");
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+  });
+});
+
+describe("the deck's slide levels (decision 148)", () => {
+  beforeEach(reduceMotion);
+
+  test("under a level override a frame the deck shows as a breadcrumb reports the slide after it", async () => {
+    const md = "## Z\n\nz\n\n## A\n\n### A1\n\ntext\n";
+    const m = await mountRoute(md, { current: "z", level: 3 });
+    m.pane.focus();
+    await press("{ArrowRight}");
+    expect(currentIds(m.container)).toEqual(["a"]);
+    expect(m.calls).toEqual(["a1"]);
   });
 });
 
@@ -697,6 +813,59 @@ describe("the pointer (decision 145, Pointer)", () => {
     const panned = m.layer.style.transform;
     expect(await press("{Enter}")).toBe(false);
     expect(m.layer.style.transform).toBe(panned);
+  });
+
+  test("a selection left from before does not stop a click on the whole map from choosing its frame", async () => {
+    // Row 148: only a selection that changed during the press is a drag.
+    const m = await mountRoute(ROUTE);
+    m.pane.focus();
+    getSelection()!.selectAllChildren(frameEl(m.container, "beta").querySelector("p")!);
+    await press("0");
+    await userEvent.click(frameEl(m.container, "beta"), { position: { x: 1, y: 1 } });
+    await frames(2);
+    expect(currentIds(m.container)).toEqual(["beta"]);
+  });
+
+  test("a selection left from before does not stop a click on a frame's empty area at reading zoom", async () => {
+    const m = await mountRoute(ROUTE, { size: TALL_PANE });
+    const target = frameEl(m.container, "alpha-one");
+    getSelection()!.selectAllChildren(target.querySelector("p")!);
+    await userEvent.click(target, { position: { x: 8, y: 8 } });
+    await frames(2);
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+  });
+
+  test("a drag that selects a frame's heading still chooses nothing", async () => {
+    const m = await mountRoute(ROUTE, { size: TALL_PANE });
+    const heading = frameEl(m.container, "alpha-one").querySelector<HTMLElement>("h3")!;
+    const box = heading.getBoundingClientRect();
+    await userEvent.dragAndDrop(heading, heading, {
+      sourcePosition: { x: 2, y: box.height / 2 },
+      targetPosition: { x: box.width * 0.6, y: box.height / 2 },
+    });
+    await frames(2);
+    expect(getSelection()!.toString().length).toBeGreaterThan(3);
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+  });
+
+  test("a pan released outside the pane does not swallow the next click", async () => {
+    // Row 148: no click follows such a pan, so nothing may wait for one.
+    const m = await mountRoute(ROUTE);
+    const away = document.createElement("div");
+    Object.assign(away.style, { width: "200px", height: "40px" });
+    document.body.append(away);
+    await userEvent.dragAndDrop(frameEl(m.container, "alpha"), away, {
+      sourcePosition: { x: 2, y: 2 },
+      targetPosition: { x: 100, y: 20 },
+    });
+    await frames(2);
+    const link = frameEl(m.container, "alpha").querySelector<HTMLElement>(
+      'a[href="#gamma-detail"]',
+    )!;
+    link.focus();
+    await press("{Enter}");
+    await frames(2);
+    expect(currentIds(m.container)).toEqual(["gamma-detail"]);
   });
 });
 

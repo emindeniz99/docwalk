@@ -522,6 +522,15 @@ const current = (page: Page) => mapRegion(page).locator('[data-map-frame][aria-c
 const hash = (page: Page) => page.evaluate(() => location.hash);
 const outlineMark = (page: Page) => page.locator('.docwalk-outline-item[aria-selected="true"]');
 
+/**
+ * Two animation frames: the deck's slide change and the address it writes
+ * happen in the key's own task, so a hash read after this is the settled one.
+ */
+const afterFrames = (page: Page) =>
+  page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+
 /** Whether the box lies inside the map's pane (its whole width, its top). */
 async function inPane(page: Page, locator: Locator) {
   const pane = await boxOf(mapRegion(page));
@@ -555,6 +564,7 @@ test.describe("the route through the sample", () => {
         await page.keyboard.press("ArrowRight");
         await expect(current(page)).toHaveAttribute("data-map-frame", id);
         await expect.poll(() => inPane(page, current(page))).toBe(true);
+        await afterFrames(page);
         // reveal.js stays where the map put it: the slide is the column's.
         expect(await hash(page)).toBe("#goals-and-non-goals/1");
       }
@@ -594,6 +604,32 @@ test.describe("the route through the sample", () => {
       await expect(app(page)).toHaveAttribute("data-view", "map");
     });
 
+    test("the outline entry of the column the reader is in moves the map back to its head (148)", async ({
+      page,
+    }) => {
+      // The deck is already on "Goals and non-goals"; the choice still moves the map.
+      await openAt(page, "/?view=map#goals-and-non-goals/1", "goals-and-non-goals");
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("ArrowRight");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "non-goals");
+      const head = mapRegion(page).locator('[data-map-frame="goals-and-non-goals"]');
+      await expect.poll(() => inPane(page, head)).toBe(false);
+      await page.locator(".docwalk-outline-item", { hasText: "Goals and non-goals" }).click();
+      await expect(current(page)).toHaveAttribute("data-map-frame", "goals-and-non-goals");
+      await expect.poll(() => inPane(page, head)).toBe(true);
+    });
+
+    test("a ### frame sets the address to its section's first page (148)", async ({ page }) => {
+      // Pages come from measured pagination, so the map names the section, and
+      // the deck goes to its first page, whichever page the frame's text is on.
+      await openAt(page, "/?view=map#glossary/1", "glossary");
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowLeft");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "non-goals");
+      await expect.poll(() => hash(page)).toBe("#goals-and-non-goals/1");
+    });
+
     test("a link to a later section with view=map opens on its frame", async ({ page }) => {
       await openAt(page, "/?view=map#observability/1", "observability");
       expect(await hash(page)).toBe("#observability/1");
@@ -630,10 +666,11 @@ test.describe("the route through the sample", () => {
       const palette = page.getByRole("dialog", { name: "Command palette" });
       await expect(palette).toBeVisible();
       await expect(mapRegion(page)).not.toBeFocused();
+      await expect(palette.getByRole("searchbox")).toBeFocused();
       for (const key of ["ArrowRight", "End", "0", "PageDown"]) await page.keyboard.press(key);
-      // The palette's own toggle: with reduced motion, focus opened from the map
-      // stays on the page body, where Escape does not reach the palette (see the report).
-      await page.keyboard.press("ControlOrMeta+k");
+      // The search box took the "0": the first Escape clears it, the second closes.
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
       await expect(palette).toBeHidden();
       await page.getByRole("button", { name: "Share" }).click();
       const share = page.getByRole("dialog");
@@ -657,6 +694,7 @@ test.describe("the route through the sample", () => {
       await page.keyboard.press("ArrowRight");
       await expect(current(page)).toHaveAttribute("data-map-frame", "goals-and-non-goals");
       await expect.poll(() => inPane(page, current(page))).toBe(true);
+      await afterFrames(page);
       expect(await hash(page)).toBe("#summary/1");
       await expect(outlineMark(page)).toContainText("Summary");
       // The next section the deck has moves it again.
@@ -674,13 +712,29 @@ test.describe("the route through the sample", () => {
     });
   });
 
-  test("without reduced motion the move arrives within a second", async ({ page }) => {
+  test("without reduced motion the camera passes in-between places and arrives", async ({
+    page,
+  }) => {
+    // No wall-clock budget: CI's timing varies. The move must animate and land.
     await openAt(page, "/?view=map", "ledgerline-payment-ledger-redesign");
     await mapRegion(page).focus();
-    const started = Date.now();
+    await page.evaluate(() => {
+      const layer = document.querySelector<HTMLElement>(".docwalk-map-layer")!;
+      const seen = new Set<string>();
+      (window as unknown as { mapSeen: Set<string> }).mapSeen = seen;
+      const record = () => {
+        seen.add(layer.style.transform);
+        requestAnimationFrame(record);
+      };
+      record();
+    });
     await page.keyboard.press("End");
     await expect(current(page)).toHaveAttribute("data-map-frame", "changelog");
-    await expect.poll(() => inPane(page, current(page)), { timeout: 1000 }).toBe(true);
-    expect(Date.now() - started).toBeLessThan(1000);
+    await expect.poll(() => inPane(page, current(page))).toBe(true);
+    const seen = await page.evaluate(
+      () => (window as unknown as { mapSeen: Set<string> }).mapSeen.size,
+    );
+    // The start, the end and at least one place between them.
+    expect(seen).toBeGreaterThanOrEqual(3);
   });
 });

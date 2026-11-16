@@ -222,11 +222,11 @@ function pointOn(box: DOMRect, pane: DOMRect) {
 
 const scaleOf = (box: DOMRect) => box.width / FRAME_WIDTH;
 
-describe("a diagram whose code fails to load (decisions 144, 146 and 147)", () => {
+describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)", () => {
   // First in the file: once Mermaid has loaded, it stays loaded for the page.
-  test("leaves no unhandled rejection, and its frame is drawn when it comes near again", async () => {
-    // Row 147: the figure is marked as not loaded instead of the promise
-    // rejecting, and the frame must not count as drawn, or the note stays.
+  test("is asked again only when its frame comes back near the view or the browser is online, never per wheel event", async () => {
+    // Row 148: every camera change asked the failed frame again and rebuilt
+    // its note; in Chromium a failed module request cannot succeed before a reload.
     const rejections: unknown[] = [];
     const onRejection = (event: PromiseRejectionEvent) => {
       rejections.push(event.reason);
@@ -245,9 +245,35 @@ describe("a diagram whose code fails to load (decisions 144, 146 and 147)", () =
     await frames(10);
     expect(start.querySelector(".docwalk-diagram svg")).toBeNull();
     expect(rejections).toEqual([]);
-    control.failing = false;
+    const figure = start.querySelector<HTMLElement>("figure.docwalk-diagram")!;
+    let attempts = 0;
+    const observer = new MutationObserver((records) => (attempts += records.length));
+    observer.observe(figure, { childList: true });
+    cleanups.push(() => observer.disconnect());
     const p = pane.getBoundingClientRect();
-    wheelAt(p.left + 50, p.top + 50, { deltaY: 5 });
+    for (let i = 0; i < 40; i++) {
+      wheelAt(p.left + 50, p.top + 50, { deltaY: i % 2 ? 3 : -3 });
+      await frame();
+    }
+    await frames(5);
+    expect(attempts, "wheel events near the frame ask nothing").toBe(0);
+    // Away to the far column and back: one attempt.
+    const far = boxOf(container, "far");
+    const across = far.left - p.left - 24;
+    wheelAt(p.left + 50, p.top + 50, { deltaX: across });
+    await frames(3);
+    wheelAt(p.left + 50, p.top + 50, { deltaX: -across });
+    await expect.poll(() => attempts).toBe(1);
+    await frames(5);
+    expect(attempts).toBe(1);
+    // Online again: one more attempt.
+    window.dispatchEvent(new Event("online"));
+    await expect.poll(() => attempts).toBe(2);
+    await frames(5);
+    expect(attempts).toBe(2);
+    // The code loads now: online draws it in place.
+    control.failing = false;
+    window.dispatchEvent(new Event("online"));
     await expect
       .poll(() => start.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
       .not.toBeNull();

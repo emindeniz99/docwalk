@@ -84,6 +84,9 @@ async function frames(n: number) {
   for (let i = 0; i < n; i++) await frame();
 }
 
+/** A microtask later: MutationObserver records have been delivered. */
+const settle = () => new Promise<void>((resolve) => queueMicrotask(resolve));
+
 const bodyOf = (el: HTMLElement) => el.querySelector<HTMLElement>(".docwalk-slide-body")!;
 
 /** Two frames with a diagram each and one with a plain code block. */
@@ -117,24 +120,46 @@ const DIAGRAMS = [
   "",
 ].join("\n");
 
-describe("a diagram whose code fails to load (decisions 146 and 147)", () => {
+describe("a diagram whose code fails to load (decisions 146, 147 and 148)", () => {
   // First in the file: once Mermaid has loaded, it stays loaded for the page.
-  test("leaves no rejection, keeps the frame undrawn, and draws it in place when asked again", async () => {
-    // Row 147: renderDiagrams no longer rejects when the chunk fails; it marks
-    // the figure. A frame recorded as drawn then would keep the load note for
-    // good, though the next call could draw it.
+  test("leaves no rejection, and is asked again only after it was left out of a call, or after retryFailed", async () => {
+    // Row 148: the map names the frames near the view on every camera change;
+    // retrying a failed frame on each of those rebuilt its note dozens of
+    // times a second and, in Chromium, can never succeed before a reload.
     const { handle } = await mount(DIAGRAMS);
     const first = handle.frames.get("first")!;
     control.failing = true;
     await expect(handle.drawDiagrams(["first"])).resolves.toBeUndefined();
-    expect(first.querySelector("figure.docwalk-diagram[data-load-failed]")).not.toBeNull();
+    const figure = first.querySelector<HTMLElement>("figure.docwalk-diagram[data-load-failed]")!;
+    expect(figure).not.toBeNull();
     expect(first.querySelector(".docwalk-diagram svg")).toBeNull();
+    let attempts = 0;
+    const observer = new MutationObserver((records) => (attempts += records.length));
+    observer.observe(figure, { childList: true });
+    // Named again while it stays near: not asked.
+    await handle.drawDiagrams(["first"]);
+    await handle.drawDiagrams(["first", "second"]);
+    await settle();
+    expect(attempts).toBe(0);
+    // Left out of a call, then named again: asked once.
+    await handle.drawDiagrams(["second"]);
+    await handle.drawDiagrams(["first"]);
+    await settle();
+    expect(attempts).toBe(1);
+    // retryFailed (the browser is online again): asked once more.
+    handle.retryFailed();
+    await handle.drawDiagrams(["first"]);
+    await settle();
+    expect(attempts).toBe(2);
+    observer.disconnect();
+    // The code loads now: the next return draws the figure in place.
     control.failing = false;
+    await handle.drawDiagrams([]);
     await handle.drawDiagrams(["first"]);
     expect(first.querySelector(".docwalk-diagram svg")).not.toBeNull();
     expect(first.querySelector("[data-load-failed]")).toBeNull();
-    // Drawn now, so a third call leaves the SVG as it is.
     const svg = first.querySelector(".docwalk-diagram svg");
+    await handle.drawDiagrams([]);
     await handle.drawDiagrams(["first"]);
     expect(first.querySelector(".docwalk-diagram svg")).toBe(svg);
   });
