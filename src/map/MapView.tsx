@@ -296,7 +296,15 @@ interface MapController {
  * - The frames the follower walks to set no deck section: `deckCurrent`
  *   stays the presenter's, which "Back to presenter" goes to.
  * - Escape ends a roam only from the pane; the focus view's own Escape
- *   never reaches it (the view lies outside the pane).
+ *   never reaches it (the view lies outside the pane). A roam takes focus
+ *   to the pane when it is elsewhere, so the Escape the status names works.
+ * - A drag roams only once it has moved past `TAP_SLOP`; a finger's jitter
+ *   still pans those few pixels but leaves the map following.
+ * - Focus a closing focus view hands back to a frame other than the
+ *   current one goes to the pane instead, when the follower is following:
+ *   the follower opened the block, but the presenter has moved since. It is
+ *   told apart from Tab by its missing `relatedTarget` after focus was in
+ *   the view.
  */
 function mountMap(
   pane: HTMLElement,
@@ -352,6 +360,9 @@ function mountMap(
     roaming = true;
     status.textContent = m.map_roaming();
     follow.onRoam(true);
+    // The status asks for Escape, which only the pane hears: a roam by the wheel or a
+    // finger leaves focus on <body> or the bar, so the pane takes it.
+    if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true });
   };
 
   const write = () => {
@@ -585,11 +596,11 @@ function mountMap(
   };
 
   /** The reader moved the camera by hand: a move stops where it is and the whole map ends. */
-  const byHand = () => {
+  const byHand = (roams = true) => {
     stopMove();
     whole = false;
     waiting = false;
-    roam();
+    if (roams) roam();
   };
 
   // The pane takes every wheel event: a plain wheel pans, Ctrl/Cmd + wheel zooms (decision 127).
@@ -633,6 +644,8 @@ function mountMap(
     selectedAtPress = selectionKey();
     laserPress = laser !== null;
     if (!camera) return;
+    // "Back to presenter" is the button's: a finger or a mouse on it pans nothing.
+    if ((event.target as Element).closest(".docwalk-map-back")) return;
     const at = local(event);
     if (laser && event.pointerType !== "touch") {
       // A mouse or pen press points and does nothing else (decision 149); onMouseDown
@@ -671,7 +684,7 @@ function mountMap(
     panned = false;
     if (event.button !== 0) return;
     const target = event.target as Element;
-    if (target.closest(".docwalk-slide-body, .docwalk-map-back")) return;
+    if (target.closest(".docwalk-slide-body")) return;
     // No text selection starts from the frame's chrome; focus goes to the pane as a click would send it.
     event.preventDefault();
     pane.focus({ preventScroll: true });
@@ -697,7 +710,8 @@ function mountMap(
     drag.moved += Math.hypot(dx, dy);
     if (drag.moved > TAP_SLOP) panned = true;
     if (dx === 0 && dy === 0) return;
-    byHand();
+    // A follower's drag starts a roam only past the tap slop, so a finger's jitter does not.
+    byHand(drag.moved > TAP_SLOP);
     setCamera(pan(camera, dx, dy, placement.bounds, paneSize));
   };
   /**
@@ -803,6 +817,15 @@ function mountMap(
   const onFocusIn = (event: FocusEvent) => {
     const el = event.target;
     if (!(el instanceof HTMLElement)) return;
+    // A focus view hands focus back to its block with no element losing it (its close
+    // button left the page). On a follower's map that block may sit in a frame the
+    // presenter has since left: the pane takes focus and the map stays (decision 150).
+    const fromView = focusViewOpened && event.relatedTarget === null;
+    focusViewOpened = false;
+    if (fromView && follow && !roaming && frameOf(el) !== currentFrame) {
+      pane.focus({ preventScroll: true });
+      return;
+    }
     queueMicrotask(() => {
       if (navigated === el) {
         navigated = null;
@@ -816,6 +839,13 @@ function mountMap(
       mark(id, { say: true, report: true });
       roam();
     });
+  };
+
+  /** Focus went into a focus view (decision 129) and has not come back to the map yet. */
+  let focusViewOpened = false;
+  const onDocumentFocusIn = (event: FocusEvent) => {
+    const target = event.target;
+    if (target instanceof Element && target.closest(".docwalk-focus")) focusViewOpened = true;
   };
 
   // The laser's pointer (decision 149): a mouse or pen over the pane, or the finger that points.
@@ -931,6 +961,7 @@ function mountMap(
   pane.addEventListener("gesturestart", onGesture);
   pane.addEventListener("gesturechange", onGesture);
   layer.addEventListener("focusin", onFocusIn);
+  document.addEventListener("focusin", onDocumentFocusIn, true);
   pane.addEventListener("click", onClick, { capture: true });
   pane.addEventListener("keydown", onKeyDown);
   pane.addEventListener("pointermove", onLaserMove);
@@ -1065,6 +1096,7 @@ function mountMap(
       pane.removeEventListener("gesturestart", onGesture);
       pane.removeEventListener("gesturechange", onGesture);
       layer.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusin", onDocumentFocusIn, true);
       pane.removeEventListener("click", onClick, { capture: true });
       pane.removeEventListener("keydown", onKeyDown);
       pane.removeEventListener("pointermove", onLaserMove);
