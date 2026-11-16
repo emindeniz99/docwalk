@@ -49,6 +49,12 @@ import {
 /** A deck section as the map reads it: its id and where it starts in the source. */
 type DeckSection = Pick<Section, "id" | "line">;
 
+/** A section chosen in the shell; a new `seq` is a new choice, even of the same section. */
+export interface MapRequest {
+  sectionId: string;
+  seq: number;
+}
+
 export interface MapViewProps {
   /**
    * The parsed document. The map sections it itself with `mapPlan`, so the
@@ -63,6 +69,14 @@ export interface MapViewProps {
   current?: string | null;
   /** The deck's sections at the viewer's level, which `current` and `onCurrent` name. */
   deckSections?: readonly DeckSection[];
+  /** The deck plan's slide levels, for headings the deck shows only as breadcrumbs (decision 148). */
+  deckLevels?: readonly number[];
+  /**
+   * A section the reader chose in the shell (an outline entry, a palette
+   * result): each new `seq` moves the map to that section's frame, even when
+   * `current` already names it (decision 148).
+   */
+  request?: MapRequest | null;
   /**
    * The deck section a frame the reader made current maps to (decisions 145
    * and 147), called only when it differs from the last section known.
@@ -164,6 +178,20 @@ function usesKey(target: Element, event: KeyboardEvent, pane: HTMLElement): bool
   return false;
 }
 
+/** A non-empty selection's ends, or null for none: compared to tell whether a press changed it. */
+type SelectionKey = [Node | null, number, Node | null, number] | null;
+
+function selectionKey(): SelectionKey {
+  const sel = getSelection();
+  return sel && !sel.isCollapsed
+    ? [sel.anchorNode, sel.anchorOffset, sel.focusNode, sel.focusOffset]
+    : null;
+}
+
+function sameSelection(a: SelectionKey, b: SelectionKey): boolean {
+  return a === b || (a !== null && b !== null && a.every((part, i) => part === b[i]));
+}
+
 /** The id of the frame that holds `el`. */
 const frameOf = (el: Element): string | undefined =>
   el.closest<HTMLElement>("[data-map-frame]")?.dataset["mapFrame"];
@@ -177,8 +205,10 @@ interface Within {
 interface MapController {
   /** Draws `plan`'s frames in place of the current ones; the camera stays where it is. */
   render: (plan: SectionPlan, loadRemoteImages: boolean) => void;
-  /** The deck's sections, for the mapping between frames and slides; moves nothing. */
-  setDeckSections: (sections: readonly DeckSection[]) => void;
+  /** The deck's sections and slide levels, for the mapping between frames and slides; moves nothing. */
+  setDeck: (sections: readonly DeckSection[], levels: readonly number[]) => void;
+  /** A section the reader chose in the shell: its frame, with the move, whatever is current. */
+  request: (sectionId: string) => void;
   /** The deck's current section, from outside (an outline entry, a link, a palette result). */
   setCurrent: (sectionId: string | null) => void;
   /** Stops everything and empties the layer. */
@@ -246,6 +276,7 @@ function mountMap(
   let mapSections: readonly Section[] = [];
   let order: string[] = [];
   let deckSections: readonly DeckSection[] = [];
+  let deckLevels: readonly number[] = [];
   /** The deck section last known to be current: from outside, or reported. */
   let deckCurrent: string | null = null;
   let currentFrame: string | null = null;
@@ -382,7 +413,7 @@ function mountMap(
     handle?.frames.get(id)?.setAttribute("aria-current", "true");
     if (changed && say) announce(id);
     if (!report) return;
-    const section = sectionForFrame(deckSections, mapSections, id);
+    const section = sectionForFrame(deckSections, mapSections, id, deckLevels);
     if (section !== null && section !== deckCurrent) {
       deckCurrent = section;
       onCurrent(section);
@@ -396,10 +427,21 @@ function mountMap(
       report = true,
       animate = true,
       within,
-    }: { report?: boolean; animate?: boolean; within?: Within | undefined } = {},
+      leaveFocus = false,
+    }: {
+      report?: boolean;
+      animate?: boolean;
+      within?: Within | undefined;
+      leaveFocus?: boolean;
+    } = {},
   ) => {
     whole = false;
     waiting = false;
+    // A key or a click that leaves the frame holding keyboard focus takes focus
+    // to the pane, so it is never on something off screen (decision 148).
+    const focused = document.activeElement;
+    if (leaveFocus && focused && layer.contains(focused) && frameOf(focused) !== id)
+      pane.focus({ preventScroll: true });
     mark(id, { say: true, report });
     moveTo(() => frameCamera(id, within), animate);
   };
@@ -508,6 +550,9 @@ function mountMap(
     );
   };
 
+  /** The selection as it stood when the last press began, to tell a drag-select from a leftover one. */
+  let selectedAtPress: SelectionKey = null;
+
   // Touch pointers down on the pane, in pane coordinates.
   const touches = new Map<number, Point>();
   /** One pointer panning: a finger, or a mouse or pen drag that began on empty map. */
@@ -518,6 +563,7 @@ function mountMap(
   let pinching: { ids: [number, number]; camera: Camera; points: [Point, Point] } | null = null;
 
   const onPointerDown = (event: PointerEvent) => {
+    selectedAtPress = selectionKey();
     if (!camera) return;
     // A touch or a press ends a move where it is (decision 145); a tap still chooses.
     stopMove();
@@ -568,8 +614,20 @@ function mountMap(
     byHand();
     setCamera(pan(camera, dx, dy, placement.bounds, paneSize));
   };
+  /**
+   * Clears `panned` once the press is over: a pan released outside the pane,
+   * or a touch pan, gets no click, and the next click must not be swallowed
+   * (decision 148). A click that does follow comes before this timer.
+   */
+  let pannedTimer = 0;
   // On the window: a finger or the mouse can be released outside the pane.
   const onPointerUp = (event: PointerEvent) => {
+    if (panned && touches.size <= 1) {
+      clearTimeout(pannedTimer);
+      pannedTimer = window.setTimeout(() => {
+        panned = false;
+      }, 0);
+    }
     if (drag?.id === event.pointerId) drag = null;
     if (!touches.delete(event.pointerId)) return;
     if (pinching && pinching.ids.includes(event.pointerId)) {
@@ -598,13 +656,20 @@ function mountMap(
     const frame = target.closest<HTMLElement>("[data-map-frame]");
     const id = frame?.dataset["mapFrame"];
     if (!frame || id === undefined || frame.parentElement !== layer) return;
-    // A click that ends a text selection is no choice of a frame.
+    // A click that ends a text selection is no choice of a frame: only a
+    // selection that changed during this press counts (decision 148).
     const selection = getSelection();
-    if (selection && !selection.isCollapsed && frame.contains(selection.anchorNode)) return;
+    if (
+      selection &&
+      !selection.isCollapsed &&
+      frame.contains(selection.anchorNode) &&
+      !sameSelection(selectionKey(), selectedAtPress)
+    )
+      return;
     if (whole) {
       event.preventDefault();
       event.stopPropagation();
-      goToFrame(id);
+      goToFrame(id, { leaveFocus: true });
       return;
     }
     if (target.closest("a")) return;
@@ -613,7 +678,7 @@ function mountMap(
       (target.parentElement === frame && target.classList.contains("docwalk-slide-body"));
     const headingId = frame.getAttribute("aria-labelledby");
     const onHeading = headingId !== null && target.closest(`#${CSS.escape(headingId)}`) !== null;
-    if ((empty || onHeading) && id !== currentFrame) goToFrame(id);
+    if ((empty || onHeading) && id !== currentFrame) goToFrame(id, { leaveFocus: true });
   };
 
   // Safari's pinch (decisions 127 and 128): judged at its start, ignored while two fingers are down.
@@ -666,7 +731,7 @@ function mountMap(
     else if (key === "End") to = lastFrame(order);
     if (to !== null) {
       event.preventDefault();
-      goToFrame(to);
+      goToFrame(to, { leaveFocus: true });
       return;
     }
     if (key === "0" || (key === "Enter" && whole)) {
@@ -706,6 +771,12 @@ function mountMap(
   layer.addEventListener("focusin", onFocusIn);
   pane.addEventListener("click", onClick, { capture: true });
   pane.addEventListener("keydown", onKeyDown);
+  // Back online: a diagram whose code did not load may load now (decision 148).
+  const onOnline = () => {
+    handle?.retryFailed();
+    schedule();
+  };
+  window.addEventListener("online", onOnline);
 
   return {
     render(plan, loadRemoteImages) {
@@ -754,14 +825,23 @@ function mountMap(
       place();
       writeNow();
     },
-    setDeckSections(sections) {
+    setDeck(sections, levels) {
       deckSections = sections;
+      deckLevels = levels;
+    },
+    request(sectionId) {
+      deckCurrent = sectionId;
+      // Not opened yet: the opening view goes to `deckCurrent`.
+      const id = camera ? frameForSection(mapSections, deckSections, sectionId) : null;
+      if (id !== null) goToFrame(id, { report: false });
     },
     setCurrent(sectionId) {
       // The deck is being built: nothing to follow until it is back.
       if (sectionId === null) return;
       const here =
-        currentFrame === null ? null : sectionForFrame(deckSections, mapSections, currentFrame);
+        currentFrame === null
+          ? null
+          : sectionForFrame(deckSections, mapSections, currentFrame, deckLevels);
       deckCurrent = sectionId;
       if (!camera) return;
       // Only the first section to arrive after opening can still be the opening view.
@@ -799,12 +879,15 @@ function mountMap(
       layer.removeEventListener("focusin", onFocusIn);
       pane.removeEventListener("click", onClick, { capture: true });
       pane.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("online", onOnline);
+      clearTimeout(pannedTimer);
     },
   };
 }
 
 /** No deck sections yet: one array, so the effect that hands them over runs only on a change. */
 const NO_SECTIONS: readonly DeckSection[] = [];
+const NO_LEVELS: readonly number[] = [];
 
 /**
  * The map view (decisions 142 and 145): the frames of the map's plan on one
@@ -816,6 +899,8 @@ export default function MapView({
   root,
   current = null,
   deckSections = NO_SECTIONS,
+  deckLevels = NO_LEVELS,
+  request = null,
   onCurrent,
 }: MapViewProps) {
   const plan = useMemo(() => mapPlan(root), [root]);
@@ -839,11 +924,18 @@ export default function MapView({
   }, []);
   // Before the render below, so the opening view knows the deck's current slide.
   useEffect(() => {
-    controller.current?.setDeckSections(deckSections);
-  }, [deckSections]);
+    controller.current?.setDeck(deckSections, deckLevels);
+  }, [deckSections, deckLevels]);
   useEffect(() => {
     controller.current?.setCurrent(current);
   }, [current]);
+  // A request made before this map mounted (on an earlier visit to the map) is not a new choice.
+  const handledSeq = useRef(request?.seq ?? 0);
+  useEffect(() => {
+    if (!request || request.seq <= handledSeq.current) return;
+    handledSeq.current = request.seq;
+    controller.current?.request(request.sectionId);
+  }, [request]);
   useEffect(() => {
     controller.current?.render(plan, loadRemoteImages);
     // `locale` is read through Paraglide while rendering; it is here to re-render on a switch.

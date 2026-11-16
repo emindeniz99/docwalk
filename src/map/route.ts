@@ -88,34 +88,35 @@ function lineOf(sections: readonly Located[], id: string): number | undefined {
   return sections.find((s) => s.id === id)?.line;
 }
 
-/** A map section as `sectionForFrame` reads it: where it starts, and whether it is a bare heading above the slide level. */
-type MapLocated = Pick<Section, "id" | "line" | "kind" | "nodes">;
+/** A map section as `sectionForFrame` reads it: where it starts, its heading and whether it has text. */
+type MapLocated = Pick<Section, "id" | "line" | "heading" | "nodes">;
 
 /**
- * The deck section for the frame `frameId` (decisions 145 and 147, Address).
- * A frame the deck shows only as a breadcrumb (a heading above the slide
- * level with no text of its own: the map's `title` kind with no nodes, and no
- * deck section of its id) gets the first deck section at or after its line,
- * the slide that carries it, or the last deck section when none follows.
- * Any other frame gets the deck section that holds its first line: the one
- * with the greatest line at or before the frame's, or the first deck section
- * when the frame starts before every one. Null when the deck has no sections
- * or no map section has that id. The two plans section one document,
- * possibly at different levels, so they meet by source line.
- *
- * The map's `title` kind is relative to the map's own first level, which is
- * the deck's at `auto`. Under a level override deeper than that, a bare
- * heading the deck drops at the map's first level maps by its line.
+ * The deck section for the frame `frameId` (decisions 145, 147 and 148,
+ * Address). A frame the deck shows only as a breadcrumb (a heading above the
+ * deck's lowest slide level `min(deckLevels)`, no text of its own and no deck
+ * section of its id) gets the first deck section at or after its line, the
+ * slide that carries it, or the last deck section when none follows. Any
+ * other frame gets the deck section that holds its first line: the one with
+ * the greatest line at or before the frame's, or the first deck section when
+ * the frame starts before every one. Null when the deck has no sections or no
+ * map section has that id. The two plans section one document, possibly at
+ * different levels, so they meet by source line. `deckLevels` is the deck
+ * plan's `levels`; with none, every heading is above the slide level, as
+ * `sectionize` reads it.
  */
 export function sectionForFrame(
   deckSections: readonly Located[],
   mapSections: readonly MapLocated[],
   frameId: string,
+  deckLevels: readonly number[],
 ): string | null {
   const frame = mapSections.find((s) => s.id === frameId);
   if (!frame) return null;
+  const lowest = deckLevels.length > 0 ? Math.min(...deckLevels) : Number.POSITIVE_INFINITY;
   const breadcrumb =
-    frame.kind === "title" &&
+    frame.heading !== null &&
+    frame.heading.depth < lowest &&
     frame.nodes.length === 0 &&
     !deckSections.some((s) => s.id === frame.id);
   if (breadcrumb) {

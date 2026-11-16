@@ -172,7 +172,7 @@
   "deck_too_small": "{count, plural, other {# diyagram burada okunamayacak kadar küçük. Tam ekranda açmak için tıklayın.}}",
   "diagram_error": "Bu diyagram çizilemedi: {reason}",
   "diagram_error_unknown": "bilinmeyen hata",
-  "diagram_load_failed": "diyagram kodu yüklenemedi",
+  "diagram_load_failed": "diyagram kodu yüklenemedi. Diyagram hâlâ görünmüyorsa sayfayı yeniden yükleyin.",
   "diagram_label": "Diyagram. Tam ekranda açmak için Enter tuşuna basın.",
   "code_label": "Kod. Tam ekranda açmak için Enter tuşuna basın.",
   "more_stylus": "Dokunmatik kalem çizer, parmak slayt değiştirir",
