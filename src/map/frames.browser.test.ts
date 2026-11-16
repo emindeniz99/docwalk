@@ -12,18 +12,24 @@ import { parseMarkdown } from "../sectioning/sectionize";
 import { renderFrames, type MapFrames } from "./frames";
 import { mapPlan } from "./layout";
 
-// The diagram code can fail to load (a lost connection, a new deploy): while
-// `failing` is set, renderDiagrams rejects as it does when its chunk fails.
+// The Mermaid chunk can fail to load (a lost connection, a new deploy), as in
+// src/deck/mermaidLoad.browser.test.ts: while `failing` is set, `initialize`
+// throws, so the load rejects the way a missing chunk does, and
+// `renderDiagrams` marks the figure `data-load-failed` (decision 146). A load
+// that succeeded stays loaded for the page and `vi.resetModules()` gives no
+// fresh `mermaid.ts` in browser mode, so the load-failure test runs first.
 const control = vi.hoisted(() => ({ failing: false }));
-vi.mock("../deck/mermaid", async (importOriginal) => {
-  const real = await importOriginal<typeof import("../deck/mermaid")>();
-  return {
-    ...real,
-    renderDiagrams: (...args: Parameters<typeof real.renderDiagrams>) =>
-      control.failing
-        ? Promise.reject(new Error("Failed to fetch dynamically imported module"))
-        : real.renderDiagrams(...args),
-  };
+vi.mock("mermaid", async (importOriginal) => {
+  const real = await importOriginal<typeof import("mermaid")>();
+  const mermaid = new Proxy(real.default, {
+    get(target, key, receiver) {
+      if (control.failing && key === "initialize")
+        throw new TypeError("Failed to fetch dynamically imported module");
+      const value: unknown = Reflect.get(target, key, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { ...real, default: mermaid };
 });
 
 /**
@@ -79,6 +85,60 @@ async function frames(n: number) {
 }
 
 const bodyOf = (el: HTMLElement) => el.querySelector<HTMLElement>(".docwalk-slide-body")!;
+
+/** Two frames with a diagram each and one with a plain code block. */
+const DIAGRAMS = [
+  "## First",
+  "",
+  "```mermaid",
+  "flowchart TD",
+  "  a --> b",
+  "  b --> c",
+  "  c --> d",
+  "  d --> e",
+  "```",
+  "",
+  "| Name | Value |",
+  "| --- | --- |",
+  "| a | 1 |",
+  "",
+  "## Second",
+  "",
+  "```mermaid",
+  "flowchart LR",
+  "  x --> y",
+  "```",
+  "",
+  "## Plain",
+  "",
+  "```ts",
+  "const a = 1;",
+  "```",
+  "",
+].join("\n");
+
+describe("a diagram whose code fails to load (decisions 146 and 147)", () => {
+  // First in the file: once Mermaid has loaded, it stays loaded for the page.
+  test("leaves no rejection, keeps the frame undrawn, and draws it in place when asked again", async () => {
+    // Row 147: renderDiagrams no longer rejects when the chunk fails; it marks
+    // the figure. A frame recorded as drawn then would keep the load note for
+    // good, though the next call could draw it.
+    const { handle } = await mount(DIAGRAMS);
+    const first = handle.frames.get("first")!;
+    control.failing = true;
+    await expect(handle.drawDiagrams(["first"])).resolves.toBeUndefined();
+    expect(first.querySelector("figure.docwalk-diagram[data-load-failed]")).not.toBeNull();
+    expect(first.querySelector(".docwalk-diagram svg")).toBeNull();
+    control.failing = false;
+    await handle.drawDiagrams(["first"]);
+    expect(first.querySelector(".docwalk-diagram svg")).not.toBeNull();
+    expect(first.querySelector("[data-load-failed]")).toBeNull();
+    // Drawn now, so a third call leaves the SVG as it is.
+    const svg = first.querySelector(".docwalk-diagram svg");
+    await handle.drawDiagrams(["first"]);
+    expect(first.querySelector(".docwalk-diagram svg")).toBe(svg);
+  });
+});
 
 const OUTLINE = [
   "# Guide",
@@ -348,36 +408,6 @@ describe("code, math and emoji are drawn in frames as on a slide (decision 142, 
 });
 
 describe("diagrams are drawn only where the view asks (decision 142, Diagrams)", () => {
-  const DIAGRAMS = [
-    "## First",
-    "",
-    "```mermaid",
-    "flowchart TD",
-    "  a --> b",
-    "  b --> c",
-    "  c --> d",
-    "  d --> e",
-    "```",
-    "",
-    "| Name | Value |",
-    "| --- | --- |",
-    "| a | 1 |",
-    "",
-    "## Second",
-    "",
-    "```mermaid",
-    "flowchart LR",
-    "  x --> y",
-    "```",
-    "",
-    "## Plain",
-    "",
-    "```ts",
-    "const a = 1;",
-    "```",
-    "",
-  ].join("\n");
-
   test("no diagram is drawn by renderFrames; drawDiagrams draws the frames named and no other", async () => {
     const { host, handle } = await mount(DIAGRAMS);
     expect(host.querySelector(".docwalk-diagram")).toBeNull();
@@ -428,17 +458,6 @@ describe("diagrams are drawn only where the view asks (decision 142, Diagrams)",
     const diagram = handle.frames.get("first")!.querySelector<HTMLElement>(".docwalk-diagram")!;
     expect(diagram.tabIndex).toBe(0);
     expect(handle.frames.get("second")!.querySelector("[data-docwalk-focus]")).toBeNull();
-  });
-
-  test("a diagram whose code fails to load leaves no rejection, and its frame is drawn when asked again", async () => {
-    // Decision 144: a lost chunk must not mark the frame as drawn for good.
-    const { handle } = await mount(DIAGRAMS);
-    control.failing = true;
-    await expect(handle.drawDiagrams(["first"])).resolves.toBeUndefined();
-    expect(handle.frames.get("first")!.querySelector(".docwalk-diagram svg")).toBeNull();
-    control.failing = false;
-    await handle.drawDiagrams(["first"]);
-    expect(handle.frames.get("first")!.querySelector(".docwalk-diagram svg")).not.toBeNull();
   });
 });
 

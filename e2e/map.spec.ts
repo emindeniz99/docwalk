@@ -512,3 +512,152 @@ test.describe("in Turkish", () => {
     await expect(app(page)).toHaveAttribute("data-view", "map");
   });
 });
+
+/**
+ * The route (decision 145): a current frame, keys, the camera's move and the
+ * slide address. The sample's third column is "Goals and non-goals" with two
+ * `###` frames under it; the deck at `auto` shows them inside that slide.
+ */
+const current = (page: Page) => mapRegion(page).locator('[data-map-frame][aria-current="true"]');
+const hash = (page: Page) => page.evaluate(() => location.hash);
+const outlineMark = (page: Page) => page.locator('.docwalk-outline-item[aria-selected="true"]');
+
+/** Whether the box lies inside the map's pane (its whole width, its top). */
+async function inPane(page: Page, locator: Locator) {
+  const pane = await boxOf(mapRegion(page));
+  const box = await boxOf(locator);
+  return (
+    box.x >= pane.x - 1 &&
+    box.x + box.width <= pane.x + pane.width + 1 &&
+    box.y >= pane.y - 1 &&
+    box.y < pane.y + pane.height
+  );
+}
+
+/** Opens `path` in the map view and waits for its current frame to be placed. */
+async function openAt(page: Page, path: string, id: string) {
+  await ready(page, path);
+  await expect(app(page)).toHaveAttribute("data-view", "map");
+  await expect(current(page)).toHaveAttribute("data-map-frame", id, { timeout: 30_000 });
+  await expect.poll(() => inPane(page, current(page)), { timeout: 30_000 }).toBe(true);
+}
+
+test.describe("the route through the sample", () => {
+  test.describe("with reduced motion", () => {
+    test.use({ reducedMotion: "reduce" });
+
+    test("Right steps through a column's ### frames with the address unchanged, and the next column moves it", async ({
+      page,
+    }) => {
+      await openAt(page, "/?view=map#goals-and-non-goals/1", "goals-and-non-goals");
+      await mapRegion(page).focus();
+      for (const id of ["goals", "non-goals"]) {
+        await page.keyboard.press("ArrowRight");
+        await expect(current(page)).toHaveAttribute("data-map-frame", id);
+        await expect.poll(() => inPane(page, current(page))).toBe(true);
+        // reveal.js stays where the map put it: the slide is the column's.
+        expect(await hash(page)).toBe("#goals-and-non-goals/1");
+      }
+      await page.keyboard.press("ArrowRight");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "glossary");
+      await expect.poll(() => hash(page)).toBe("#glossary/1");
+      await expect(outlineMark(page)).toContainText("Glossary");
+      await expect(mapRegion(page).getByRole("status")).toHaveText("Glossary, 6 of 40");
+    });
+
+    test("0 shows the whole map, the last column included, and Enter returns to the current frame", async ({
+      page,
+    }) => {
+      await openAt(page, "/?view=map#summary/1", "summary");
+      await mapRegion(page).focus();
+      await page.keyboard.press("0");
+      const last = mapRegion(page).locator('[data-map-frame="changelog"]');
+      await expect.poll(() => inPane(page, last)).toBe(true);
+      const whole = await boxOf(current(page));
+      await page.keyboard.press("Enter");
+      await expect
+        .poll(async () => (await boxOf(current(page))).width)
+        .toBeGreaterThan(whole.width * 3);
+      await expect.poll(() => inPane(page, current(page))).toBe(true);
+      await expect(current(page)).toHaveAttribute("data-map-frame", "summary");
+    });
+
+    test("an outline entry in the map view moves the map to that section's frame", async ({
+      page,
+    }) => {
+      await openAt(page, "/?view=map", "ledgerline-payment-ledger-redesign");
+      const target = mapRegion(page).locator('[data-map-frame="observability"]');
+      expect(await inPane(page, target)).toBe(false);
+      await page.locator(".docwalk-outline-item", { hasText: "Observability" }).click();
+      await expect(current(page)).toHaveAttribute("data-map-frame", "observability");
+      await expect.poll(() => inPane(page, target)).toBe(true);
+      await expect(app(page)).toHaveAttribute("data-view", "map");
+    });
+
+    test("a link to a later section with view=map opens on its frame", async ({ page }) => {
+      await openAt(page, "/?view=map#observability/1", "observability");
+      expect(await hash(page)).toBe("#observability/1");
+    });
+
+    test("Edit after moving on the map shows the deck on the map's section", async ({ page }) => {
+      await openAt(page, "/?view=map", "ledgerline-payment-ledger-redesign");
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("ArrowRight");
+      await expect.poll(() => hash(page)).toBe("#goals-and-non-goals/1");
+      await page.getByRole("radio", { name: "Edit" }).click();
+      await expect(page.locator(".reveal .slides > section.present")).toHaveAttribute(
+        "data-docwalk-id",
+        "goals-and-non-goals",
+      );
+      expect(await hash(page)).toBe("#goals-and-non-goals/1");
+    });
+
+    test("a slide found in the palette moves the map to its frame", async ({ page }) => {
+      await openAt(page, "/?view=map", "ledgerline-payment-ledger-redesign");
+      await page.keyboard.press("ControlOrMeta+k");
+      const palette = page.getByRole("dialog", { name: "Command palette" });
+      await palette.getByRole("searchbox").fill("14:03 last Tuesday");
+      await palette.getByRole("menuitem").filter({ hasText: "Summary" }).first().click();
+      await expect(current(page)).toHaveAttribute("data-map-frame", "summary");
+      await expect.poll(() => inPane(page, current(page))).toBe(true);
+    });
+
+    test("keys do nothing on the map while the palette or a dialog is open", async ({ page }) => {
+      await openAt(page, "/?view=map#summary/1", "summary");
+      await mapRegion(page).focus();
+      await page.keyboard.press("ControlOrMeta+k");
+      const palette = page.getByRole("dialog", { name: "Command palette" });
+      await expect(palette).toBeVisible();
+      for (const key of ["ArrowRight", "End", "0", "PageDown"]) await page.keyboard.press(key);
+      await page.keyboard.press("Escape");
+      await expect(palette).toBeHidden();
+      await page.getByRole("button", { name: "Share" }).click();
+      const share = page.getByRole("dialog");
+      await expect(share).toBeVisible();
+      for (const key of ["ArrowRight", "End", "0"]) await page.keyboard.press(key);
+      await page.keyboard.press("Escape");
+      await expect(share).toBeHidden();
+      await expect(current(page)).toHaveAttribute("data-map-frame", "summary");
+      expect(await hash(page)).toBe("#summary/1");
+    });
+
+    test("axe finds no serious violations with a current frame announced", async ({ page }) => {
+      await openAt(page, "/?view=map", "ledgerline-payment-ledger-redesign");
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowRight");
+      await expect(mapRegion(page).getByRole("status")).toHaveText("Summary, 2 of 40");
+      await expectNoSeriousViolations(page);
+    });
+  });
+
+  test("without reduced motion the move arrives within a second", async ({ page }) => {
+    await openAt(page, "/?view=map", "ledgerline-payment-ledger-redesign");
+    await mapRegion(page).focus();
+    const started = Date.now();
+    await page.keyboard.press("End");
+    await expect(current(page)).toHaveAttribute("data-map-frame", "changelog");
+    await expect.poll(() => inPane(page, current(page)), { timeout: 1000 }).toBe(true);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+});

@@ -42,6 +42,9 @@ const centrePoint = (c: Camera, pane: Size) => ({
   y: (pane.height / 2 - c.y) / c.scale,
 });
 
+/** A hand-made map section: a frame with text of its own, so only its line decides. */
+const frameAt = (id: string, line: number) => ({ id, line, kind: "content" as const, nodes: [] });
+
 /** The ids of a document's two plans: the deck's at `auto` (or a level) and the map's. */
 const plans = (md: string, level: Parameters<typeof sectionize>[1] = "auto") => {
   const root = parseMarkdown(md);
@@ -150,12 +153,56 @@ describe("sectionForFrame: the deck slide that holds a frame's first line (decis
     expect(sectionForFrame(deck, map, "part-one")).toBe("a");
   });
 
-  test("an empty heading in mid-document maps by its line, to the slide before it", () => {
-    // Read as row 145 is written: "# Part two" (line 7) lies after A's start
-    // (line 3) and before B's (line 9), so the slide that holds its line is A,
-    // although the deck shows it as B's breadcrumb. Pinned here; see the report.
+  test("an empty heading in mid-document maps to the slide after it, which shows it as a breadcrumb", () => {
+    // Row 147: "# Part two" (line 7) has no text of its own, so the deck has
+    // no slide for it and shows it above B. By its line it went to A, and the
+    // link and the outline named the section before the one the reader chose.
     const { deck, map } = plans("# Part one\n\n## A\n\na\n\n# Part two\n\n## B\n\nb\n");
+    expect(map.map((s) => s.id)).toContain("part-two");
+    expect(deck.map((s) => s.id)).not.toContain("part-two");
+    expect(sectionForFrame(deck, map, "part-two")).toBe("b");
+  });
+
+  test("a leading breadcrumb heading maps to the first slide after it", () => {
+    // Two parts, so neither "#" is the document's title (a lone one would be the cover).
+    const { deck, map } = plans("# Part one\n\n# Part two\n\n## A\n\na\n\n## B\n\nb\n");
+    expect(deck.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(sectionForFrame(deck, map, "part-one")).toBe("a");
     expect(sectionForFrame(deck, map, "part-two")).toBe("a");
+  });
+
+  test("a breadcrumb heading with no slide after it maps to the last slide", () => {
+    // Row 147: "when no slide follows, to the last slide", never to no slide,
+    // so the link always names a slide the deck has.
+    const { deck, map } = plans("## A\n\na\n\n# Part two\n\n## B\n\nb\n\n# Part three\n");
+    expect(map.map((s) => s.id)).toEqual(["a", "part-two", "b", "part-three"]);
+    expect(sectionForFrame(deck, map, "part-three")).toBe("b");
+  });
+
+  test("two breadcrumb headings in a row both map to the slide that carries them", () => {
+    const { deck, map } = plans("## A\n\na\n\n# P\n\n# Q\n\n## B\n\nb\n");
+    expect(deck.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(sectionForFrame(deck, map, "p")).toBe("b");
+    expect(sectionForFrame(deck, map, "q")).toBe("b");
+  });
+
+  test("a heading above the slide level that has text of its own is a slide, and maps to itself", () => {
+    // At `auto` a heading with text directly under it sets the slide level, so
+    // only a level chosen by the viewer leaves text above it. The deck keeps
+    // such a heading as a title slide (sectionize's `title` kind), so the old
+    // rule holds: it is the slide that holds its line.
+    const md = "# Part one\n\nIntro.\n\n## A\n\na\n\n# Part two\n\nIntro two.\n\n## B\n\nb\n";
+    const { deck, map } = plans(md, 2);
+    expect(deck.map((s) => s.id)).toEqual(["part-one", "a", "part-two", "b"]);
+    expect(sectionForFrame(deck, map, "part-two")).toBe("part-two");
+  });
+
+  test("an empty heading at the second level is shown inside its column's slide, so it maps back", () => {
+    // "### Sub" with no text is no breadcrumb: the deck draws it on slide A.
+    // Only a heading above the slide level is carried forward.
+    const { deck, map } = plans("## A\n\na\n\n### Sub\n\n## B\n\nb\n");
+    expect(map.map((s) => s.id)).toEqual(["a", "sub", "b"]);
+    expect(sectionForFrame(deck, map, "sub")).toBe("a");
   });
 
   test("the deck at a deeper level override still finds a slide for every frame", () => {
@@ -181,8 +228,8 @@ describe("sectionForFrame: the deck slide that holds a frame's first line (decis
       { id: "q", line: 5 },
       { id: "r", line: 5 },
     ];
-    expect(sectionForFrame(deck, [{ id: "f", line: 5 }], "f")).toBe("r");
-    expect(sectionForFrame(deck, [{ id: "f", line: 9 }], "f")).toBe("r");
+    expect(sectionForFrame(deck, [frameAt("f", 5)], "f")).toBe("r");
+    expect(sectionForFrame(deck, [frameAt("f", 9)], "f")).toBe("r");
   });
 
   test("a line of 0 or NaN reads as before every section", () => {
@@ -192,14 +239,14 @@ describe("sectionForFrame: the deck slide that holds a frame's first line (decis
       { id: "p", line: 3 },
       { id: "q", line: 5 },
     ];
-    expect(sectionForFrame(deck, [{ id: "f", line: 0 }], "f")).toBe("p");
-    expect(sectionForFrame(deck, [{ id: "f", line: Number.NaN }], "f")).toBe("p");
+    expect(sectionForFrame(deck, [frameAt("f", 0)], "f")).toBe("p");
+    expect(sectionForFrame(deck, [frameAt("f", Number.NaN)], "f")).toBe("p");
     // A deck section with a broken line is never the greatest line at or before.
     const broken = [
       { id: "p", line: 3 },
       { id: "q", line: Number.NaN },
     ];
-    expect(sectionForFrame(broken, [{ id: "f", line: 9 }], "f")).toBe("p");
+    expect(sectionForFrame(broken, [frameAt("f", 9)], "f")).toBe("p");
   });
 });
 
