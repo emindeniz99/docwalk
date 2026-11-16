@@ -657,17 +657,17 @@ fork, merged with a merge commit.
 4. Two cheap performance fixes: the whole map queues every diagram at once;
    the pointer handler reads the pane's box on every pointer move anywhere in
    the app, before it checks for a drag or pinch.
-5. Before a second `view` value exists: the state message accepts only
-   `"map"`, so a newer build that sends another view would make older
-   followers drop the whole state. Decide how older followers fall back.
+5. Decision 172 (owner, 2026-11-16), build it before a second `view` value
+   exists: a follower that meets a view it does not know keeps following on
+   slides and shows a note that a reload shows the newer view. Today the state
+   message accepts only `"map"`, so any other value drops the whole state.
 6. Optional simplifications: the camera's guards against NaN and enormous
    panes and their tests (about 50 and 285 lines); the diagram reload retry
    beyond row 146's visible note (needs a row, since 147 and 148 chose it);
    about 450 lines of test setup copied across the map's browser tests, which
    one `src/map/testMap.ts` could hold.
-7. Rows 139 to 150 are the lead's reading of 136 and wait for the owner's
-   word: list for the owner what each settles, and mark the rows they refine
-   ("refined by …"), as the top of `docs/decisions.md` asks.
+7. Done: the owner accepted rows 139 to 150 on 2026-11-16; 151 refines
+   136, 142, 145, 149 and 150.
 
 **Outside the map (lead).** Found by the security review, older than the map:
 a follower's replay guard counts per sender id, and every presenter
@@ -710,8 +710,8 @@ smallest first; each needs a failing test before code:
 - Comments: a reopened comment reads "edited" although its text never changed.
   A comment stores one time for any change, and a reopen must move it for
   merges to work, so the label needs a stored time of the last text change
-  (an optional `edited` field in `DocComment`, set by `update` only): a change
-  to the share and sidecar format, for the owner. Drafts typed in the panel are
+  (an optional `edited` field in `DocComment`, set by `update` only). The
+  owner chose that field on 2026-11-16 (decision 171): build it, test first. Drafts typed in the panel are
   lost when presenting starts, because the whole panel unmounts there.
 - Eraser (drauu 1.0): a drag cut short by a slide change or the whiteboard
   toggle removes strokes from the screen and not from the saved record, so they
@@ -752,9 +752,28 @@ the countdown on a phone, saved marks, comments), with findings written here.
 ### 3. The next feature round
 
 Every feature ranked in [`docs/feature-gaps.md`](./docs/feature-gaps.md)
-for this round is built. After the pass, re-check the survey as its "Re-check"
-section says and let the owner pick the next round. Each feature starts with
-a decision row, then failing tests, then code.
+for the last round is built. On 2026-11-16 the owner picked three for the next
+round, from that file's candidates; none is urgent and none is started. Each
+starts with a decision row (the lead's range, 170 onward), then failing tests,
+then code.
+
+1. **Overflow check from the command line and CI.** A command such as
+   `docwalk check README.md` renders a document in a headless browser with
+   docwalk's own pagination and reports every slide that carries an overflow
+   note or a diagram error, with its section address, and exits non-zero when
+   there are any. A team can run it on a pull request that changes a design
+   doc. No tool in the survey does this; deckrun's lint is textual only.
+   Measure in a real browser (rule 4), never by counting lines.
+2. **Page numbers, a footer and bookmarks in the PDF export.** Slide numbers
+   on each page, an optional footer with the document title, and PDF bookmarks
+   from the section headings (Marp's `--pdf-outlines` is the model). The
+   numbers follow sections chosen for the talk (decision 100).
+3. **An agenda slide and section progress.** An optional agenda slide built
+   from the headings, and a small "section 3 of 8" progress mark while
+   presenting. Both come from the structure, with no new Markdown syntax
+   (rule 1), and both can be switched off in the viewer.
+
+After that round, re-check the survey as its "Re-check" section says.
 
 ## Later
 
