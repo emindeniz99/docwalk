@@ -322,6 +322,21 @@ export function App() {
     onFollowUpdate,
     onFollowDocument,
   } = useRemoteRoom({ follow, health, loadFromLink, setNotice, setLevel });
+  // A follow screen shows the map while the presenter's state says map (decision 150), once
+  // the presenter's document is here; its deck stays mounted, hidden, on the presenter's slide.
+  const followState = followUpdate.state;
+  const followMap = follow && followState?.view === "map" && doc !== null;
+  const presenterSection = followState
+    ? followState.current.slice(0, Math.max(0, followState.current.lastIndexOf("/")))
+    : null;
+  // reveal.js lays out on window resize, so nudge it when the deck comes back.
+  useEffect(() => {
+    if (!follow) return;
+    const raf = requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    return () => cancelAnimationFrame(raf);
+    // `followMap` is here to nudge on each switch between the map and the slides.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [follow, followMap]);
 
   // Source line of every section, for the editor's reveal, cursor sync and notes.
   const sectionLines = useMemo(
@@ -377,7 +392,8 @@ export function App() {
   const { frame, staged, fill, chrome, present } = usePresenting({
     view,
     follow,
-    followOpen,
+    // The bar above the map stays up: the idle chrome is the slide's (decision 150).
+    followOpen: followOpen && !followMap,
     mode,
     deckRef,
     layerRef,
@@ -406,6 +422,9 @@ export function App() {
   // A section the reader chose in the shell while the map shows: the map moves to
   // its frame even when the deck is already on it (decision 148).
   const [mapRequest, setMapRequest] = useState<MapRequest | null>(null);
+  // The map's laser (decision 149): here, so the palette can switch it; leaving the map switches it off.
+  const [mapLaser, setMapLaser] = useState(false);
+  if (mapLaser && (view !== "map" || follow)) setMapLaser(false);
   const goToAddress = useCallback(
     (address: string, fromMap: boolean) => {
       controller?.goTo(address);
@@ -495,6 +514,8 @@ export function App() {
     view,
     boardPage,
     toggleBoard,
+    mapLaser,
+    toggleMapLaser: () => setMapLaser((on) => !on),
     show,
     coarse,
     storedEditor,
@@ -554,6 +575,16 @@ export function App() {
     </p>
   ) : (
     <SourceBanner source={doc.source} />
+  );
+
+  const followTheme = (
+    <IconButton
+      className="docwalk-icon-button docwalk-follow-theme"
+      label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
+      onPress={() => setTheme(NEXT_THEME[theme])}
+    >
+      <ThemeIcon size={18} aria-hidden="true" />
+    </IconButton>
   );
 
   return (
@@ -780,6 +811,26 @@ export function App() {
             />
           </section>
         )}
+        {followMap && (
+          <div className="docwalk-follow-map">
+            {/* No header and no view switch on a follow screen: the bar of decision 113. */}
+            <div className="docwalk-preview-head">
+              {subline}
+              {followTheme}
+            </div>
+            <Suspense fallback={<div className="docwalk-map-pane" />}>
+              {/* The presenter's section, followed until the follower roams; a follower's
+                  map reports nothing, so the hidden deck stays on the presenter's slide. */}
+              <MapView
+                root={root}
+                current={presenterSection}
+                deckSections={plan.sections}
+                deckLevels={plan.levels}
+                follow
+              />
+            </Suspense>
+          </div>
+        )}
         {view === "map" && !follow && (
           <Suspense fallback={<div className="docwalk-map-pane" />}>
             {/* The map moves with the deck's current slide and moves it (decision 145);
@@ -791,13 +842,15 @@ export function App() {
               deckLevels={plan.levels}
               request={mapRequest}
               onCurrent={onMapCurrent}
+              laser={mapLaser}
+              onLaserChange={setMapLaser}
             />
           </Suspense>
         )}
         <div
           ref={deckRef}
           className="docwalk-deck-pane"
-          hidden={(view === "document" || view === "map") && !follow}
+          hidden={((view === "document" || view === "map") && !follow) || followMap}
         >
           <div className="docwalk-preview-head">
             <strong>
@@ -809,16 +862,8 @@ export function App() {
             </strong>
             <span className="docwalk-preview-address">{current?.address ?? ""}</span>
             {/* The header is gone on a follow screen (decision 113): its status and theme button live here. */}
-            {follow && subline}
-            {follow && (
-              <IconButton
-                className="docwalk-icon-button docwalk-follow-theme"
-                label={m.theme_button({ theme, next: NEXT_THEME[theme] })}
-                onPress={() => setTheme(NEXT_THEME[theme])}
-              >
-                <ThemeIcon size={18} aria-hidden="true" />
-              </IconButton>
-            )}
+            {follow && !followMap && subline}
+            {follow && !followMap && followTheme}
             {!follow && (
               <IconButton
                 label={m.cmd_overview()}
@@ -954,6 +999,7 @@ export function App() {
             level={level}
             mirror={mirrorFeed}
             countdown={presenterCountdown}
+            mapView={view === "map"}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
             edit={onEdit}

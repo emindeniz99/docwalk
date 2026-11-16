@@ -580,9 +580,37 @@ Suggested steps:
      `.docwalk-slide`, but the layer is scaled and moved. For step 5: the map
      takes a `request` prop (`{ sectionId, seq }`) that always moves it, and
      `current`, which moves it only when the deck section changes.
-4. Focus view and laser on the map.
-5. Followers: section-follow plus roam and back-to-presenter, with the
-   existing room tests extended.
+4. Done 2026-11-16 (decision 149; the focus view is 144): the map's own laser
+   (`src/map/laser.ts`). `L` on the pane or the palette switches it, Escape
+   switches it off; a dot with the slides' fading trail is drawn over the pane
+   in screen pixels. While it is on, a mouse, a pen or one finger points and
+   does nothing else; two fingers, the wheel and the route keys work as
+   before. Row 149 is the lead's reading and waits for the owner. Left open:
+   - The Present button still opens the slides: a map is presented by sharing
+     the window. Presenting the map full screen needs a row.
+   - The phone remote's laser shows nothing on the map.
+   - Not verified: a real pen, a real finger (long press, the finger left down
+     after a pinch), Safari's gesture events with the laser on, and
+     `cursor: none` in Firefox and WebKit.
+5. Done 2026-11-16 (decision 150): followers on the map. The signed state
+   carries an optional `view: "map"` while the presenter is on the map; a
+   follow screen then shows the map on the frame of the presenter's section
+   and moves with it, and shows the slides again when the presenter leaves the
+   map. Any pan, zoom, route key or click on the follower's map starts a roam;
+   a "Back to presenter" button or Escape ends it. Nothing is sent by a
+   follower. Row 150 is the lead's reading and waits for the owner. Left open:
+   - Only the section is sent, so a follower sits on the head frame of the
+     presenter's column while the presenter reads a `###` frame of it, and
+     stays behind when the presenter clicks a frame whose section the
+     presenter's own choice of sections leaves out.
+   - The laser, marks, whiteboard and the presenter's focus views are not
+     shown on a follower's map (150).
+   - The follow bar keeps saying "Following the presenter" during a roam: it
+     is the connection's status. The roam is said by the map's status only.
+   - A document too long for the room's link (the sample is) cannot be
+     followed at all, with or without the map.
+   - Not verified: Firefox and WebKit beyond CI, a real second device, and a
+     phone or tablet as the follower.
 
 Done means: a browser test per step, the end-to-end suite on Chromium,
 Firefox and WebKit, axe on the map view, before and after screenshots of the

@@ -20,6 +20,8 @@ interface RemotePresenterProps {
   mirror: MirrorFeed;
   /** The presenter window's countdown, which phone remotes show (decision 112); null or absent when there is none. */
   countdown?: Countdown | null;
+  /** True while the presenter is in the map view, which follow screens show too (decision 150). */
+  mapView?: boolean;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   /** Applies an agent's write the way an edit in the editor would (decision 59). */
@@ -44,6 +46,7 @@ export function RemotePresenter({
   level,
   mirror,
   countdown = null,
+  mapView = false,
   isOpen,
   onOpenChange,
   edit,
@@ -98,6 +101,7 @@ export function RemotePresenter({
     onAgentEditRefused,
     mirror,
     countdown,
+    mapView,
   });
   useStageLaser(controller, remote.laser);
   return <JoinDialog isOpen={isOpen} onOpenChange={onOpenChange} host={remote} />;

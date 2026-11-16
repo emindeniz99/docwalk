@@ -243,6 +243,7 @@ Add a row here before introducing a new one.
 | mark, saved marks           | işaret, kayıtlı işaretler   | pen and arrow marks; "Sil" deletes them    |
 | mirror, mirrored            | yansıtma, yansıtılan        | the presenter's laser and marks on others  |
 | sketch                      | çizim                       |                                            |
+| laser                       | lazer                       |                                            |
 | whiteboard                  | beyaz tahta                 |                                            |
 | rectangle, ellipse          | dikdörtgen, elips           | drawing tools                              |
 | stylus                      | dokunmatik kalem            | the pen tool stays "Kalem"                 |

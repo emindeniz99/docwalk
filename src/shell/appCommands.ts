@@ -46,6 +46,8 @@ export function appCommands({
   view,
   boardPage,
   toggleBoard,
+  mapLaser,
+  toggleMapLaser,
   show,
   coarse,
   storedEditor,
@@ -74,6 +76,8 @@ export function appCommands({
   view: View;
   boardPage: string | null;
   toggleBoard: () => void;
+  mapLaser: boolean;
+  toggleMapLaser: () => void;
   show: (next: View) => void;
   coarse: boolean;
   storedEditor: EditorKind;
@@ -110,6 +114,14 @@ export function appCommands({
     { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
     { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
     { id: "view-map", label: m.cmd_show_map(), run: () => show("map") },
+    // The map's own laser (decision 149) exists only on the map.
+    ...(view === "map"
+      ? [
+          mapLaser
+            ? { id: "map-laser-off", label: m.cmd_map_laser_off(), hint: "L", run: toggleMapLaser }
+            : { id: "map-laser-on", label: m.cmd_map_laser_on(), hint: "L", run: toggleMapLaser },
+        ]
+      : []),
     // Touch screens keep CodeMirror and are not offered Monaco.
     ...(coarse
       ? []

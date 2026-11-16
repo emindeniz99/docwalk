@@ -55,6 +55,33 @@
   outline-offset: var(--map-ring, 3px);
 }
 
+/*
+ * The map's laser (decision 149): the dot replaces the cursor, as on the
+ * slides (annotate/layer.css), over a frame's text and links too.
+ */
+.docwalk-map-pane[data-laser],
+.docwalk-map-pane[data-laser] * {
+  cursor: none;
+  /* A finger resting to point starts no long-press selection or callout. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Over the pane in screen pixels, outside the scaled layer; it never takes the pointer. */
+.docwalk-map-laser {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.docwalk-map-laser path,
+.docwalk-map-laser circle {
+  fill: var(--dw-color-primary);
+}
+
 /* The current frame's polite status: said, never seen. */
 .docwalk-map-status {
   position: absolute;
@@ -64,4 +91,31 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/*
+ * A follower's "Back to presenter" (decision 150): over the pane in screen
+ * pixels, outside the scaled layer, a 44 px target at the foot of the map.
+ */
+.docwalk-map-back {
+  position: absolute;
+  inset-block-end: var(--dw-space-xl);
+  inset-inline: 0;
+  z-index: 1;
+  width: fit-content;
+  min-height: var(--dw-space-target);
+  margin: 0 auto;
+}
+
+/*
+ * The map on a follow screen (decision 150): the follow status and the theme
+ * button in a bar above the map, as above the slide (decision 113), and the
+ * map in the rest. The bar does not hide when idle: the map has no slide to
+ * grow, and the status stays readable while the map may be frozen.
+ */
+.docwalk-follow-map {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  background: var(--dw-color-stage);
 }

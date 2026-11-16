@@ -5,9 +5,10 @@ import { docLink, fakeRelay, ready, replaceSource, SHORT_DOC } from "./helpers";
 /**
  * The map view's place in the app (decision 142, "Where" and "Budget"): a
  * third choice beside Edit and Document, in the pane the document view uses,
- * with `view=map` in the link, its code in a lazy chunk, and follow screens
- * unchanged. What the map draws inside its pane is step 2's later work; here
- * a frame is the section that names it.
+ * with `view=map` in the link and its code in a lazy chunk. What the map
+ * draws inside its pane is step 2's later work; here a frame is the section
+ * that names it. Follow screens show the map while the presenter does
+ * (decision 150, at the end of this file).
  */
 
 const PHONE = { width: 390, height: 844 };
@@ -160,21 +161,6 @@ async function openRoom(context: BrowserContext) {
   await dialog.getByRole("button", { name: "Close" }).click();
   return { presenter, followUrl };
 }
-
-test("a follow screen never offers or shows the map, even while the presenter is on it", async ({
-  context,
-}) => {
-  // Row 142: follow screens are unchanged in this step.
-  const { presenter, followUrl } = await openRoom(context);
-  await presenter.getByRole("radio", { name: "Map" }).click();
-  await expect(app(presenter)).toHaveAttribute("data-view", "map");
-  const follower = await context.newPage();
-  await ready(follower, followUrl);
-  await expect(app(follower)).toHaveAttribute("data-view", "follow");
-  await expect(follower.locator(".reveal .slides > section.present")).toBeVisible();
-  await expect(follower.getByRole("radio", { name: "Map" })).toHaveCount(0);
-  await expect(follower.locator("[data-map-frame]")).toHaveCount(0);
-});
 
 /** The map once its first frame is placed and shown: the view hides the frames until then. */
 async function openMap(page: Page, count = 40) {
@@ -736,5 +722,257 @@ test.describe("the route through the sample", () => {
     );
     // The start, the end and at least one place between them.
     expect(seen).toBeGreaterThanOrEqual(3);
+  });
+});
+
+const laserDot = (page: Page) => mapRegion(page).locator(".docwalk-map-laser circle");
+/** The map layer's camera as the view wrote it. */
+const layerTransform = (page: Page) =>
+  page.locator(".docwalk-map-layer").evaluate((el) => (el as HTMLElement).style.transform);
+
+test.describe("the map's laser (decision 149)", () => {
+  test("L shows the dot under the mouse, a drag points and pans nothing, and leaving the map switches it off", async ({
+    page,
+  }) => {
+    // The short document: the sample's diagrams and fonts can still move the camera after it shows.
+    await ready(page, docLink(SHORT_DOC));
+    await openMap(page, 3);
+    await mapRegion(page).focus();
+    await page.keyboard.press("l");
+    await expect(mapRegion(page)).toHaveAttribute("data-laser", "");
+    await expect(mapRegion(page).getByRole("status")).toHaveText("Laser on");
+    const pane = await boxOf(mapRegion(page));
+    const at = { x: pane.x + pane.width * 0.4, y: pane.y + pane.height * 0.5 };
+    await page.mouse.move(at.x, at.y);
+    const dot = await boxOf(laserDot(page));
+    expect(Math.abs(dot.x + dot.width / 2 - at.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(dot.y + dot.height / 2 - at.y)).toBeLessThanOrEqual(1);
+    // With the laser off this drag would pan the map (decision 142).
+    const before = await layerTransform(page);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 200, at.y + 100, { steps: 10 });
+    await page.mouse.up();
+    await afterFrames(page);
+    expect(await layerTransform(page)).toBe(before);
+    await page.mouse.move(pane.x + pane.width + 50, pane.y - 50);
+    await expect(laserDot(page)).toHaveCount(0);
+    await page.getByRole("radio", { name: "Document" }).click();
+    await page.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(page).first()).toBeVisible({ timeout: 30_000 });
+    await expect(mapRegion(page)).not.toHaveAttribute("data-laser");
+  });
+
+  test("the palette offers the laser only on the map and switches it both ways", async ({
+    page,
+  }) => {
+    await ready(page, docLink(SHORT_DOC));
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await page.keyboard.press("ControlOrMeta+k");
+    await palette.getByRole("searchbox").fill("laser");
+    await expect(palette.getByRole("menuitem", { name: /laser/i })).toHaveCount(0);
+    // Escape on a filled search box clears it; on an empty one it closes the palette.
+    await palette.getByRole("searchbox").fill("");
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
+    await page.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(page)).toHaveCount(3);
+    await page.keyboard.press("ControlOrMeta+k");
+    await palette.getByRole("searchbox").fill("laser");
+    await palette.getByRole("menuitem", { name: "Turn on laser" }).click();
+    await expect(mapRegion(page)).toHaveAttribute("data-laser", "");
+    await expect(mapRegion(page).getByRole("status")).toHaveText("Laser on");
+    await page.keyboard.press("ControlOrMeta+k");
+    await palette.getByRole("searchbox").fill("laser");
+    await palette.getByRole("menuitem", { name: "Turn off laser" }).click();
+    await expect(mapRegion(page)).not.toHaveAttribute("data-laser");
+    await expect(mapRegion(page).getByRole("status")).toHaveText("Laser off");
+  });
+
+  test("axe finds no serious violations with the laser on and its dot shown", async ({ page }) => {
+    await ready(page);
+    await openMap(page);
+    await mapRegion(page).focus();
+    await page.keyboard.press("l");
+    const pane = await boxOf(mapRegion(page));
+    await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
+    await expect(laserDot(page)).toHaveCount(1);
+    await expectNoSeriousViolations(page);
+  });
+});
+
+const backButton = (page: Page) =>
+  mapRegion(page).getByRole("button", { name: "Back to presenter" });
+const presentSlide = (page: Page) => page.locator(".reveal .slides > section.present");
+/** Calls to `WebSocket.prototype.send` on the page since it loaded. */
+const sent = (page: Page) => page.evaluate(() => Number(Reflect.get(window, "__docwalkSent")));
+
+test.describe("a follow screen while the presenter is on the map (decision 150)", () => {
+  // Only where the camera ends matters here, never the move on its way.
+  test.use({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+
+  test("the follower shows the map on the presenter's section, roams on its own, comes back, and returns to the presenter's slide", async ({
+    context,
+  }) => {
+    const { presenter, followUrl } = await openRoom(context);
+    const follower = await context.newPage();
+    // Every message the follower sends, to show that roaming sends none.
+    await follower.addInitScript(() => {
+      const send = WebSocket.prototype.send;
+      Reflect.set(window, "__docwalkSent", 0);
+      WebSocket.prototype.send = function (this: WebSocket, data) {
+        Reflect.set(window, "__docwalkSent", Number(Reflect.get(window, "__docwalkSent")) + 1);
+        send.call(this, data);
+      };
+    });
+    const chunks: string[] = [];
+    follower.on("request", (request) => {
+      const { pathname } = new URL(request.url());
+      if (MAP_CHUNK.test(pathname)) chunks.push(pathname);
+    });
+    await ready(follower, followUrl);
+    await expect(app(follower)).toHaveAttribute("data-view", "follow");
+    await expect(presentSlide(follower)).toBeVisible();
+    expect(chunks, "the map's chunk before the presenter is on the map").toEqual([]);
+    await expect(follower.getByRole("radio", { name: "Map" })).toHaveCount(0);
+
+    // The presenter enters the map: the follower shows it, on the presenter's frame.
+    await presenter.bringToFront();
+    await presenter.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(presenter)).toHaveCount(3);
+    const opening = await current(presenter).getAttribute("data-map-frame");
+    await expect(frames(follower)).toHaveCount(3);
+    await expect(current(follower)).toHaveAttribute("data-map-frame", opening!);
+    await expect(app(follower)).toHaveAttribute("data-view", "follow");
+    await expect(follower.locator(".docwalk-deck-pane")).toBeHidden();
+    // Around the map: the follow status and the theme button, no header and no view switch.
+    await expect(follower.getByText("Following the presenter", { exact: true })).toBeVisible();
+    await expect(follower.getByRole("button", { name: /^Theme:/ })).toBeVisible();
+    await expect(follower.getByRole("radio", { name: "Map" })).toHaveCount(0);
+    expect(chunks, "the map's chunk once the presenter is on it").toHaveLength(1);
+    await expect(backButton(follower)).toHaveCount(0);
+    await expectNoSeriousViolations(follower);
+
+    // The paste left the presenter on the last slide: Home goes to the first frame,
+    // then Right steps into the next column. The follower's map moves with each.
+    await mapRegion(presenter).focus();
+    await presenter.keyboard.press("Home");
+    const first = await current(presenter).getAttribute("data-map-frame");
+    expect(first).not.toBe(opening);
+    await expect(current(follower)).toHaveAttribute("data-map-frame", first!);
+    await presenter.keyboard.press("ArrowRight");
+    const second = await current(presenter).getAttribute("data-map-frame");
+    expect(second).not.toBe(first);
+    await expect(current(follower)).toHaveAttribute("data-map-frame", second!);
+    await expect.poll(() => inPane(follower, current(follower))).toBe(true);
+
+    // The follower pans: a roam. The presenter's next step no longer moves the follower's map.
+    const sentBefore = await sent(follower);
+    await follower.bringToFront();
+    const pane = await boxOf(mapRegion(follower));
+    await follower.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
+    await follower.mouse.wheel(0, 200);
+    await expect(backButton(follower)).toBeVisible();
+    await expectNoSeriousViolations(follower);
+    const held = await layerTransform(follower);
+    await presenter.bringToFront();
+    await presenter.keyboard.press("ArrowRight");
+    const third = await current(presenter).getAttribute("data-map-frame");
+    expect(third).not.toBe(second);
+    // The follower's deck, hidden, still goes to the presenter's slide.
+    await expect(presentSlide(follower)).toHaveAttribute("data-docwalk-id", third!);
+    await follower.bringToFront();
+    await afterFrames(follower);
+    expect(await layerTransform(follower)).toBe(held);
+    await expect(current(follower)).toHaveAttribute("data-map-frame", second!);
+
+    // The button: back on the presenter's frame, and the button goes.
+    await backButton(follower).click();
+    await expect(current(follower)).toHaveAttribute("data-map-frame", third!);
+    await expect(backButton(follower)).toHaveCount(0);
+    await expect.poll(() => inPane(follower, current(follower))).toBe(true);
+
+    // Roam again, by a route key this time, and come back with Escape.
+    await mapRegion(follower).focus();
+    await follower.keyboard.press("Home");
+    await expect(current(follower)).toHaveAttribute("data-map-frame", first!);
+    await expect(backButton(follower)).toBeVisible();
+    await follower.keyboard.press("Escape");
+    await expect(current(follower)).toHaveAttribute("data-map-frame", third!);
+    await expect(backButton(follower)).toHaveCount(0);
+    expect(await sent(follower), "roaming sends nothing").toBe(sentBefore);
+
+    // The follower roams away, and the presenter goes back to Edit: the follower shows
+    // the slides again on the presenter's slide, not on the frame it roamed to.
+    await follower.keyboard.press("Home");
+    await expect(backButton(follower)).toBeVisible();
+    await presenter.bringToFront();
+    await presenter.getByRole("radio", { name: "Edit" }).click();
+    await follower.bringToFront();
+    await expect(follower.locator("[data-map-frame]")).toHaveCount(0);
+    await expect(follower.locator(".docwalk-deck-pane")).toBeVisible();
+    await expect(presentSlide(follower)).toBeVisible();
+    await expect(presentSlide(follower)).toHaveAttribute("data-docwalk-id", third!);
+    expect(await sent(follower), "roaming sends nothing").toBe(sentBefore);
+
+    // Back on the map later: following, with no roam left over.
+    await presenter.bringToFront();
+    await presenter.getByRole("radio", { name: "Map" }).click();
+    await follower.bringToFront();
+    await expect(current(follower)).toHaveAttribute("data-map-frame", third!);
+    await expect(backButton(follower)).toHaveCount(0);
+  });
+});
+
+test.describe("the presenter's marks while a follower shows the map (decision 150)", () => {
+  test.use({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+
+  test("the mirror layer hides with the deck, the board's closing op on the way to the map throws nothing, and the marks are back on slides", async ({
+    context,
+  }) => {
+    const { presenter, followUrl } = await openRoom(context);
+    await presenter.locator(".docwalk-outline-item").first().click();
+    await expect(presenter.locator(".docwalk-preview-head strong")).toHaveText("1 / 3");
+    const follower = await context.newPage();
+    const errors: string[] = [];
+    follower.on("pageerror", (error) => errors.push(error.message));
+    await ready(follower, followUrl);
+    await expect(follower.locator(".docwalk-preview-head strong").first()).toHaveText("1 / 3");
+    const mirror = follower.locator(".docwalk-mirror");
+    const marks = follower.locator(".docwalk-mirror [data-mark]");
+
+    // A pen stroke on the first slide reaches the follower (decision 88).
+    await presenter.bringToFront();
+    await presenter.getByRole("radio", { name: "Pen" }).click();
+    const r = await boxOf(presenter.locator(".docwalk-annotate"));
+    await presenter.mouse.move(r.x + r.width * 0.2, r.y + r.height * 0.4);
+    await presenter.mouse.down();
+    await presenter.mouse.move(r.x + r.width * 0.6, r.y + r.height * 0.5, { steps: 14 });
+    await presenter.mouse.up();
+    await expect(marks).toHaveCount(1);
+    await expect(marks.first()).toBeVisible();
+
+    // A whiteboard open on the way to the map: leaving for the map closes it (row 143),
+    // and that close reaches the follower as a mirror op around the switch.
+    await presenter.locator(".reveal").focus();
+    await presenter.keyboard.press("w");
+    await expect(presenter.locator(".docwalk-annotate[data-board]")).toHaveCount(1);
+    await presenter.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(presenter)).toHaveCount(3);
+    await follower.bringToFront();
+    await expect(frames(follower)).toHaveCount(3);
+    // Drawn in slide units on the deck's stage, the mirror is not shown on the map.
+    await expect(mirror).toBeHidden();
+    await expect(marks.first()).toBeHidden();
+
+    // Both back on slides: the follower's marks show again, on the presenter's slide.
+    await presenter.bringToFront();
+    await presenter.getByRole("radio", { name: "Edit" }).click();
+    await follower.bringToFront();
+    await expect(follower.locator("[data-map-frame]")).toHaveCount(0);
+    await expect(presentSlide(follower)).toBeVisible();
+    await expect(mirror).toBeVisible();
+    await expect(marks).toHaveCount(1);
+    await expect(marks.first()).toBeVisible();
+    expect(errors, "page errors on the follower").toEqual([]);
   });
 });

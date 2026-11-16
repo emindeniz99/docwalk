@@ -674,6 +674,56 @@ describe("presenter host", () => {
     await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.level).toBe(3));
   });
 
+  test("says view map only while the presenter is on the map, and entering or leaving it sends a state without a slide change (decision 150)", async () => {
+    // A follow screen shows the map while the presenter's state says so. Moving
+    // between the map and the slides changes no slide, so the deck's onChange
+    // never fires for it: the host must send that state itself.
+    const relay = new FakeRelay();
+    const controller = fakeController();
+    const props = {
+      controller,
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+    };
+    const host = mountHost(props);
+    const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 800));
+    expect(ofType(follower, "state").at(-1)).not.toHaveProperty("view");
+    const before = ofType(follower, "state").length;
+
+    mountHost({ ...props, mapView: true });
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(before));
+    expect(ofType(follower, "state").at(-1)).toMatchObject({ current: "section-0/1", view: "map" });
+
+    // A slide change while on the map still says map.
+    act(() => controller.next());
+    await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.current).toBe("section-1/1"));
+    expect(ofType(follower, "state").at(-1)?.view).toBe("map");
+
+    const onMap = ofType(follower, "state").length;
+    mountHost({ ...props, mapView: false });
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(onMap));
+    expect(ofType(follower, "state").at(-1)?.current).toBe("section-1/1");
+    expect(ofType(follower, "state").at(-1)).not.toHaveProperty("view");
+  });
+
+  test("a follower that joins while the presenter is on the map is told so in the state that answers its hello (decision 150)", async () => {
+    const relay = new FakeRelay();
+    const host = mountHost({
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      mapView: true,
+    });
+    const late = peer(relay, await joinCreds(host, "follow"), "follower");
+    await vi.waitFor(() => expect(ofType(late, "state").at(-1)?.view).toBe("map"));
+  });
+
   test("tells followers to wait while the doc link is built, and only says 'too long' when there is none", async () => {
     // A presenter that just turned remote on sends state before its link is
     // ready; a follower shown "too long" then never loaded the real link.
@@ -1206,6 +1256,50 @@ describe("follower", () => {
 
     await presenter.conn.send(presenterState("real/2"));
     await vi.waitFor(() => expect(result.current!.state?.current).toBe("real/2"));
+  });
+
+  test("exposes the presenter's view from its latest signed state, and an old-shape state returns it to slides (decision 150)", async () => {
+    // The follow screen renders the map from `state.view`; a state without the
+    // field (a presenter that left the map, or a page built before 150) means slides.
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const { sign: _sign, ...followLink } = creds;
+    const { result } = mountFollower({
+      creds: { ...followLink, key: null },
+      controller: fakeController(),
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    await vi.waitFor(() => expect(ofType(presenter, "hello").length).toBeGreaterThan(0));
+    await presenter.conn.send({ ...presenterState("section-2/1"), view: "map" } as RemoteMessage);
+    await vi.waitFor(() => expect(result.current!.state?.current).toBe("section-2/1"));
+    expect(result.current!.state?.view).toBe("map");
+
+    await presenter.conn.send(presenterState("section-3/1"));
+    await vi.waitFor(() => expect(result.current!.state?.current).toBe("section-3/1"));
+    expect(result.current!.state?.view).toBeUndefined();
+  });
+
+  test("a follower cannot put another follower on the map: an unsigned state that says map is dropped (decision 150)", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const presenter = peer(relay, creds, "presenter");
+    const { sign: _sign, ...followLink } = creds;
+    const forger = peer(relay, { ...followLink, key: null }, "follower");
+    const { result } = mountFollower({
+      creds: { ...followLink, key: null },
+      controller: null,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    await vi.waitFor(() => expect(ofType(presenter, "hello").length).toBeGreaterThan(0));
+    await opened(forger);
+    await presenter.conn.send(presenterState("real/1"));
+    await vi.waitFor(() => expect(result.current!.state?.current).toBe("real/1"));
+    await forger.conn.send({ ...presenterState("real/1"), view: "map" } as RemoteMessage);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(result.current!.state?.view).toBeUndefined();
   });
 
   test("a follow link without the state key connects nothing: such a follower could trust no state", () => {
