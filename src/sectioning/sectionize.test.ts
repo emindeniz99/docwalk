@@ -227,6 +227,46 @@ describe("level override", () => {
   });
 });
 
+const kinds = (p: SectionPlan) => p.sections.map((s) => `${s.kind}:${s.id}`);
+
+describe("the cover option: the document title under a level list (decision 140)", () => {
+  // The map sections at [L, L + 1] and must keep the deck's cover, so a frame's
+  // id is the id the deck's cover slide has.
+  const withIntro = parseMarkdown("# Ledger\n\nIntro.\n\n## A\n\na\n\n### A1\n\nx\n");
+  const noIntro = parseMarkdown("# Ledger\n\n## A\n\na\n\n### A1\n\nx\n");
+
+  test("a title with an intro is the same cover as under auto", () => {
+    const auto = sectionize(withIntro, "auto");
+    const p = sectionize(withIntro, [2, 3], { cover: true });
+    expect(kinds(p)).toEqual(["cover:ledger", "content:a", "content:a1"]);
+    expect(p.titleHeading).toBe(auto.titleHeading);
+    expect(p.sections[0]).toEqual(auto.sections[0]);
+  });
+
+  test("a title with no intro is kept as an empty cover, as under auto", () => {
+    const p = sectionize(noIntro, [2, 3], { cover: true });
+    expect(kinds(p)).toEqual(["cover:ledger", "content:a", "content:a1"]);
+    expect(p.sections[0]?.nodes).toEqual([]);
+    expect(kinds(sectionize(noIntro, "auto"))[0]).toBe("cover:ledger");
+  });
+
+  test("without the option a level list finds no title, as before", () => {
+    // Today's result, pinned: the deck's level override must not change.
+    for (const options of [undefined, {}, { cover: false }]) {
+      const p = sectionize(withIntro, [2, 3], options);
+      expect(p.titleHeading).toBeNull();
+      expect(kinds(p)).toEqual(["title:ledger", "content:a", "content:a1"]);
+      expect(kinds(sectionize(noIntro, [2, 3], options))).toEqual(["content:a", "content:a1"]);
+    }
+  });
+
+  test("auto finds the title anyway, so the option changes nothing there", () => {
+    const auto = sectionize(withIntro, "auto");
+    expect(sectionize(withIntro, "auto", { cover: true })).toEqual(auto);
+    expect(sectionize(withIntro, "auto", { cover: false })).toEqual(auto);
+  });
+});
+
 describe("acceptance fixture", () => {
   const p = plan(fixture);
 

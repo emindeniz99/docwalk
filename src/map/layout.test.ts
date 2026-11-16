@@ -8,20 +8,71 @@ import {
   FRAME_WIDTH,
   type FrameRect,
   mapColumns,
+  mapPlan,
   MIN_FRAME_HEIGHT,
   placeFrames,
 } from "./layout";
 
 const fixture = readFileSync(new URL("../../fixtures/ledger-redesign.md", import.meta.url), "utf8");
 
-// The map reads the plan at the document's own level, never the viewer's override (decision 139).
-const plan = (md: string) => sectionize(parseMarkdown(md), "auto");
+// The map's own plan: the document's level L and L + 1 (decision 140), never
+// the viewer's level override.
+const plan = (md: string) => mapPlan(parseMarkdown(md));
 const columnIds = (p: SectionPlan) => mapColumns(p).map((column) => column.map((f) => f.id));
+const kinds = (p: SectionPlan) => p.sections.map((s) => `${s.kind}:${s.id}`);
+const atL = (p: SectionPlan) => p.sections.filter((s) => s.heading?.depth === p.levels[0]);
+const cover = (p: SectionPlan) => p.sections.filter((s) => s.kind === "cover");
 
-describe("mapColumns: columns from the section plan (decision 139)", () => {
-  test("a README-shaped document: the cover is the first column, each ## opens one", () => {
-    // Under `auto` the plan has one slide level, so ### parts stay inside their
-    // ## section's frame: they are content of that section, not sections.
+describe("mapPlan: the map sections one level deeper than the deck (decision 140)", () => {
+  test("L skips the document title, as auto does, so a README maps at ## and ###", () => {
+    const p = plan("# Title\n\nintro\n\n## A\n\na\n\n### B\n\nb\n");
+    expect(p.levels).toEqual([2, 3]);
+    expect(kinds(p)).toEqual(["cover:title", "content:a", "content:b"]);
+  });
+
+  test("the cover frame has the id of the deck's cover slide, with or without an intro", () => {
+    // Row 140: a frame's id is the id a slide has. The deck keeps an empty cover.
+    for (const md of [
+      "# Ledger\n\nIntro.\n\n## A\n\na\n\n### A1\n\nx\n",
+      "# Ledger\n\n## A\n\na\n\n### A1\n\nx\n",
+    ]) {
+      const root = parseMarkdown(md);
+      expect(sectionize(root, "auto").sections[0]?.id).toBe("ledger");
+      expect(kinds(mapPlan(root))).toEqual(["cover:ledger", "content:a", "content:a1"]);
+      expect(columnIds(mapPlan(root))).toEqual([["ledger"], ["a", "a1"]]);
+    }
+  });
+
+  test("with no heading at L + 1 the map plan is the deck's auto plan", () => {
+    for (const md of ["# Ledger\n\nIntro.\n\n## A\n\na\n", "one\n\n---\n\ntwo\n", ""]) {
+      const root = parseMarkdown(md);
+      expect(mapPlan(root)).toEqual(sectionize(root, "auto"));
+    }
+  });
+
+  test("an L + 1 heading followed straight by a heading does not count, as in autoSlideLevel", () => {
+    // "### Group" has no text of its own, so it does not make ### a map level:
+    // the #### below it stays inside "## A". This is the eye autoSlideLevel uses.
+    const p = plan("## A\n\na\n\n### Group\n\n#### Deep\n\nd\n\n## B\n\nb\n");
+    expect(p.levels).toEqual([2]);
+    expect(columnIds(p)).toEqual([["a"], ["b"]]);
+  });
+
+  test("a part above L whose only text sits under an L + 1 heading has no frame (the lead's call)", () => {
+    // The deck at auto keeps "# Part one" as a title slide holding "### Sub".
+    // At [2, 3] "### Sub" opens its own section, "# Part one" is left with no
+    // text, and sectionize drops it as a breadcrumb. So this slide id has no
+    // frame. Pinned as found; whether the map should keep it is the lead's call.
+    const md = "# Part one\n\n### Sub\n\ns\n\n## A\n\na\n\n# Part two\n\n## B\n\nb\n";
+    const root = parseMarkdown(md);
+    expect(kinds(sectionize(root, "auto"))).toEqual(["title:part-one", "content:a", "content:b"]);
+    expect(kinds(mapPlan(root))).toEqual(["content:sub", "content:a", "content:b"]);
+    expect(columnIds(mapPlan(root))).toEqual([["sub"], ["a"], ["b"]]);
+  });
+});
+
+describe("mapColumns: columns from the map plan (decisions 139 and 140)", () => {
+  test("a README-shaped document: the cover, then one column per ## with its ### stacked", () => {
     const md = [
       "# Ledger",
       "Intro.",
@@ -37,9 +88,13 @@ describe("mapColumns: columns from the section plan (decision 139)", () => {
       "e",
     ].join("\n\n");
     const p = plan(md);
-    expect(p.levels).toEqual([2]);
-    expect(columnIds(p)).toEqual([["ledger"], ["one"], ["two"], ["three"]]);
-    expect(mapColumns(p)[2]).toEqual([{ id: "two", title: "Two", depth: 2 }]);
+    expect(p.levels).toEqual([2, 3]);
+    expect(columnIds(p)).toEqual([["ledger"], ["one"], ["two", "two-a", "two-b"], ["three"]]);
+    expect(mapColumns(p)[2]).toEqual([
+      { id: "two", title: "Two", depth: 2 },
+      { id: "two-a", title: "Two A", depth: 3 },
+      { id: "two-b", title: "Two B", depth: 3 },
+    ]);
   });
 
   test("a document whose sections are # headings gets one column per #", () => {
@@ -68,6 +123,11 @@ describe("mapColumns: columns from the section plan (decision 139)", () => {
     expect(columns[1]?.[1]).toEqual({ id: "a-part-2", title: "A", depth: null });
   });
 
+  test("a part after a ### frame stacks in the same column, after that frame", () => {
+    const md = "## A\n\na\n\n### X\n\nx1\n\n---\n\nx2\n\n## B\n\nb\n";
+    expect(columnIds(plan(md))).toEqual([["a", "x", "x-part-2"], ["b"]]);
+  });
+
   test("parts before the first heading stay in the first column", () => {
     expect(columnIds(plan("one\n\n---\n\ntwo\n\n## A\n\na\n"))).toEqual([
       ["intro", "slide-2"],
@@ -86,36 +146,48 @@ describe("mapColumns: columns from the section plan (decision 139)", () => {
     expect(mapColumns(plan("<!-- markdownlint-disable MD041 -->\n"))).toEqual([]);
   });
 
-  test("#### headings open no slide, so they open no column", () => {
+  test("headings below L + 1 open no frame, so they stay inside theirs", () => {
     const p = plan("## A\n\na\n\n#### Deep\n\nd\n\n## B\n\nb\n");
     expect(p.levels).toEqual([2]);
     expect(columnIds(p)).toEqual([["a"], ["b"]]);
+    const q = plan("## A\n\na\n\n### X\n\nx\n\n#### Deep\n\nd\n");
+    expect(q.levels).toEqual([2, 3]);
+    expect(columnIds(q)).toEqual([["a", "x"]]);
   });
 
-  test("a title section in mid-document joins the column before it (the lead's call)", () => {
-    // "# Part two" is above the slide level and carries its own content (the
-    // #### note), so the plan keeps it as a `title` section. Row 139 opens a
-    // column only at levels[0], so it stacks under "## A". Whether it should
-    // open a column of its own instead is the lead's call; this pins the
-    // literal reading of the row.
+  test("a part heading above L in mid-document opens a column of its own", () => {
+    // "# Part two" is above the slide level and carries its own text (the
+    // #### note), so the plan keeps it as a `title` section; row 140 lets a
+    // heading at L or above open a column.
     const md = "# Part one\n\n## A\n\na\n\n# Part two\n\n#### Note\n\nn\n\n## B\n\nb\n";
     const p = plan(md);
-    expect(p.sections.map((s) => `${s.kind}:${s.id}`)).toEqual([
-      "content:a",
-      "title:part-two",
-      "content:b",
-    ]);
-    expect(columnIds(p)).toEqual([["a", "part-two"], ["b"]]);
+    expect(kinds(p)).toEqual(["content:a", "title:part-two", "content:b"]);
+    expect(columnIds(p)).toEqual([["a"], ["part-two"], ["b"]]);
   });
 
-  test("the acceptance fixture: every section once, one column per ## plus the cover", () => {
+  test("the acceptance fixture: 23 columns and 40 frames", () => {
+    // The fixture has a cover, 22 ## headings (21 ATX and one setext heading in
+    // the appendix) and 17 ### headings, each followed by text; its one
+    // thematic break sits right before a heading, so it makes no part.
+    // Columns: the cover's plus one per ## = 23. Frames: 1 + 22 + 17 = 40.
     const p = plan(fixture);
     const columns = columnIds(p);
+    expect(p.levels).toEqual([2, 3]);
     expect(columns.flat()).toEqual(p.sections.map((s) => s.id));
-    const opening = p.sections.filter((s) => s.heading?.depth === p.levels[0]).length;
-    const leading = p.sections[0]?.heading?.depth === p.levels[0] ? 0 : 1;
-    expect(columns).toHaveLength(opening + leading);
-    expect(columns[0]?.[0]).toBe("ledgerline-payment-ledger-redesign");
+    expect(columns).toHaveLength(23);
+    expect(columns.flat()).toHaveLength(40);
+    expect(p.sections.filter((s) => s.heading?.depth === 2)).toHaveLength(22);
+    expect(p.sections.filter((s) => s.heading?.depth === 3)).toHaveLength(17);
+    expect(columns[0]).toEqual(["ledgerline-payment-ledger-redesign"]);
+    expect(columns.find((c) => c[0] === "failure-handling")).toEqual([
+      "failure-handling",
+      "retries",
+      "timeouts",
+      "poison-messages",
+      "partial-failures",
+      "duplicate-delivery",
+      "clock-skew",
+    ]);
   });
 });
 
@@ -253,15 +325,37 @@ describe("properties", () => {
     for (const column of mapColumns(plan(md))) expect(column.length).toBeGreaterThan(0);
   });
 
-  fcTest.prop([doc])("every column after the first opens with a heading at levels[0]", (md) => {
+  fcTest.prop([doc])("every column after the first opens with a heading at L or above", (md) => {
     // One parsed tree: the frame's id finds its section, and the section's
-    // heading node is compared by its depth.
+    // heading node is compared by its depth. Every other frame is deeper or a part.
     const p = plan(md);
     const byId = new Map(p.sections.map((s) => [s.id, s]));
-    for (const column of mapColumns(p).slice(1)) {
-      const first = byId.get(column[0]!.id);
-      expect(first?.heading?.depth).toBe(p.levels[0]);
-    }
+    const level = p.levels[0] as number;
+    mapColumns(p).forEach((column, c) => {
+      column.forEach((frame, row) => {
+        const depth = byId.get(frame.id)?.heading?.depth;
+        const opens = depth !== undefined && depth <= level;
+        expect(opens).toBe(row === 0 && (c > 0 || opens));
+      });
+    });
+  });
+
+  fcTest.prop([doc])("every frame id is unique", (md) => {
+    const ids = mapColumns(plan(md))
+      .flat()
+      .map((f) => f.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  fcTest.prop([doc])("the map plan has the deck's sections at L and its cover, same ids", (md) => {
+    // Row 140: a frame's id is the id a slide has. One tree for both plans.
+    const root = parseMarkdown(md);
+    const deck = sectionize(root, "auto");
+    const map = mapPlan(root);
+    expect(map.levels[0]).toBe(deck.levels[0]);
+    expect(map.titleHeading).toBe(deck.titleHeading);
+    expect(atL(map).map((s) => s.id)).toEqual(atL(deck).map((s) => s.id));
+    expect(cover(map).map((s) => s.id)).toEqual(cover(deck).map((s) => s.id));
   });
 
   fcTest.prop([layout])("no two frames overlap", ({ columns, heights }) => {
