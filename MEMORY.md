@@ -13,8 +13,9 @@ rows run to 137. In the fork since 2026-11-11: the simplification pass (125,
 133, 134), and a review of PR #5's feature code with its fixes (132, 135).
 Rows 133 and 134 and the Turkish "taşma notu" are proposed and wait for the
 owner. Map mode (136) is being built in ROADMAP "Next up" 1's five steps:
-step 1, the layout (`src/map/layout.ts`, decisions 139 to 141), is done on
-2026-11-16 and nothing uses it yet; step 2 is the view. Hand tests on real
+steps 1 and 2 are done on 2026-11-16 (`src/map/`: layout, frames, camera,
+`MapView`; decisions 139 to 144, the lead's reading, waiting for the owner);
+step 3 is the route (arrow keys, zoom-out key, camera moves, addresses). Hand tests on real
 devices (2) and the next feature round (3) need the owner.
 
 The project is public at github.com/emindeniz99/docwalk with the static
@@ -95,6 +96,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-11: Several agents can fix different files in one checkout at once if none commits, stashes or runs the whole gate: each runs only its own test files, and the lead commits by path (tests, then code) and runs `pnpm check` once. A test that needs a hook's inner steps gets them as exported functions, and its red commit then fails on the missing export, not on the bug: say so in the commit. reveal.js 6.0.2's `slide()` to the index already shown clears `inert` on the page and fires no event; watch the attribute. An empty-slug heading (`## ???`) is where two slug sources disagree: take ids from `plan.headingIds`, never from a second `GithubSlugger`.
 - 2026-11-12: Under Playwright, Chromium gives a page that is not in front about one animation frame a second while it reports itself visible: what the older page of a two-page test draws after `requestAnimationFrame` needs a retrying assertion, and the other page's state proves nothing (`bringToFront()` moves the slow frames). `locator.boundingBox()` is two calls and returns null for an element replaced in between, and a throw inside `expect.poll` is not retried: return a failing value. Load can hide a race; repeat with and without it. A container query cannot change its own container's padding: query the parent. A locator or helper that finds an element by an accessible name breaks when a fix changes that name; search tests and e2e for the old name first.
 - 2026-11-16: `sectionize` finds the document title only under `auto` and drops a heading above the slide level that has no text of its own; a caller that sections at a level list and needs the deck's cover or those headings passes `{ cover: true, emptyTitles: true }` (the map, decisions 140 and 141). `auto` has one slide level, so "`###` parts" exist only in a plan sectioned at two levels. A unit test cannot import `src/deck/pages.ts`: the node tsconfig has no DOM lib.
+- 2026-11-16: `touch-action` on a pane does not reach its scroll containers: a touch that starts on an `overflow: auto` child is the browser's (`pointercancel`) unless the child has `touch-action: none` too, and an e2e touch that starts on empty space cannot show it; send one through CDP that starts on text. A view shown only after "everything settled" is blank for as long as one image stalls: place from heights read at once, then again as reports come. Marks that name an action ("Press Enter to open") must come with the handler in the same change. Three workers built one view in parallel from one decision row with disjoint files (pure camera, DOM renderer, shell with a stub component), and a fourth composed them.
 
 ## Done
 

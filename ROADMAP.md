@@ -517,9 +517,39 @@ Suggested steps:
    `### X`, a thematic break: the deck has `a, a-part-2`, the map `a, x,
    x-part-2`), so the address mapping must handle parts; a document with
    headings but no slide level keeps the deck's plan.
-2. The view: render frames into one transformed layer, reuse 127's pan and
-   zoom, draw Mermaid only for frames near the viewport, and keep the new code
-   in a lazy chunk (first-load budget, decision 124).
+2. Done 2026-11-16 (decisions 142 to 144): "Map" ("Harita") is a third view
+   beside Edit and Document, in the link as `view=map`, in a lazy chunk the
+   first load never requests. `src/map/frames.ts` draws one section per frame
+   with the slides' pipeline and reports heights; `src/map/camera.ts` is the
+   camera as pure functions; `src/map/MapView.tsx` places the frames on one
+   layer and moves it: a wheel pans, Ctrl/Cmd + wheel and a pinch zoom, one
+   finger pans, a mouse drag on empty map pans. Diagrams draw only near the
+   view. A click or Enter on a block opens the focus view (the part of step 4
+   its marks promised). Rows 142 to 144 are the lead's reading and wait for
+   the owner. Left open, for the owner or a later step:
+   - A wide table or a long code line in a frame is not scrolled in place:
+     the map takes every wheel and touch. It is read in the focus view or with
+     the keyboard.
+   - Zoomed all the way out, the map is not centred and can hang past an edge;
+     step 3's zoom-out key centres it.
+   - In Turkish at 1440 px the header takes two rows with three view choices
+     (143). On a phone the choices are icons.
+   - A frame with no heading (content above the first heading, a document with
+     no headings) has no accessible name. Diagrams keep Mermaid's natural size
+     and are not fitted as on a slide.
+   - If the diagram code fails to load, a frame is asked again but draws
+     nothing: `src/deck/mermaid.ts` keeps the rejected load and has already
+     swapped the source for an empty figure. The deck and the document view
+     show that empty figure too, with no note (rule 3): fix it there.
+   - Chromium only for touch and gestures: real trackpads, Safari's gesture
+     events, an iPad and Firefox's wheel are untested. A tap is told from a pan
+     by 10 px of movement.
+   - For step 3: `MapView` has no way in from outside to move the camera; frame
+     ids at `L + 1` and part ids are not deck addresses (140); the outline and
+     the current slide come from the deck's plan, which follows the level
+     override, and the map does not; arrow keys will meet focused scroll boxes
+     and text; a smooth move must stop for wheel or pointer input and will
+     trigger diagram drawing on the way.
 3. Route: arrow keys, zoom-out key, camera animation, reduced motion, screen
    readers reading in document order, a URL address per section.
 4. Focus view and laser on the map.
