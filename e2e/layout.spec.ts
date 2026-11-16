@@ -23,6 +23,22 @@ test("at 1440 px every header action sits on one row", async ({ page }) => {
   expect(box?.height ?? 0).toBeLessThan(80);
 });
 
+test("at 1280 px the header holds Edit, Document and Map without widening the page", async ({
+  page,
+}) => {
+  // Decision 142 adds a third view choice; a laptop's header is already two rows wide here.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await ready(page);
+  await headerFits(page);
+  for (const name of ["Edit", "Document", "Map"])
+    await expect(page.getByRole("radio", { name, exact: true })).toBeInViewport({ ratio: 1 });
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+});
+
 test("on a 390 px phone the header fits, actions keep their names, and targets are 44 px", async ({
   page,
 }) => {

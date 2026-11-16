@@ -130,11 +130,12 @@ describe("parseViewerUrl: viewer settings in the query", () => {
     expect(parse("/").level).toBeNull();
   });
 
-  test("view takes the four known views and nothing else", () => {
-    for (const view of ["edit", "document", "present", "presenter"] as const) {
+  test("view takes the five known views and nothing else", () => {
+    for (const view of ["edit", "document", "map", "present", "presenter"] as const) {
       expect(parse(`?view=${view}`).view).toBe(view);
     }
-    const accepted = ["Present", "slides", "", "present%00", "<img src=x>"].filter(
+    // "follow" is read by the app itself (decision 8), never as a view a link restores.
+    const accepted = ["Present", "Map", "slides", "follow", "", "present%00", "<img src=x>"].filter(
       (raw) => parse(`?view=${raw}`).view !== null,
     );
     expect(accepted).toEqual([]);
@@ -188,6 +189,12 @@ describe("formatViewerUrl", () => {
     expect(format(shared, { address: null }).hash).toBe("#doc=eJzLSM3JyQcABiwCFQ");
   });
 
+  test("a map link opens the map: view=map is written and read back (decision 142)", () => {
+    const url = format("/?src=x#intro/2", { view: "map" });
+    expect(url.search).toBe("?src=x&view=map");
+    expect(parseViewerUrl(url).view).toBe("map");
+  });
+
   test("the base URL is not mutated, so callers can keep comparing against it", () => {
     const base = new URL("/?view=edit#a/1", BASE);
     formatViewerUrl(base, { view: "present", address: "b/2" });
@@ -214,7 +221,7 @@ describe("format then parse round-trips every valid state", () => {
           .map((list) => list.toSorted((a, b) => a - b)),
       ),
     ),
-    view: fc.option(fc.constantFrom("edit", "document", "present", "presenter" as const)),
+    view: fc.option(fc.constantFrom("edit", "document", "map", "present", "presenter" as const)),
     sections: fc.option(fc.uniqueArray(shortId, { minLength: 1, maxLength: 5 })),
   }) as fc.Arbitrary<ViewerUrlState>;
   const unrelated = fc.constantFrom(
