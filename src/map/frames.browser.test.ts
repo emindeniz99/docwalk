@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
@@ -12,6 +12,20 @@ import { parseMarkdown } from "../sectioning/sectionize";
 import { renderFrames, type MapFrames } from "./frames";
 import { mapPlan } from "./layout";
 
+// The diagram code can fail to load (a lost connection, a new deploy): while
+// `failing` is set, renderDiagrams rejects as it does when its chunk fails.
+const control = vi.hoisted(() => ({ failing: false }));
+vi.mock("../deck/mermaid", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../deck/mermaid")>();
+  return {
+    ...real,
+    renderDiagrams: (...args: Parameters<typeof real.renderDiagrams>) =>
+      control.failing
+        ? Promise.reject(new Error("Failed to fetch dynamically imported module"))
+        : real.renderDiagrams(...args),
+  };
+});
+
 /**
  * Decision 142, Frames, Measuring and Diagrams: the map draws one frame per
  * section of the map's plan with the slides' pipeline, reports each frame's
@@ -24,6 +38,7 @@ const handles: MapFrames[] = [];
 afterEach(() => {
   for (const handle of handles.splice(0)) handle.dispose();
   document.body.replaceChildren();
+  control.failing = false;
 });
 
 interface Mounted {
@@ -31,10 +46,14 @@ interface Mounted {
   handle: MapFrames;
   /** Every `onHeights` call, copied, in order. */
   reports: Map<string, number>[];
+  /** The report made once every frame had rendered (rule 4): every frame's height. */
+  full: Map<string, number>;
+  /** How many reports had come by then, that one included. */
+  settledAt: number;
   navigations: [string, HTMLElement][];
 }
 
-/** Frames for `markdown` in a host under `parent`, once the first full set of heights is in. */
+/** Frames for `markdown` in a host under `parent`, once every frame has rendered and been measured. */
 async function mount(markdown: string, parent: HTMLElement = document.body): Promise<Mounted> {
   const host = document.createElement("div");
   parent.append(host);
@@ -45,8 +64,12 @@ async function mount(markdown: string, parent: HTMLElement = document.body): Pro
     onNavigate: (id, target) => navigations.push([id, target]),
   });
   handles.push(handle);
-  await expect.poll(() => reports.length, { timeout: 20_000 }).toBeGreaterThan(0);
-  return { host, handle, reports, navigations };
+  let settledAt = 0;
+  void handle.settled.then(() => {
+    settledAt = reports.length;
+  });
+  await expect.poll(() => settledAt, { timeout: 20_000 }).toBeGreaterThan(0);
+  return { host, handle, reports, full: reports[settledAt - 1]!, settledAt, navigations };
 }
 
 const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
@@ -211,11 +234,10 @@ const SHORT_LONG = [
 
 describe("heights (decision 142, Measuring)", () => {
   test("every frame has a height in the first report, and more content makes a taller frame", async () => {
-    const { reports } = await mount(SHORT_LONG);
-    const [first] = reports;
-    expect([...first!.keys()]).toEqual(["short", "long"]);
-    expect(first!.get("short")).toBeGreaterThan(0);
-    expect(first!.get("long")).toBeGreaterThan(first!.get("short")!);
+    const { full } = await mount(SHORT_LONG);
+    expect([...full.keys()]).toEqual(["short", "long"]);
+    expect(full.get("short")).toBeGreaterThan(0);
+    expect(full.get("long")).toBeGreaterThan(full.get("short")!);
   });
 
   test("the height is the frame's own, the same under an ancestor scaled to half", async () => {
@@ -225,32 +247,63 @@ describe("heights (decision 142, Measuring)", () => {
     document.body.append(scaled);
     const plain = await mount(SHORT_LONG);
     const small = await mount(SHORT_LONG, scaled);
-    expect(small.reports[0]).toEqual(plain.reports[0]);
+    expect(small.full).toEqual(plain.full);
   });
 
   test("content that grows after the first report is reported once, for that frame only", async () => {
-    const { handle, reports } = await mount(SHORT_LONG);
-    const before = reports[0]!.get("short")!;
+    const { handle, reports, full, settledAt } = await mount(SHORT_LONG);
+    await frames(3);
+    const n = reports.length;
+    const before = full.get("short")!;
     const more = document.createElement("p");
     more.textContent = "A late block. ".repeat(80);
     bodyOf(handle.frames.get("short")!).append(more);
-    await expect.poll(() => reports.length).toBe(2);
-    expect([...reports[1]!.keys()]).toEqual(["short"]);
-    expect(reports[1]!.get("short")).toBeGreaterThan(before);
-    expect(handle.measure("short")).toBe(reports[1]!.get("short"));
+    await expect.poll(() => reports.length).toBe(n + 1);
+    expect(n).toBeGreaterThanOrEqual(settledAt);
+    expect([...reports[n]!.keys()]).toEqual(["short"]);
+    expect(reports[n]!.get("short")).toBeGreaterThan(before);
+    expect(handle.measure("short")).toBe(reports[n]!.get("short"));
     await frames(3);
-    expect(reports).toHaveLength(2);
+    expect(reports).toHaveLength(n + 1);
+  });
+
+  test("content that grows while an image never decodes is reported, before any full report", async () => {
+    // Decision 144: a stalled image server holds rule 4's wait open; a frame
+    // that grows meanwhile must still be placed again.
+    const decode = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = () => new Promise<void>(() => undefined);
+    try {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const reports: Map<string, number>[] = [];
+      const handle = renderFrames(
+        host,
+        mapPlan(parseMarkdown(`${SHORT_LONG}\n![Logo](/icons/icon-192.png)\n`)),
+        { loadRemoteImages: true, onHeights: (changed) => reports.push(new Map(changed)) },
+      );
+      handles.push(handle);
+      await frames(3);
+      const before = handle.measure("short")!;
+      const more = document.createElement("p");
+      more.textContent = "A late block. ".repeat(80);
+      bodyOf(handle.frames.get("short")!).append(more);
+      await expect.poll(() => reports.some((r) => (r.get("short") ?? 0) > before)).toBe(true);
+      for (const report of reports) expect([...report.keys()]).toEqual(["short"]);
+    } finally {
+      HTMLImageElement.prototype.decode = decode;
+    }
   });
 
   test("nothing is reported after dispose", async () => {
     const { handle, reports } = await mount(SHORT_LONG);
     const body = bodyOf(handle.frames.get("short")!);
     handle.dispose();
+    const n = reports.length;
     const more = document.createElement("p");
     more.textContent = "A late block. ".repeat(80);
     body.append(more);
     await frames(4);
-    expect(reports).toHaveLength(1);
+    expect(reports).toHaveLength(n);
   });
 
   test("nothing is reported after a dispose that comes before the first report", async () => {
@@ -349,46 +402,61 @@ describe("diagrams are drawn only where the view asks (decision 142, Diagrams)",
 
   test("a frame drawn later is measured again, and only that frame is reported", async () => {
     // A five-node top-down chart stands taller than its five-line source.
-    const { handle, reports } = await mount(DIAGRAMS);
-    const before = reports[0]!.get("first")!;
-    await handle.drawDiagrams(["first"]);
-    await expect.poll(() => reports.length).toBeGreaterThan(1);
+    const { handle, reports, full, settledAt } = await mount(DIAGRAMS);
+    const before = full.get("first")!;
     await frames(3);
-    const later = reports.slice(1);
+    const n = Math.max(settledAt, reports.length);
+    await handle.drawDiagrams(["first"]);
+    await expect.poll(() => reports.length).toBeGreaterThan(n);
+    await frames(3);
+    const later = reports.slice(n);
     expect(later.every((r) => [...r.keys()].every((id) => id === "first"))).toBe(true);
     expect(later.at(-1)!.get("first")).toBeGreaterThan(before);
     expect(later.at(-1)!.get("first")).toBe(handle.measure("first"));
   });
 
-  test("a frame's blocks become focus targets once its diagrams are drawn, a frame with none too", async () => {
-    // Marked after the diagrams, as the document view does: a diagram's source is no code block.
+  test("every frame's code blocks and tables are focus targets once rendered, diagrams once drawn", async () => {
+    // Decision 144: a far frame, whose diagrams are never drawn, still opens
+    // its blocks in the focus view. A diagram's source is no code block.
     const { host, handle } = await mount(DIAGRAMS);
-    expect(host.querySelector("[data-docwalk-focus]")).toBeNull();
-    await handle.drawDiagrams(["first"]);
     expect(handle.frames.get("first")!.querySelector("table")!.dataset["docwalkFocus"]).toBe(
       "table",
     );
-    expect(handle.frames.get("second")!.querySelector("[data-docwalk-focus]")).toBeNull();
-    expect(handle.frames.get("plain")!.querySelector("[data-docwalk-focus]")).toBeNull();
-    await handle.drawDiagrams(["plain"]);
     expect(handle.frames.get("plain")!.querySelector("pre")!.dataset["docwalkFocus"]).toBe("code");
+    for (const source of host.querySelectorAll("pre:has(> code.language-mermaid)"))
+      expect(source.hasAttribute("data-docwalk-focus")).toBe(false);
+    await handle.drawDiagrams(["first"]);
+    const diagram = handle.frames.get("first")!.querySelector<HTMLElement>(".docwalk-diagram")!;
+    expect(diagram.tabIndex).toBe(0);
+    expect(handle.frames.get("second")!.querySelector("[data-docwalk-focus]")).toBeNull();
+  });
+
+  test("a diagram whose code fails to load leaves no rejection, and its frame is drawn when asked again", async () => {
+    // Decision 144: a lost chunk must not mark the frame as drawn for good.
+    const { handle } = await mount(DIAGRAMS);
+    control.failing = true;
+    await expect(handle.drawDiagrams(["first"])).resolves.toBeUndefined();
+    expect(handle.frames.get("first")!.querySelector(".docwalk-diagram svg")).toBeNull();
+    control.failing = false;
+    await handle.drawDiagrams(["first"]);
+    expect(handle.frames.get("first")!.querySelector(".docwalk-diagram svg")).not.toBeNull();
   });
 });
 
 describe("documents at the edges", () => {
   test("a document with no headings is one frame, with a height", async () => {
     const plan = mapPlan(parseMarkdown("Just text.\n\nMore text.\n"));
-    const { host, reports } = await mount("Just text.\n\nMore text.\n");
+    const { host, full } = await mount("Just text.\n\nMore text.\n");
     expect(plan.sections).toHaveLength(1);
     expect(host.querySelectorAll("section[data-map-frame]")).toHaveLength(1);
-    expect(reports[0]!.get(plan.sections[0]!.id)).toBeGreaterThan(0);
+    expect(full.get(plan.sections[0]!.id)).toBeGreaterThan(0);
   });
 
   test("an empty document has no frames and still reports, with no heights", async () => {
     // The view waits for the first report before it places anything.
-    const { host, reports } = await mount("");
+    const { host, full } = await mount("");
     expect(host.children).toHaveLength(0);
-    expect(reports[0]!.size).toBe(0);
+    expect(full.size).toBe(0);
   });
 
   test(
@@ -397,12 +465,12 @@ describe("documents at the edges", () => {
     async () => {
       const plan = mapPlan(parseMarkdown(fixture));
       const started = performance.now();
-      const { reports, handle } = await mount(fixture);
+      const { full, handle } = await mount(fixture);
       const elapsed = performance.now() - started;
       expect(plan.sections).toHaveLength(40);
       expect(handle.frames.size).toBe(40);
-      expect([...reports[0]!.keys()]).toEqual(plan.sections.map((s) => s.id));
-      for (const height of reports[0]!.values()) expect(height).toBeGreaterThan(0);
+      expect([...full.keys()]).toEqual(plan.sections.map((s) => s.id));
+      for (const height of full.values()) expect(height).toBeGreaterThan(0);
       console.info(`ledger fixture: 40 frames rendered and measured in ${Math.round(elapsed)} ms`);
     },
   );

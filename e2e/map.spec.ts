@@ -177,9 +177,9 @@ test("a follow screen never offers or shows the map, even while the presenter is
 });
 
 /** The map once its first frame is placed and shown: the view hides the frames until then. */
-async function openMap(page: Page) {
+async function openMap(page: Page, count = 40) {
   await page.getByRole("radio", { name: "Map" }).click();
-  await expect(frames(page)).toHaveCount(40);
+  await expect(frames(page)).toHaveCount(count);
   await expect(frames(page).first()).toBeVisible({ timeout: 30_000 });
 }
 
@@ -265,6 +265,150 @@ test.describe("on a 390 × 844 phone", () => {
       .poll(async () => (await boxOf(frames(page).first())).y)
       .toBeLessThan(first.y - 100);
     expect(await pageScroll(page)).toEqual({ x: 0, y: 0, sideways: 0, down: 0, pane: 0 });
+  });
+});
+
+/**
+ * One finger from (x, y) moved by (dx, dy) in ten steps, through the DevTools
+ * protocol: a trusted touch, so the browser applies `touch-action` and may
+ * take the gesture for itself (pointercancel), which synthetic events cannot show.
+ */
+async function touchPan(
+  context: BrowserContext,
+  page: Page,
+  x: number,
+  y: number,
+  dx: number,
+  dy: number,
+) {
+  const cdp = await context.newCDPSession(page);
+  const at = (i: number) => [{ x: x + (dx * i) / 10, y: y + (dy * i) / 10 }];
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: at(0) });
+  for (let i = 1; i <= 10; i++)
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: at(i) });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
+
+for (const [label, viewport] of [
+  ["a 390 × 844 phone", PHONE],
+  ["a 1440 × 900 touch screen", { width: 1440, height: 900 }],
+] as const) {
+  test.describe(`one finger on a frame's text on ${label}`, () => {
+    test.use({ viewport, hasTouch: true });
+
+    test("pans the map, as on empty map (decision 144)", async ({ page, context, browserName }) => {
+      // A frame's body scrolls on its own (overflow: auto), so the pane's
+      // touch-action does not reach it unless its content says so too.
+      test.skip(browserName !== "chromium", "touch drags are sent through CDP in Chromium only");
+      await ready(page);
+      await openMap(page);
+      const text = await boxOf(frames(page).first().locator(".docwalk-slide-body p").first());
+      const before = await boxOf(frames(page).first());
+      await touchPan(context, page, text.x + 10, text.y + text.height / 2, 0, -150);
+      await expect
+        .poll(async () => (await boxOf(frames(page).first())).y)
+        .toBeLessThan(before.y - 100);
+      expect(await pageScroll(page)).toEqual({ x: 0, y: 0, sideways: 0, down: 0, pane: 0 });
+    });
+  });
+}
+
+const WIDE_DOC = [
+  "## Wide",
+  "",
+  "```text",
+  `log ${"key=value ".repeat(60)}`,
+  "```",
+  "",
+  `| ${Array.from({ length: 14 }, (_, i) => `Column ${i + 1}`).join(" | ")} |`,
+  `|${" --- |".repeat(14)}`,
+  `| ${Array.from({ length: 14 }, () => "a long cell value").join(" | ")} |`,
+  "",
+  "## Next",
+  "",
+  "Text.",
+  "",
+].join("\n");
+
+test.describe("one finger on a box that scrolls sideways inside a frame", () => {
+  test.use({ viewport: PHONE, hasTouch: true });
+
+  for (const selector of ["pre", "table"]) {
+    test(`on a ${selector} pans the map and scrolls nothing in place (decision 144)`, async ({
+      page,
+      context,
+      browserName,
+    }) => {
+      test.skip(browserName !== "chromium", "touch drags are sent through CDP in Chromium only");
+      await ready(page, docLink(WIDE_DOC));
+      await openMap(page, 2);
+      const frame = mapRegion(page).locator('[data-map-frame="wide"]');
+      const box = frame.locator(selector).first();
+      // The test means something only if the box, or the body around it, really scrolls.
+      const scrolls = await box.evaluate((el) => {
+        const body = el.closest(".docwalk-slide-body")!;
+        return el.scrollWidth > el.clientWidth || body.scrollWidth > body.clientWidth;
+      });
+      expect(scrolls).toBe(true);
+      const at = await boxOf(box);
+      const before = await boxOf(frame);
+      await touchPan(context, page, at.x + at.width / 2, at.y + at.height / 2, -120, 0);
+      await expect.poll(async () => (await boxOf(frame)).x).toBeLessThan(before.x - 80);
+      const scrolled = await box.evaluate(
+        (el) => el.scrollLeft + el.closest(".docwalk-slide-body")!.scrollLeft,
+      );
+      expect(scrolled).toBe(0);
+    });
+  }
+});
+
+test.describe("at 800 × 900, where the main area scrolls", () => {
+  test.use({ viewport: { width: 800, height: 900 } });
+
+  test("Tab to a link in a far frame moves the camera and scrolls no ancestor", async ({
+    page,
+  }) => {
+    // Between 641 and 900 px `.docwalk-main` is overflow: auto; focusing an
+    // element far off the map must not scroll it and leave the app shifted.
+    const far = [
+      ...["One", "Two", "Three", "Four", "Five", "Six"].flatMap((name) => [
+        `## Column ${name}`,
+        "",
+        `${name} text.`,
+        "",
+      ]),
+      "## Last",
+      "",
+      "Read [the far link](https://example.invalid/far) here.",
+      "",
+    ].join("\n");
+    await ready(page, docLink(far));
+    await page.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(page).first()).toBeVisible({ timeout: 30_000 });
+    await mapRegion(page).focus();
+    await page.keyboard.press("Tab");
+    const link = page.getByRole("link", { name: "the far link" });
+    await expect(link).toBeFocused();
+    const pane = await boxOf(mapRegion(page));
+    await expect
+      .poll(async () => {
+        const b = await boxOf(link);
+        return (
+          b.x >= pane.x &&
+          b.y >= pane.y &&
+          b.x + b.width <= pane.x + pane.width &&
+          b.y + b.height <= pane.y + pane.height
+        );
+      })
+      .toBe(true);
+    const scrolled = await mapRegion(page).evaluate((el) => {
+      const moved: string[] = [];
+      for (let node: Element | null = el; node; node = node.parentElement)
+        if (node.scrollTop !== 0 || node.scrollLeft !== 0)
+          moved.push(`${node.className || node.tagName}: ${node.scrollLeft},${node.scrollTop}`);
+      return moved;
+    });
+    expect(scrolled).toEqual([]);
   });
 });
 

@@ -1,12 +1,14 @@
 import { act, createElement as h } from "react";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
+import type { FocusEvent } from "../annotate/mirrorTypes";
+import { observeFocus } from "../deck/focusEvents";
 import { parseMarkdown } from "../sectioning/sectionize";
 import { FRAME_GAP, FRAME_WIDTH, mapColumns, mapPlan, placeFrames } from "./layout";
 import MapView from "./MapView";
@@ -22,9 +24,26 @@ import MapView from "./MapView";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// The diagram code can fail to load (a lost connection, a new deploy): while
+// `failing` is set, renderDiagrams rejects as it does when its chunk fails.
+const control = vi.hoisted(() => ({ failing: false }));
+vi.mock("../deck/mermaid", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../deck/mermaid")>();
+  return {
+    ...real,
+    renderDiagrams: (...args: Parameters<typeof real.renderDiagrams>) =>
+      control.failing
+        ? Promise.reject(new Error("Failed to fetch dynamically imported module"))
+        : real.renderDiagrams(...args),
+  };
+});
+
 let reactRoot: ReactRoot | null = null;
+const cleanups: (() => void)[] = [];
 
 afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+  control.failing = false;
   act(() => reactRoot?.unmount());
   reactRoot = null;
   window.getSelection()?.removeAllRanges();
@@ -83,7 +102,7 @@ interface Mounted {
  * keeps its frames hidden until the first placement, so nothing is seen at a
  * wrong place.
  */
-async function mountMap(markdown: string, size = PANE): Promise<Mounted> {
+async function mountMap(markdown: string, size = PANE, timeout = 20_000): Promise<Mounted> {
   await page.viewport(size.width + 100, size.height + 100);
   const container = document.createElement("div");
   Object.assign(container.style, {
@@ -104,7 +123,7 @@ async function mountMap(markdown: string, size = PANE): Promise<Mounted> {
         container
           .querySelector<HTMLElement>(`[data-map-frame="${firstId}"]`)
           ?.checkVisibility({ visibilityProperty: true }) ?? false,
-      { timeout: 20_000 },
+      { timeout },
     )
     .toBe(true);
   await frames(2);
@@ -653,13 +672,272 @@ describe("the keyboard on the map (WCAG 2.4.7 and 2.4.11)", () => {
 });
 
 describe("unmounting", () => {
-  test("removes the listeners and leaves no frame in the host", async () => {
+  test("removes the listeners, empties the layer and stops placing the old frames", async () => {
     const { container, pane } = await mountMap(DOC);
+    const alpha = frameEl(container, "alpha");
+    const layer = alpha.parentElement!;
+    const body = alpha.querySelector(".docwalk-slide-body")!;
+    const detail = frameEl(container, "alpha-detail");
+    const top = detail.style.top;
+    const errors: unknown[] = [];
+    const onError = (event: ErrorEvent) => errors.push(event.error);
+    window.addEventListener("error", onError);
+    cleanups.push(() => window.removeEventListener("error", onError));
     act(() => reactRoot?.unmount());
     reactRoot = null;
     const event = new WheelEvent("wheel", { deltaY: 40, bubbles: true, cancelable: true });
     pane.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
-    expect(container.querySelectorAll("[data-map-frame]")).toHaveLength(0);
+    // React removes the pane; the view itself must empty the layer it filled.
+    expect(layer.childElementCount).toBe(0);
+    // A frame that grows after unmount moves nothing and throws nothing.
+    const more = document.createElement("p");
+    more.textContent = "A late block. ".repeat(300);
+    body.append(more);
+    await frames(4);
+    expect(detail.style.top).toBe(top);
+    expect(errors).toEqual([]);
+  });
+});
+
+const BLOCKS = [
+  "## Blocks",
+  "",
+  "```mermaid",
+  "flowchart LR",
+  "  a --> b",
+  "```",
+  "",
+  "```ts",
+  "const answer = 42;",
+  "```",
+  "",
+  "| Name | Where |",
+  "| --- | --- |",
+  "| Later | [jump](#later) |",
+  "",
+  "![Company logo](/icons/icon-192.png)",
+  "",
+  "## Later",
+  "",
+  "The end.",
+  "",
+  ...["One", "Two", "Three", "Four", "Five"].flatMap((name) => [
+    `## Column ${name}`,
+    "",
+    para(name, 2),
+    "",
+  ]),
+  "## Far",
+  "",
+  "```ts",
+  "const far = 1;",
+  "```",
+  "",
+].join("\n");
+
+/** Room for the first frame's four blocks inside the pane. */
+const TALL_PANE = { width: 1200, height: 1000 };
+
+const overlay = () => document.querySelector<HTMLElement>(".docwalk-focus");
+
+/** A block of the frame once it is a focus target, or a diagram once drawn. */
+async function blockIn(container: HTMLElement, frameId: string, selector: string) {
+  const frameBox = frameEl(container, frameId);
+  const marked =
+    selector === ".docwalk-diagram"
+      ? ".docwalk-diagram:has(svg)"
+      : `${selector}[data-docwalk-focus]`;
+  await expect.poll(() => frameBox.querySelector(marked), { timeout: 20_000 }).toBeTruthy();
+  return frameBox.querySelector<HTMLElement>(marked)!;
+}
+
+const KINDS = [
+  ["diagram", ".docwalk-diagram"],
+  ["code", "pre"],
+  ["table", "table"],
+  ["image", "img"],
+] as const;
+
+describe("blocks open in the focus view from the map (decisions 129 and 144)", () => {
+  for (const [kind, selector] of KINDS) {
+    test(`a click on the ${kind} in a frame opens the ${kind} view`, async () => {
+      const { container } = await mountMap(BLOCKS, TALL_PANE);
+      await userEvent.click(await blockIn(container, "blocks", selector));
+      expect(overlay()?.dataset["kind"]).toBe(kind);
+    });
+
+    test(`Enter on the ${kind} opens its view and Escape returns focus to it`, async () => {
+      const { container } = await mountMap(BLOCKS, TALL_PANE);
+      const block = await blockIn(container, "blocks", selector);
+      block.focus();
+      await userEvent.keyboard("{Enter}");
+      expect(overlay()?.dataset["kind"]).toBe(kind);
+      await userEvent.keyboard("{Escape}");
+      expect(overlay()).toBeNull();
+      expect(document.activeElement).toBe(block);
+    });
+  }
+
+  test("a far frame's code block, whose frame has drawn no diagram, is a tab stop that opens", async () => {
+    const { container, pane } = await mountMap(BLOCKS, TALL_PANE);
+    expect(boxOf(container, "far").left).toBeGreaterThan(pane.getBoundingClientRect().right);
+    const pre = await blockIn(container, "far", "pre");
+    expect(pre.tabIndex).toBe(0);
+    pre.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(overlay()?.dataset["kind"]).toBe("code");
+  });
+
+  test("a link in a table follows the link and opens nothing", async () => {
+    const { container } = await mountMap(BLOCKS, TALL_PANE);
+    const table = await blockIn(container, "blocks", "table");
+    await userEvent.click(table.querySelector<HTMLElement>("a")!);
+    expect(overlay()).toBeNull();
+    expect(document.activeElement?.textContent).toBe("Later");
+  });
+
+  test("opening and closing a block on the map announces nothing to the mirror", async () => {
+    // A frame has no slide address (decision 106); the map mirrors nothing yet (decision 144).
+    const { container } = await mountMap(BLOCKS, TALL_PANE);
+    const events: FocusEvent[] = [];
+    cleanups.push(observeFocus((event) => events.push(event)));
+    await userEvent.click(await blockIn(container, "blocks", "pre"));
+    expect(overlay()?.dataset["kind"]).toBe("code");
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(await blockIn(container, "blocks", ".docwalk-diagram"));
+    expect(overlay()?.dataset["kind"]).toBe("diagram");
+    await userEvent.keyboard("{Escape}");
+    expect(events.filter((e) => e.kind === "open" || e.kind === "close")).toEqual([]);
+  });
+
+  test("a new render closes an open view, and so does unmounting", async () => {
+    const { container, show } = await mountMap(BLOCKS, TALL_PANE);
+    await userEvent.click(await blockIn(container, "blocks", ".docwalk-diagram"));
+    expect(overlay()).not.toBeNull();
+    show(BLOCKS.replace("The end.", "The end, edited."));
+    expect(overlay()).toBeNull();
+    await userEvent.click(await blockIn(container, "blocks", "pre"));
+    expect(overlay()?.dataset["kind"]).toBe("code");
+    act(() => reactRoot?.unmount());
+    reactRoot = null;
+    expect(overlay()).toBeNull();
+  });
+
+  test("a finger that taps a block opens it; a finger that pans from it opens nothing", async () => {
+    // Synthetic touches send no click of their own, so the test sends the one a browser would.
+    const { container } = await mountMap(BLOCKS, TALL_PANE);
+    const pre = await blockIn(container, "blocks", "pre");
+    const before = boxOf(container, "blocks");
+    let b = pre.getBoundingClientRect();
+    touch("pointerdown", 1, b.left + 10, b.top + 10);
+    touch("pointermove", 1, b.left + 50, b.top + 40);
+    touch("pointerup", 1, b.left + 50, b.top + 40);
+    pre.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await frames(2);
+    expect(overlay(), "a pan is no tap").toBeNull();
+    expect(boxOf(container, "blocks").left).toBeCloseTo(before.left + 40, 0);
+    b = pre.getBoundingClientRect();
+    touch("pointerdown", 2, b.left + 10, b.top + 10);
+    touch("pointerup", 2, b.left + 11, b.top + 10);
+    pre.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(overlay()?.dataset["kind"]).toBe("code");
+  });
+});
+
+const WIDE = [
+  "## Wide",
+  "",
+  "```text",
+  `log ${"key=value ".repeat(60)}`,
+  "```",
+  "",
+  "## Next",
+  "",
+  "Text.",
+  "",
+].join("\n");
+
+describe("boxes that scroll inside a frame (decision 144)", () => {
+  test("a wheel over a code block that scrolls sideways moves the map, not the block", async () => {
+    const { container } = await mountMap(WIDE);
+    const pre = frameEl(container, "wide").querySelector("pre")!;
+    expect(pre.scrollWidth).toBeGreaterThan(pre.clientWidth);
+    const before = boxOf(container, "wide");
+    await userEvent.wheel(pre, { delta: { x: 120 } });
+    await frames(3);
+    expect(pre.scrollLeft).toBe(0);
+    expect(boxOf(container, "wide").left).toBeLessThan(before.left - 50);
+  });
+});
+
+/** DOC with every frame's text twenty times as long; the frame ids stay. */
+const TALL_DOC = DOC.replace(
+  /paragraph (\d+) holds/g,
+  (_, n: string) => `paragraph ${n} holds ${"many more words, ".repeat(40)}and still`,
+);
+
+describe("placing at once (decision 144)", () => {
+  test("after a render with taller content no frame lies over another, before anything settles", async () => {
+    const { container, show } = await mountMap(DOC);
+    show(TALL_DOC);
+    // Same task as the render: no report from the new frames has come yet.
+    const list = [...allBoxes(container).values()];
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i]!;
+        const b = list[j]!;
+        const overlap =
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+        expect(overlap, `frames ${i} and ${j} overlap`).toBe(false);
+      }
+    }
+  });
+
+  test("an image that never decodes neither hides the map nor stops it placing a frame that grows", async () => {
+    const decode = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = () => new Promise<void>(() => undefined);
+    cleanups.push(() => {
+      HTMLImageElement.prototype.decode = decode;
+    });
+    const { container, pane } = await mountMap(
+      DOC.replace("## Beta", "![Logo](/icons/icon-192.png)\n\n## Beta"),
+      PANE,
+      3000,
+    );
+    const p = pane.getBoundingClientRect();
+    const alpha = boxOf(container, "alpha");
+    expect(alpha.left).toBeCloseTo(p.left + 24, 0);
+    expect(alpha.top).toBeCloseTo(p.top + 24, 0);
+    const detailTop = boxOf(container, "alpha-detail").top;
+    const more = document.createElement("p");
+    more.textContent = "A late block. ".repeat(300);
+    frameEl(container, "alpha").querySelector(".docwalk-slide-body")!.append(more);
+    await expect.poll(() => boxOf(container, "alpha-detail").top).toBeGreaterThan(detailTop + 10);
+  });
+});
+
+describe("a diagram whose code fails to load (decision 144)", () => {
+  test("leaves no unhandled rejection, and its frame is drawn when it comes near again", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason);
+      event.preventDefault();
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    cleanups.push(() => window.removeEventListener("unhandledrejection", onRejection));
+    control.failing = true;
+    const { container, pane } = await mountMap(DIAGRAM_DOC);
+    const start = frameEl(container, "start");
+    await frames(10);
+    expect(start.querySelector(".docwalk-diagram svg")).toBeNull();
+    expect(rejections).toEqual([]);
+    control.failing = false;
+    const p = pane.getBoundingClientRect();
+    wheelAt(p.left + 50, p.top + 50, { deltaY: 5 });
+    await expect
+      .poll(() => start.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
+      .not.toBeNull();
   });
 });
