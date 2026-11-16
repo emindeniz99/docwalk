@@ -619,20 +619,20 @@ an iPad recorded here.
 
 Review of the merged PR #7 (2026-11-16): three reviewers read it for
 correctness and fit to 136, for security, and for code nobody needs. No high
-finding; CI green on all three engines. For the owner to decide:
+finding; CI green on all three engines. The owner chose on 2026-11-16
+(decision 151, not built yet), each a branch with a failing test first:
 
-- The whole map of the sample is 23 columns side by side: a thin strip about
-  a fifth of the pane's height, its frames too small to read. Wrapping columns
-  into rows would be a new row on top of 136.
-- The phone remote and an agent's next and previous move the deck's pages, so
-  they reach the map's `###` frames only when a section changes
+- The whole map wraps its columns into rows that fit the pane, instead of a
+  thin strip of 23 columns.
+- On the map, the phone remote's and an agent's next and previous walk the
+  frames like the arrow keys, `###` frames included
   (`src/remote/host.ts:425`, `MapView.tsx` `setCurrent`).
-- Followers follow sections, not frames: walking the `###` frames of one
-  column sends no new state, and a copied link opens the column's head (145,
-  148, 150).
-- Present still opens the slides; the map is shown by sharing a window or to
-  followers (149).
-- Rows 139 to 150 are the lead's reading and wait for the owner's word.
+- Followers and copied links follow the current frame, `###` parts included,
+  still as a section address.
+- Present keeps opening slides; the map view gets its own "present the map
+  full screen" control.
+- Rows 139 to 150 are otherwise the lead's reading and wait for the owner's
+  word.
 
 Smaller follow-ups, each a small commit with a test first:
 
