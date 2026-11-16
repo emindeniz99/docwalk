@@ -231,6 +231,7 @@ Add a row here before introducing a new one.
 | section                     | bölüm                       |                                            |
 | section selection           | bölüm seçimi                | "Bölümler: tümü" when there is none        |
 | slide overview              | slaytlara genel bakış       |                                            |
+| map (the view)              | harita                      | not "kanvas" (sketch), "genel bakış"       |
 | task mark                   | görev işareti               | named "tamamlandı", "tamamlanmadı"         |
 | text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |
 | diagram, node               | diyagram, düğüm             |                                            |

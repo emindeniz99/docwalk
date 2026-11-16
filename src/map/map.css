@@ -1,0 +1,46 @@
+/* ---- Map view (decision 142) ---------------------------------------------- */
+
+/*
+ * The camera moves the map; the pane never scrolls. `clip`, unlike `hidden`,
+ * cannot be scrolled by focusing an element off screen, which would shift
+ * the map away from the camera's transform.
+ */
+.docwalk-map-pane {
+  overflow: hidden;
+  overflow: clip;
+}
+
+/*
+ * One finger pans and two pinch through the view's own pointer handling,
+ * over a frame's text too (decision 144). A frame's body and a wide code
+ * block scroll on their own, and `touch-action` reaches no further down
+ * than the nearest box that scrolls, so every box in the pane says it.
+ */
+.docwalk-map-pane,
+.docwalk-map-pane * {
+  touch-action: none;
+}
+
+/* One transform on the layer: translate, then scale, about the map's origin. */
+.docwalk-map-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* Hidden until the first placement, so no frame is seen at a wrong place. */
+.docwalk-map-layer:not([data-placed]) {
+  visibility: hidden;
+}
+
+/*
+ * A frame grows with its content (decision 136): its height stays auto so
+ * frames.ts measures it, never below the slide-sized minimum `placeFrames`
+ * gives it, so its box on screen is its rectangle.
+ */
+.docwalk-map-layer > .docwalk-map-frame {
+  position: absolute;
+  height: auto;
+  min-height: var(--map-min-frame-height);
+}

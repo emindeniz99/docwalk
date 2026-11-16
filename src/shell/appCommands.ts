@@ -99,7 +99,8 @@ export function appCommands({
     { id: "presenter", label: m.cmd_presenter(), run: openPresenter },
     { id: "overview", label: m.cmd_overview(), hint: "O", run: overview.open },
     { id: "sections", label: m.cmd_sections(), run: sectionPicker.open },
-    ...(layerReady > 0 && view !== "document"
+    // The deck pane is hidden in the document view and the map: a board there would be on nothing.
+    ...(layerReady > 0 && view !== "document" && view !== "map"
       ? [
           boardPage !== null
             ? { id: "board-close", label: m.cmd_board_close(), hint: "W", run: toggleBoard }
@@ -108,6 +109,7 @@ export function appCommands({
       : []),
     { id: "view-edit", label: m.cmd_show_editor(), run: () => show("edit") },
     { id: "view-document", label: m.cmd_show_document(), run: () => show("document") },
+    { id: "view-map", label: m.cmd_show_map(), run: () => show("map") },
     // Touch screens keep CodeMirror and are not offered Monaco.
     ...(coarse
       ? []

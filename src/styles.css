@@ -558,7 +558,7 @@ section[data-docwalk-id] {
   min-height: 0;
 }
 
-.docwalk-app[data-view="document"] .docwalk-main {
+.docwalk-app:is([data-view="document"], [data-view="map"]) .docwalk-main {
   grid-template-columns: 250px minmax(0, 1fr);
 }
 
@@ -741,7 +741,7 @@ section[data-docwalk-id] {
 
 @media (max-width: 900px) {
   .docwalk-main,
-  .docwalk-app[data-view="document"] .docwalk-main {
+  .docwalk-app:is([data-view="document"], [data-view="map"]) .docwalk-main {
     grid-template-columns: minmax(0, 1fr);
     grid-auto-rows: minmax(320px, auto);
     /* Stacked panes are taller than the window: scroll them, not under the status bar. */
@@ -840,6 +840,11 @@ kbd {
   background: var(--fg);
   color: var(--surface);
   font-weight: 600;
+}
+
+/* The view choices' icons show only on a narrow head (decision 143, below). */
+.docwalk-view-icon {
+  display: none;
 }
 
 .docwalk-icon-button {
@@ -1131,11 +1136,16 @@ kbd {
 
 /* ---- Document mode (GitHub-like reading) --------------------------------- */
 
-.docwalk-document-pane {
-  /* Absolutely positioned content stays inside this scroll box. */
+/* The map's pane (decision 142) takes the document view's place; its own rules are in map/map.css. */
+.docwalk-document-pane,
+.docwalk-map-pane {
+  /* Absolutely positioned content stays inside this box. */
   position: relative;
-  overflow: auto;
   background: var(--surface);
+}
+
+.docwalk-document-pane {
+  overflow: auto;
 }
 
 .docwalk-document {
@@ -1211,7 +1221,7 @@ kbd {
 }
 
 @media (max-width: 640px) {
-  .docwalk-app[data-view="document"] .docwalk-main {
+  .docwalk-app:is([data-view="document"], [data-view="map"]) .docwalk-main {
     grid-template-rows: auto minmax(0, 1fr);
     grid-auto-rows: auto;
     overflow: hidden;
@@ -1755,6 +1765,29 @@ kbd {
 
   .docwalk-segmented button {
     padding: 0 var(--dw-space-md);
+  }
+
+  /* Edit, Document and Map as words do not fit a 390 px head: icons, 44 px wide (decision 143). */
+  .docwalk-toolbar .docwalk-segmented button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--dw-space-target);
+    padding: 0;
+  }
+
+  .docwalk-toolbar .docwalk-view-icon {
+    display: block;
+  }
+
+  /* Out of sight, still the radio's name, as Exit's label (decision 133). */
+  .docwalk-toolbar .docwalk-view-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   /* Icon-only on a phone; the label stays in the accessibility tree as the name. */

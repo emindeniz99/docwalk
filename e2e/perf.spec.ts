@@ -100,6 +100,13 @@ test("the default view downloads less than decision 124's 5 MB of JS and CSS (gz
     files.map((file) => file.url).filter((url) => /\/oauth-[^/]+\.js$/.test(url)),
     "sign-in chunks in the first load",
   ).toEqual([]);
+  // The map is a lazy chunk the default view never asks for (decisions 124 and 142). The
+  // pattern is MapView's own chunk, not emojiMap's or a Mermaid treemap's; e2e/map.spec.ts
+  // shows it does match once the map is opened.
+  expect(
+    files.map((file) => file.url).filter((url) => /\/assets\/MapView-[^/]+\.js$/.test(url)),
+    "map chunks in the first load",
+  ).toEqual([]);
   expect(total, "gzip bytes of same-origin JS and CSS").toBeLessThanOrEqual(SIZE_LIMIT);
 });
 
