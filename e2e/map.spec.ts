@@ -176,6 +176,98 @@ test("a follow screen never offers or shows the map, even while the presenter is
   await expect(follower.locator("[data-map-frame]")).toHaveCount(0);
 });
 
+/** The map once its first frame is placed and shown: the view hides the frames until then. */
+async function openMap(page: Page) {
+  await page.getByRole("radio", { name: "Map" }).click();
+  await expect(frames(page)).toHaveCount(40);
+  await expect(frames(page).first()).toBeVisible({ timeout: 30_000 });
+}
+
+const boxOf = async (locator: Locator) => {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("not laid out");
+  return box;
+};
+
+/** The page's scroll and the map pane's: the camera moves the map, neither of them scrolls. */
+const pageScroll = (page: Page) =>
+  page.evaluate(() => {
+    const pane = document.querySelector(".docwalk-map-pane");
+    return {
+      x: window.scrollX,
+      y: window.scrollY,
+      sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      down: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      pane: (pane?.scrollLeft ?? 0) + (pane?.scrollTop ?? 0),
+    };
+  });
+
+test("the sample's frames lie in columns; a wheel pans, Ctrl + wheel zooms, and the page never scrolls", async ({
+  page,
+}) => {
+  // Decision 142, Camera: the pane takes the wheel, so the page behind it must not move.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await ready(page);
+  await openMap(page);
+  const first = frames(page).first();
+  // The title's column, then the first `##` column: tops aligned, side by side.
+  const second = mapRegion(page).locator('[data-map-frame="summary"]');
+  const a = await boxOf(first);
+  const b = await boxOf(second);
+  expect(b.x).toBeGreaterThan(a.x + a.width);
+  expect(Math.abs(b.y - a.y)).toBeLessThan(1);
+  const pane = await boxOf(mapRegion(page));
+  await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
+  await page.mouse.wheel(0, 200);
+  await expect.poll(async () => (await boxOf(first)).y).toBeLessThan(a.y - 150);
+  expect((await boxOf(first)).width).toBeCloseTo(a.width, 1);
+  const panned = await boxOf(first);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => (await boxOf(first)).width).toBeGreaterThan(panned.width * 1.05);
+  expect(await pageScroll(page)).toEqual({ x: 0, y: 0, sideways: 0, down: 0, pane: 0 });
+});
+
+test.describe("on a 390 × 844 phone", () => {
+  test.use({ viewport: PHONE, hasTouch: true });
+
+  test("the map opens with the first frame fitted to the width, and one finger pans it", async ({
+    page,
+    context,
+    browserName,
+  }) => {
+    await ready(page);
+    await openMap(page);
+    const pane = await boxOf(mapRegion(page));
+    const first = await boxOf(frames(page).first());
+    // Small text, but the whole width of the frame is on the screen (decision 142).
+    expect(first.x).toBeGreaterThanOrEqual(pane.x);
+    expect(first.x + first.width).toBeLessThanOrEqual(pane.x + pane.width);
+    // Fitted inside the 24 px margin: 1280 units drawn 342 px wide.
+    expect(Math.abs(first.width - (pane.width - 48))).toBeLessThan(1);
+    expect(first.x + first.width).toBeLessThanOrEqual(PHONE.width);
+    expect(await pageScroll(page)).toEqual({ x: 0, y: 0, sideways: 0, down: 0, pane: 0 });
+    // A real touch drag needs the DevTools protocol; other engines rely on the browser tests.
+    test.skip(browserName !== "chromium", "touch drags are sent through CDP in Chromium only");
+    const cdp = await context.newCDPSession(page);
+    const x = pane.x + pane.width / 2;
+    const y = pane.y + pane.height / 2;
+    const send = (type: "touchStart" | "touchMove" | "touchEnd", dy: number) =>
+      cdp.send("Input.dispatchTouchEvent", {
+        type,
+        touchPoints: type === "touchEnd" ? [] : [{ x, y: y + dy }],
+      });
+    await send("touchStart", 0);
+    for (let i = 1; i <= 10; i++) await send("touchMove", -15 * i);
+    await send("touchEnd", -150);
+    await expect
+      .poll(async () => (await boxOf(frames(page).first())).y)
+      .toBeLessThan(first.y - 100);
+    expect(await pageScroll(page)).toEqual({ x: 0, y: 0, sideways: 0, down: 0, pane: 0 });
+  });
+});
+
 test("axe finds no serious violations in the map view", async ({ page }) => {
   await ready(page);
   await page.getByRole("radio", { name: "Map" }).click();
