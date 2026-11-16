@@ -2175,3 +2175,200 @@ describe("mirror messages (decision 88)", () => {
     );
   });
 });
+
+const stateAt = (current: string, view?: "map"): RemoteMessage =>
+  ({ ...presenterState(current), ...(view ? { view } : {}) }) as RemoteMessage;
+
+/** What the relay carried while `send` ran: a recording anyone on the wire could keep. */
+async function record(relay: FakeRelay, send: () => Promise<unknown>) {
+  const from = relay.wire.length;
+  await send();
+  return relay.wire.slice(from);
+}
+
+/** The presenter's tab before and after a reload: one room and its stored keys, two connections. */
+async function reloadedPresenter(relay: FakeRelay, creds: RoomCredentials) {
+  const earlier = peer(relay, creds, "presenter");
+  await opened(earlier);
+  return {
+    earlier,
+    reload: async () => {
+      earlier.conn.close();
+      const current = peer(relay, creds, "presenter");
+      await opened(current);
+      return current;
+    },
+  };
+}
+
+describe("presenter connections in order (decision 170)", () => {
+  // The replay guard drops a counter it has seen from the same sender id, and
+  // each presenter connection (a reload of the tab, remote control off and
+  // on) seals with a new one. Anyone with the view key who recorded the
+  // presenter's signed frames, or the relay, could feed them to a follower
+  // later: an old slide, old marks, a whiteboard, or a switch between the map
+  // and the slides that remounts the map. Once a later connection's frame has
+  // reached a client, a signed frame from an earlier one must not pass.
+
+  test("a follower that joins after the presenter reloaded drops what the earlier tab signed: an old slide, or a switch to the map", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const { sign: _sign, ...followLink } = creds;
+    const { earlier, reload } = await reloadedPresenter(relay, creds);
+    const recorded = await record(relay, () => earlier.conn.send(stateAt("old/1", "map")));
+    const current = await reload();
+
+    const { result } = mountFollower({
+      creds: { ...followLink, key: null },
+      controller: null,
+      socketFactory: relay.factory,
+      base: BASE,
+    });
+    await vi.waitFor(() => expect(ofType(current, "hello").length).toBeGreaterThan(0));
+    await current.conn.send(stateAt("new/1"));
+    await vi.waitFor(() => expect(result.current!.state?.current).toBe("new/1"));
+
+    for (const frame of recorded) relay.replay(frame);
+    await settle();
+    expect(result.current!.state?.current).toBe("new/1");
+    expect(result.current!.state?.view).toBeUndefined();
+  });
+
+  test("a follower that saw the earlier tab drops the frames of it that it missed while its socket was down", async () => {
+    // The guard knew that sender id but not those counters, so the frames
+    // passed whenever someone sent them, after the presenter had moved on.
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const { sign: _sign, ...followLink } = creds;
+    const { earlier, reload } = await reloadedPresenter(relay, creds);
+    const follower = peer(relay, { ...followLink, key: null }, "follower");
+    await opened(follower);
+    await earlier.conn.send(stateAt("old/1"));
+    await vi.waitFor(() => expect(ofType(follower, "state")).toHaveLength(1));
+
+    // Sockets in order: the earlier presenter's, then the follower's.
+    relay.drop(1);
+    await vi.waitFor(() => expect(follower.statuses.at(-1)).toBe("reconnecting"));
+    const missed = await record(relay, () => earlier.conn.send(stateAt("old/2", "map")));
+    const current = await reload();
+    await opened(follower);
+    await current.conn.send(stateAt("new/1"));
+    await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.current).toBe("new/1"));
+
+    for (const frame of missed) relay.replay(frame);
+    await settle();
+    expect(ofType(follower, "state").map((m) => m.current)).toEqual(["old/1", "new/1"]);
+  });
+
+  test("marks, a laser and a whiteboard the earlier tab signed are dropped too", async () => {
+    // Decision 110 left a replayed board-open from an earlier tab open: it
+    // hides the follower's slide under a blank board until the next resync.
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const { sign: _sign, ...followLink } = creds;
+    const { earlier, reload } = await reloadedPresenter(relay, creds);
+    const recorded = await record(relay, async () => {
+      await earlier.conn.send({ type: "mirror", op: "board-open", slide: "new/1" });
+      await earlier.conn.send({ type: "mirror", op: "laser", x: 0.5, y: 0.5 });
+      await earlier.conn.send({
+        type: "mirror",
+        op: "stroke",
+        slide: "new/1",
+        id: 1,
+        tool: "arrow",
+        color: "primary",
+        from: 0,
+        points: [0, 0, 4096, 4096],
+        end: true,
+      });
+    });
+    const current = await reload();
+    const follower = peer(relay, { ...followLink, key: null }, "follower");
+    await opened(follower);
+    await current.conn.send(stateAt("new/1"));
+    await vi.waitFor(() => expect(ofType(follower, "state")).toHaveLength(1));
+
+    for (const frame of recorded) relay.replay(frame);
+    await settle();
+    expect(ofType(follower, "mirror")).toEqual([]);
+  });
+
+  test("a phone drops a state and a countdown the earlier tab signed: the relay cannot set its slide or clock back", async () => {
+    const relay = new FakeRelay();
+    const creds = await createPresenterCredentials();
+    const link = parseJoinFragment(new URL(formatJoinUrl(BASE, "remote", creds)).hash)!;
+    const { earlier, reload } = await reloadedPresenter(relay, creds);
+    const recorded = await record(relay, async () => {
+      await earlier.conn.send(stateAt("old/1"));
+      await sendCountdown(earlier, { targetMs: 20 * COUNTDOWN_MIN, spentMs: 0, running: true });
+    });
+    const current = await reload();
+    const phone = peer(relay, link, "remote");
+    await opened(phone);
+    await current.conn.send(stateAt("new/1"));
+    await sendCountdown(current, null);
+    await vi.waitFor(() => expect(countdownsOf(phone)).toHaveLength(1));
+
+    for (const frame of recorded) relay.replay(frame);
+    await settle();
+    expect(ofType(phone, "state").map((m) => m.current)).toEqual(["new/1"]);
+    expect(countdownsOf(phone)).toEqual([{ type: "countdown", countdown: null }]);
+  });
+
+  test("a follower that reloads after the presenter's tab did is not moved back onto the map by the earlier tab's states", async () => {
+    // The real host: the reload keeps the room and its keys in sessionStorage.
+    // A reloaded follower starts with an empty replay guard.
+    const relay = new FakeRelay();
+    const hostProps = {
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+    };
+    const first = mountHost({ ...hostProps, mapView: true });
+    const follow = await joinCreds(first, "follow");
+    const before = peer(relay, follow, "follower");
+    await vi.waitFor(() => expect(ofType(before, "state").at(-1)?.view).toBe("map"));
+    const recorded = relay.wire.slice();
+
+    act(() => root?.unmount());
+    root = null;
+    mountHost({ ...hostProps, mapView: false });
+    await vi.waitFor(() => expect(ofType(before, "state").at(-1)).not.toHaveProperty("view"));
+    before.conn.close();
+    const follower = peer(relay, follow, "follower");
+    await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+    const seen = ofType(follower, "state").length;
+
+    for (const frame of recorded) relay.replay(frame);
+    await settle();
+    // The replayed hellos make the new tab answer with fresh states; none says map.
+    expect(ofType(follower, "state").slice(seen)).not.toContainEqual(
+      expect.objectContaining({ view: "map" }),
+    );
+  });
+
+  test("a presenter tab that reloads after its clock was set back still reaches the followers that stayed", async () => {
+    // Guards the rule's own failure: a connection that looked older than the
+    // last one would be dropped by every follower until it reloaded.
+    const relay = new FakeRelay();
+    const hostProps = {
+      controller: fakeController(),
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+    };
+    const first = mountHost({ ...hostProps, mapView: true });
+    const follower = peer(relay, await joinCreds(first, "follow"), "follower");
+    await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.view).toBe("map"));
+
+    act(() => root?.unmount());
+    root = null;
+    const now = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => now() - 60 * 60_000);
+    mountHost({ ...hostProps, mapView: false });
+    await vi.waitFor(() => expect(ofType(follower, "state").at(-1)).not.toHaveProperty("view"));
+  });
+});

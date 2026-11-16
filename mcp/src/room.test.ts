@@ -309,4 +309,59 @@ describe("room agent", () => {
       expect(hellos.map((m) => m.type === "hello" && m.role)).toEqual(["agent"]),
     );
   });
+
+  test("a state the presenter's tab signed before a reload does not move the agent back (decision 170)", async () => {
+    // The reload seals with a new sender id, so the replay guard never saw the
+    // earlier tab's: a relay that kept its frames could move the agent's idea
+    // of the current slide back at any time, and with it goto's answer.
+    const factory = relay();
+    const creds = await createPresenterCredentials();
+    const connection = () => {
+      let status = "connecting";
+      const conn = connectRoom({
+        creds,
+        role: "presenter",
+        base: BASE,
+        socketFactory: factory,
+        onStatus: (next) => (status = next),
+        onMessage: () => {},
+      });
+      open.push(conn);
+      return { conn, opened: () => vi.waitFor(() => expect(status).toBe("open")) };
+    };
+    const state = (current: string): RemoteMessage => ({
+      type: "state",
+      current,
+      index: 0,
+      total: 1,
+      title: current,
+      docLink: null,
+      docLinkTooLong: false,
+      level: "auto",
+    });
+
+    const earlier = connection();
+    await earlier.opened();
+    const from = recorded.frames.length;
+    await earlier.conn.send(state("s1/1"));
+    const kept = recorded.frames.slice(from);
+    earlier.conn.close();
+
+    const current = connection();
+    await current.opened();
+    let agentOpen = false;
+    const room = new RoomAgent({
+      link: formatJoinUrl(BASE, "remote", creds),
+      socketFactory: factory,
+      onStatus: (status) => (agentOpen = status === "open"),
+    });
+    open.push(room);
+    await vi.waitFor(() => expect(agentOpen).toBe(true));
+    await current.conn.send(state("s2/1"));
+    await vi.waitFor(() => expect(room.state?.current).toBe("s2/1"));
+
+    for (const frame of kept) recorded.replay(frame);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(room.state?.current).toBe("s2/1");
+  });
 });
