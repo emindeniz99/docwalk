@@ -617,6 +617,47 @@ Firefox and WebKit, axe on the map view, before and after screenshots of the
 sample document on desktop and phone, and a hand check on a Mac trackpad and
 an iPad recorded here.
 
+Review of the merged PR #7 (2026-11-16): three reviewers read it for
+correctness and fit to 136, for security, and for code nobody needs. No high
+finding; CI green on all three engines. For the owner to decide:
+
+- The whole map of the sample is 23 columns side by side: a thin strip about
+  a fifth of the pane's height, its frames too small to read. Wrapping columns
+  into rows would be a new row on top of 136.
+- The phone remote and an agent's next and previous move the deck's pages, so
+  they reach the map's `###` frames only when a section changes
+  (`src/remote/host.ts:425`, `MapView.tsx` `setCurrent`).
+- Followers follow sections, not frames: walking the `###` frames of one
+  column sends no new state, and a copied link opens the column's head (145,
+  148, 150).
+- Present still opens the slides; the map is shown by sharing a window or to
+  followers (149).
+- Rows 139 to 150 are the lead's reading and wait for the owner's word.
+
+Smaller follow-ups, each a small commit with a test first:
+
+- `MapView.tsx` has its own text-field check; use `isTextEntry`
+  (`src/annotate/useAnnotationShortcuts.ts`), which also knows
+  `role="textbox"` and leaves checkboxes out. Settle one tap slop: 10 px on the
+  map, 6 in the focus view.
+- `src/map/laser.ts` copies the trail settings of `src/annotate/layer.ts`;
+  share one small module so the two cannot drift.
+- `view` in the state message accepts only `"map"`; a later build that sends
+  another view would make older followers drop the whole state. Decide before
+  a second view is added.
+- Zooming out to the whole map queues every diagram; the pointer handler reads
+  the pane's box on every move anywhere in the app.
+- Could go later: the camera's guards against NaN and enormous panes and their
+  tests (about 50 and 285 lines), the diagram reload retry beyond row 146's
+  note (needs a row, since 147 and 148 chose it), and about 450 lines of test
+  setup copied across the map's browser tests.
+- Older than the map, found by the security review: a follower's replay guard
+  counts per sender id, and every presenter reconnect gets a new one, so
+  recorded presenter states from earlier connections replay once per follower.
+  With the map a replay can also switch a follower between the map and the
+  slides. The fix belongs with 73: tie states to the newest presenter
+  connection.
+
 ### 2. A real-device UX pass, and what the review of PR #5 left
 
 The code review is done (2026-11-11): three reviewers read the focus views
