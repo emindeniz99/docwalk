@@ -738,3 +738,77 @@ test.describe("the route through the sample", () => {
     expect(seen).toBeGreaterThanOrEqual(3);
   });
 });
+
+const laserDot = (page: Page) => mapRegion(page).locator(".docwalk-map-laser circle");
+/** The map layer's camera as the view wrote it. */
+const layerTransform = (page: Page) =>
+  page.locator(".docwalk-map-layer").evaluate((el) => (el as HTMLElement).style.transform);
+
+test.describe("the map's laser (decision 149)", () => {
+  test("L shows the dot under the mouse, a drag points and pans nothing, and leaving the map switches it off", async ({
+    page,
+  }) => {
+    await ready(page);
+    await openMap(page);
+    await mapRegion(page).focus();
+    await page.keyboard.press("l");
+    await expect(mapRegion(page)).toHaveAttribute("data-laser", "");
+    await expect(mapRegion(page).getByRole("status")).toHaveText("Laser on");
+    const pane = await boxOf(mapRegion(page));
+    const at = { x: pane.x + pane.width * 0.4, y: pane.y + pane.height * 0.5 };
+    await page.mouse.move(at.x, at.y);
+    const dot = await boxOf(laserDot(page));
+    expect(Math.abs(dot.x + dot.width / 2 - at.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(dot.y + dot.height / 2 - at.y)).toBeLessThanOrEqual(1);
+    // With the laser off this drag would pan the map (decision 142).
+    const before = await layerTransform(page);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 200, at.y + 100, { steps: 10 });
+    await page.mouse.up();
+    await afterFrames(page);
+    expect(await layerTransform(page)).toBe(before);
+    await page.mouse.move(pane.x + pane.width + 50, pane.y - 50);
+    await expect(laserDot(page)).toHaveCount(0);
+    await page.getByRole("radio", { name: "Document" }).click();
+    await page.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(page).first()).toBeVisible({ timeout: 30_000 });
+    await expect(mapRegion(page)).not.toHaveAttribute("data-laser");
+  });
+
+  test("the palette offers the laser only on the map and switches it both ways", async ({
+    page,
+  }) => {
+    await ready(page, docLink(SHORT_DOC));
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await page.keyboard.press("ControlOrMeta+k");
+    await palette.getByRole("searchbox").fill("laser");
+    await expect(palette.getByRole("menuitem", { name: /laser/i })).toHaveCount(0);
+    // Escape on a filled search box clears it; on an empty one it closes the palette.
+    await palette.getByRole("searchbox").fill("");
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
+    await page.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(page)).toHaveCount(3);
+    await page.keyboard.press("ControlOrMeta+k");
+    await palette.getByRole("searchbox").fill("laser");
+    await palette.getByRole("menuitem", { name: "Turn on laser" }).click();
+    await expect(mapRegion(page)).toHaveAttribute("data-laser", "");
+    await expect(mapRegion(page).getByRole("status")).toHaveText("Laser on");
+    await page.keyboard.press("ControlOrMeta+k");
+    await palette.getByRole("searchbox").fill("laser");
+    await palette.getByRole("menuitem", { name: "Turn off laser" }).click();
+    await expect(mapRegion(page)).not.toHaveAttribute("data-laser");
+    await expect(mapRegion(page).getByRole("status")).toHaveText("Laser off");
+  });
+
+  test("axe finds no serious violations with the laser on and its dot shown", async ({ page }) => {
+    await ready(page);
+    await openMap(page);
+    await mapRegion(page).focus();
+    await page.keyboard.press("l");
+    const pane = await boxOf(mapRegion(page));
+    await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
+    await expect(laserDot(page)).toHaveCount(1);
+    await expectNoSeriousViolations(page);
+  });
+});
