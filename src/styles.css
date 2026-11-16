@@ -1136,13 +1136,16 @@ kbd {
 
 /* ---- Document mode (GitHub-like reading) --------------------------------- */
 
-/* The map's pane (decision 142) takes the document view's place and scroll box. */
+/* The map's pane (decision 142) takes the document view's place; its own rules are in map/map.css. */
 .docwalk-document-pane,
 .docwalk-map-pane {
-  /* Absolutely positioned content stays inside this scroll box. */
+  /* Absolutely positioned content stays inside this box. */
   position: relative;
-  overflow: auto;
   background: var(--surface);
+}
+
+.docwalk-document-pane {
+  overflow: auto;
 }
 
 .docwalk-document {

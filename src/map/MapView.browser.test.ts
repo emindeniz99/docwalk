@@ -137,16 +137,27 @@ function mapBox(container: HTMLElement) {
 /** How far apart two numbers are, for a comparison within a tolerance. */
 const off = (actual: number, expected: number) => Math.abs(actual - expected);
 
-/** A wheel event sent to whatever is under the point, as a real wheel is. Returns whether it was prevented. */
+/**
+ * A wheel event sent to whatever is under the point, as a real wheel is.
+ * Returns whether it was prevented. The constructor refuses a non-finite
+ * delta, so such a delta is put on the event afterwards, as a broken
+ * source could hand it over.
+ */
 function wheelAt(x: number, y: number, init: WheelEventInit): boolean {
   const target = document.elementFromPoint(x, y) ?? document.body;
+  const finite = Object.entries(init).filter(
+    ([, v]) => typeof v !== "number" || Number.isFinite(v),
+  );
   const event = new WheelEvent("wheel", {
     clientX: x,
     clientY: y,
     bubbles: true,
     cancelable: true,
-    ...init,
+    ...Object.fromEntries(finite),
   });
+  for (const [key, value] of Object.entries(init))
+    if (typeof value === "number" && !Number.isFinite(value))
+      Object.defineProperty(event, key, { value });
   target.dispatchEvent(event);
   return event.defaultPrevented;
 }
@@ -314,17 +325,22 @@ describe("the wheel and a trackpad pinch (decisions 127 and 142)", () => {
     ).toBeLessThanOrEqual(2);
   });
 
-  test("zoomed far out the whole map is in the pane; zoomed far in the scale stops at 2", async () => {
+  test("zoomed far out the whole map fits the pane; zoomed far in the scale stops at 2", async () => {
+    // Row 143: the smallest scale fits the whole map with a 24 px margin. A
+    // zoom keeps the point under the pointer, so the fitted map need not be
+    // centred: the overlap rule may leave part of it past an edge.
     const { container, pane } = await mountMap(DOC);
     const p = pane.getBoundingClientRect();
     const at = pointOn(boxOf(container, "alpha"), p);
     for (let i = 0; i < 400; i++) wheelAt(at.x, at.y, { deltaY: 10, ctrlKey: true });
     await frames(2);
     const map = mapBox(container);
-    expect(map.left).toBeGreaterThanOrEqual(p.left - 0.5);
-    expect(map.top).toBeGreaterThanOrEqual(p.top - 0.5);
-    expect(map.right).toBeLessThanOrEqual(p.right + 0.5);
-    expect(map.bottom).toBeLessThanOrEqual(p.bottom + 0.5);
+    const width = map.right - map.left;
+    const height = map.bottom - map.top;
+    expect(width).toBeLessThanOrEqual(p.width - 48 + 0.5);
+    expect(height).toBeLessThanOrEqual(p.height - 48 + 0.5);
+    // Fitted, not smaller: one axis fills the pane inside its margins.
+    expect(Math.max(width - (p.width - 48), height - (p.height - 48))).toBeGreaterThan(-1);
     const inAt = pointOn(boxOf(container, "alpha"), p);
     for (let i = 0; i < 400; i++) wheelAt(inAt.x, inAt.y, { deltaY: -10, ctrlKey: true });
     await frames(2);
