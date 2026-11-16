@@ -20,8 +20,6 @@ const fixture = readFileSync(new URL("../../fixtures/ledger-redesign.md", import
 const plan = (md: string) => mapPlan(parseMarkdown(md));
 const columnIds = (p: SectionPlan) => mapColumns(p).map((column) => column.map((f) => f.id));
 const kinds = (p: SectionPlan) => p.sections.map((s) => `${s.kind}:${s.id}`);
-const atL = (p: SectionPlan) => p.sections.filter((s) => s.heading?.depth === p.levels[0]);
-const cover = (p: SectionPlan) => p.sections.filter((s) => s.kind === "cover");
 
 describe("mapPlan: the map sections one level deeper than the deck (decision 140)", () => {
   test("L skips the document title, as auto does, so a README maps at ## and ###", () => {
@@ -50,24 +48,82 @@ describe("mapPlan: the map sections one level deeper than the deck (decision 140
     }
   });
 
-  test("an L + 1 heading followed straight by a heading does not count, as in autoSlideLevel", () => {
-    // "### Group" has no text of its own, so it does not make ### a map level:
-    // the #### below it stays inside "## A". This is the eye autoSlideLevel uses.
-    const p = plan("## A\n\na\n\n### Group\n\n#### Deep\n\nd\n\n## B\n\nb\n");
-    expect(p.levels).toEqual([2]);
-    expect(columnIds(p)).toEqual([["a"], ["b"]]);
+  test("any top-level heading at L + 1 adds that level, whatever follows it (decision 141)", () => {
+    // Row 141 reads 140 as written, wider than autoSlideLevel's test: "### B"
+    // and "### D" open frames although a #### heading follows each.
+    const p = plan("## A\n\na\n\n### B\n\n#### C\n\nc\n\n### D\n\n#### E\n\ne\n");
+    expect(p.levels).toEqual([2, 3]);
+    expect(columnIds(p)).toEqual([["a", "b", "d"]]);
+    // An L + 1 heading as the last block is an empty frame holding its heading.
+    const q = plan("## A\n\na\n\n### B\n");
+    expect(q.levels).toEqual([2, 3]);
+    expect(columnIds(q)).toEqual([["a", "b"]]);
+    expect(q.sections[1]?.nodes).toEqual([]);
   });
 
-  test("a part above L whose only text sits under an L + 1 heading has no frame (the lead's call)", () => {
+  test("a heading at L + 1 inside a quote or a list opens no frame, and L = 6 has no L + 1", () => {
+    expect(plan("## A\n\na\n\n> ### Q\n\n- ### R\n").levels).toEqual([2]);
+    expect(plan("###### A\n\na\n\n###### B\n\nb\n").levels).toEqual([6]);
+  });
+
+  test("a heading above L with no text keeps its frame and opens its column (decision 141)", () => {
+    // "# Part two" has no text of its own: the deck drops it as a breadcrumb,
+    // the map keeps it as a frame that holds the heading alone.
+    const p = plan("## A\n\na\n\n# Part two\n\n### Sub\n\ns\n\n## B\n\nb\n");
+    expect(columnIds(p)).toEqual([["a"], ["part-two", "sub"], ["b"]]);
+    expect(p.sections[1]).toMatchObject({ kind: "title", id: "part-two", nodes: [] });
+  });
+
+  test("a thematic-break part under an empty heading above L stays in that heading's column", () => {
+    // The part keeps the id the deck gives it: keeping the empty section does
+    // not change the part numbering.
+    const md = "## A\n\na\n\n# Part two\n\n---\n\nx\n\n## B\n\nb\n";
+    const root = parseMarkdown(md);
+    expect(kinds(sectionize(root, "auto"))).toEqual([
+      "content:a",
+      "content:part-two-part-2",
+      "content:b",
+    ]);
+    expect(columnIds(mapPlan(root))).toEqual([["a"], ["part-two", "part-two-part-2"], ["b"]]);
+  });
+
+  test("a part above L whose only text sits under an L + 1 heading keeps its frame", () => {
     // The deck at auto keeps "# Part one" as a title slide holding "### Sub".
-    // At [2, 3] "### Sub" opens its own section, "# Part one" is left with no
-    // text, and sectionize drops it as a breadcrumb. So this slide id has no
-    // frame. Pinned as found; whether the map should keep it is the lead's call.
+    // At [2, 3] "### Sub" opens its own section and "# Part one" holds its
+    // heading alone, with the slide's id. "# Part two" has no text: a frame too.
     const md = "# Part one\n\n### Sub\n\ns\n\n## A\n\na\n\n# Part two\n\n## B\n\nb\n";
     const root = parseMarkdown(md);
     expect(kinds(sectionize(root, "auto"))).toEqual(["title:part-one", "content:a", "content:b"]);
-    expect(kinds(mapPlan(root))).toEqual(["content:sub", "content:a", "content:b"]);
-    expect(columnIds(mapPlan(root))).toEqual([["sub"], ["a"], ["b"]]);
+    expect(kinds(mapPlan(root))).toEqual([
+      "title:part-one",
+      "content:sub",
+      "content:a",
+      "title:part-two",
+      "content:b",
+    ]);
+    expect(columnIds(mapPlan(root))).toEqual([["part-one", "sub"], ["a"], ["part-two"], ["b"]]);
+  });
+
+  test("consecutive empty headings above L get a frame and a column each", () => {
+    expect(columnIds(plan("# One\n\n# Two\n\n## A\n\na\n"))).toEqual([["one"], ["two"], ["a"]]);
+  });
+
+  test("a document with headings but no L gets the auto plan, one column", () => {
+    // "## A" is followed by a thematic break, so autoSlideLevel finds no level;
+    // with no L there is nothing "above L" (row 140: the plan of 139).
+    const root = parseMarkdown("## A\n\n---\n\nx\n");
+    const p = mapPlan(root);
+    expect(p.levels).toEqual([]);
+    expect(p).toEqual(sectionize(root, "auto"));
+    expect(columnIds(p)).toEqual([["a-part-2"]]);
+  });
+
+  test("part ids differ between the deck and the map by design", () => {
+    // The one known difference: a part continues the last section opened, and
+    // the map opens more sections. Step 3's address mapping has to handle it.
+    const root = parseMarkdown("## A\n\na\n\n### X\n\nx1\n\n---\n\nx2\n");
+    expect(sectionize(root, "auto").sections.map((s) => s.id)).toEqual(["a", "a-part-2"]);
+    expect(mapPlan(root).sections.map((s) => s.id)).toEqual(["a", "x", "x-part-2"]);
   });
 });
 
@@ -160,9 +216,10 @@ describe("mapColumns: columns from the map plan (decisions 139 and 140)", () => 
     // #### note), so the plan keeps it as a `title` section; row 140 lets a
     // heading at L or above open a column.
     const md = "# Part one\n\n## A\n\na\n\n# Part two\n\n#### Note\n\nn\n\n## B\n\nb\n";
+    // "# Part one" has no text of its own, so it is a frame of its own too (141).
     const p = plan(md);
-    expect(kinds(p)).toEqual(["content:a", "title:part-two", "content:b"]);
-    expect(columnIds(p)).toEqual([["a"], ["part-two"], ["b"]]);
+    expect(kinds(p)).toEqual(["title:part-one", "content:a", "title:part-two", "content:b"]);
+    expect(columnIds(p)).toEqual([["part-one"], ["a"], ["part-two"], ["b"]]);
   });
 
   test("the acceptance fixture: 23 columns and 40 frames", () => {
@@ -347,16 +404,46 @@ describe("properties", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  fcTest.prop([doc])("the map plan has the deck's sections at L and its cover, same ids", (md) => {
-    // Row 140: a frame's id is the id a slide has. One tree for both plans.
-    const root = parseMarkdown(md);
-    const deck = sectionize(root, "auto");
-    const map = mapPlan(root);
-    expect(map.levels[0]).toBe(deck.levels[0]);
-    expect(map.titleHeading).toBe(deck.titleHeading);
-    expect(atL(map).map((s) => s.id)).toEqual(atL(deck).map((s) => s.id));
-    expect(cover(map).map((s) => s.id)).toEqual(cover(deck).map((s) => s.id));
-  });
+  fcTest.prop([doc])(
+    "every heading at L or above is a section of the map, with the deck's id where the deck has it",
+    (md) => {
+      // Row 140: a frame's id is the id a slide has; row 141: every heading at
+      // or above L has a frame. One tree for both plans, so nodes compare by
+      // identity. Parts are left out: their ids differ between the two plans
+      // by design (see "part ids differ between the deck and the map").
+      const root = parseMarkdown(md);
+      const deck = sectionize(root, "auto");
+      const map = mapPlan(root);
+      expect(map.levels[0]).toBe(deck.levels[0]);
+      expect(map.titleHeading).toBe(deck.titleHeading);
+      const level = deck.levels[0];
+      if (level === undefined) {
+        expect(map).toEqual(deck);
+        return;
+      }
+      const upTo = (p: SectionPlan) =>
+        p.sections.filter((s) => s.heading && s.heading.depth <= level);
+      const mapped = upTo(map);
+      expect(mapped.map((s) => s.heading)).toEqual(
+        root.children.filter((n) => n.type === "heading" && n.depth <= level),
+      );
+      for (const section of upTo(deck)) {
+        const same = mapped.find((s) => s.heading === section.heading);
+        expect(same?.id).toBe(section.id);
+        expect(same?.kind).toBe(section.kind);
+      }
+    },
+  );
+
+  fcTest.prop([doc])(
+    "mapColumns takes any plan: the deck's at [1, 2, 3] with no cover keeps every section once",
+    (md) => {
+      const p = sectionize(parseMarkdown(md), [1, 2, 3]);
+      const columns = mapColumns(p);
+      expect(columns.flat().map((f) => f.id)).toEqual(p.sections.map((s) => s.id));
+      for (const column of columns) expect(column.length).toBeGreaterThan(0);
+    },
+  );
 
   fcTest.prop([layout])("no two frames overlap", ({ columns, heights }) => {
     const { frames } = placeFrames(columns, heights);
