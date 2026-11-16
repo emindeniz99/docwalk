@@ -60,6 +60,12 @@ formulas and diagrams change; an unknown name stays as written, and titles,
 breadcrumbs and the outline keep the shortcode (101). Code:
 `src/render/emoji.ts`, `emojiMap.ts`.
 
+**Epoch**: the start of one presenter connection to a room, in
+milliseconds, always later than the tab's earlier connections to that room.
+It leads the presenter's sender id, which the presenter signs; a follower,
+phone or agent drops a signed frame from an older epoch than one it took
+(170). Code: `presenterSender`, `EpochGuard` in `src/remote/replay.ts`.
+
 **Focus view**: the full-window view that a click or Enter opens on a
 diagram, a code block, a table or a loaded image. Diagrams and images zoom
 and pan on a canvas; code and tables scroll and zoom by type size. One

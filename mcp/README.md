@@ -98,7 +98,11 @@ The server reuses the app's room client (`../src/remote/client.ts`), so the
 key handling, message validation and reconnects are the app's own. Every
 frame carries a random sender id and a counter inside the ciphertext, and a
 frame the client has already seen from that sender is dropped, so the relay
-cannot replay an old write or an old slide. Agent
+cannot replay an old write or an old slide. The presenter's sender id starts
+with a signed epoch for each connection. With a link that carries the state
+key (`p=`), once the agent has a state from the presenter's current
+connection it drops the signed states of earlier ones, such as the tab
+before a reload (decision 170). Agent
 messages are addressed: requests carry the agent's id, answers carry it back,
 and other participants drop answers that are not theirs. The relay drops
 frames over 16 KB, so a document or slide list larger than that travels as

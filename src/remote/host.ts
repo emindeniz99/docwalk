@@ -14,6 +14,7 @@ import {
   RoomCredentialsSchema,
   type PresenterCredentials,
 } from "./crypto";
+import { MAX_EPOCH } from "./replay";
 import type { RemoteMessage } from "./types";
 
 /**
@@ -43,6 +44,8 @@ import type { RemoteMessage } from "./types";
 
 /** sessionStorage key: the room survives a reload of the presenter tab, so phones stay joined. */
 export const ROOM_STORAGE_KEY = "docwalk.remote-room";
+/** sessionStorage key: the epoch of this tab's last connection to its room (decision 170). */
+const EPOCH_STORAGE_KEY = "docwalk.remote-epoch";
 /** A remote laser point disappears after this long without an update (a phone that dropped out). */
 const LASER_IDLE_MS = 3000;
 /** Distinct participant ids remembered per role; a hostile key holder cannot grow this without bound. */
@@ -176,6 +179,38 @@ function storeCredentials(creds: PresenterCredentials) {
   } catch {
     // Storage blocked: the room lasts until this tab reloads.
   }
+}
+
+const StoredEpochSchema = v.object({
+  room: v.string(),
+  epoch: v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(MAX_EPOCH - 1)),
+});
+
+/**
+ * The epoch of a new connection to `room` (decision 170): the clock, but
+ * above the last epoch this tab used for the room. Followers drop signed
+ * frames from an older connection than one they took, so a clock set back
+ * between two connections must not make the new one look older. Storage
+ * blocked: the clock alone, and the room ends with the page anyway.
+ */
+function nextEpoch(room: string): number {
+  let floor = 0;
+  try {
+    const parsed = v.safeParse(
+      StoredEpochSchema,
+      JSON.parse(storage()?.getItem(EPOCH_STORAGE_KEY) ?? "null"),
+    );
+    if (parsed.success && parsed.output.room === room) floor = parsed.output.epoch + 1;
+  } catch {
+    // Unreadable: the clock alone.
+  }
+  const epoch = Math.max(Date.now(), floor);
+  try {
+    storage()?.setItem(EPOCH_STORAGE_KEY, JSON.stringify({ room, epoch }));
+  } catch {
+    // Storage blocked: see above.
+  }
+  return epoch;
 }
 
 export function useRemoteHost({
@@ -462,6 +497,7 @@ export function useRemoteHost({
     const conn = connectRoom({
       creds: room,
       role: "presenter",
+      epoch: nextEpoch(room.room),
       onMessage: (message) => {
         if (active) handle(message);
       },

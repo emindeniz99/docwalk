@@ -91,9 +91,12 @@ Known limits, by design:
   presenter's per-room signing key signed it; the public half is in the
   follow link. A follower, or the relay, can still repeat a frame the
   presenter signed to a follower that has not seen a later one from the
-  same presenter tab: one that joins late or reconnects, and, once the
-  presenter reloads its tab, any follower that never saw the earlier tab.
-  A repeated state lasts until the presenter's next one and a laser point
+  same presenter connection: one that joins late or reconnects. Each
+  connection of the presenter's tab (a reload starts one) signs an epoch,
+  and a follower, phone or agent that has taken a frame from one connection
+  drops signed frames from earlier ones (decision 170); one that has just
+  joined or reloaded takes them until the presenter's first frame reaches
+  it. A repeated state lasts until the presenter's next one and a laser point
   for 3 s; a mark stays until the presenter clears that slide, returns to
   it or resends its marks, and a focus view until Escape or the next
   resend. A relay can drop the message that hides a laser or closes a focus

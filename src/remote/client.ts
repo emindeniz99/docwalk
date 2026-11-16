@@ -12,7 +12,7 @@ import {
   type StateKey,
 } from "./crypto";
 import { PartAssembler, splitMessage } from "./parts";
-import { ReplayGuard } from "./replay";
+import { EpochGuard, presenterSender, ReplayGuard } from "./replay";
 import { PRESENTER_ID, SEAT_TAKEN_CLOSE, type RemoteMessage, type RoomCredentials } from "./types";
 
 /**
@@ -35,7 +35,10 @@ import { PRESENTER_ID, SEAT_TAKEN_CLOSE, type RemoteMessage, type RoomCredential
  * The presenter accepts nothing under the view key but a follower's hello,
  * so a follow link can neither steer the deck nor talk to agents. Every
  * frame is sealed with this connection's id and counter, and a frame whose
- * counter a receiver has seen from that sender is dropped (replay.ts).
+ * counter a receiver has seen from that sender is dropped (replay.ts). The
+ * presenter's id starts with its connection's epoch, and a signed frame
+ * from an older presenter connection than one already taken is dropped too
+ * (decision 170).
  *
  * Followers share the view key, so it cannot tell them apart from the
  * presenter. The presenter signs every state it sends with the room's
@@ -109,6 +112,12 @@ interface ConnectOptions {
   socketFactory?: SocketFactory;
   /** The page the room URL is resolved against; defaults to the current location. */
   base?: string;
+  /**
+   * The presenter only: this connection's epoch, above every earlier
+   * connection of the room (decision 170; host.ts keeps it rising across
+   * reloads). Defaults to the clock.
+   */
+  epoch?: number;
 }
 
 /** Laser points go out at most this often (about 30 per second). */
@@ -218,6 +227,7 @@ export function connectRoom({
   socketFactory = browserSocket,
   // Node has no location: the agent (mcp/) always passes the join link as `base`.
   base = (globalThis as { location?: { href: string } }).location?.href ?? "",
+  epoch = Date.now(),
 }: ConnectOptions): RoomConnection {
   const url = roomUrl(creds.room, base);
   const helloId = randomId();
@@ -226,12 +236,15 @@ export function connectRoom({
   const keysPromise = importRoleKeys(creds, role);
   const seatPromise = role === "follower" ? Promise.resolve(null) : seatToken(creds);
   let seat: string | null = null;
-  // This connection's seal (crypto.ts): a random sender id and a counter.
-  const sender = randomId();
+  // This connection's seal (crypto.ts): a random sender id and a counter. The
+  // presenter's id leads with the connection's epoch, which it signs (decision 170).
+  const sender = role === "presenter" ? presenterSender(epoch) : randomId();
   let counter = 0;
   // One guard per key: a view-key holder must not be able to push a
   // control-key sender's counter forward and get its frames dropped.
   const guards = { control: new ReplayGuard(), view: new ReplayGuard() };
+  // One for both keys: only the presenter signs, whichever key it seals under.
+  const epochs = new EpochGuard();
 
   let status: RemoteStatus = "connecting";
   let socket: SocketLike | null = null;
@@ -340,6 +353,8 @@ export function connectRoom({
         if (sealed.message.type === "countdown" && role !== "presenter" && !sealed.signed) {
           return null;
         }
+        // A signed frame from an earlier presenter connection (decision 170).
+        if (sealed.signed && !epochs.accept(sealed.sender)) return null;
         return guards.control.accept(sealed.sender, sealed.counter)
           ? { message: sealed.message, sender: sealed.sender, signed: sealed.signed }
           : null;
@@ -361,6 +376,9 @@ export function connectRoom({
     ) {
       return null;
     }
+    // A new sender id passes the guard below, so an earlier presenter
+    // connection's frames did too, at any time (decision 170).
+    if (sealed.signed && !epochs.accept(sealed.sender)) return null;
     // Counters are recorded only for frames this role takes. Recording one
     // first let any view-key holder seal a frame under the presenter's sender
     // id with the largest counter, so followers dropped every real state, or
