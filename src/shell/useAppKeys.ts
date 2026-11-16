@@ -26,9 +26,10 @@ export function useAppKeys({
   show: (next: View | ((v: View) => View)) => void;
 }) {
   // O opens the slide overview: anywhere while presenting, from the deck pane while editing.
+  // The document view and the map hide the deck pane.
   useOverviewShortcut(
     openOverview,
-    !follow && controller !== null && view !== "document",
+    !follow && controller !== null && view !== "document" && view !== "map",
     view === "present" ? undefined : deckRef,
   );
 

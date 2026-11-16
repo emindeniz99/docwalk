@@ -54,7 +54,7 @@ const SectionsSchema = v.pipe(
 
 const PageSchema = v.pipe(v.string(), v.regex(/^[1-9]\d{0,4}$/), v.transform(Number));
 
-const ViewSchema = v.picklist(["edit", "document", "present", "presenter"]);
+const ViewSchema = v.picklist(["edit", "document", "map", "present", "presenter"]);
 
 const LevelSchema = v.union([
   v.literal("auto"),

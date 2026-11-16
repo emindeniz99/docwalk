@@ -1,8 +1,11 @@
 import {
   Download,
+  FileText,
   LayoutGrid,
+  MapIcon,
   Moon,
   Monitor,
+  Pencil,
   Play,
   Share2,
   Sun,
@@ -119,6 +122,8 @@ const ClearMarksDialog = lazy(() =>
 const SketchDialog = lazy(() =>
   import("./canvas/SketchDialog").then((mod) => ({ default: mod.SketchDialog })),
 );
+// The map view is a chunk of its own that the default view never requests (decisions 124, 142).
+const MapView = lazy(() => import("./map/MapView"));
 
 const FOLLOW_STATUS: Record<RemoteStatus, () => string> = {
   connecting: m.follow_connecting,
@@ -274,8 +279,8 @@ export function App() {
   // slide; its hash names the place instead.
   const [documentTarget, setDocumentTarget] = useState<DocumentTarget | null>(null);
   const [inDocument, setInDocument] = useState(view === "document");
-  // On a phone the reading view takes the screen and the outline is a sheet.
-  const outlineSheet = phone && view === "document" && !follow;
+  // On a phone the reading view and the map take the screen and the outline is a sheet.
+  const outlineSheet = phone && (view === "document" || view === "map") && !follow;
   const [outlineOpen, setOutlineOpen] = useState(false);
   if (inDocument !== (view === "document")) {
     setInDocument(view === "document");
@@ -331,9 +336,9 @@ export function App() {
     view,
     sections: follow ? undefined : sections,
     onLevel: setLevel,
-    // Present needs a user gesture for fullscreen, so a link can open edit or document only.
+    // Present needs a user gesture for fullscreen, so a link can open edit, document or map only.
     onView: (v) => {
-      if (v === "edit" || v === "document") show(v);
+      if (v === "edit" || v === "document" || v === "map") show(v);
     },
   });
 
@@ -400,8 +405,9 @@ export function App() {
   const goTo = useCallback(
     (address: string) => {
       controller?.goTo(address);
-      if (view === "document") {
-        // A reader stays in the reading view, which scrolls to the section.
+      if (view === "document" || view === "map") {
+        // A reader stays in the reading view, which scrolls to the section. The map
+        // stays as it is for now: only the outline's mark moves (decision 142, step 2).
         setDocumentTarget({ anchor: sectionAnchor(plan, address.split("/")[0] ?? "") });
         setOutlineOpen(false);
         return;
@@ -570,12 +576,23 @@ export function App() {
               selectedKeys={[view === "present" ? "edit" : view]}
               onSelectionChange={(keys) => {
                 const [k] = [...keys];
-                if (k === "edit" || k === "document") show(k);
+                if (k === "edit" || k === "document" || k === "map") show(k);
               }}
               className="docwalk-segmented"
             >
-              <ToggleButton id="edit">{m.app_view_edit()}</ToggleButton>
-              <ToggleButton id="document">{m.app_document()}</ToggleButton>
+              {/* A phone shows the icons; the words stay the names (decision 143, styles.css). */}
+              <ToggleButton id="edit">
+                <Pencil size={18} aria-hidden="true" className="docwalk-view-icon" />
+                <span className="docwalk-view-label">{m.app_view_edit()}</span>
+              </ToggleButton>
+              <ToggleButton id="document">
+                <FileText size={18} aria-hidden="true" className="docwalk-view-icon" />
+                <span className="docwalk-view-label">{m.app_document()}</span>
+              </ToggleButton>
+              <ToggleButton id="map">
+                <MapIcon size={18} aria-hidden="true" className="docwalk-view-icon" />
+                <span className="docwalk-view-label">{m.app_view_map()}</span>
+              </ToggleButton>
             </ToggleButtonGroup>
             <OpenFileButton onLoad={(r) => workspace.guard(() => inputs.apply(r))} />
             <Button className="docwalk-button" isDisabled={!doc} onPress={share.open}>
@@ -748,7 +765,16 @@ export function App() {
             />
           </section>
         )}
-        <div ref={deckRef} className="docwalk-deck-pane" hidden={view === "document" && !follow}>
+        {view === "map" && !follow && (
+          <Suspense fallback={<div className="docwalk-map-pane" />}>
+            <MapView root={root} />
+          </Suspense>
+        )}
+        <div
+          ref={deckRef}
+          className="docwalk-deck-pane"
+          hidden={(view === "document" || view === "map") && !follow}
+        >
           <div className="docwalk-preview-head">
             <strong>
               {current
