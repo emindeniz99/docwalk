@@ -98,6 +98,8 @@ const DOC = [
   "",
   para("Gamma", 2),
   "",
+  "See [the alpha part](#alpha).",
+  "",
 ].join("\n");
 
 const PANE = { width: 1200, height: 700 };
@@ -473,5 +475,131 @@ describe("what a follower's map does not do", () => {
     m.pane.focus();
     await press("{ArrowLeft}");
     expect(m.calls).toEqual(["beta"]);
+  });
+});
+
+/** A touch pointer event of `type` on `el` at a client point, as a finger sends it. */
+function touchOn(el: Element, type: string, x: number, y: number, id = 11) {
+  el.dispatchEvent(
+    new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: id,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: x,
+      clientY: y,
+    }),
+  );
+}
+
+describe("after the review of row 150", () => {
+  beforeEach(reduceMotion);
+
+  test("a roam started by the wheel with focus on <body> takes focus to the pane, so Escape ends it", async () => {
+    const m = await mount({ current: "alpha" });
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    await wheel(m.pane, { deltaY: 200 });
+    expect(backButton(m.pane)).not.toBeNull();
+    expect(document.activeElement).toBe(m.pane);
+    await m.presenter("gamma");
+    await press("{Escape}");
+    expectAt(m, fittedTo(m, "gamma"));
+    expect(backButton(m.pane)).toBeNull();
+  });
+
+  test("a roam started by the wheel with focus on a button outside the pane, as the bar's theme button, ends with Escape too", async () => {
+    const outsideButton = document.createElement("button");
+    outsideButton.textContent = "Theme";
+    document.body.append(outsideButton);
+    const m = await mount({ current: "beta" });
+    outsideButton.focus();
+    await wheel(m.pane, { deltaY: 200 });
+    expect(document.activeElement).toBe(m.pane);
+    await press("{Escape}");
+    expectAt(m, fittedTo(m, "beta"));
+    expect(backButton(m.pane)).toBeNull();
+  });
+
+  test("closing the follower's own focus view after the presenter moved starts no roam: the map stays on the presenter's frame", async () => {
+    const m = await mount({ current: "alpha" });
+    const pre = frameEl(m.container, "alpha").querySelector<HTMLElement>("pre")!;
+    await expect.poll(() => pre.hasAttribute("data-docwalk-focus"), { timeout: 20_000 }).toBe(true);
+    pre.focus();
+    await frames(2);
+    expect(backButton(m.pane), "focusing a block in the current frame is no roam").toBeNull();
+    await userEvent.keyboard("{Enter}");
+    expect(document.querySelector(".docwalk-focus")).not.toBeNull();
+    await m.presenter("gamma");
+    expect(currentIds(m.container)).toEqual(["gamma"]);
+    await press("{Escape}");
+    expect(document.querySelector(".docwalk-focus")).toBeNull();
+    expect(backButton(m.pane)).toBeNull();
+    expect(currentIds(m.container)).toEqual(["gamma"]);
+    expectAt(m, fittedTo(m, "gamma"));
+    expect(document.activeElement).toBe(m.pane);
+    await m.presenter("beta");
+    expectAt(m, fittedTo(m, "beta"));
+  });
+
+  test("Tab into a far frame still starts a roam", async () => {
+    const m = await mount({ current: "alpha" });
+    const pre = frameEl(m.container, "alpha").querySelector<HTMLElement>("pre")!;
+    await expect.poll(() => pre.hasAttribute("data-docwalk-focus"), { timeout: 20_000 }).toBe(true);
+    pre.focus();
+    await frames(2);
+    const link = frameEl(m.container, "gamma").querySelector<HTMLElement>("a")!;
+    for (let i = 0; i < 10 && document.activeElement !== link; i++) await userEvent.tab();
+    expect(document.activeElement).toBe(link);
+    await frames(2);
+    expect(currentIds(m.container)).toEqual(["gamma"]);
+    expect(backButton(m.pane)).not.toBeNull();
+  });
+
+  test("a finger that moves 2 px and lifts starts no roam", async () => {
+    const m = await mount({ current: "alpha" });
+    const { clientX: x, clientY: y } = at(m.pane, 0.5, 0.5);
+    const target = document.elementFromPoint(x, y)!;
+    touchOn(target, "pointerdown", x, y);
+    touchOn(target, "pointermove", x + 2, y);
+    touchOn(target, "pointerup", x + 2, y);
+    await frames(2);
+    expect(backButton(m.pane)).toBeNull();
+    expect(statusOf(m.pane)).not.toBe(ROAMING);
+  });
+
+  test("a finger that drags 20 px starts a roam", async () => {
+    const m = await mount({ current: "alpha" });
+    const { clientX: x, clientY: y } = at(m.pane, 0.5, 0.5);
+    const target = document.elementFromPoint(x, y)!;
+    touchOn(target, "pointerdown", x, y);
+    for (let i = 1; i <= 4; i++) touchOn(target, "pointermove", x + 5 * i, y);
+    touchOn(target, "pointerup", x + 20, y);
+    await frames(2);
+    expect(backButton(m.pane)).not.toBeNull();
+  });
+
+  test("a finger on the button pans nothing, and a tap on it ends the roam", async () => {
+    const m = await mount({ current: "beta" });
+    await wheel(m.pane, { deltaY: 200 });
+    const button = backButton(m.pane)!;
+    const b = button.getBoundingClientRect();
+    const x = b.left + b.width / 2;
+    const y = b.top + b.height / 2;
+    const held = cameraOf(m.layer);
+    touchOn(button, "pointerdown", x, y, 12);
+    touchOn(button, "pointermove", x + 30, y - 30, 12);
+    touchOn(button, "pointerup", x + 30, y - 30, 12);
+    await frames(2);
+    expect(same(cameraOf(m.layer), held), "a finger that starts on the button pans nothing").toBe(
+      true,
+    );
+    touchOn(button, "pointerdown", x, y, 13);
+    touchOn(button, "pointerup", x, y, 13);
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+    await frames(2);
+    expect(backButton(m.pane)).toBeNull();
+    expectAt(m, fittedTo(m, "beta"));
   });
 });
