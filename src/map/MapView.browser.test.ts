@@ -24,18 +24,24 @@ import MapView from "./MapView";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The diagram code can fail to load (a lost connection, a new deploy): while
-// `failing` is set, renderDiagrams rejects as it does when its chunk fails.
+// The Mermaid chunk can fail to load (a lost connection, a new deploy), as in
+// src/deck/mermaidLoad.browser.test.ts: while `failing` is set, `initialize`
+// throws, so the load rejects the way a missing chunk does and the figure is
+// marked `data-load-failed` (decision 146). A load that succeeded stays
+// loaded for the page and `vi.resetModules()` gives no fresh `mermaid.ts` in
+// browser mode, so the load-failure test is the first of this file.
 const control = vi.hoisted(() => ({ failing: false }));
-vi.mock("../deck/mermaid", async (importOriginal) => {
-  const real = await importOriginal<typeof import("../deck/mermaid")>();
-  return {
-    ...real,
-    renderDiagrams: (...args: Parameters<typeof real.renderDiagrams>) =>
-      control.failing
-        ? Promise.reject(new Error("Failed to fetch dynamically imported module"))
-        : real.renderDiagrams(...args),
-  };
+vi.mock("mermaid", async (importOriginal) => {
+  const real = await importOriginal<typeof import("mermaid")>();
+  const mermaid = new Proxy(real.default, {
+    get(target, key, receiver) {
+      if (control.failing && key === "initialize")
+        throw new TypeError("Failed to fetch dynamically imported module");
+      const value: unknown = Reflect.get(target, key, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { ...real, default: mermaid };
 });
 
 let reactRoot: ReactRoot | null = null;
@@ -215,6 +221,65 @@ function pointOn(box: DOMRect, pane: DOMRect) {
 }
 
 const scaleOf = (box: DOMRect) => box.width / FRAME_WIDTH;
+
+describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)", () => {
+  // First in the file: once Mermaid has loaded, it stays loaded for the page.
+  test("is asked again only when its frame comes back near the view or the browser is online, never per wheel event", async () => {
+    // Row 148: every camera change asked the failed frame again and rebuilt
+    // its note; in Chromium a failed module request cannot succeed before a reload.
+    const rejections: unknown[] = [];
+    const onRejection = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason);
+      event.preventDefault();
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    cleanups.push(() => window.removeEventListener("unhandledrejection", onRejection));
+    control.failing = true;
+    const { container, pane } = await mountMap(DIAGRAM_DOC);
+    const start = frameEl(container, "start");
+    await expect
+      .poll(() => start.querySelector("figure.docwalk-diagram[data-load-failed]"), {
+        timeout: 20_000,
+      })
+      .not.toBeNull();
+    await frames(10);
+    expect(start.querySelector(".docwalk-diagram svg")).toBeNull();
+    expect(rejections).toEqual([]);
+    const figure = start.querySelector<HTMLElement>("figure.docwalk-diagram")!;
+    let attempts = 0;
+    const observer = new MutationObserver((records) => (attempts += records.length));
+    observer.observe(figure, { childList: true });
+    cleanups.push(() => observer.disconnect());
+    const p = pane.getBoundingClientRect();
+    for (let i = 0; i < 40; i++) {
+      wheelAt(p.left + 50, p.top + 50, { deltaY: i % 2 ? 3 : -3 });
+      await frame();
+    }
+    await frames(5);
+    expect(attempts, "wheel events near the frame ask nothing").toBe(0);
+    // Away to the far column and back: one attempt.
+    const far = boxOf(container, "far");
+    const across = far.left - p.left - 24;
+    wheelAt(p.left + 50, p.top + 50, { deltaX: across });
+    await frames(3);
+    wheelAt(p.left + 50, p.top + 50, { deltaX: -across });
+    await expect.poll(() => attempts).toBe(1);
+    await frames(5);
+    expect(attempts).toBe(1);
+    // Online again: one more attempt.
+    window.dispatchEvent(new Event("online"));
+    await expect.poll(() => attempts).toBe(2);
+    await frames(5);
+    expect(attempts).toBe(2);
+    // The code loads now: online draws it in place.
+    control.failing = false;
+    window.dispatchEvent(new Event("online"));
+    await expect
+      .poll(() => start.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
+      .not.toBeNull();
+    expect(start.querySelector("[data-load-failed]")).toBeNull();
+  });
+});
 
 describe("frames stand where placeFrames puts them (decision 142, Frames)", () => {
   test("columns left to right, a column's frames stacked with the gap, no overlap, document order in the DOM", async () => {
@@ -928,29 +993,5 @@ describe("placing at once (decision 144)", () => {
     more.textContent = "A late block. ".repeat(300);
     frameEl(container, "alpha").querySelector(".docwalk-slide-body")!.append(more);
     await expect.poll(() => boxOf(container, "alpha-detail").top).toBeGreaterThan(detailTop + 10);
-  });
-});
-
-describe("a diagram whose code fails to load (decision 144)", () => {
-  test("leaves no unhandled rejection, and its frame is drawn when it comes near again", async () => {
-    const rejections: unknown[] = [];
-    const onRejection = (event: PromiseRejectionEvent) => {
-      rejections.push(event.reason);
-      event.preventDefault();
-    };
-    window.addEventListener("unhandledrejection", onRejection);
-    cleanups.push(() => window.removeEventListener("unhandledrejection", onRejection));
-    control.failing = true;
-    const { container, pane } = await mountMap(DIAGRAM_DOC);
-    const start = frameEl(container, "start");
-    await frames(10);
-    expect(start.querySelector(".docwalk-diagram svg")).toBeNull();
-    expect(rejections).toEqual([]);
-    control.failing = false;
-    const p = pane.getBoundingClientRect();
-    wheelAt(p.left + 50, p.top + 50, { deltaY: 5 });
-    await expect
-      .poll(() => start.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
-      .not.toBeNull();
   });
 });

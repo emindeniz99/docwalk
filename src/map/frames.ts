@@ -42,10 +42,14 @@ export interface MapFrames {
   /**
    * Draws Mermaid in these frames, each at most once per render, then marks
    * their focus targets. Frames are drawn one after another, in call order.
-   * A frame whose diagram code fails to load is drawn again on a later call;
-   * the promise never rejects for it.
+   * The view names the frames near it on every call. A frame whose diagram
+   * code did not load (a figure marked `data-load-failed`, or a rejection) is
+   * drawn again only once a call has left it out and a later one names it,
+   * or after `retryFailed` (decision 148); the promise never rejects for it.
    */
   drawDiagrams: (frameIds: Iterable<string>) => Promise<void>;
+  /** Lets the next call that names a failed frame draw it again (the browser is online again). */
+  retryFailed: () => void;
   /** Stops pending work and reporting and removes the listeners; the DOM stays. */
   dispose: () => void;
   /**
@@ -211,9 +215,18 @@ export function renderFrames(
   // One `seen` set for the render, so a diagram that repeats in another frame gets its own SVG ids.
   const seen = new Set<string>();
   const requested = new Set<string>();
+  /** Requested frames whose diagram code did not load: asked again only once released. */
+  const failed = new Set<string>();
+  const release = (id: string) => {
+    failed.delete(id);
+    requested.delete(id);
+  };
   let queue: Promise<void> = Promise.resolve();
   const drawDiagrams = (frameIds: Iterable<string>): Promise<void> => {
-    const fresh = [...frameIds].filter((id) => frames.has(id) && !requested.has(id));
+    const named = new Set([...frameIds].filter((id) => frames.has(id)));
+    // A failed frame that has left the view's neighbourhood may be asked again on its return.
+    for (const id of failed) if (!named.has(id)) release(id);
+    const fresh = [...named].filter((id) => !requested.has(id));
     for (const id of fresh) requested.add(id);
     const run = queue.then(async () => {
       for (const id of fresh) {
@@ -221,13 +234,17 @@ export function renderFrames(
         const el = frames.get(id) as HTMLElement;
         try {
           await renderDiagrams(el, stop, { seen });
+          if (!live) return;
+          // The diagram code did not load (decision 146): renderDiagrams marked the
+          // figure and draws it in place when the frame is asked again (147, 148).
+          if (el.querySelector("figure.docwalk-diagram[data-load-failed]")) failed.add(id);
         } catch {
-          // The diagram code did not load: the frame is asked for again when it comes near.
-          requested.delete(id);
-          continue;
+          if (!live) return;
+          // Any other failure: asked again on the same terms.
+          failed.add(id);
         }
-        if (!live) return;
-        // Marked once drawn, as the document view does: a diagram's source is no code block.
+        // Marked once drawn, as the document view does: a diagram's source is no
+        // code block. Also after a failure, for a diagram of the frame that drew.
         markFocusTargets(el);
       }
     });
@@ -242,6 +259,9 @@ export function renderFrames(
       return el ? heightOf(el) : null;
     },
     drawDiagrams,
+    retryFailed: () => {
+      for (const id of failed) release(id);
+    },
     settled: whenSettled,
     dispose: () => {
       live = false;

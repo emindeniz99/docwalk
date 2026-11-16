@@ -75,6 +75,7 @@ import { readInitialSections, useUrlSync } from "./url/useUrlSync";
 import { m } from "./paraglide/messages.js";
 import { FilesPanel } from "./workspace/FilesPanel";
 import { useWorkspace } from "./workspace/useWorkspace";
+import type { MapRequest } from "./map/MapView";
 import { WorkspaceBanner } from "./workspace/WorkspaceBanner";
 import { WorkspaceDialogs } from "./workspace/WorkspaceDialogs";
 
@@ -402,13 +403,19 @@ export function App() {
     show,
   });
 
-  const goTo = useCallback(
-    (address: string) => {
+  // A section the reader chose in the shell while the map shows: the map moves to
+  // its frame even when the deck is already on it (decision 148).
+  const [mapRequest, setMapRequest] = useState<MapRequest | null>(null);
+  const goToAddress = useCallback(
+    (address: string, fromMap: boolean) => {
       controller?.goTo(address);
       if (view === "document" || view === "map") {
         // A reader stays in the reading view, which scrolls to the section. The map
-        // stays as it is for now: only the outline's mark moves (decision 142, step 2).
-        setDocumentTarget({ anchor: sectionAnchor(plan, address.split("/")[0] ?? "") });
+        // moves to the chosen section's frame, unless the choice was its own.
+        const sectionId = address.split("/")[0] ?? "";
+        if (view === "map" && !fromMap)
+          setMapRequest((last) => ({ sectionId, seq: (last?.seq ?? 0) + 1 }));
+        setDocumentTarget({ anchor: sectionAnchor(plan, sectionId) });
         setOutlineOpen(false);
         return;
       }
@@ -418,6 +425,14 @@ export function App() {
       if (line) requestAnimationFrame(() => setRevealLine(line));
     },
     [controller, view, plan, sectionLines, setOutlineOpen],
+  );
+  const goTo = useCallback((address: string) => goToAddress(address, false), [goToAddress]);
+
+  // The map reports a section, and the deck goes to its first page: pages come
+  // from measured pagination (rule 7), so no frame knows which page holds it (148).
+  const onMapCurrent = useCallback(
+    (sectionId: string) => goToAddress(`${sectionId}/1`, true),
+    [goToAddress],
   );
 
   // Comments (decision 55): App only places the pieces the hook builds.
@@ -767,7 +782,16 @@ export function App() {
         )}
         {view === "map" && !follow && (
           <Suspense fallback={<div className="docwalk-map-pane" />}>
-            <MapView root={root} />
+            {/* The map moves with the deck's current slide and moves it (decision 145);
+                a section left out of the chosen ones is not in the deck, so goTo does nothing. */}
+            <MapView
+              root={root}
+              current={current?.sectionId ?? null}
+              deckSections={plan.sections}
+              deckLevels={plan.levels}
+              request={mapRequest}
+              onCurrent={onMapCurrent}
+            />
           </Suspense>
         )}
         <div

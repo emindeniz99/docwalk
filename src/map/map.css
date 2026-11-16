@@ -44,3 +44,24 @@
   height: auto;
   min-height: var(--map-min-frame-height);
 }
+
+/*
+ * The current frame (decision 145): a ring outside its box. Its width is
+ * `--map-ring` map units, which the view sets to 3 CSS px over the camera's
+ * scale, so the ring is as wide on screen at reading zoom as on the whole map.
+ */
+.docwalk-map-layer > .docwalk-map-frame[aria-current="true"] {
+  outline: var(--map-ring, 3px) solid var(--dw-color-primary);
+  outline-offset: var(--map-ring, 3px);
+}
+
+/* The current frame's polite status: said, never seen. */
+.docwalk-map-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

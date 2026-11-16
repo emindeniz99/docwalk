@@ -12,18 +12,24 @@ import { parseMarkdown } from "../sectioning/sectionize";
 import { renderFrames, type MapFrames } from "./frames";
 import { mapPlan } from "./layout";
 
-// The diagram code can fail to load (a lost connection, a new deploy): while
-// `failing` is set, renderDiagrams rejects as it does when its chunk fails.
+// The Mermaid chunk can fail to load (a lost connection, a new deploy), as in
+// src/deck/mermaidLoad.browser.test.ts: while `failing` is set, `initialize`
+// throws, so the load rejects the way a missing chunk does, and
+// `renderDiagrams` marks the figure `data-load-failed` (decision 146). A load
+// that succeeded stays loaded for the page and `vi.resetModules()` gives no
+// fresh `mermaid.ts` in browser mode, so the load-failure test runs first.
 const control = vi.hoisted(() => ({ failing: false }));
-vi.mock("../deck/mermaid", async (importOriginal) => {
-  const real = await importOriginal<typeof import("../deck/mermaid")>();
-  return {
-    ...real,
-    renderDiagrams: (...args: Parameters<typeof real.renderDiagrams>) =>
-      control.failing
-        ? Promise.reject(new Error("Failed to fetch dynamically imported module"))
-        : real.renderDiagrams(...args),
-  };
+vi.mock("mermaid", async (importOriginal) => {
+  const real = await importOriginal<typeof import("mermaid")>();
+  const mermaid = new Proxy(real.default, {
+    get(target, key, receiver) {
+      if (control.failing && key === "initialize")
+        throw new TypeError("Failed to fetch dynamically imported module");
+      const value: unknown = Reflect.get(target, key, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { ...real, default: mermaid };
 });
 
 /**
@@ -78,7 +84,86 @@ async function frames(n: number) {
   for (let i = 0; i < n; i++) await frame();
 }
 
+/** A microtask later: MutationObserver records have been delivered. */
+const settle = () => new Promise<void>((resolve) => queueMicrotask(resolve));
+
 const bodyOf = (el: HTMLElement) => el.querySelector<HTMLElement>(".docwalk-slide-body")!;
+
+/** Two frames with a diagram each and one with a plain code block. */
+const DIAGRAMS = [
+  "## First",
+  "",
+  "```mermaid",
+  "flowchart TD",
+  "  a --> b",
+  "  b --> c",
+  "  c --> d",
+  "  d --> e",
+  "```",
+  "",
+  "| Name | Value |",
+  "| --- | --- |",
+  "| a | 1 |",
+  "",
+  "## Second",
+  "",
+  "```mermaid",
+  "flowchart LR",
+  "  x --> y",
+  "```",
+  "",
+  "## Plain",
+  "",
+  "```ts",
+  "const a = 1;",
+  "```",
+  "",
+].join("\n");
+
+describe("a diagram whose code fails to load (decisions 146, 147 and 148)", () => {
+  // First in the file: once Mermaid has loaded, it stays loaded for the page.
+  test("leaves no rejection, and is asked again only after it was left out of a call, or after retryFailed", async () => {
+    // Row 148: the map names the frames near the view on every camera change;
+    // retrying a failed frame on each of those rebuilt its note dozens of
+    // times a second and, in Chromium, can never succeed before a reload.
+    const { handle } = await mount(DIAGRAMS);
+    const first = handle.frames.get("first")!;
+    control.failing = true;
+    await expect(handle.drawDiagrams(["first"])).resolves.toBeUndefined();
+    const figure = first.querySelector<HTMLElement>("figure.docwalk-diagram[data-load-failed]")!;
+    expect(figure).not.toBeNull();
+    expect(first.querySelector(".docwalk-diagram svg")).toBeNull();
+    let attempts = 0;
+    const observer = new MutationObserver((records) => (attempts += records.length));
+    observer.observe(figure, { childList: true });
+    // Named again while it stays near: not asked.
+    await handle.drawDiagrams(["first"]);
+    await handle.drawDiagrams(["first", "second"]);
+    await settle();
+    expect(attempts).toBe(0);
+    // Left out of a call, then named again: asked once.
+    await handle.drawDiagrams(["second"]);
+    await handle.drawDiagrams(["first"]);
+    await settle();
+    expect(attempts).toBe(1);
+    // retryFailed (the browser is online again): asked once more.
+    handle.retryFailed();
+    await handle.drawDiagrams(["first"]);
+    await settle();
+    expect(attempts).toBe(2);
+    observer.disconnect();
+    // The code loads now: the next return draws the figure in place.
+    control.failing = false;
+    await handle.drawDiagrams([]);
+    await handle.drawDiagrams(["first"]);
+    expect(first.querySelector(".docwalk-diagram svg")).not.toBeNull();
+    expect(first.querySelector("[data-load-failed]")).toBeNull();
+    const svg = first.querySelector(".docwalk-diagram svg");
+    await handle.drawDiagrams([]);
+    await handle.drawDiagrams(["first"]);
+    expect(first.querySelector(".docwalk-diagram svg")).toBe(svg);
+  });
+});
 
 const OUTLINE = [
   "# Guide",
@@ -348,36 +433,6 @@ describe("code, math and emoji are drawn in frames as on a slide (decision 142, 
 });
 
 describe("diagrams are drawn only where the view asks (decision 142, Diagrams)", () => {
-  const DIAGRAMS = [
-    "## First",
-    "",
-    "```mermaid",
-    "flowchart TD",
-    "  a --> b",
-    "  b --> c",
-    "  c --> d",
-    "  d --> e",
-    "```",
-    "",
-    "| Name | Value |",
-    "| --- | --- |",
-    "| a | 1 |",
-    "",
-    "## Second",
-    "",
-    "```mermaid",
-    "flowchart LR",
-    "  x --> y",
-    "```",
-    "",
-    "## Plain",
-    "",
-    "```ts",
-    "const a = 1;",
-    "```",
-    "",
-  ].join("\n");
-
   test("no diagram is drawn by renderFrames; drawDiagrams draws the frames named and no other", async () => {
     const { host, handle } = await mount(DIAGRAMS);
     expect(host.querySelector(".docwalk-diagram")).toBeNull();
@@ -428,17 +483,6 @@ describe("diagrams are drawn only where the view asks (decision 142, Diagrams)",
     const diagram = handle.frames.get("first")!.querySelector<HTMLElement>(".docwalk-diagram")!;
     expect(diagram.tabIndex).toBe(0);
     expect(handle.frames.get("second")!.querySelector("[data-docwalk-focus]")).toBeNull();
-  });
-
-  test("a diagram whose code fails to load leaves no rejection, and its frame is drawn when asked again", async () => {
-    // Decision 144: a lost chunk must not mark the frame as drawn for good.
-    const { handle } = await mount(DIAGRAMS);
-    control.failing = true;
-    await expect(handle.drawDiagrams(["first"])).resolves.toBeUndefined();
-    expect(handle.frames.get("first")!.querySelector(".docwalk-diagram svg")).toBeNull();
-    control.failing = false;
-    await handle.drawDiagrams(["first"]);
-    expect(handle.frames.get("first")!.querySelector(".docwalk-diagram svg")).not.toBeNull();
   });
 });
 

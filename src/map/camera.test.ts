@@ -443,13 +443,26 @@ describe("framesNear: which frames Mermaid may draw", () => {
 // ---- Properties ----------------------------------------------------------
 
 // Sizes as a layout or a resize can deliver them, broken ones included.
-const length = (max: number) =>
+const length = (max: number, huge = 1e300) =>
   fc.oneof(
     { weight: 4, arbitrary: fc.double({ min: 0, max, noNaN: true }) },
-    { weight: 1, arbitrary: fc.constantFrom(0, -1, ...BAD, 1e300) },
+    { weight: 1, arbitrary: fc.constantFrom(0, -1, ...BAD, huge) },
   );
 const size = (max: number) =>
   fc.record({ width: length(max), height: length(max) }) as fc.Arbitrary<Size>;
+
+/**
+ * The widest pane a browser lays out: Chromium holds a box's size in 1/64 px
+ * steps in 32 bits, about 2^25 px, and Firefox stops lower. The pane is read
+ * from `clientWidth` and `clientHeight`, so it is never wider. At 1e15 px a
+ * double moves in steps of 1/8 px, too coarse to keep a strip of a thin map in
+ * view; at 2^25 px the step is under 1e-8 px.
+ */
+const WIDEST_PANE = 2 ** 25;
+const paneSize = fc.record({
+  width: length(5000, WIDEST_PANE),
+  height: length(5000, WIDEST_PANE),
+}) as fc.Arbitrary<Size>;
 const anyNumber = fc.oneof(
   { weight: 4, arbitrary: fc.double({ min: -1e5, max: 1e5, noNaN: true }) },
   { weight: 1, arbitrary: fc.constantFrom(0, ...BAD, 1e300, -1e300) },
@@ -524,7 +537,7 @@ const same = (a: Camera, b: Camera) =>
   Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.scale - b.scale) < 1e-12;
 
 describe("properties", () => {
-  fcTest.prop([start, fc.array(op, { maxLength: 30 }), size(1e7), size(5000)])(
+  fcTest.prop([start, fc.array(op, { maxLength: 30 }), size(1e7), paneSize])(
     "after any gestures the camera is finite, its scale within the limits and a strip of the map in view",
     (c0, ops, b, p) => {
       let c = clamp(c0, b, p);
@@ -544,13 +557,42 @@ describe("properties", () => {
     },
   );
 
-  fcTest.prop([size(1e7), size(5000)])(
+  fcTest.prop([size(1e7), paneSize])(
     "the opening and the overview cameras obey the limits",
     (b, p) => {
       holdsLimits(fitAll(b, p), b, p);
       holdsLimits(fitFrame({ x: 0, y: 0, width: FRAME_WIDTH }, b, p), b, p);
     },
   );
+
+  test("a hidden pane, 0 px tall, still gives an opening and an overview inside the limits", () => {
+    const b = { width: FRAME_WIDTH, height: 720 };
+    for (const p of [
+      { width: 1000, height: 0 },
+      { width: 0, height: 800 },
+    ]) {
+      for (const c of [fitAll(b, p), fitFrame({ x: 0, y: 0, width: FRAME_WIDTH }, b, p)]) {
+        expect(isFiniteCamera(c)).toBe(true);
+        holdsLimits(c, b, p);
+      }
+    }
+  });
+
+  test("a pane wider than any browser lays out still gives a finite camera", () => {
+    // Past WIDEST_PANE the strip of the map can be finer than a double's step,
+    // so only finiteness and the scale's range are promised there.
+    for (const b of [
+      { width: 1e-6, height: 0 },
+      { width: FRAME_WIDTH, height: 720 },
+    ]) {
+      const p = { width: 1e300, height: 0 };
+      for (const c of [fitAll(b, p), fitFrame({ x: 0, y: 0, width: FRAME_WIDTH }, b, p)]) {
+        expect(isFiniteCamera(c)).toBe(true);
+        expect(c.scale).toBeGreaterThanOrEqual(minScale(b, p));
+        expect(c.scale).toBeLessThanOrEqual(MAX_SCALE);
+      }
+    }
+  });
 
   // A big map in an ordinary pane, so most zooms are not clamped.
   const roomy = {
