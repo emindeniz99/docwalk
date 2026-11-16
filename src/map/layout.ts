@@ -1,4 +1,10 @@
-import type { HeadingDepth, SectionPlan } from "../sectioning/sectionize";
+import type { Root } from "mdast";
+import {
+  autoSlideLevel,
+  type HeadingDepth,
+  sectionize,
+  type SectionPlan,
+} from "../sectioning/sectionize";
 
 /**
  * A frame is one slide wide (`SLIDE_SIZE.width` in src/deck/pages.ts), so its
@@ -48,18 +54,54 @@ export interface MapPlacement {
 }
 
 /**
- * The map's columns (decision 139): a section whose heading is at the plan's
- * first slide level opens a column, and every later section down to the next
- * such heading stacks under it. Sections before the first such heading form
- * the first column. Pass the plan at `auto`, never the viewer's override.
+ * Whether a heading at `depth` has text right after it: the test
+ * `autoSlideLevel` applies, so a heading followed by another heading or a
+ * thematic break does not count.
+ */
+function hasHeadingWithText(root: Root, depth: number): boolean {
+  return root.children.some((node, i) => {
+    const next = root.children[i + 1];
+    return (
+      node.type === "heading" &&
+      node.depth === depth &&
+      next !== undefined &&
+      next.type !== "heading" &&
+      next.type !== "thematicBreak"
+    );
+  });
+}
+
+/**
+ * The map's plan (decision 140): sections at the document's own level L and
+ * at L + 1 when the document has a heading there, with the deck's cover. A
+ * document with no L gets the plan of `auto`. Every caller sections the map
+ * through here.
+ */
+export function mapPlan(root: Root): SectionPlan {
+  const level = autoSlideLevel(root);
+  const levels: HeadingDepth[] = [];
+  if (level !== null) {
+    levels.push(level);
+    if (level < 6 && hasHeadingWithText(root, level + 1)) levels.push((level + 1) as HeadingDepth);
+  }
+  return sectionize(root, levels, { cover: true });
+}
+
+/**
+ * The map's columns (decisions 139 and 140): a section whose heading is at
+ * the plan's first level or above opens a column, and every later section
+ * down to the next such heading stacks under it. Sections before the first
+ * such heading form the first column. Pass `mapPlan`'s plan.
  */
 export function mapColumns(plan: SectionPlan): MapFrame[][] {
   const columns: MapFrame[][] = [];
+  const level = plan.levels[0];
   for (const section of plan.sections) {
     const depth = section.heading?.depth ?? null;
     const frame: MapFrame = { id: section.id, title: section.title, depth };
     const last = columns.at(-1);
-    if (last && depth !== plan.levels[0]) last.push(frame);
+    const opens = depth !== null && level !== undefined && depth <= level;
+    if (last && !opens) last.push(frame);
     else columns.push([frame]);
   }
   return columns;

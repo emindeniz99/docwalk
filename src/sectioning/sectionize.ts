@@ -192,9 +192,17 @@ export function headingIds(root: Root): Map<Heading, string> {
 const isDefinition = (node: RootContent): boolean =>
   node.type === "definition" || node.type === "footnoteDefinition";
 
-/** Split a parsed document into sections. Never splits with a regex: setext headings and fences are already nodes. */
-export function sectionize(root: Root, option: LevelOption = "auto"): SectionPlan {
-  const titleHeading = option === "auto" ? findTitleHeading(root) : null;
+/**
+ * Split a parsed document into sections. Never splits with a regex: setext headings and fences are already nodes.
+ * `cover` finds the document title under a level list too, as `auto` always does
+ * (the map sections at two levels and keeps the deck's cover, decision 140).
+ */
+export function sectionize(
+  root: Root,
+  option: LevelOption = "auto",
+  { cover = false }: { cover?: boolean } = {},
+): SectionPlan {
+  const titleHeading = option === "auto" || cover ? findTitleHeading(root) : null;
   const levels = resolveLevels(option, root, titleHeading);
   const minLevel = levels.length > 0 ? Math.min(...levels) : Number.POSITIVE_INFINITY;
 
