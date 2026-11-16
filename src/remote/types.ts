@@ -44,6 +44,12 @@ export type RemoteMessage =
       docLinkTooLong: boolean;
       /** The presenter's slide level: section ids, and so addresses, depend on it. */
       level: "auto" | HeadingDepth | HeadingDepth[];
+      /**
+       * "map" while the presenter is in the map view; absent on slides, which is
+       * also how a page built before the field reads every state (decision 150).
+       * `current` stays the slide address either way.
+       */
+      view?: "map";
     }
   /**
    * Presenter -> remotes and agents: the presenter window's countdown, or null

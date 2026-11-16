@@ -252,6 +252,9 @@ const StateMessage = v.pipe(
     // Defaults keep a page from before these fields (a cached install) in step.
     docLinkTooLong: v.optional(v.boolean(), false),
     level: v.optional(Level, "auto"),
+    // Absent means slides (decision 150). Like the defaults above, a value
+    // that is present and wrong fails the whole message.
+    view: v.exactOptional(v.literal("map")),
   }),
   v.check((m) => m.index < m.total, "index must be inside the deck"),
 );
