@@ -13,9 +13,11 @@ rows run to 137. In the fork since 2026-11-11: the simplification pass (125,
 133, 134), and a review of PR #5's feature code with its fixes (132, 135).
 Rows 133 and 134 and the Turkish "taşma notu" are proposed and wait for the
 owner. Map mode (136) is being built in ROADMAP "Next up" 1's five steps:
-steps 1 to 3 are done on 2026-11-16 (`src/map/`: layout, frames, camera,
-route, `MapView`; decisions 139 to 148, the lead's reading, waiting for the
-owner); step 4 is the laser on the map, step 5 the followers. Hand tests on real
+all five are done on 2026-11-16 (`src/map/`: layout, frames, camera,
+route, laser, `MapView`; the room's state says `view: "map"`; decisions 139 to
+150, the lead's reading, waiting for the owner). Left for the owner: the hand
+check on a Mac trackpad and an iPad, and the open points under each step in
+ROADMAP. Hand tests on real
 devices (2) and the next feature round (3) need the owner.
 
 The project is public at github.com/emindeniz99/docwalk with the static
@@ -98,6 +100,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-16: `sectionize` finds the document title only under `auto` and drops a heading above the slide level that has no text of its own; a caller that sections at a level list and needs the deck's cover or those headings passes `{ cover: true, emptyTitles: true }` (the map, decisions 140 and 141). `auto` has one slide level, so "`###` parts" exist only in a plan sectioned at two levels. A unit test cannot import `src/deck/pages.ts`: the node tsconfig has no DOM lib.
 - 2026-11-16: `touch-action` on a pane does not reach its scroll containers: a touch that starts on an `overflow: auto` child is the browser's (`pointercancel`) unless the child has `touch-action: none` too, and an e2e touch that starts on empty space cannot show it; send one through CDP that starts on text. A view shown only after "everything settled" is blank for as long as one image stalls: place from heights read at once, then again as reports come. Marks that name an action ("Press Enter to open") must come with the handler in the same change. Three workers built one view in parallel from one decision row with disjoint files (pure camera, DOM renderer, shell with a stub component), and a fourth composed them.
 - 2026-11-16: Chromium keeps a failed dynamic `import()` for the life of the page: clearing our own promise and importing again rejects at once with no request, so a test that fakes a load failure inside a module that did load proves nothing about a failed chunk. React Aria's `focusSafely` waits for running transitions only when focus last moved without a key or pointer ("virtual" modality: a screen reader, `element.focus()`), and loses count when a child's `transitioncancel` bubbles; a `transition-duration` above 0 on `*` starts a transition on every style change (`transition-property` defaults to `all`), which left the palette unfocused under reduced motion. `style.transform` read back in Chromium keeps six significant digits: compare cameras as numbers. A fast-check seed goes in as the second argument of `fcTest.prop` (`{ seed }`).
+- 2026-11-16: The map's keys listen on its pane, so an input that changes the map's state without a key or a mouse press (a wheel, a pinch, the palette) must move focus to the pane, or the Escape its status promises never arrives. A focus view that closes gives focus back to its block: if the map moved meanwhile, that `focusin` looks like a Tab into a far frame. `renderDiagrams`, the mirror layer and the annotation layer live on the deck's stage and are hidden with it on the map; map frames carry no `data-docwalk-id`, so nothing on the map is mirrored. A follower cannot receive a document too long for the room's link (the sample): follow tests use a short one.
 
 ## Done
 
