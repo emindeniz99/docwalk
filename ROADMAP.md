@@ -619,44 +619,62 @@ an iPad recorded here.
 
 Review of the merged PR #7 (2026-11-16): three reviewers read it for
 correctness and fit to 136, for security, and for code nobody needs. No high
-finding; CI green on all three engines. The owner chose on 2026-11-16
-(decision 151, not built yet), each a branch with a failing test first:
+finding; CI green on all three engines.
 
-- The whole map wraps its columns into rows that fit the pane, instead of a
-  thin strip of 23 columns.
-- On the map, the phone remote's and an agent's next and previous walk the
-  frames like the arrow keys, `###` frames included
-  (`src/remote/host.ts:425`, `MapView.tsx` `setCurrent`).
-- Followers and copied links follow the current frame, `###` parts included,
-  still as a section address.
-- Present keeps opening slides; the map view gets its own "present the map
-  full screen" control.
-- Rows 139 to 150 are otherwise the lead's reading and wait for the owner's
-  word.
+**Who does what (owner, 2026-11-16).** Map mode stays with the contributor who
+built it, working from their fork: everything under "Map: to do" below. The
+lead works outside `src/map` meanwhile: the replay guard below, the "CI speed"
+follow-up and "Next up" 2. So that decision numbers do not clash again, map
+rows take 152 to 169 and the lead's rows 170 onward; a number left unused in a
+range stays unused.
 
-Smaller follow-ups, each a small commit with a test first:
+**Map: to do, in this order.** Each item is its own branch or series of
+commits: a decision row first where a rule changes, then a failing test, then
+code; the e2e suite on Chromium, Firefox and WebKit; a pull request from the
+fork, merged with a merge commit.
 
-- `MapView.tsx` has its own text-field check; use `isTextEntry`
-  (`src/annotate/useAnnotationShortcuts.ts`), which also knows
-  `role="textbox"` and leaves checkboxes out. Settle one tap slop: 10 px on the
-  map, 6 in the focus view.
-- `src/map/laser.ts` copies the trail settings of `src/annotate/layer.ts`;
-  share one small module so the two cannot drift.
-- `view` in the state message accepts only `"map"`; a later build that sends
-  another view would make older followers drop the whole state. Decide before
-  a second view is added.
-- Zooming out to the whole map queues every diagram; the pointer handler reads
-  the pane's box on every move anywhere in the app.
-- Could go later: the camera's guards against NaN and enormous panes and their
-  tests (about 50 and 285 lines), the diagram reload retry beyond row 146's
-  note (needs a row, since 147 and 148 chose it), and about 450 lines of test
-  setup copied across the map's browser tests.
-- Older than the map, found by the security review: a follower's replay guard
-  counts per sender id, and every presenter reconnect gets a new one, so
-  recorded presenter states from earlier connections replay once per follower.
-  With the map a replay can also switch a follower between the map and the
-  slides. The fix belongs with 73: tie states to the newest presenter
-  connection.
+1. Decision 151, the owner's four choices:
+   - The whole map (`0`) wraps its columns into rows that fit the pane. One
+     column still holds one section and its parts; reading order is left to
+     right, then top to bottom. Today the sample's 23 columns make a strip a
+     fifth of the pane high, with frames too small to read.
+   - On the map, the phone remote's and an agent's next and previous walk the
+     frames as the arrow keys do, `###` frames included. Today they turn the
+     deck's pages and the map moves only when the section changes
+     (`src/remote/host.ts:425`, `setCurrent` in `MapView.tsx`).
+   - Followers and copied links follow the current frame, `###` parts
+     included, still as a section address (rule 7), never a camera position.
+     Today they stay on the column's head (145, 148, 150).
+   - Present keeps opening the slides; the map view gets its own "present the
+     map full screen" control.
+2. Settle two conflicting copies. `MapView.tsx` has its own text-field check:
+   use `isTextEntry` (`src/annotate/useAnnotationShortcuts.ts`), which also
+   knows `role="textbox"` and leaves checkboxes out. The tap slop is 10 px on
+   the map and 6 in the focus view: pick one and say why.
+3. Share the laser trail. `src/map/laser.ts` copies the `getStroke` settings
+   and fade of `src/annotate/layer.ts`; one small module both import keeps
+   drauu out of the map chunk and stops the copies drifting apart.
+4. Two cheap performance fixes: the whole map queues every diagram at once;
+   the pointer handler reads the pane's box on every pointer move anywhere in
+   the app, before it checks for a drag or pinch.
+5. Before a second `view` value exists: the state message accepts only
+   `"map"`, so a newer build that sends another view would make older
+   followers drop the whole state. Decide how older followers fall back.
+6. Optional simplifications: the camera's guards against NaN and enormous
+   panes and their tests (about 50 and 285 lines); the diagram reload retry
+   beyond row 146's visible note (needs a row, since 147 and 148 chose it);
+   about 450 lines of test setup copied across the map's browser tests, which
+   one `src/map/testMap.ts` could hold.
+7. Rows 139 to 150 are the lead's reading of 136 and wait for the owner's
+   word: list for the owner what each settles, and mark the rows they refine
+   ("refined by …"), as the top of `docs/decisions.md` asks.
+
+**Outside the map (lead).** Found by the security review, older than the map:
+a follower's replay guard counts per sender id, and every presenter reconnect
+gets a new one, so recorded presenter states from earlier connections replay
+once per follower. With the map a replay can also switch a follower between
+the map and the slides. The fix belongs with 73: tie states to the newest
+presenter connection.
 
 ### 2. A real-device UX pass, and what the review of PR #5 left
 
