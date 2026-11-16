@@ -1,4 +1,4 @@
-import { markFocusTargets } from "../deck/focusTargets";
+import { markFocusTarget, markFocusTargets } from "../deck/focusTargets";
 import { renderDiagrams } from "../deck/mermaid";
 import { purifyHtml } from "../deck/purify";
 import "../render/content.css";
@@ -23,9 +23,11 @@ export interface FramesOptions {
   /** Load remote images directly (the "always load images" setting). Default: blocked. */
   loadRemoteImages?: boolean;
   /**
-   * Heights in frame units (CSS px at `FRAME_WIDTH`). Called first with every
-   * frame once all have rendered, then with only the frames whose height
-   * changed, at most once per animation frame. Never called after `dispose`.
+   * Heights in frame units (CSS px at `FRAME_WIDTH`): the frames whose height
+   * changed since it was last read or reported, at most once per animation
+   * frame, from the moment the frames are in the page; and once with every
+   * frame when all have rendered (rule 4), which `settled` follows. Never
+   * called after `dispose`.
    */
   onHeights?: (changed: Map<string, number>) => void;
   /** A link took focus to `target` inside frame `frameId`, for the camera to bring it into view. */
@@ -40,10 +42,30 @@ export interface MapFrames {
   /**
    * Draws Mermaid in these frames, each at most once per render, then marks
    * their focus targets. Frames are drawn one after another, in call order.
+   * A frame whose diagram code fails to load is drawn again on a later call;
+   * the promise never rejects for it.
    */
   drawDiagrams: (frameIds: Iterable<string>) => Promise<void>;
   /** Stops pending work and reporting and removes the listeners; the DOM stays. */
   dispose: () => void;
+  /**
+   * Settles once every frame has rendered (rule 4) and `onHeights` has had
+   * every frame's height. A stalled image keeps it pending; never settles after `dispose`.
+   */
+  settled: Promise<void>;
+}
+
+const nothing = (): void => undefined;
+
+/**
+ * Marks a frame's code blocks, tables and loaded images as focus targets
+ * (decision 144). A diagram's source is no code block: it becomes a diagram
+ * when drawn.
+ */
+function markBlocks(root: ParentNode): void {
+  for (const el of root.querySelectorAll("pre, table, img")) {
+    if (!el.querySelector(":scope > code.language-mermaid")) markFocusTarget(el);
+  }
 }
 
 /**
@@ -129,10 +151,10 @@ export function renderFrames(
   };
   host.addEventListener("click", onClick);
 
-  // Heights reported so far. Until the first full report, changes are not
-  // reported on their own: that report reads every frame.
+  // Heights reported or read so far, from the frames as they first stand in
+  // the page, so a change is reported however long rule 4's wait takes.
   const reported = new Map<string, number>();
-  let ready = false;
+  for (const [id, el] of frames) reported.set(id, heightOf(el));
   const dirty = new Set<string>();
   let pending = 0;
   const flush = () => {
@@ -152,7 +174,7 @@ export function renderFrames(
   };
   const ids = new Map<Element, string>();
   const observer = new ResizeObserver((entries) => {
-    if (!live || !ready) return;
+    if (!live) return;
     for (const entry of entries) {
       const id = ids.get(entry.target);
       if (id !== undefined) dirty.add(id);
@@ -166,6 +188,10 @@ export function renderFrames(
   }
 
   // Rule 4's order. Diagrams are not part of it: the view draws them by frame.
+  let resolveSettled = nothing;
+  const whenSettled = new Promise<void>((resolve) => {
+    resolveSettled = resolve;
+  });
   void (async () => {
     await Promise.all([
       highlightCode(host, { stop }),
@@ -173,11 +199,13 @@ export function renderFrames(
       renderEmoji(host, { stop }),
     ]);
     if (!live) return;
+    // Every frame's blocks, drawn or not: a far frame opens them too (decision 144).
+    markBlocks(host);
     await settled(host);
     if (!live) return;
     for (const [id, el] of frames) reported.set(id, heightOf(el));
-    ready = true;
     onHeights?.(new Map(reported));
+    resolveSettled();
   })();
 
   // One `seen` set for the render, so a diagram that repeats in another frame gets its own SVG ids.
@@ -191,7 +219,13 @@ export function renderFrames(
       for (const id of fresh) {
         if (!live) return;
         const el = frames.get(id) as HTMLElement;
-        await renderDiagrams(el, stop, { seen });
+        try {
+          await renderDiagrams(el, stop, { seen });
+        } catch {
+          // The diagram code did not load: the frame is asked for again when it comes near.
+          requested.delete(id);
+          continue;
+        }
         if (!live) return;
         // Marked once drawn, as the document view does: a diagram's source is no code block.
         markFocusTargets(el);
@@ -208,6 +242,7 @@ export function renderFrames(
       return el ? heightOf(el) : null;
     },
     drawDiagrams,
+    settled: whenSettled,
     dispose: () => {
       live = false;
       observer.disconnect();

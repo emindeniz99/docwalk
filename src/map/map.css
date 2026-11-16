@@ -8,7 +8,16 @@
 .docwalk-map-pane {
   overflow: hidden;
   overflow: clip;
-  /* One finger pans and two pinch through the view's own pointer handling. */
+}
+
+/*
+ * One finger pans and two pinch through the view's own pointer handling,
+ * over a frame's text too (decision 144). A frame's body and a wide code
+ * block scroll on their own, and `touch-action` reaches no further down
+ * than the nearest box that scrolls, so every box in the pane says it.
+ */
+.docwalk-map-pane,
+.docwalk-map-pane * {
   touch-action: none;
 }
 

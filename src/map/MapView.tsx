@@ -1,6 +1,7 @@
 import type { Root } from "mdast";
 import { useEffect, useMemo, useRef } from "react";
 import { FOCUS_ATTR } from "../deck/focusTargets";
+import { wireFocusTargets } from "../deck/focusWiring";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { useLoadRemoteImages } from "../render/remoteImages";
@@ -63,6 +64,9 @@ function markScrollable(frame: HTMLElement): void {
   }
 }
 
+/** CSS pixels a pointer may move between press and release and still tap. */
+const TAP_SLOP = 10;
+
 interface MapController {
   /** Draws `plan`'s frames in place of the current ones; the camera stays where it is. */
   render: (plan: SectionPlan, loadRemoteImages: boolean) => void;
@@ -76,15 +80,19 @@ interface MapController {
  * input changes it at once and the layer is written at most once per
  * animation frame.
  *
- * Rules this view chose (step 2):
- * - The frames stay hidden until the first full set of heights is placed
- *   and the pane has a size; then the camera opens on the first frame.
+ * Rules this view chose (step 2, decision 144):
+ * - The frames are placed from heights read as soon as they are in the
+ *   page, and shown once the pane has a size, the camera on the first
+ *   frame; they are placed again as their heights settle.
  * - A height change re-places the frames and leaves the camera alone,
  *   only clamped to the new bounds: the frames after the changed one in
  *   its column move, the rest of the screen does not.
- * - "Empty map" for a mouse drag is the pane, the layer and a frame's own
- *   box outside its `.docwalk-slide-body`; inside the body the mouse
- *   selects text and follows links.
+ * - "Empty map" for a mouse or pen drag is the pane, the layer and a
+ *   frame's own box outside its `.docwalk-slide-body`; inside the body the
+ *   mouse and the pen select text and follow links. One finger pans from
+ *   anywhere, text included.
+ * - A pointer that moved more than `TAP_SLOP` pans, and the click that may
+ *   follow it opens and follows nothing; a tap clicks as usual.
  */
 function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
   layer.style.setProperty("--map-min-frame-height", `${MIN_FRAME_HEIGHT}px`);
@@ -96,8 +104,8 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
   let placement: MapPlacement = placeFrames([], heights);
   let rects = new Map<string, FrameRect>();
   let handle: MapFrames | null = null;
-  /** The current render's first full set of heights has arrived. */
-  let measured = false;
+  // Click or Enter on a block opens the focus view (decisions 129 and 144).
+  const focusWiring = wireFocusTargets(layer);
   /** Each frame element's written place, so a placement writes only what moved. */
   const written = new WeakMap<HTMLElement, string>();
   let raf = 0;
@@ -119,7 +127,7 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
     layer.style.transform = cameraTransform(camera);
     layer.dataset["placed"] = "";
     // Frames drawn later are measured again by frames.ts and re-placed below.
-    if (measured) void handle.drawDiagrams(framesNear(placement, camera, paneSize));
+    void handle.drawDiagrams(framesNear(placement, camera, paneSize));
   };
   const schedule = () => {
     if (!raf) raf = requestAnimationFrame(write);
@@ -137,7 +145,7 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
 
   /** The opening view: the first frame fitted to the pane's width (decision 142). */
   const open = () => {
-    if (camera || !measured || paneSize.width <= 0 || paneSize.height <= 0) return;
+    if (camera || paneSize.width <= 0 || paneSize.height <= 0) return;
     const first = placement.frames[0];
     setCamera(
       first
@@ -223,7 +231,9 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
   // Touch pointers down on the pane, in pane coordinates.
   const touches = new Map<number, Point>();
   /** One pointer panning: a finger, or a mouse or pen drag that began on empty map. */
-  let drag: { id: number; last: Point } | null = null;
+  let drag: { id: number; last: Point; moved: number } | null = null;
+  /** The last press panned or pinched: the click that may follow it is no tap. */
+  let panned = false;
   /** Two fingers: the camera and their places when the second came down. */
   let pinching: { ids: [number, number]; camera: Camera; points: [Point, Point] } | null = null;
 
@@ -233,21 +243,25 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
     if (event.pointerType === "touch") {
       touches.set(event.pointerId, at);
       const down = [...touches];
-      if (down.length === 1) drag = { id: event.pointerId, last: at };
-      else if (down.length === 2) {
+      if (down.length === 1) {
+        panned = false;
+        drag = { id: event.pointerId, last: at, moved: 0 };
+      } else if (down.length === 2) {
         const [[a, pa], [b, pb]] = down as [[number, Point], [number, Point]];
         drag = null;
+        panned = true;
         pinching = { ids: [a, b], camera, points: [pa, pb] };
       }
       return;
     }
+    panned = false;
     if (event.button !== 0) return;
     const target = event.target as Element;
     if (target.closest(".docwalk-slide-body")) return;
     // No text selection starts from the frame's chrome; focus goes to the pane as a click would send it.
     event.preventDefault();
     pane.focus({ preventScroll: true });
-    drag = { id: event.pointerId, last: at };
+    drag = { id: event.pointerId, last: at, moved: 0 };
   };
   const onPointerMove = (event: PointerEvent) => {
     if (!camera) return;
@@ -264,6 +278,8 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
     const dx = at.x - drag.last.x;
     const dy = at.y - drag.last.y;
     drag.last = at;
+    drag.moved += Math.hypot(dx, dy);
+    if (drag.moved > TAP_SLOP) panned = true;
     setCamera(pan(camera, dx, dy, placement.bounds, paneSize));
   };
   // On the window: a finger or the mouse can be released outside the pane.
@@ -274,8 +290,16 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
       pinching = null;
       // The finger left down pans on from where it is.
       const [rest] = touches;
-      if (rest) drag = { id: rest[0], last: rest[1] };
+      if (rest) drag = { id: rest[0], last: rest[1], moved: TAP_SLOP + 1 };
     }
+  };
+
+  // Capture, before a link or the focus wiring sees it: the end of a pan is no click.
+  const onClick = (event: MouseEvent) => {
+    if (!panned) return;
+    panned = false;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   // Safari's pinch (decisions 127 and 128): judged at its start, ignored while two fingers are down.
@@ -311,34 +335,40 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
   pane.addEventListener("gesturestart", onGesture);
   pane.addEventListener("gesturechange", onGesture);
   layer.addEventListener("focusin", onFocusIn);
+  pane.addEventListener("click", onClick, { capture: true });
 
   return {
     render(plan, loadRemoteImages) {
+      // The copy in an open view is of frames that are about to go.
+      focusWiring.close();
       handle?.dispose();
       columns = mapColumns(plan);
-      measured = false;
-      handle = renderFrames(layer, plan, {
+      const current = renderFrames(layer, plan, {
         loadRemoteImages,
         onHeights: (changed) => {
-          // The first report has every frame: heights of frames no longer in the plan go.
-          if (measured) for (const [id, height] of changed) heights.set(id, height);
-          else heights = new Map(changed);
-          measured = true;
+          for (const [id, height] of changed) heights.set(id, height);
           // A height changes when the content does, which may make a box scroll or stop.
           for (const id of changed.keys()) {
-            const el = handle?.frames.get(id);
+            const el = current.frames.get(id);
             if (el) markScrollable(el);
           }
           place();
         },
         onNavigate: (_frameId, target) => reveal(target, true),
       });
-      // Placed at once with the heights known so far, so new frames never show stacked at the origin.
+      handle = current;
+      // Placed and shown at once from the heights the frames have now (decision 144):
+      // never the previous render's, and never waiting on a slow image or chunk.
+      heights = new Map([...current.frames.keys()].map((id) => [id, current.measure(id) ?? 0]));
+      for (const el of current.frames.values()) markScrollable(el);
       place();
+      writeNow();
     },
     dispose() {
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
+      focusWiring.close();
+      focusWiring.stop();
       handle?.dispose();
       handle = null;
       layer.replaceChildren();
@@ -351,6 +381,7 @@ function mountMap(pane: HTMLElement, layer: HTMLElement): MapController {
       pane.removeEventListener("gesturestart", onGesture);
       pane.removeEventListener("gesturechange", onGesture);
       layer.removeEventListener("focusin", onFocusIn);
+      pane.removeEventListener("click", onClick, { capture: true });
     },
   };
 }

@@ -288,7 +288,6 @@ describe("heights (decision 142, Measuring)", () => {
       more.textContent = "A late block. ".repeat(80);
       bodyOf(handle.frames.get("short")!).append(more);
       await expect.poll(() => reports.some((r) => (r.get("short") ?? 0) > before)).toBe(true);
-      for (const report of reports) expect([...report.keys()]).toEqual(["short"]);
     } finally {
       HTMLImageElement.prototype.decode = decode;
     }

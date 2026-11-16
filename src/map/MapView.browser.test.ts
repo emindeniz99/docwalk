@@ -752,6 +752,19 @@ async function blockIn(container: HTMLElement, frameId: string, selector: string
   return frameBox.querySelector<HTMLElement>(marked)!;
 }
 
+/**
+ * A real click on `block`, sent through its frame: every code block has the
+ * same accessible name, so the block alone is no unique locator.
+ */
+async function clickBlock(container: HTMLElement, frameId: string, block: HTMLElement) {
+  const frameBox = frameEl(container, frameId);
+  const f = frameBox.getBoundingClientRect();
+  const b = block.getBoundingClientRect();
+  await userEvent.click(frameBox, {
+    position: { x: b.left - f.left + b.width / 2, y: b.top - f.top + Math.min(b.height / 2, 20) },
+  });
+}
+
 const KINDS = [
   ["diagram", ".docwalk-diagram"],
   ["code", "pre"],
@@ -763,7 +776,7 @@ describe("blocks open in the focus view from the map (decisions 129 and 144)", (
   for (const [kind, selector] of KINDS) {
     test(`a click on the ${kind} in a frame opens the ${kind} view`, async () => {
       const { container } = await mountMap(BLOCKS, TALL_PANE);
-      await userEvent.click(await blockIn(container, "blocks", selector));
+      await clickBlock(container, "blocks", await blockIn(container, "blocks", selector));
       expect(overlay()?.dataset["kind"]).toBe(kind);
     });
 
@@ -802,10 +815,10 @@ describe("blocks open in the focus view from the map (decisions 129 and 144)", (
     const { container } = await mountMap(BLOCKS, TALL_PANE);
     const events: FocusEvent[] = [];
     cleanups.push(observeFocus((event) => events.push(event)));
-    await userEvent.click(await blockIn(container, "blocks", "pre"));
+    await clickBlock(container, "blocks", await blockIn(container, "blocks", "pre"));
     expect(overlay()?.dataset["kind"]).toBe("code");
     await userEvent.keyboard("{Escape}");
-    await userEvent.click(await blockIn(container, "blocks", ".docwalk-diagram"));
+    await clickBlock(container, "blocks", await blockIn(container, "blocks", ".docwalk-diagram"));
     expect(overlay()?.dataset["kind"]).toBe("diagram");
     await userEvent.keyboard("{Escape}");
     expect(events.filter((e) => e.kind === "open" || e.kind === "close")).toEqual([]);
@@ -813,11 +826,11 @@ describe("blocks open in the focus view from the map (decisions 129 and 144)", (
 
   test("a new render closes an open view, and so does unmounting", async () => {
     const { container, show } = await mountMap(BLOCKS, TALL_PANE);
-    await userEvent.click(await blockIn(container, "blocks", ".docwalk-diagram"));
+    await clickBlock(container, "blocks", await blockIn(container, "blocks", ".docwalk-diagram"));
     expect(overlay()).not.toBeNull();
     show(BLOCKS.replace("The end.", "The end, edited."));
     expect(overlay()).toBeNull();
-    await userEvent.click(await blockIn(container, "blocks", "pre"));
+    await clickBlock(container, "blocks", await blockIn(container, "blocks", "pre"));
     expect(overlay()?.dataset["kind"]).toBe("code");
     act(() => reactRoot?.unmount());
     reactRoot = null;
