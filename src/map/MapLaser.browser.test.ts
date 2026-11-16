@@ -547,9 +547,16 @@ describe("leaving the map (decision 149)", () => {
       flushSync(() => reactRoot?.unmount());
       reactRoot = null;
       expect(document.querySelector(".docwalk-map-laser")).toBeNull();
+      // To the pane, where the laser listens, and on to window: a listener left on either would run.
       for (const type of ["pointermove", "pointerdown", "pointerup", "pointercancel"])
-        window.dispatchEvent(
-          new PointerEvent(type, { pointerId: 1, pointerType: "mouse", clientX: at.x }),
+        m.pane.dispatchEvent(
+          new PointerEvent(type, {
+            pointerId: 1,
+            pointerType: "mouse",
+            clientX: at.x,
+            clientY: at.y,
+            bubbles: true,
+          }),
         );
       await frames(2);
     } finally {
@@ -557,5 +564,134 @@ describe("leaving the map (decision 149)", () => {
     }
     expect(errors).toEqual([]);
     expect(dot()).toBeNull();
+  });
+});
+
+/** A pointer's click on `el`, as a mouse release sends it (`detail` 1). */
+function clickOn(el: Element) {
+  const event = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1, button: 0 });
+  el.dispatchEvent(event);
+  return event;
+}
+
+describe("after the review of row 149", () => {
+  beforeEach(reduceMotion);
+
+  test("the laser going on mid-drag ends the drag: the camera stays after L", async () => {
+    const m = await mount();
+    m.pane.focus();
+    // On the pane's own edge: empty map, where a mouse drag pans (decision 142).
+    const p = m.pane.getBoundingClientRect();
+    const from = { x: p.left + 4, y: p.top + 4 };
+    pointer("pointerdown", from.x, from.y);
+    pointer("pointermove", from.x + 30, from.y + 20);
+    await frames(2);
+    await press("l");
+    expect(isOn(m.pane)).toBe(true);
+    const camera = cameraOf(m.layer);
+    pointer("pointermove", from.x + 130, from.y + 80);
+    pointer("pointermove", from.x + 230, from.y + 140);
+    await frames(2);
+    expect(cameraOf(m.layer)).toBe(camera);
+    pointer("pointerup", from.x + 230, from.y + 140);
+  });
+
+  test("a pointing press on a heading chooses no frame when the laser goes off before the release", async () => {
+    const m = await mount();
+    m.pane.focus();
+    // The whole map: a click on a frame's heading would choose it (decision 145).
+    await press("0");
+    await press("l");
+    const heading = frameEl(m.container, "beta").querySelector<HTMLElement>("h2")!;
+    const at = centreOf(heading);
+    pointer("pointerdown", at.x, at.y);
+    await press("{Escape}");
+    expect(isOn(m.pane)).toBe(false);
+    pointer("pointerup", at.x, at.y);
+    const click = clickOn(heading);
+    await frames(2);
+    expect(click.defaultPrevented).toBe(true);
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+  });
+
+  test("a pointing press on a link follows nothing when the laser goes off before the release", async () => {
+    const m = await mount();
+    m.pane.focus();
+    await press("l");
+    const link = frameEl(m.container, "alpha").querySelector<HTMLElement>("a")!;
+    const hash = location.hash;
+    const at = centreOf(link);
+    pointer("pointerdown", at.x, at.y);
+    await press("{Escape}");
+    expect(isOn(m.pane)).toBe(false);
+    pointer("pointerup", at.x, at.y);
+    clickOn(link);
+    await frames(2);
+    expect(location.hash).toBe(hash);
+    expect(document.activeElement).not.toBe(m.container.querySelector("#user-content-gamma"));
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+  });
+
+  test("while the laser is on, text cannot be selected and the context menu is held back", async () => {
+    const m = await mount();
+    const text = frameEl(m.container, "alpha").querySelector<HTMLElement>(".docwalk-slide-body p")!;
+    const before = getComputedStyle(text).userSelect;
+    expect(before).not.toBe("none");
+    const menu = () => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      text.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(menu()).toBe(false);
+    await switchLaser(true);
+    expect(getComputedStyle(text).userSelect).toBe("none");
+    expect(getComputedStyle(m.pane).userSelect).toBe("none");
+    expect(menu()).toBe(true);
+    await switchLaser(false);
+    expect(getComputedStyle(text).userSelect).toBe(before);
+    expect(menu()).toBe(false);
+  });
+
+  test("a middle click on a link opens nothing while the laser is on", async () => {
+    const m = await mount();
+    const link = frameEl(m.container, "alpha").querySelector<HTMLElement>("a")!;
+    const middle = () => {
+      const event = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+      link.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(middle()).toBe(false);
+    await switchLaser(true);
+    expect(middle()).toBe(true);
+    await switchLaser(false);
+    expect(middle()).toBe(false);
+  });
+
+  test("switched on from outside the pane (the palette), the pane takes focus so Escape reaches it", async () => {
+    const outsideButton = document.createElement("button");
+    outsideButton.textContent = "Palette trigger";
+    document.body.append(outsideButton);
+    outsideButton.focus();
+    const m = await mount();
+    // The first mount, laser off, leaves focus where it was.
+    expect(document.activeElement).toBe(outsideButton);
+    await switchLaser(true);
+    expect(document.activeElement).toBe(m.pane);
+    await press("{Escape}");
+    expect(isOn(m.pane)).toBe(false);
+  });
+
+  test("while a finger points, a mouse or pen moving elsewhere does not move the dot", async () => {
+    const m = await mount();
+    await switchLaser(true);
+    const at = inside(m.pane);
+    touch("pointerdown", 1, at.x, at.y);
+    const held = centreOf(dot()!);
+    pointer("pointermove", at.x + 150, at.y + 60, { pointerType: "pen", pointerId: 2 });
+    pointer("pointermove", at.x - 150, at.y - 60, { pointerType: "mouse", pointerId: 3 });
+    const now = centreOf(dot()!);
+    expect(Math.abs(now.x - held.x)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(now.y - held.y)).toBeLessThanOrEqual(0.5);
+    touch("pointerup", 1, at.x, at.y);
   });
 });

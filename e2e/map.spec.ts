@@ -734,8 +734,9 @@ test.describe("the map's laser (decision 149)", () => {
   test("L shows the dot under the mouse, a drag points and pans nothing, and leaving the map switches it off", async ({
     page,
   }) => {
-    await ready(page);
-    await openMap(page);
+    // The short document: the sample's diagrams and fonts can still move the camera after it shows.
+    await ready(page, docLink(SHORT_DOC));
+    await openMap(page, 3);
     await mapRegion(page).focus();
     await page.keyboard.press("l");
     await expect(mapRegion(page)).toHaveAttribute("data-laser", "");
