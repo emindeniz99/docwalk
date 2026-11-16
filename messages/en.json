@@ -172,6 +172,7 @@
   "deck_too_small": "{count, plural, one {# diagram is too small to read here. Click to open full screen.} other {# diagrams are too small to read here. Click to open full screen.}}",
   "diagram_error": "This diagram could not be rendered: {reason}",
   "diagram_error_unknown": "unknown error",
+  "diagram_load_failed": "the diagram code could not be loaded",
   "diagram_label": "Diagram. Press Enter to open it full screen.",
   "code_label": "Code. Press Enter to open it full screen.",
   "more_stylus": "Stylus draws, fingers change slides",
