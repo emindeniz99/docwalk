@@ -537,10 +537,8 @@ Suggested steps:
    - A frame with no heading (content above the first heading, a document with
      no headings) has no accessible name. Diagrams keep Mermaid's natural size
      and are not fitted as on a slide.
-   - If the diagram code fails to load, a frame is asked again but draws
-     nothing: `src/deck/mermaid.ts` keeps the rejected load and has already
-     swapped the source for an empty figure. The deck and the document view
-     show that empty figure too, with no note (rule 3): fix it there.
+   - Fixed in step 3 (146): when the diagram code failed to load, the figure
+     stayed empty with no note in the deck, the document view and the map.
    - Chromium only for touch and gestures: real trackpads, Safari's gesture
      events, an iPad and Firefox's wheel are untested. A tap is told from a pan
      by 10 px of movement.
@@ -550,8 +548,38 @@ Suggested steps:
      override, and the map does not; arrow keys will meet focused scroll boxes
      and text; a smooth move must stop for wheel or pointer input and will
      trigger diagram drawing on the way.
-3. Route: arrow keys, zoom-out key, camera animation, reduced motion, screen
-   readers reading in document order, a URL address per section.
+3. Done 2026-11-16 (decisions 145 to 148): the route. The map has a current
+   frame (`aria-current`, a ring about 3 screen px wide at every zoom, a polite
+   status "Title, 2 of 40"). Arrow keys, Page keys, Space, Home and End walk the
+   frames in document order (`src/map/route.ts`); `0` shows the whole map,
+   centred, and `0` or Enter returns; `+` and `-` zoom. A click on a frame's
+   heading or empty area goes there; while the whole map shows, any click in a
+   frame does. A move takes 300 ms and jumps under reduced motion or in a
+   hidden tab; any input stops it. The link keeps the slide address: the map
+   reports the deck section that holds the frame's first line and the deck
+   goes to that section's first page, so the outline, the status bar and Edit
+   follow. Rows 145 to 148 are the lead's reading and wait for the owner. Left
+   open, for the owner or a later step:
+   - Chromium keeps a failed module request for the life of the page, so a
+     diagram whose code did not load cannot be retried there; the note says to
+     reload (146, 148). Presenter previews show that note per diagram where
+     they showed an error state before.
+   - A URL edited by hand to the section the deck is already on does not move
+     the map; an outline entry, a palette result or a link does (148).
+   - Right-to-left scroll boxes are not handled by the "can this box still
+     scroll" rule for arrow keys.
+   - Not verified: a real screen reader (the status wording, `aria-current` on
+     a labelled section), real touch or trackpad input stopping a move, and
+     the browser's `online` event (tested with a synthetic one).
+   - Found on the way and fixed: under reduced motion the command palette's
+     search box got no focus after focus had moved without a key or pointer
+     (a screen reader, `focus()`); the reduced-motion rule now sets
+     transitions to 0s (`src/styles.css`). React Aria's `runAfterTransition`
+     loses a nested `transitioncancel`; worth reporting upstream.
+   - For step 4: the laser draws in slide coordinates; a frame is a
+     `.docwalk-slide`, but the layer is scaled and moved. For step 5: the map
+     takes a `request` prop (`{ sectionId, seq }`) that always moves it, and
+     `current`, which moves it only when the deck section changes.
 4. Focus view and laser on the map.
 5. Followers: section-follow plus roam and back-to-presenter, with the
    existing room tests extended.
