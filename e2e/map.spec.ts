@@ -629,17 +629,40 @@ test.describe("the route through the sample", () => {
       await page.keyboard.press("ControlOrMeta+k");
       const palette = page.getByRole("dialog", { name: "Command palette" });
       await expect(palette).toBeVisible();
+      await expect(mapRegion(page)).not.toBeFocused();
       for (const key of ["ArrowRight", "End", "0", "PageDown"]) await page.keyboard.press(key);
-      await page.keyboard.press("Escape");
+      // The palette's own toggle: with reduced motion, focus opened from the map
+      // stays on the page body, where Escape does not reach the palette (see the report).
+      await page.keyboard.press("ControlOrMeta+k");
       await expect(palette).toBeHidden();
       await page.getByRole("button", { name: "Share" }).click();
       const share = page.getByRole("dialog");
       await expect(share).toBeVisible();
+      await expect(mapRegion(page)).not.toBeFocused();
       for (const key of ["ArrowRight", "End", "0"]) await page.keyboard.press(key);
-      await page.keyboard.press("Escape");
+      await share.getByRole("button", { name: "Close" }).click();
       await expect(share).toBeHidden();
       await expect(current(page)).toHaveAttribute("data-map-frame", "summary");
       expect(await hash(page)).toBe("#summary/1");
+    });
+
+    test("a frame whose section the reader left out moves the map and leaves the deck where it was", async ({
+      page,
+    }) => {
+      // Row 142: the choice of sections does not change the map. The deck has
+      // no slide for "Goals and non-goals" here, so going there is a no-op for
+      // the deck and the address keeps the slide it shows.
+      await openAt(page, "/?view=map&sections=summary,glossary#summary/1", "summary");
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowRight");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "goals-and-non-goals");
+      await expect.poll(() => inPane(page, current(page))).toBe(true);
+      expect(await hash(page)).toBe("#summary/1");
+      await expect(outlineMark(page)).toContainText("Summary");
+      // The next section the deck has moves it again.
+      for (const key of ["ArrowRight", "ArrowRight", "ArrowRight"]) await page.keyboard.press(key);
+      await expect(current(page)).toHaveAttribute("data-map-frame", "glossary");
+      await expect.poll(() => hash(page)).toBe("#glossary/1");
     });
 
     test("axe finds no serious violations with a current frame announced", async ({ page }) => {

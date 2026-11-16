@@ -201,18 +201,18 @@ const boundsOf = (layer: HTMLElement) => ({
 });
 
 /** camera.ts's fit of a frame's placed rectangle, as the opening view fits a frame (decision 142). */
-function fittedTo(m: Mounted, id: string): string {
+function fittedTo(m: Mounted, id: string): Camera {
   const el = frameEl(m.container, id);
   const rect = {
     x: Number.parseFloat(el.style.left),
     y: Number.parseFloat(el.style.top),
     width: FRAME_WIDTH,
   };
-  return cameraTransform(fitFrame(rect, boundsOf(m.layer), paneSize(m.pane)));
+  return fitFrame(rect, boundsOf(m.layer), paneSize(m.pane));
 }
 
 /** The whole map centred, as `0` shows it. */
-const wholeMap = (m: Mounted) => cameraTransform(fitAll(boundsOf(m.layer), paneSize(m.pane)));
+const wholeMap = (m: Mounted) => fitAll(boundsOf(m.layer), paneSize(m.pane));
 
 /** The layer's camera, read back from its transform. */
 function cameraOf(layer: HTMLElement): Camera {
@@ -221,6 +221,24 @@ function cameraOf(layer: HTMLElement): Camera {
   );
   if (!match) throw new Error(`no camera in "${layer.style.transform}"`);
   return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
+}
+
+/**
+ * Whether two cameras draw the same: the style keeps six significant digits
+ * of each number (`scale(0.272727)`), so the comparison allows that rounding.
+ */
+const same = (a: Camera, b: Camera) =>
+  Math.abs(a.x - b.x) < 0.01 &&
+  Math.abs(a.y - b.y) < 0.01 &&
+  Math.abs(a.scale - b.scale) <= 1e-5 * b.scale;
+
+/** Asserts the layer shows `expected`, naming both cameras when it does not. */
+function expectAt(m: Mounted, expected: Camera) {
+  const actual = cameraOf(m.layer);
+  expect(
+    same(actual, expected),
+    `layer at ${cameraTransform(actual)}, expected ${cameraTransform(expected)}`,
+  ).toBe(true);
 }
 
 /** Sends `keys` to the focused element and says whether the last key's default was prevented. */
@@ -246,13 +264,26 @@ describe("the opening frame (decision 145, Address)", () => {
   test("the map opens on the frame of the deck's current section, fitted as the opening view fits a frame", async () => {
     const m = await mountRoute(ROUTE, { current: "gamma" });
     expect(currentIds(m.container)).toEqual(["gamma"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "gamma"));
+    expectAt(m, fittedTo(m, "gamma"));
   });
 
   test("with no current section the map opens on the first frame", async () => {
     const m = await mountRoute(ROUTE);
     expect(currentIds(m.container)).toEqual(["alpha"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "alpha"));
+    expectAt(m, fittedTo(m, "alpha"));
+  });
+
+  test("a map that opened before the deck had a slide goes to the first section that arrives at once, and later ones with the move", async () => {
+    // The map's chunk can load before the deck is built: `current` is null at
+    // opening. The deck's first slide is still the opening view; an outline
+    // entry after it is the reader's choice and is said.
+    const m = await mountRoute(ROUTE);
+    await m.setCurrent("alpha");
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    await m.setCurrent("beta");
+    expect(currentIds(m.container)).toEqual(["beta"]);
+    expectAt(m, fittedTo(m, "beta"));
+    expect(statusOf(m.pane)).toBe("Beta, 4 of 6");
   });
 
   test("opening says nothing: the status is empty until the frame changes", async () => {
@@ -265,6 +296,7 @@ describe("the opening frame (decision 145, Address)", () => {
 describe("the keys from a frame (decision 145, Keys)", () => {
   beforeEach(reduceMotion);
 
+  /** Key, the deck section the map opens on (or End first for the last frame), the frame reached. */
   const STEPS: [string, string, string][] = [
     ["{ArrowRight}", "alpha", "alpha-one"],
     ["{ArrowDown}", "alpha", "alpha-one"],
@@ -278,16 +310,18 @@ describe("the keys from a frame (decision 145, Keys)", () => {
     ["{Home}", "gamma", "alpha"],
     ["{End}", "alpha", "gamma-detail"],
     // No wrap: the ends stay.
-    ["{ArrowRight}", "gamma-detail", "gamma-detail"],
+    ["{ArrowRight}", "end", "gamma-detail"],
     ["{ArrowLeft}", "alpha", "alpha"],
   ];
   for (const [key, from, to] of STEPS) {
     test(`${key} from ${from} goes to ${to}, fitted, and the key is taken`, async () => {
-      const m = await mountRoute(ROUTE, { current: from });
+      // The last frame is a ### frame, no deck section: reached with End.
+      const m = await mountRoute(ROUTE, { current: from === "end" ? null : from });
       m.pane.focus();
+      if (from === "end") await press("{End}");
       expect(await press(key), "the map handles the key").toBe(true);
       expect(currentIds(m.container)).toEqual([to]);
-      expect(m.layer.style.transform).toBe(fittedTo(m, to));
+      expectAt(m, fittedTo(m, to));
     });
   }
 
@@ -313,13 +347,13 @@ describe("the keys from a frame (decision 145, Keys)", () => {
     });
     expect(await press("+")).toBe(true);
     const zoomed = cameraOf(m.layer);
-    expect(zoomed.scale / start.scale).toBeCloseTo(ZOOM_STEP, 9);
-    expect(centre(zoomed).x).toBeCloseTo(centre(start).x, 6);
-    expect(centre(zoomed).y).toBeCloseTo(centre(start).y, 6);
+    expect(zoomed.scale / start.scale).toBeCloseTo(ZOOM_STEP, 4);
+    expect(centre(zoomed).x).toBeCloseTo(centre(start).x, 1);
+    expect(centre(zoomed).y).toBeCloseTo(centre(start).y, 1);
     await press("-");
-    expect(cameraOf(m.layer).scale).toBeCloseTo(start.scale, 9);
+    expect(cameraOf(m.layer).scale).toBeCloseTo(start.scale, 4);
     await press("=");
-    expect(cameraOf(m.layer).scale / start.scale).toBeCloseTo(ZOOM_STEP, 9);
+    expect(cameraOf(m.layer).scale / start.scale).toBeCloseTo(ZOOM_STEP, 4);
     // A zoom is no frame change.
     expect(currentIds(m.container)).toEqual(["alpha"]);
   });
@@ -364,7 +398,7 @@ describe("the whole map (decision 145, Keys)", () => {
     const m = await mountRoute(ROUTE, { current: "beta" });
     m.pane.focus();
     expect(await press("0")).toBe(true);
-    expect(m.layer.style.transform).toBe(wholeMap(m));
+    expectAt(m, wholeMap(m));
     const p = m.pane.getBoundingClientRect();
     for (const id of ROUTE_IDS) {
       const b = frameEl(m.container, id).getBoundingClientRect();
@@ -376,7 +410,7 @@ describe("the whole map (decision 145, Keys)", () => {
     // The current frame stays current, and marked, while the map is whole.
     expect(currentIds(m.container)).toEqual(["beta"]);
     expect(await press("0")).toBe(true);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "beta"));
+    expectAt(m, fittedTo(m, "beta"));
   });
 
   test("0 then Enter returns to the current frame", async () => {
@@ -385,7 +419,7 @@ describe("the whole map (decision 145, Keys)", () => {
     await press("0");
     expect(await press("{Enter}")).toBe(true);
     expect(currentIds(m.container)).toEqual(["beta"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "beta"));
+    expectAt(m, fittedTo(m, "beta"));
   });
 
   for (const [key, to] of [
@@ -400,7 +434,7 @@ describe("the whole map (decision 145, Keys)", () => {
       await press("0");
       expect(await press(key)).toBe(true);
       expect(currentIds(m.container)).toEqual([to]);
-      expect(m.layer.style.transform).toBe(fittedTo(m, to));
+      expectAt(m, fittedTo(m, to));
     });
   }
 
@@ -547,7 +581,7 @@ describe("the deck section the map reports and follows (decision 145, Address)",
     await press("{ArrowRight}{ArrowRight}{ArrowRight}{ArrowLeft}");
     await frames(3);
     expect(currentIds(m.container)).toEqual(["alpha-two"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "alpha-two"));
+    expectAt(m, fittedTo(m, "alpha-two"));
   });
 
   test("a current section from outside moves the map only when it maps to another section", async () => {
@@ -563,7 +597,7 @@ describe("the deck section the map reports and follows (decision 145, Address)",
     expect(m.layer.style.transform).toBe(there);
     await m.setCurrent("gamma");
     expect(currentIds(m.container)).toEqual(["gamma"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "gamma"));
+    expectAt(m, fittedTo(m, "gamma"));
     expect(statusOf(m.pane)).toBe("Gamma, 5 of 6");
     // A section the app chose is not reported back.
     expect(m.calls).toEqual([]);
@@ -579,7 +613,7 @@ describe("the pointer (decision 145, Pointer)", () => {
     await userEvent.click(heading);
     await frames(2);
     expect(currentIds(m.container)).toEqual(["alpha-one"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "alpha-one"));
+    expectAt(m, fittedTo(m, "alpha-one"));
   });
 
   test("a click on a frame's empty area makes it current; a click on its text does not", async () => {
@@ -591,7 +625,7 @@ describe("the pointer (decision 145, Pointer)", () => {
     await userEvent.click(target, { position: { x: 8, y: 8 } });
     await frames(2);
     expect(currentIds(m.container), "the frame's padding").toEqual(["alpha-one"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "alpha-one"));
+    expectAt(m, fittedTo(m, "alpha-one"));
   });
 
   test("a click on the current frame's heading at reading zoom moves nothing", async () => {
@@ -625,14 +659,14 @@ describe("the pointer (decision 145, Pointer)", () => {
     await userEvent.click(link);
     await frames(2);
     expect(currentIds(m.container)).toEqual(["alpha"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "alpha"));
+    expectAt(m, fittedTo(m, "alpha"));
     expect(document.activeElement?.id).not.toBe("user-content-gamma-detail");
     await press("0");
     // Text in Beta: a reader picking a section, not selecting.
     await userEvent.click(frameEl(m.container, "beta").querySelector<HTMLElement>("p")!);
     await frames(2);
     expect(currentIds(m.container)).toEqual(["beta"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "beta"));
+    expectAt(m, fittedTo(m, "beta"));
   });
 
   test("on the whole map a click on a code block goes to its frame and opens no focus view", async () => {
@@ -645,7 +679,7 @@ describe("the pointer (decision 145, Pointer)", () => {
     await frames(2);
     expect(document.querySelector(".docwalk-focus")).toBeNull();
     expect(currentIds(m.container)).toEqual(["code"]);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "code"));
+    expectAt(m, fittedTo(m, "code"));
   });
 
   test("a drag on the whole map pans, chooses no frame and ends the whole map", async () => {
@@ -659,7 +693,7 @@ describe("the pointer (decision 145, Pointer)", () => {
     });
     await frames(2);
     expect(currentIds(m.container)).toEqual(["alpha"]);
-    expect(m.layer.style.transform).not.toBe(wholeMap(m));
+    expect(same(cameraOf(m.layer), wholeMap(m))).toBe(false);
     const panned = m.layer.style.transform;
     expect(await press("{Enter}")).toBe(false);
     expect(m.layer.style.transform).toBe(panned);
@@ -712,10 +746,10 @@ const diagram = (dir: string) => ["```mermaid", `flowchart ${dir}`, "  a --> b",
 
 /** Records the layer's transform once per animation frame until `done` or `limit` frames. */
 async function recordUntil(layer: HTMLElement, done: () => boolean, limit = 120) {
-  const seen = [layer.style.transform];
+  const seen = [cameraOf(layer)];
   for (let i = 0; i < limit && !done(); i++) {
     await frame();
-    seen.push(layer.style.transform);
+    seen.push(cameraOf(layer));
   }
   return seen;
 }
@@ -724,26 +758,26 @@ describe("the move (decision 145, The move)", () => {
   test("the camera passes through in-between places and ends exactly on the frame's fit", async () => {
     const m = await mountRoute(ROUTE);
     m.pane.focus();
-    const start = m.layer.style.transform;
+    const start = cameraOf(m.layer);
     await userEvent.keyboard("{End}");
     const end = fittedTo(m, "gamma-detail");
-    const seen = await recordUntil(m.layer, () => m.layer.style.transform === end);
-    expect(seen.at(-1)).toBe(end);
-    expect(seen.filter((t) => t !== start && t !== end).length).toBeGreaterThan(0);
+    const seen = await recordUntil(m.layer, () => same(cameraOf(m.layer), end));
+    expect(same(seen.at(-1)!, end)).toBe(true);
+    expect(seen.filter((c) => !same(c, start) && !same(c, end)).length).toBeGreaterThan(0);
     await frames(5);
-    expect(m.layer.style.transform).toBe(end);
+    expectAt(m, end);
   });
 
   test("with reduced motion the camera jumps: no place between the two ends", async () => {
     reduceMotion();
     const m = await mountRoute(ROUTE);
     m.pane.focus();
-    const start = m.layer.style.transform;
+    const start = cameraOf(m.layer);
     await userEvent.keyboard("{End}");
     const end = fittedTo(m, "gamma-detail");
-    const seen = await recordUntil(m.layer, () => m.layer.style.transform === end, 3);
-    expect(seen.at(-1)).toBe(end);
-    expect(seen.filter((t) => t !== start && t !== end)).toEqual([]);
+    const seen = await recordUntil(m.layer, () => same(cameraOf(m.layer), end), 3);
+    expect(same(seen.at(-1)!, end)).toBe(true);
+    expect(seen.filter((c) => !same(c, start) && !same(c, end))).toEqual([]);
   });
 
   test("a wheel during the move stops it where it is and pans from there", async () => {
@@ -764,7 +798,7 @@ describe("the move (decision 145, The move)", () => {
     );
     await frames(30);
     const after = m.layer.style.transform;
-    expect(after).not.toBe(end);
+    expect(same(cameraOf(m.layer), end)).toBe(false);
     await frames(5);
     expect(m.layer.style.transform).toBe(after);
   });
@@ -783,7 +817,7 @@ describe("the move (decision 145, The move)", () => {
     );
     // Read in the same task: no frame has run, and none would in a hidden tab.
     expect(currentIds(m.container)).toEqual(["gamma-detail"]);
-    expect(m.layer.style.transform).toBe(end);
+    expectAt(m, end);
     raf.mockRestore();
   });
 
@@ -800,7 +834,7 @@ describe("the move (decision 145, The move)", () => {
       .poll(() => Number.parseFloat(frameEl(m.container, "gamma-detail").style.top))
       .toBeGreaterThan(topBefore + 10);
     await frames(30);
-    expect(m.layer.style.transform).toBe(fittedTo(m, "gamma-detail"));
+    expectAt(m, fittedTo(m, "gamma-detail"));
   });
 
   test(

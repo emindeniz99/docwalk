@@ -42,8 +42,9 @@ export interface MapFrames {
   /**
    * Draws Mermaid in these frames, each at most once per render, then marks
    * their focus targets. Frames are drawn one after another, in call order.
-   * A frame whose diagram code fails to load is drawn again on a later call;
-   * the promise never rejects for it.
+   * A frame that still holds a figure whose diagram code did not load
+   * (`data-load-failed`) is drawn again on a later call; the promise never
+   * rejects for it.
    */
   drawDiagrams: (frameIds: Iterable<string>) => Promise<void>;
   /** Stops pending work and reporting and removes the listeners; the DOM stays. */
@@ -222,11 +223,17 @@ export function renderFrames(
         try {
           await renderDiagrams(el, stop, { seen });
         } catch {
-          // The diagram code did not load: the frame is asked for again when it comes near.
+          // Any other failure: the frame is asked for again when it comes near.
           requested.delete(id);
           continue;
         }
         if (!live) return;
+        // The diagram code did not load (decision 146): renderDiagrams marked the
+        // figure and draws it in place on a later call (decision 147).
+        if (el.querySelector("figure.docwalk-diagram[data-load-failed]")) {
+          requested.delete(id);
+          continue;
+        }
         // Marked once drawn, as the document view does: a diagram's source is no code block.
         markFocusTargets(el);
       }

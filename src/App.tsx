@@ -407,7 +407,7 @@ export function App() {
       controller?.goTo(address);
       if (view === "document" || view === "map") {
         // A reader stays in the reading view, which scrolls to the section. The map
-        // stays as it is for now: only the outline's mark moves (decision 142, step 2).
+        // follows the deck's new current slide to its frame (decision 145).
         setDocumentTarget({ anchor: sectionAnchor(plan, address.split("/")[0] ?? "") });
         setOutlineOpen(false);
         return;
@@ -419,6 +419,9 @@ export function App() {
     },
     [controller, view, plan, sectionLines, setOutlineOpen],
   );
+
+  // The map's current frame sets the deck to its section's first page, as the outline does.
+  const onMapCurrent = useCallback((sectionId: string) => goTo(`${sectionId}/1`), [goTo]);
 
   // Comments (decision 55): App only places the pieces the hook builds.
   const comments = useCommentsUi({
@@ -767,7 +770,14 @@ export function App() {
         )}
         {view === "map" && !follow && (
           <Suspense fallback={<div className="docwalk-map-pane" />}>
-            <MapView root={root} />
+            {/* The map moves with the deck's current slide and moves it (decision 145);
+                a section left out of the chosen ones is not in the deck, so goTo does nothing. */}
+            <MapView
+              root={root}
+              current={current?.sectionId ?? null}
+              deckSections={plan.sections}
+              onCurrent={onMapCurrent}
+            />
           </Suspense>
         )}
         <div

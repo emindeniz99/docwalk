@@ -88,20 +88,42 @@ function lineOf(sections: readonly Located[], id: string): number | undefined {
   return sections.find((s) => s.id === id)?.line;
 }
 
+/** A map section as `sectionForFrame` reads it: where it starts, and whether it is a bare heading above the slide level. */
+type MapLocated = Pick<Section, "id" | "line" | "kind" | "nodes">;
+
 /**
- * The deck section that holds the frame `frameId`'s first line (decision 145,
- * Address): the deck section with the greatest line at or before the frame's;
- * the first deck section when the frame starts before every one; null when the
- * deck has no sections or no map section has that id. The two plans section
- * one document, possibly at different levels, so they meet by source line.
+ * The deck section for the frame `frameId` (decisions 145 and 147, Address).
+ * A frame the deck shows only as a breadcrumb (a heading above the slide
+ * level with no text of its own: the map's `title` kind with no nodes, and no
+ * deck section of its id) gets the first deck section at or after its line,
+ * the slide that carries it, or the last deck section when none follows.
+ * Any other frame gets the deck section that holds its first line: the one
+ * with the greatest line at or before the frame's, or the first deck section
+ * when the frame starts before every one. Null when the deck has no sections
+ * or no map section has that id. The two plans section one document,
+ * possibly at different levels, so they meet by source line.
+ *
+ * The map's `title` kind is relative to the map's own first level, which is
+ * the deck's at `auto`. Under a level override deeper than that, a bare
+ * heading the deck drops at the map's first level maps by its line.
  */
 export function sectionForFrame(
   deckSections: readonly Located[],
-  mapSections: readonly Located[],
+  mapSections: readonly MapLocated[],
   frameId: string,
 ): string | null {
-  const line = lineOf(mapSections, frameId);
-  return line === undefined ? null : holder(deckSections, line);
+  const frame = mapSections.find((s) => s.id === frameId);
+  if (!frame) return null;
+  const breadcrumb =
+    frame.kind === "title" &&
+    frame.nodes.length === 0 &&
+    !deckSections.some((s) => s.id === frame.id);
+  if (breadcrumb) {
+    const after = deckSections.find((s) => s.line >= frame.line);
+    if (after) return after.id;
+    return deckSections.at(-1)?.id ?? null;
+  }
+  return holder(deckSections, frame.line);
 }
 
 /**

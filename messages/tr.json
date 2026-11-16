@@ -315,6 +315,8 @@
   "load_url_not_found": "Bu adreste bir şey bulunamadı. Bağlantıyı kontrol edin.",
   "load_url_too_long": "Adres çok uzun.",
   "map_region": "Harita",
+  "map_status": "{title}, {index} / {count}",
+  "map_status_untitled": "Bölüm {index} / {count}",
   "marks_clear_body": "{count, plural, other {Bu işlem, bu belgenin # slaydındaki kalem ve ok işaretlerini geri alma geçmişiyle birlikte bu tarayıcıdan siler. Silinen işaretler geri getirilemez.}}",
   "marks_clear_command": "Kayıtlı işaretleri sil…",
   "marks_clear_confirm": "İşaretleri sil",
