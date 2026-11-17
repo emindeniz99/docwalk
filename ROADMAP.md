@@ -718,6 +718,14 @@ smallest first; each needs a failing test before code:
   with no limit; document blocks keep the limit. `e2e/highlight.spec.ts`
   opens the document by link: red 3 of 3 on WebKit before, green 20 of 20
   after, on a machine loaded to 9-12 on 4 cores.
+- Flaky, found 2026-11-17, not fixed: `e2e/comments.spec.ts`, the marker
+  on a scaled slide (line 237). Pinned to two busy cores it failed 4 of 40 on
+  `main` and 2 of 40 by link, always at the marker-position poll.
+  `src/comments/slideMarkers.ts` rebuilds every marker button on each layout,
+  so the poll can time out or read the box of a button already removed. Wait
+  for a stable marker, or stop rebuilding unchanged ones. Also seen only in
+  this container: Firefox's fraction check at `e2e/math.spec.ts:95` overlaps
+  by 1.5 px against 1 allowed (5 of 5 on `main` here; CI passes it).
 - Found while fixing it, not fixed: `src/remote/remote.browser.test.ts`, "a
   change goes out at once" (decision 112), failed once in the full `pnpm
   check` on a machine loaded to 14 on 4 cores, with one countdown message
