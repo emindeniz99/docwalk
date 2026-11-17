@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready } from "./helpers";
 
 /**
  * Speaker notes (decision 79): the HTML comments of a section, shown in the
@@ -68,10 +68,9 @@ async function openPresenter(page: Page, context: BrowserContext): Promise<Page>
   return presenter;
 }
 
-/** Types the document and waits for the rebuilt deck: 6 sections; the comments above the cover open no slide. */
+/** Opens the document and waits for its deck: 6 sections; the comments above the cover open no slide. */
 async function loadDoc(page: Page) {
-  await ready(page);
-  await replaceSource(page, DOC);
+  await ready(page, docLink(DOC));
   await expect(page.getByRole("option", { name: /Closing/ })).toBeVisible({ timeout: 30_000 });
 }
 

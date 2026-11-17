@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready, replaceSource } from "./helpers";
 
 /**
  * Full-text slide search in the command palette (decision 81). These tests
@@ -150,8 +150,7 @@ test("page text that looks like markup is shown as characters and runs nothing",
 test("a speaker note is not searchable: the palette is on the screen the room sees (decision 79)", async ({
   page,
 }) => {
-  await ready(page);
-  await replaceSource(page, HOSTILE_DOC);
+  await ready(page, docLink(HOSTILE_DOC));
   await expect(page.getByRole("option", { name: /Danger/ })).toBeVisible({ timeout: 30_000 });
   const box = await openPalette(page);
   await box.fill("secretlaunchdate");
@@ -179,9 +178,8 @@ test("in the Turkish UI the section is named in Turkish and a capital I finds do
   page,
 }) => {
   await page.addInitScript(() => localStorage.setItem("docwalk.locale", "tr"));
-  await page.goto("/");
+  await page.goto(docLink("# Deneme\n\n## Bir\n\nIşık ve sıra burada, İstanbul da.\n"));
   await expect(page.locator(".docwalk-statusbar")).toContainText(/\d+ slayt/, { timeout: 30_000 });
-  await replaceSource(page, "# Deneme\n\n## Bir\n\nIşık ve sıra burada, İstanbul da.\n");
   await expect(page.getByRole("option", { name: /Bir/ })).toBeVisible({ timeout: 30_000 });
   await page.keyboard.press("ControlOrMeta+k");
   const dialog = page.getByRole("dialog", { name: "Komut paleti" });

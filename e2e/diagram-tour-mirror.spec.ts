@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { fakeRelay, ready, replaceSource } from "./helpers";
+import { docLink, fakeRelay, ready } from "./helpers";
 
 /**
  * The diagram tour, mirrored (decision 109) across real pages, with the
@@ -63,8 +63,7 @@ const ringedNode = (page: Page) =>
 
 async function openPresenterRoom(context: BrowserContext) {
   const presenter = await context.newPage();
-  await ready(presenter);
-  await replaceSource(presenter, DOC);
+  await ready(presenter, docLink(DOC));
   await expect(presenter.locator(".docwalk-outline-item")).toHaveCount(SLIDES);
   await presenter.getByRole("button", { name: "More actions" }).click();
   await presenter.getByRole("menuitem", { name: "Remote and followers…" }).click();

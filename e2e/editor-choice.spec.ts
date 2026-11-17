@@ -1,6 +1,6 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { SHORT_DOC, ready, replaceSource } from "./helpers";
+import { SHORT_DOC, docLink, ready, replaceSource } from "./helpers";
 
 /**
  * The editor choice (decision 53): Monaco behind the same props contract as
@@ -155,8 +155,7 @@ test("the edit view with Monaco and the open editor menu pass axe", async ({ pag
 test("the cursor line goes with the viewer to the other editor and back", async ({ page }) => {
   // Without a starting cursor the other editor opened on line 1, and a viewer
   // working in a long document had to find their place again after every switch.
-  await ready(page);
-  await replaceSource(page, SHORT_DOC);
+  await ready(page, docLink(SHORT_DOC));
   await page.locator(".cm-line", { hasText: "Second point" }).click();
   await pickEditor(page, "Monaco");
   await expect(monacoLines(page)).toContainText("Second point");

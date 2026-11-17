@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready } from "./helpers";
 
 /**
  * The header and the stage at the two widths the app is designed for
@@ -233,10 +233,9 @@ test("in dark mode a focused diagram keeps the white ground it was drawn for", a
   // Mermaid draws dark lines and labels for the white slide. On the dark
   // app canvas the focus view showed them black on near-black.
   await page.emulateMedia({ colorScheme: "dark" });
-  await ready(page);
   // Its own one-slide document: the fixture's pagination decides which page
   // holds a diagram, and that is not what this test is about.
-  await replaceSource(page, "## Diagram\n\n```mermaid\nflowchart LR\n  A --> B\n```\n");
+  await ready(page, docLink("## Diagram\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"));
   await page.locator(".reveal .present .docwalk-diagram svg").first().click();
   await expect(page.getByRole("dialog", { name: "Diagram, full screen" })).toBeVisible();
   const ground = await page
@@ -252,8 +251,7 @@ test("a diagram that fails to render is flagged in a yellow note, on the slide a
   // presenter could miss that a diagram was missing. Diagnostics are the
   // yellow note (DESIGN.md, Colors), themed in document mode.
   await page.emulateMedia({ colorScheme: "dark" });
-  await ready(page);
-  await replaceSource(page, "# Broken\n\n## Diagram\n\n```mermaid\nflowchart LR\n  A -->\n```\n");
+  await ready(page, docLink("# Broken\n\n## Diagram\n\n```mermaid\nflowchart LR\n  A -->\n```\n"));
   await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)1 diagram error(?!s)/);
   const note = (scope: string) =>
     page

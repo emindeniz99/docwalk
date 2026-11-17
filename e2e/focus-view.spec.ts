@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready } from "./helpers";
 
 /**
  * The focus view for code, tables and images (decision 87) in the built app.
@@ -42,8 +42,7 @@ const present = (page: Page) => page.locator(".reveal .slides > section.present"
 const view = (page: Page) => page.locator(".docwalk-focus");
 
 async function openDoc(page: Page, markdown: string, slides = 1) {
-  await ready(page);
-  await replaceSource(page, markdown);
+  await ready(page, docLink(markdown));
   await expect(page.locator(".docwalk-statusbar")).toContainText(
     new RegExp(`(?<!\\d)${slides} slides?`),
   );
@@ -127,7 +126,7 @@ Last.
 `,
     3,
   );
-  // The editor opens the slide under the cursor, which is the last one; start on the code.
+  // Start on the code, the way a link to it would.
   await page.evaluate(() => {
     window.location.hash = "#code";
   });

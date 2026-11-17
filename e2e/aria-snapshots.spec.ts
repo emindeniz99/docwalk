@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { ready, replaceSource, SHORT_DOC } from "./helpers";
+import { docLink, ready, SHORT_DOC } from "./helpers";
 
 /**
  * ARIA snapshots of the main views (decision 39, narrowed by 85). axe finds
@@ -25,9 +25,10 @@ import { ready, replaceSource, SHORT_DOC } from "./helpers";
 
 /** Opens the short document in the edit view, on its last slide. */
 async function openShort(page: Page) {
-  await ready(page);
-  await replaceSource(page, SHORT_DOC);
+  await ready(page, docLink(SHORT_DOC));
   await expect(page.locator(".docwalk-statusbar")).toContainText("3 slides");
+  await page.getByRole("option", { name: /Second point/ }).click();
+  await expect(page.locator(".docwalk-preview-head strong")).toHaveText("3 / 3");
 }
 
 test("edit view: header, outline, source and stage have names and roles", async ({ page }) => {

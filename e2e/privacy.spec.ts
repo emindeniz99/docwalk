@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { docTitle, ready, replaceSource } from "./helpers";
+import { docLink, docTitle, ready } from "./helpers";
 
 /**
  * Rule 8 and decision 33 in the built app: presenting a document with images
@@ -31,8 +31,7 @@ test("stepping through a deck with remote images requests nothing until one is c
     requested.push(route.request().url());
     return route.fulfill({ contentType: "image/png", body: PIXEL });
   });
-  await ready(page);
-  await replaceSource(page, DOC);
+  await ready(page, docLink(DOC));
   await expect(docTitle(page)).toHaveText("Tracked deck");
   await expect(page.locator(".docwalk-statusbar")).toContainText("6 slides");
 

@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready } from "./helpers";
 
 /**
  * Countdown and pacing bar (decision 80), in the assembled app: the audience
@@ -31,8 +31,7 @@ async function openPresenter(page: Page, context: BrowserContext): Promise<Page>
 /** The deck with five slides, the presenter window open on the slide "One". */
 async function setUp(page: Page, context: BrowserContext): Promise<Page> {
   await context.clock.install();
-  await ready(page);
-  await replaceSource(page, DOC);
+  await ready(page, docLink(DOC));
   await expect(page.getByRole("option", { name: /Four/ })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("option", { name: /One/ }).click();
   const presenter = await openPresenter(page, context);

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { tokens } from "../src/design/tokens";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready } from "./helpers";
 
 /**
  * GFM task list items (decision 86) in the built app, on every engine. Both
@@ -45,8 +45,7 @@ const rgb = (hex: string) => {
 const present = (page: Page) => page.locator(".reveal .slides > section.present");
 
 async function openDoc(page: Page) {
-  await ready(page);
-  await replaceSource(page, DOC);
+  await ready(page, docLink(DOC));
   await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)3 slides/);
   await expect(page.locator(".reveal .slides > section[data-docwalk-id='hostile']")).toHaveCount(1);
 }
