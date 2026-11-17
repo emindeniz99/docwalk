@@ -649,11 +649,14 @@ commits: a decision row first where a rule changes, then a failing test, then
 code; the e2e suite on Chromium, Firefox and WebKit; a pull request from the
 fork, merged with a merge commit.
 
-1. Decision 151, the owner's four choices:
-   - The whole map (`0`) wraps its columns into rows that fit the pane. One
-     column still holds one section and its parts; reading order is left to
-     right, then top to bottom. Today the sample's 23 columns make a strip a
-     fifth of the pane high, with frames too small to read.
+1. Decisions 151 and 174, the owner's choices:
+   - The layout becomes one column that runs down the page (decision 174,
+     which replaces 151's rows): every frame, `##` sections and their `###`
+     parts alike, in document order from top to bottom, all one width, a
+     little wider than the document view. A wheel or two fingers move it down
+     and up; zoom, roaming and the rest stay. Change `src/map/layout.ts`
+     (`mapColumns`, `placeFrames`) and its tests; the whole map (`0`) is then
+     that column fitted to the pane.
    - On the map, the phone remote's and an agent's next and previous walk the
      frames as the arrow keys do, `###` frames included. Today they turn the
      deck's pages and the map moves only when the section changes
@@ -677,12 +680,16 @@ fork, merged with a merge commit.
    exists: a follower that meets a view it does not know keeps following on
    slides and shows a note that a reload shows the newer view. Today the state
    message accepts only `"map"`, so any other value drops the whole state.
-6. Optional simplifications: the camera's guards against NaN and enormous
+6. Later, after the new layout: moving frames by hand, as in Apple Freeform
+   (decision 174, "later"). Positions are viewer state kept in the browser,
+   never written to the Markdown (rule 1), with a control that resets the
+   layout. Needs its own decision row first.
+7. Optional simplifications: the camera's guards against NaN and enormous
    panes and their tests (about 50 and 285 lines); the diagram reload retry
    beyond row 146's visible note (needs a row, since 147 and 148 chose it);
    about 450 lines of test setup copied across the map's browser tests, which
    one `src/map/testMap.ts` could hold.
-7. Done: the owner accepted rows 139 to 150 on 2026-11-16; 151 refines
+8. Done: the owner accepted rows 139 to 150 on 2026-11-16; 151 refines
    136, 142, 145, 149 and 150.
 
 **Outside the map (lead).** Found by the security review, older than the map:
