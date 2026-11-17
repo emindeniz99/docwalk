@@ -94,9 +94,28 @@ function shiki(): Promise<ShikiPrimitive> {
 }
 
 /**
- * Loads each grammar (one with the grammars it embeds) into the shared
- * highlighter and returns every language it holds. A grammar that fails to
- * load is left out, so its blocks stay plain.
+ * docwalk's own text, tokenized once per grammar as it loads (decision 173).
+ * A grammar's patterns compile on the first lines it reads; on WebKit that
+ * took longer than Shiki's 500 ms per line, so the first line of a page's
+ * first block came back as one token. Common shapes (imports, a typed
+ * declaration, strings, comments, a function, an object) compile here
+ * instead, with no limit, since this text is not the document's.
+ */
+const WARM_UP = [
+  'import { a } from "b";',
+  "const c: number = 1; // d",
+  "let e = `f ${g}` + 'h'; /* i */",
+  "function j(k) { return [k, { l: true, m: null }]; }",
+  "# n",
+].join("\n");
+
+const warmed = new Set<string>();
+
+/**
+ * Loads each grammar (one with the grammars it embeds, the grammar itself
+ * last) into the shared highlighter, warms it (WARM_UP), and returns every
+ * language it holds. A grammar that fails to load is left out, so its blocks
+ * stay plain.
  */
 export async function loadGrammars(grammars: LanguageRegistration[][]): Promise<string[]> {
   const core = await shiki();
@@ -105,6 +124,12 @@ export async function loadGrammars(grammars: LanguageRegistration[][]): Promise<
       await core.loadLanguage(grammar);
     } catch {
       // Left out; the page asks for it again on its next build.
+      continue;
+    }
+    const name = grammar.at(-1)?.name;
+    if (name && !warmed.has(name)) {
+      warmed.add(name);
+      codeToTokensBase(core, WARM_UP, { lang: name, theme: THEME, tokenizeTimeLimit: 0 });
     }
   }
   return core.getLoadedLanguages();

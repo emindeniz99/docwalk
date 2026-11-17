@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { tokens } from "../src/design/tokens";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready, replaceSource } from "./helpers";
 
 /**
  * Code colours (decision 76) in the built app, on every engine: the
@@ -51,6 +51,20 @@ async function openDoc(page: Page) {
   await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)3 slides/);
   await expect(page.locator(".reveal .slides > section[data-docwalk-id='patch']")).toHaveCount(1);
 }
+
+test("a document opened by its link colours the first line of its first block in full (decision 173)", async ({
+  page,
+}) => {
+  // Opened by link, no earlier block has compiled the TypeScript grammar.
+  // WebKit's regex engine took longer than Shiki's 500 ms per line to compile
+  // it on that first line, and the rest of the line came back as one token.
+  await page.goto(docLink(DOC));
+  await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)3 slides/);
+  const code = page.locator(".reveal .slides > section[data-docwalk-id='retry-code'] pre > code");
+  await expect(code.locator(".dw-code-comment").first()).toHaveText("// budget");
+  await expect(code.locator(".dw-code-keyword").first()).toHaveText("const");
+  expect(await code.evaluate((el) => el.textContent)).toBe(`${SOURCE}\n`);
+});
 
 test("a highlighted block renders in present mode, with its text unchanged", async ({ page }) => {
   await openDoc(page);
