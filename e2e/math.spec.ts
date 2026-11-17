@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready, replaceSource } from "./helpers";
 
 /**
  * Math and emoji shortcodes (decision 101) in the built app: Temml and
@@ -45,19 +45,17 @@ const HOSTILE = [
 const slide = (page: Page, id: string) =>
   page.locator(`.reveal .slides > section[data-docwalk-id='${id}']`);
 
-/** Pastes `markdown` and waits for the rebuilt deck with `slides` slides. */
+/** Opens `markdown` and waits for its deck with `slides` slides. */
 async function open(page: Page, markdown: string, slides: number, last: string) {
-  await ready(page);
-  await replaceSource(page, markdown);
+  await ready(page, docLink(markdown));
   await expect(page.locator(".docwalk-statusbar")).toContainText(
     new RegExp(`(?<!\\d)${slides} slides`),
   );
   await expect(slide(page, last)).toHaveCount(1);
 }
 
-/** Requests the page makes to anything but its own origin, from now on. */
-function foreignRequests(page: Page): string[] {
-  const origin = new URL(page.url()).origin;
+/** Requests the page makes to anything but `origin`, from now on. */
+function foreignRequests(page: Page, origin: string): string[] {
   const seen: string[] = [];
   page.on("request", (request) => {
     const url = request.url();
@@ -137,10 +135,11 @@ test("formulas and shortcodes are drawn on the slides; dollar amounts stay text"
 
 test("a hostile formula keeps its source as text and nothing leaves the origin", async ({
   page,
+  baseURL,
 }) => {
-  await ready(page);
-  const foreign = foreignRequests(page);
-  await replaceSource(page, HOSTILE);
+  // Counted from before the page loads: the formulas are drawn as it opens.
+  const foreign = foreignRequests(page, new URL(baseURL ?? "").origin);
+  await ready(page, docLink(HOSTILE));
   await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)2 slides/);
   const traps = slide(page, "traps");
   // Three inline sources and the display one, whose <pre> is marked too.

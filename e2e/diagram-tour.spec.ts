@@ -1,6 +1,6 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready } from "./helpers";
 
 /**
  * The diagram tour in the diagram focus view (decision 109) in the built app.
@@ -10,7 +10,7 @@ import { ready, replaceSource } from "./helpers";
  * backgrounds with the tour running, and the layered Escape of a talk.
  */
 
-// The diagram is on the last slide: presenting starts at the slide the editor's cursor is on, the end.
+// The diagram is on the last slide, after one that an arrow leaking to the talk would reach.
 const DOC = [
   "## Intro",
   "",
@@ -33,11 +33,14 @@ const status = (page: Page) => view(page).locator(".docwalk-tour-status");
 const ring = (page: Page) => view(page).locator(".docwalk-tour-ring");
 
 async function openView(page: Page) {
-  await ready(page);
-  await replaceSource(page, DOC);
+  await ready(page, docLink(DOC));
   await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)2 slides/);
+  await page.evaluate(() => {
+    window.location.hash = "#flow";
+  });
   await page.getByRole("button", { name: "Present" }).click();
   await expect(page.locator(".docwalk-app")).toHaveAttribute("data-view", "present");
+  await expect(present(page)).toHaveAttribute("data-docwalk-id", "flow");
   await present(page).locator(".docwalk-diagram").click();
   await expect(view(page)).toBeVisible();
   await expect(view(page).locator("svg g.node")).toHaveCount(4);

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { fakeWorker, ready, replaceSource, SHORT_DOC } from "./helpers";
+import { docLink, fakeWorker, ready, SHORT_DOC } from "./helpers";
 
 /**
  * Remote control and followers (decision 8) across real pages. The Worker's
@@ -14,9 +14,8 @@ test("a phone remote moves the presenter's deck and points its laser; a follower
 }) => {
   const seats = await fakeWorker(context);
   const presenter = await context.newPage();
-  await ready(presenter);
-  // A short pasted document: its #doc= link fits the relay's frame for followers.
-  await replaceSource(presenter, SHORT_DOC);
+  // A short document: its #doc= link fits the relay's frame for followers.
+  await ready(presenter, docLink(SHORT_DOC));
   await expect(presenter.locator(".docwalk-outline-item")).toHaveCount(3);
 
   await presenter.getByRole("button", { name: "More actions" }).click();
@@ -29,9 +28,7 @@ test("a phone remote moves the presenter's deck and points its laser; a follower
   expect(remoteUrl).toMatch(/\?view=remote#room=[\w-]+&k=[\w-]+&p=[\w-]+$/);
   await dialog.getByRole("button", { name: "Close" }).click();
 
-  // The preview follows the editor's cursor, and replaceSource leaves the
-  // cursor at the end of the document (slide 3). Start the remote from the
-  // first slide the way a presenter would: through the outline.
+  // Start the remote from the first slide the way a presenter would: through the outline.
   await presenter.locator(".docwalk-outline-item").first().click();
   const counter = presenter.locator(".docwalk-preview-head strong");
   await expect(counter).toHaveText("1 / 3");

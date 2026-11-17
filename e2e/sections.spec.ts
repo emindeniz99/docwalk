@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready, replaceSource } from "./helpers";
 
 /**
  * Choosing which sections to present (decision 100). These tests run the
@@ -336,10 +336,9 @@ test("a choice too long for a link says so in the dialog and is not written to t
   page,
 }) => {
   test.setTimeout(90_000);
-  await ready(page);
   // 22 headings of 200 letters each: without the cover, their ids are over 4,000 characters of link.
   const headings = Array.from({ length: 22 }, (_, i) => String.fromCharCode(97 + i).repeat(200));
-  await replaceSource(page, `# Talk\n\n${headings.map((h) => `## ${h}\n\nBody.\n`).join("\n")}`);
+  await ready(page, docLink(`# Talk\n\n${headings.map((h) => `## ${h}\n\nBody.\n`).join("\n")}`));
   await expect(outlineTitles(page)).toHaveCount(23, { timeout: 30_000 });
 
   await sectionsButton(page).click();

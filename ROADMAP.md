@@ -238,9 +238,25 @@ Later rounds:
   long write instead). Left as they were: the presenter-window audit (axe
   checks the sample's previews), the display-name comment test (its reload
   needs the paste kept as the draft) and two workspace tests (a link in the
-  address bar would send them through the workspace's replace guard). Next:
-  about 30 more tests load the sample and then call `replaceSource`; those
-  that need neither the sample nor the paste path can take `docLink`.
+  address bar would send them through the workspace's replace guard). On
+  2026-11-16 a second round moved 100 more tests in 24 spec files to
+  `docLink` (97 run on WebKit, three are Chromium's pen tests). Alone on
+  WebKit with one worker those 97 took 400 s instead of 728 (medians of three
+  interleaved runs); markdown, focus-view, pacing, speaker-notes,
+  aria-snapshots, comments and tasklist saved 23 to 42 s each. The whole
+  WebKit suite with two workers took 20.3 min instead of 23.0 (one run each
+  on a shared machine, busier during the second). Still on the sample or the
+  paste, each for a reason: tests about an edit, the draft or a reload of
+  the paste (`app`'s source edit, both `share` tests, `sections` editing,
+  `i18n`'s draft, three comment tests that reload "/", the comment diagram
+  swap, the Monaco switch of typed text, the agent write gate,
+  `workspace`); `math`'s chunk test, whose negative case is the sample's
+  timestamps and code; two tests that wait for a slide address in the URL,
+  which a `#doc=` page never writes (`deck`'s presenter overflow note, the
+  palette's hostile text); `subpath`, which runs on Chromium alone under
+  `/docwalk/`; and `highlight`'s three older tests, whose first one failed on
+  WebKit by link until decision 173 fixed the code colours and added a link
+  test of its own.
 - Remote links made before decision 117 carry no `p=` (the presenter's
   public state key), so a phone or agent that joined with one shows no
   countdown and never says hello again (118) until the presenter shares a new

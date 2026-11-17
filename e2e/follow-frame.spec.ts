@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { fakeRelay, ready, replaceSource, SHORT_DOC } from "./helpers";
+import { docLink, fakeRelay, ready, SHORT_DOC } from "./helpers";
 
 /**
  * Fill frame and idle chrome on follow screens (decision 113, refining 75
@@ -25,9 +25,8 @@ test.use({ viewport: { width: 1440, height: 900 } });
 async function openRoom(context: BrowserContext) {
   const relay = await fakeRelay(context);
   const presenter = await context.newPage();
-  await ready(presenter);
-  // A short pasted document: its #doc= link fits the relay's frame for followers.
-  await replaceSource(presenter, SHORT_DOC);
+  // A short document: its #doc= link fits the relay's frame for followers.
+  await ready(presenter, docLink(SHORT_DOC));
   await expect(presenter.locator(".docwalk-outline-item")).toHaveCount(3);
   await presenter.getByRole("button", { name: "More actions" }).click();
   await presenter.getByRole("menuitem", { name: "Remote and followers…" }).click();

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { docLink, opfsTest, ready, replaceSource } from "./helpers";
+import { docLink, opfsTest, ready } from "./helpers";
 
 /**
  * Document mode as a reading view: it stays inside the window, the outline is
@@ -144,10 +144,9 @@ test("in document mode a click on a diagram opens the focus view and Escape clos
   page,
 }) => {
   // Decision 129: a reader of the whole document enlarges a diagram as a slide's viewer does.
-  await ready(page);
-  await replaceSource(
+  await ready(
     page,
-    "# Flow\n\n```mermaid\nflowchart LR\n  a[Start] --> b[Done]\n```\n\nAfter.\n",
+    docLink("# Flow\n\n```mermaid\nflowchart LR\n  a[Start] --> b[Done]\n```\n\nAfter.\n"),
   );
   await page.getByRole("radio", { name: "Document" }).click();
   const diagram = page.locator(".docwalk-document .docwalk-diagram");

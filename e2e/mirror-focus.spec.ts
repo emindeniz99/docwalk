@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { crc32, deflateSync } from "node:zlib";
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { fakeRelay, ready, replaceSource } from "./helpers";
+import { docLink, fakeRelay, ready } from "./helpers";
 
 /**
  * Mirroring the code, table and image focus views and their line marks
@@ -124,8 +124,7 @@ async function openPresenterRoom(
 ) {
   const presenter = await context.newPage();
   await options.before?.(presenter);
-  await ready(presenter);
-  await replaceSource(presenter, options.doc ?? DOC);
+  await ready(presenter, docLink(options.doc ?? DOC));
   await expect(presenter.locator(".docwalk-outline-item")).toHaveCount(options.slides ?? SLIDES);
   await presenter.getByRole("button", { name: "More actions" }).click();
   await presenter.getByRole("menuitem", { name: "Remote and followers…" }).click();

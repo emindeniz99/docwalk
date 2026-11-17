@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { fakeRelay, ready, replaceSource } from "./helpers";
+import { docLink, fakeRelay, ready } from "./helpers";
 
 /**
  * Mirroring the presenter's laser, marks and diagram focus (decision 88)
@@ -85,8 +85,7 @@ async function stroke(page: Page, from: [number, number], to: [number, number]) 
 
 async function openPresenterRoom(context: BrowserContext) {
   const presenter = await context.newPage();
-  await ready(presenter);
-  await replaceSource(presenter, DOC);
+  await ready(presenter, docLink(DOC));
   await expect(presenter.locator(".docwalk-outline-item")).toHaveCount(4);
   await presenter.getByRole("button", { name: "More actions" }).click();
   await presenter.getByRole("menuitem", { name: "Remote and followers…" }).click();
@@ -233,8 +232,7 @@ test("without a Worker the presenter window still mirrors the laser and the mark
   context,
 }) => {
   // No /api here: the remote controls are hidden and the window talks over BroadcastChannel.
-  await ready(page);
-  await replaceSource(page, DOC);
+  await ready(page, docLink(DOC));
   await expect(page.locator(".docwalk-outline-item")).toHaveCount(4);
   await page.locator(".docwalk-outline-item").first().click();
   await page.getByRole("radio", { name: "Pen" }).click();

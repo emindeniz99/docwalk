@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { fakeRelay, ready, replaceSource } from "./helpers";
+import { docLink, fakeRelay, ready } from "./helpers";
 
 /**
  * Stylus input (decision 110) across real pages. The policy and the layer
@@ -29,8 +29,7 @@ const counter = (page: Page) => page.locator(".docwalk-preview-head strong");
 const slide = (page: Page) => page.locator(".reveal .slides > section.present");
 
 async function openDoc(page: Page) {
-  await ready(page);
-  await replaceSource(page, DOC);
+  await ready(page, docLink(DOC));
   await expect(page.locator(".docwalk-outline-item")).toHaveCount(3);
   await page.locator(".docwalk-outline-item").nth(1).click();
   await expect(counter(page)).toHaveText("2 / 3");

@@ -1,6 +1,6 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready, replaceSource } from "./helpers";
 
 /**
  * Deck follow-ups: the slide overview, per-slide annotation history, notes in
@@ -93,31 +93,32 @@ test("the open overview repeats no id of the deck and its diagram thumbnails kee
   // diagram id appeared twice while the overview was open. Mermaid's <style>
   // selects by the SVG's id and its arrows reach their markers by id, so the
   // copies rename their ids instead of dropping them (decision 108).
-  await ready(page);
-  await replaceSource(
+  await ready(
     page,
-    [
-      "## First point",
-      "",
-      "A claim with a source.[^one]",
-      "",
-      "[^one]: The source.",
-      "",
-      "## Flow",
-      "",
-      "```mermaid",
-      "flowchart LR",
-      "  client[Client] --> api[API]",
-      "  api --> store[(Store)]",
-      "```",
-      "",
-      "## Second point",
-      "",
-      "Another claim.[^two]",
-      "",
-      "[^two]: Another source.",
-      "",
-    ].join("\n"),
+    docLink(
+      [
+        "## First point",
+        "",
+        "A claim with a source.[^one]",
+        "",
+        "[^one]: The source.",
+        "",
+        "## Flow",
+        "",
+        "```mermaid",
+        "flowchart LR",
+        "  client[Client] --> api[API]",
+        "  api --> store[(Store)]",
+        "```",
+        "",
+        "## Second point",
+        "",
+        "Another claim.[^two]",
+        "",
+        "[^two]: Another source.",
+        "",
+      ].join("\n"),
+    ),
   );
   await expect(page.locator(".docwalk-statusbar")).toContainText(/(?<!\d)3 slides/);
   await expect(page.locator(".reveal .slides .docwalk-diagram svg")).toHaveCount(1);

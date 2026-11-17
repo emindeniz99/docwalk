@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { ready, replaceSource } from "./helpers";
+import { docLink, ready, replaceSource } from "./helpers";
 
 /**
  * Comments (decision 55), end to end in the built app: they anchor to
@@ -42,9 +42,15 @@ async function expectNoSeriousViolations(page: Page) {
 
 const panel = (page: Page) => page.getByRole("complementary", { name: "Comments" });
 
-async function openWithDoc(page: Page) {
-  await ready(page);
-  await replaceSource(page, DOC);
+/**
+ * Opens DOC with the comments panel open: by link, or pasted for a test that
+ * reloads "/" and needs DOC back as the draft.
+ */
+async function openWithDoc(page: Page, { paste = false } = {}) {
+  if (paste) {
+    await ready(page);
+    await replaceSource(page, DOC);
+  } else await ready(page, docLink(DOC));
   await expect(page.locator(".docwalk-outline-item")).toHaveCount(4);
   await page.getByRole("button", { name: /^Comments/ }).click();
   await expect(panel(page)).toBeVisible();
@@ -106,7 +112,7 @@ test("add a comment, see it counted, share the link, and the recipient gets it",
 test("a diagram node takes comments; a renamed heading orphans its comments instead of losing them", async ({
   page,
 }) => {
-  await openWithDoc(page);
+  await openWithDoc(page, { paste: true });
   await addComment(page, /API gateway \(api_gw\)/, "Do we need a gateway?");
   await addComment(page, "Risks", "List them.");
   // The node glows on the slide; the panel groups the comment under the node.
@@ -213,8 +219,7 @@ test("on a 390 px phone the panel is a sheet that passes axe and closes with Esc
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await ready(page);
-  await replaceSource(page, DOC);
+  await ready(page, docLink(DOC));
   await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("menuitem", { name: "Comments" }).click();
   const sheet = page.getByRole("dialog", { name: "Comments" });
@@ -292,7 +297,7 @@ test("a display name goes on new comments, stays in this browser and travels in 
   browser,
 }) => {
   // Decision 97. "Reviewer A" is a role label, not a person (AGENTS.md rule 10).
-  await openWithDoc(page);
+  await openWithDoc(page, { paste: true });
   const name = panel(page).getByRole("textbox", { name: "Your name" });
   await expect(name).toHaveValue("");
   await name.fill("Reviewer A");
@@ -332,7 +337,7 @@ test("a display name goes on new comments, stays in this browser and travels in 
 
 test("a deleted comment stays deleted when an older sidecar is imported", async ({ page }) => {
   // Decision 95: the deletion leaves a tombstone that beats the older copy in the file.
-  await openWithDoc(page);
+  await openWithDoc(page, { paste: true });
   await addComment(page, "Goals", "Soon deleted");
   await addComment(page, "Risks", "Kept");
   const exportFile = async () => {

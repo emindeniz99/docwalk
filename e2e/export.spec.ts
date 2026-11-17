@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import { ready, replaceSource, SHORT_DOC } from "./helpers";
+import { docLink, ready, SHORT_DOC } from "./helpers";
 
 /**
  * Exports (decision 9) from the real deck. The exporters are unit-tested on
@@ -38,8 +38,7 @@ test("HTML export downloads one file with the slides' titles and no script", asy
 });
 
 test("PNG export downloads real PNG images of the slides", async ({ page }) => {
-  await ready(page);
-  await replaceSource(page, SHORT_DOC);
+  await ready(page, docLink(SHORT_DOC));
   await expect(page.locator(".docwalk-outline-item")).toHaveCount(3);
   const download = page.waitForEvent("download");
   await exportAs(page, "Download PNG images");
@@ -60,8 +59,7 @@ test("print fills a hidden print frame with every slide and opens the print dial
       top.docwalkPrintCalls = (top.docwalkPrintCalls ?? 0) + 1;
     };
   });
-  await ready(page);
-  await replaceSource(page, SHORT_DOC);
+  await ready(page, docLink(SHORT_DOC));
   await expect(page.locator(".docwalk-outline-item")).toHaveCount(3);
   await exportAs(page, "Print or save as PDF");
 
@@ -90,8 +88,7 @@ test("print with speaker notes puts each note in the print frame; plain print an
       top.docwalkPrintCalls = (top.docwalkPrintCalls ?? 0) + 1;
     };
   });
-  await ready(page);
-  await replaceSource(page, "# A\n\n<!-- Say hello -->\n\n# B\n");
+  await ready(page, docLink("# A\n\n<!-- Say hello -->\n\n# B\n"));
   await expect(page.locator(".docwalk-outline-item")).toHaveCount(2);
   const notes = page.frameLocator("iframe[data-docwalk-print]").locator(".docwalk-export-notes");
 
