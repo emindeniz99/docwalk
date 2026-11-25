@@ -399,3 +399,97 @@ describe("useUrlSync: the section selection", () => {
     expect(window.location.hash).toBe(`#${chosen.current()?.address}`);
   });
 });
+
+describe("useUrlSync: the map's current frame (decision 153)", () => {
+  test("a link with view=map, a frame and an address hands the frame to the app once, on mount", () => {
+    // The map is a lazy chunk the app mounts after this hook has read the link, so the
+    // frame is handed over as the level and the view are; the map decides what it can do with it.
+    openAt("?view=map&frame=non-goals", "#goals-and-non-goals/1");
+    const onFrame = vi.fn<NonNullable<UrlSyncOptions["onFrame"]>>();
+    const render = mount({ onFrame });
+    expect(onFrame).toHaveBeenCalledExactlyOnceWith("non-goals");
+    render({ level: [2, 3] });
+    expect(onFrame).toHaveBeenCalledTimes(1);
+  });
+
+  test("it is not handed over from another view, with no slide address, under a #doc= link, or when it does not parse", () => {
+    const links: [string, string][] = [
+      ["?view=edit&frame=non-goals", "#a/1"],
+      ["?view=document&frame=non-goals", "#a/1"],
+      ["?frame=non-goals", "#a/1"],
+      ["?view=map&frame=non-goals", ""],
+      ["?view=map&frame=non-goals", "#doc=eJzLSM3JyQcABiwCFQ"],
+      ["?view=map&frame=not a slug", "#a/1"],
+      [`?view=map&frame=${"a".repeat(201)}`, "#a/1"],
+      ["?view=map", "#a/1"],
+    ];
+    for (const [search, hash] of links) {
+      openAt(search, hash);
+      const onFrame = vi.fn<NonNullable<UrlSyncOptions["onFrame"]>>();
+      mount({ onFrame });
+      expect(onFrame, `${search}${hash}`).not.toHaveBeenCalled();
+      act(() => root?.unmount());
+      root = null;
+    }
+  });
+
+  test("the frame the map reports is written beside view=map and removed when the column's first frame comes back, without adding history entries", () => {
+    openAt("?src=x&view=map", "#goals-and-non-goals/1");
+    const render = mount({ view: "map", frame: undefined });
+    const before = window.history.length;
+    render({ frame: "non-goals" });
+    expect(window.location.search).toBe("?src=x&view=map&frame=non-goals");
+    expect(window.location.hash).toBe("#goals-and-non-goals/1");
+    render({ frame: "goals" });
+    expect(window.location.search).toBe("?src=x&view=map&frame=goals");
+    render({ frame: null });
+    expect(window.location.search).toBe("?src=x&view=map");
+    expect(window.history.length).toBe(before);
+  });
+
+  test("a link's own frame is not rewritten on the first render, so it keeps its spelling", () => {
+    openAt("?view=map&frame=non-goals", "#goals-and-non-goals/1");
+    mount({ view: "map", frame: undefined });
+    expect(window.location.search).toBe("?view=map&frame=non-goals");
+  });
+
+  test("the first report of a column's first frame removes a frame the link carried that the map did not take", () => {
+    // `?frame=` of a heading an edit removed: the map opens on the section's frame, and
+    // the link must not keep naming a frame the page is not on.
+    openAt("?view=map&frame=gone", "#goals-and-non-goals/1");
+    const render = mount({ view: "map", frame: undefined });
+    render({ frame: null });
+    expect(window.location.search).toBe("?view=map");
+  });
+
+  test("nothing is written under a #doc= share fragment, which holds no slide address", () => {
+    openAt("?view=map", "#doc=eJzLSM3JyQcABiwCFQ");
+    const render = mount({ view: "map", frame: undefined });
+    render({ frame: "non-goals" });
+    expect(window.location.search).toBe("?view=map");
+    expect(window.location.hash).toBe("#doc=eJzLSM3JyQcABiwCFQ");
+  });
+
+  test("leaving the map removes the frame, and the other views never get one", () => {
+    openAt("?view=map&frame=non-goals", "#goals-and-non-goals/1");
+    const render = mount({ view: "map", frame: undefined });
+    // A change of view also writes the level the app holds (the first test of that is above).
+    const params = () => new URL(window.location.href).searchParams;
+    render({ view: "edit", frame: undefined });
+    expect([params().get("view"), params().get("frame")]).toEqual(["edit", null]);
+    render({ view: "document" });
+    expect([params().get("view"), params().get("frame")]).toEqual(["document", null]);
+    // Back on the map, with no frame reported yet: none is written.
+    render({ view: "map" });
+    expect([params().get("view"), params().get("frame")]).toEqual(["map", null]);
+    render({ frame: "goals" });
+    expect([params().get("view"), params().get("frame")]).toEqual(["map", "goals"]);
+  });
+
+  test("a page that does not manage the frame never touches it", () => {
+    openAt("?view=map&frame=non-goals", "#goals-and-non-goals/1");
+    const render = mount({ view: "map" });
+    render({ level: [2, 3] });
+    expect(new URL(window.location.href).searchParams.get("frame")).toBe("non-goals");
+  });
+});

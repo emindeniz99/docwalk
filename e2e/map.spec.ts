@@ -712,6 +712,52 @@ test.describe("the route through the sample", () => {
       await expect.poll(() => hash(page)).toBe("#glossary/1");
     });
 
+    test("a ### frame is named in the link: walk to it, reload, and land on it (decision 153)", async ({
+      page,
+    }) => {
+      // The address stays the column's section (148); `frame=` says which of its frames.
+      const frameParam = () => new URL(page.url()).searchParams.get("frame");
+      await openAt(page, "/?view=map#goals-and-non-goals/1", "goals-and-non-goals");
+      expect(frameParam(), "the column's first frame needs no name").toBeNull();
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("ArrowRight");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "non-goals");
+      await expect.poll(frameParam).toBe("non-goals");
+      await afterFrames(page);
+      expect(await hash(page)).toBe("#goals-and-non-goals/1");
+
+      await page.reload();
+      await expect(app(page)).toHaveAttribute("data-view", "map");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "non-goals", {
+        timeout: 30_000,
+      });
+      await expect.poll(() => inPane(page, current(page)), { timeout: 30_000 }).toBe(true);
+      expect(frameParam()).toBe("non-goals");
+
+      // Back to the column's first frame: the link reads as it did before.
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowLeft");
+      await page.keyboard.press("ArrowLeft");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "goals-and-non-goals");
+      await expect.poll(frameParam).toBeNull();
+
+      // Leaving the map takes the frame out of the link.
+      await page.keyboard.press("ArrowRight");
+      await expect.poll(frameParam).toBe("goals");
+      await page.getByRole("radio", { name: "Edit" }).click();
+      await expect(app(page)).toHaveAttribute("data-view", "edit");
+      await expect.poll(frameParam).toBeNull();
+    });
+
+    test("a frame outside the link's section is ignored: the hash decides, and the stray frame leaves the link", async ({
+      page,
+    }) => {
+      await openAt(page, "/?view=map&frame=glossary#summary/1", "summary");
+      await expect.poll(() => new URL(page.url()).searchParams.get("frame")).toBeNull();
+      expect(await hash(page)).toBe("#summary/1");
+    });
+
     test("axe finds no serious violations with a current frame announced", async ({ page }) => {
       await openAt(page, "/?view=map", "ledgerline-payment-ledger-redesign");
       await mapRegion(page).focus();

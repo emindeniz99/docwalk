@@ -33,6 +33,7 @@ import {
   encrypt,
   formatJoinUrl,
   importKey,
+  importSigningKey,
   parseJoinFragment,
 } from "./crypto";
 import {
@@ -43,6 +44,7 @@ import {
   type RemoteFollower,
 } from "./follower";
 import { ROOM_STORAGE_KEY, useRemoteHost, type RemoteHost } from "./host";
+import { presenterSender } from "./replay";
 import {
   AGENT_NOTE,
   describeAgentEdit,
@@ -489,6 +491,30 @@ async function onTheMap(onMapStep: (direction: 1 | -1) => boolean, controller = 
   return { remote, controller };
 }
 
+/** A share link of `n` characters after `#doc=`. */
+const linkOf = (n: number) => `https://docwalk.example/#doc=${"a".repeat(n)}`;
+
+/** The sealed size of the state this host sends for `link` (with or without the frame). */
+async function frameBytes(link: string, frame: string | null) {
+  const creds = await createPresenterCredentials();
+  const view = await importKey(creds.view);
+  const signer = { room: creds.room, key: await importSigningKey(creds.sign) };
+  const state: RemoteMessage = {
+    type: "state",
+    current: "section-0/1",
+    index: 0,
+    total: 10,
+    title: "Title 0",
+    docLink: link,
+    docLinkTooLong: false,
+    level: "auto",
+    view: "map",
+    ...(frame === null ? {} : { frame }),
+  };
+  const seal = { sender: presenterSender(Date.now()), counter: 1 };
+  return JSON.stringify(await encrypt(view, state, seal, signer)).length;
+}
+
 describe("presenter host", () => {
   test("answers a remote's hello with the current slide", async () => {
     const relay = new FakeRelay();
@@ -740,6 +766,133 @@ describe("presenter host", () => {
     });
     const late = peer(relay, await joinCreds(host, "follow"), "follower");
     await vi.waitFor(() => expect(ofType(late, "state").at(-1)?.view).toBe("map"));
+  });
+
+  describe("the map's current frame goes out in every state (decision 153)", () => {
+    const mapProps = (relay: FakeRelay, controller: DeckController) => ({
+      controller,
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      mapView: true,
+    });
+
+    test("a frame change with no deck change sends a state that names the new frame, and every state carries it", async () => {
+      // Walking the ### frames of one section moves the map and leaves the deck's
+      // slide alone, so the deck's onChange never fires for it: the host must send.
+      const relay = new FakeRelay();
+      const controller = fakeController();
+      const props = mapProps(relay, controller);
+      const host = mountHost({ ...props, mapFrame: "section-0-one" });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() =>
+        expect(ofType(follower, "state").at(-1)).toMatchObject({
+          current: "section-0/1",
+          view: "map",
+          frame: "section-0-one",
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 800));
+      const before = ofType(follower, "state").length;
+
+      mountHost({ ...props, mapFrame: "section-0-two" });
+      await vi.waitFor(() => expect(ofType(follower, "state").length).toBe(before + 1));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ofType(follower, "state").length, "one state for one change").toBe(before + 1);
+      expect(ofType(follower, "state").at(-1)).toMatchObject({
+        current: "section-0/1",
+        view: "map",
+        frame: "section-0-two",
+      });
+      expect(controller.next).not.toHaveBeenCalled();
+      expect(controller.goTo).toHaveBeenCalledTimes(0);
+
+      // A slide change on the map still names the frame.
+      act(() => controller.next());
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.current).toBe("section-1/1"));
+      expect(ofType(follower, "state").at(-1)?.frame).toBe("section-0-two");
+
+      // A follower that joins late is told the frame in the state that answers its hello.
+      const late = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(late, "state").at(-1)?.frame).toBe("section-0-two"));
+    });
+
+    test("a phone remote gets the frame too: the state is the same for every receiver", async () => {
+      const relay = new FakeRelay();
+      const host = mountHost({ ...mapProps(relay, fakeController()), mapFrame: "section-0-one" });
+      const remote = peer(relay, await joinCreds(host, "remote"), "remote");
+      await vi.waitFor(() => expect(ofType(remote, "state").at(-1)?.frame).toBe("section-0-one"));
+    });
+
+    test("no frame is sent on the slides, though the map last had one, and none before the map has reported one", async () => {
+      const relay = new FakeRelay();
+      const controller = fakeController();
+      const props = mapProps(relay, controller);
+      const host = mountHost({ ...props, mapFrame: null });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.view).toBe("map"));
+      expect(ofType(follower, "state").at(-1)).not.toHaveProperty("frame");
+      await new Promise((r) => setTimeout(r, 800));
+
+      mountHost({ ...props, mapFrame: "section-0-one" });
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.frame).toBe("section-0-one"));
+      const onMap = ofType(follower, "state").length;
+
+      // Back on the slides the app stops passing a frame, but even one left in
+      // the prop must not travel: a state says map or it names no frame.
+      mountHost({ ...props, mapView: false, mapFrame: "section-0-one" });
+      await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(onMap));
+      expect(ofType(follower, "state").at(-1)).not.toHaveProperty("view");
+      expect(ofType(follower, "state").at(-1)).not.toHaveProperty("frame");
+    });
+
+    test("a state whose document link fits only without the frame goes out with the link and without the frame", async () => {
+      const frame = "日".repeat(200);
+      // Base64 grows 4/3 per link character: aim the link at the limit from one measurement.
+      const probe = await frameBytes(linkOf(10_000), null);
+      const n = 10_000 + Math.floor(((API_LIMITS.maxFrameBytes - probe) * 3) / 4) - 8;
+      expect(await frameBytes(linkOf(n), null), "fits without the frame").toBeLessThanOrEqual(
+        API_LIMITS.maxFrameBytes,
+      );
+      expect(await frameBytes(linkOf(n), frame), "and not with it").toBeGreaterThan(
+        API_LIMITS.maxFrameBytes,
+      );
+
+      const relay = new FakeRelay();
+      const host = mountHost({
+        ...mapProps(relay, fakeController()),
+        docLink: linkOf(n),
+        mapFrame: frame,
+      });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+      const last = ofType(follower, "state").at(-1)!;
+      expect(last.docLink, "followers keep the document").toBe(linkOf(n));
+      expect(last).toMatchObject({ view: "map", docLinkTooLong: false });
+      expect(last, "and land on the column's first frame").not.toHaveProperty("frame");
+      // Nothing was lost to a state that never went out: the link was never reported too long.
+      await new Promise((r) => setTimeout(r, 100));
+      expect(host.current!.docLinkTooLong).toBe(false);
+      expect(ofType(follower, "state").every((state) => state.docLink === linkOf(n))).toBe(true);
+    });
+
+    test("a link too long even without the frame is dropped as before, and the small state keeps the frame", async () => {
+      const relay = new FakeRelay();
+      const host = mountHost({
+        ...mapProps(relay, fakeController()),
+        docLink: linkOf(20_000),
+        mapFrame: "section-0-one",
+      });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.docLink).toBeNull());
+      expect(ofType(follower, "state").at(-1)).toMatchObject({
+        docLinkTooLong: true,
+        view: "map",
+        frame: "section-0-one",
+      });
+      await vi.waitFor(() => expect(host.current!.docLinkTooLong).toBe(true));
+    });
   });
 
   test("tells followers to wait while the doc link is built, and only says 'too long' when there is none", async () => {

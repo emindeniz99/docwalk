@@ -1,4 +1,4 @@
-import { createElement as h, useEffect, useState } from "react";
+import { createElement as h, useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -27,7 +27,8 @@ const outside: {
   setCurrent: ((id: string | null) => void) | null;
   setRequest: ((request: { sectionId: string; seq: number }) => void) | null;
   handle: MapHandle | null;
-} = { setCurrent: null, setRequest: null, handle: null };
+  setMarkdown: ((markdown: string) => void) | null;
+} = { setCurrent: null, setRequest: null, handle: null, setMarkdown: null };
 let requests = 0;
 
 let reactRoot: ReactRoot | null = null;
@@ -41,6 +42,7 @@ afterEach(() => {
   outside.setCurrent = null;
   outside.setRequest = null;
   outside.handle = null;
+  outside.setMarkdown = null;
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
@@ -125,6 +127,10 @@ interface Mounted {
   layer: HTMLElement;
   /** Every `onCurrent` call, in order. */
   calls: string[];
+  /** Every `onFrame` report, in order (decision 153). */
+  reports: { frame: string; head: boolean }[];
+  /** Both callbacks in the order they came: `frame:<id>` and `section:<id>`. */
+  log: string[];
   /** The app's current deck section changing from outside (a rebuilt deck, a hash change). */
   setCurrent: (id: string | null) => Promise<void>;
   /**
@@ -135,6 +141,8 @@ interface Mounted {
   choose: (id: string) => Promise<void>;
   /** The phone remote's Next (1) or Previous (-1) as the presenter hands it to the map (decision 152). */
   step: (direction: 1 | -1) => Promise<boolean>;
+  /** The document edited: the map's plan and the deck's sections are made again. */
+  edit: (markdown: string) => Promise<void>;
 }
 
 interface Options {
@@ -149,12 +157,21 @@ interface Options {
   level?: Parameters<typeof sectionize>[1];
   /** The map's laser, as App holds it (decision 149). */
   laser?: boolean;
+  /** The frame a link opened the page on (`?frame=`), which App hands the map (decision 153). */
+  openFrame?: string | null;
 }
 
 /** MapView with the deck's sections at `auto`, once its first placement is shown. */
 async function mountRoute(
   markdown: string,
-  { current = null, size = PANE, feedback = false, level = "auto", laser = false }: Options = {},
+  {
+    current = null,
+    size = PANE,
+    feedback = false,
+    level = "auto",
+    laser = false,
+    openFrame = null,
+  }: Options = {},
 ): Promise<Mounted> {
   await page.viewport(size.width + 100, size.height + 100);
   const container = document.createElement("div");
@@ -164,11 +181,14 @@ async function mountRoute(
     height: `${size.height}px`,
   });
   document.body.append(container);
-  const root = parseMarkdown(markdown);
-  const deckPlan = sectionize(root, level);
-  const deckSections = deckPlan.sections;
   const calls: string[] = [];
+  const reports: { frame: string; head: boolean }[] = [];
+  const log: string[] = [];
   function Harness() {
+    const [text, setText] = useState(markdown);
+    const root = useMemo(() => parseMarkdown(text), [text]);
+    const deckPlan = useMemo(() => sectionize(root, level), [root]);
+    const deckSections = deckPlan.sections;
     const [handle, setHandle] = useState<MapHandle | null>(null);
     useEffect(() => {
       outside.handle = handle;
@@ -178,6 +198,7 @@ async function mountRoute(
     useEffect(() => {
       outside.setCurrent = setNow;
       outside.setRequest = setRequest;
+      outside.setMarkdown = setText;
     }, []);
     return h(MapView, {
       ref: setHandle,
@@ -187,8 +208,14 @@ async function mountRoute(
       deckLevels: deckPlan.levels,
       request,
       laser,
+      openFrame,
+      onFrame: (report: { frame: string; head: boolean }) => {
+        reports.push(report);
+        log.push(`frame:${report.frame}`);
+      },
       onCurrent: (id: string) => {
         calls.push(id);
+        log.push(`section:${id}`);
         if (feedback) setNow(id);
       },
     });
@@ -205,6 +232,8 @@ async function mountRoute(
     pane,
     layer,
     calls,
+    reports,
+    log,
     setCurrent: async (id) => {
       flushSync(() => outside.setCurrent?.(id));
       await frames(2);
@@ -222,6 +251,10 @@ async function mountRoute(
       const took = outside.handle!.step(direction);
       await frames(2);
       return took;
+    },
+    edit: async (text) => {
+      flushSync(() => outside.setMarkdown?.(text));
+      await frames(4);
     },
   };
 }
@@ -666,6 +699,150 @@ describe("the deck section the map reports and follows (decision 145, Address)",
     expect(statusOf(m.pane)).toBe("Gamma, 5 of 6");
     // A section the app chose is not reported back.
     expect(m.calls).toEqual([]);
+  });
+});
+
+describe("the frame the map reports (decision 153)", () => {
+  beforeEach(reduceMotion);
+
+  test("every frame the reader makes current is reported, with whether it is the one its section's address opens", async () => {
+    // The shell writes `?frame=` for a frame that is not the head and tells the room every one.
+    const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
+    expect(m.reports).toEqual([{ frame: "alpha", head: true }]);
+    m.pane.focus();
+    await press("{ArrowRight}");
+    await press("{ArrowRight}");
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
+    await press("{ArrowRight}");
+    expect(m.reports.at(-1)).toEqual({ frame: "beta", head: true });
+    await press("{End}");
+    expect(m.reports.at(-1)).toEqual({ frame: "gamma-detail", head: false });
+    expect(m.reports.map((r) => r.frame)).toEqual([
+      "alpha",
+      "alpha-one",
+      "alpha-two",
+      "beta",
+      "gamma-detail",
+    ]);
+  });
+
+  test("a section the app reports is `onCurrent`'s alone: a ### frame still reports no section", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}");
+    expect(m.calls).toEqual([]);
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
+  });
+
+  test("the frame is reported before the section moves the deck, so the state the deck's change sends can carry the new frame", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}{ArrowRight}");
+    expect(m.log).toEqual([
+      "frame:alpha",
+      "frame:alpha-one",
+      "frame:alpha-two",
+      "frame:beta",
+      "section:beta",
+    ]);
+  });
+
+  test("a frame chosen in the shell and a section from outside are reported too", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha" });
+    await m.setCurrent("gamma");
+    expect(m.reports.at(-1)).toEqual({ frame: "gamma", head: true });
+    await m.choose("beta");
+    expect(m.reports.at(-1)).toEqual({ frame: "beta", head: true });
+  });
+
+  test("nothing is reported while the deck has no current section: the address is unknown", async () => {
+    const m = await mountRoute(ROUTE, { current: null });
+    expect(m.reports).toEqual([]);
+    await m.setCurrent("beta");
+    expect(m.reports).toEqual([{ frame: "beta", head: true }]);
+  });
+
+  test("a section that arrives after the map opened on the same frame still reports it", async () => {
+    // The map opened on the first frame before the deck had a slide; the deck's
+    // first section is that frame's own, so the map moves nothing, yet it is now known.
+    const m = await mountRoute(ROUTE, { current: null });
+    await m.setCurrent("alpha");
+    expect(m.reports).toEqual([{ frame: "alpha", head: true }]);
+  });
+});
+
+describe("a link that names a frame (decision 153, The link)", () => {
+  beforeEach(reduceMotion);
+
+  test("opens on that frame when the map has it and it lies in the section the address names", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", openFrame: "alpha-two" });
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expectAt(m, fittedTo(m, "alpha-two"));
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
+    // The frame is a place inside the section: the deck is not asked to move.
+    expect(m.calls).toEqual([]);
+  });
+
+  test("opens there when the deck's current section arrives after the map opened", async () => {
+    const m = await mountRoute(ROUTE, { current: null, openFrame: "alpha-two" });
+    await m.setCurrent("alpha");
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expectAt(m, fittedTo(m, "alpha-two"));
+  });
+
+  test("a frame outside the address's section is ignored: the hash decides, and the map opens on the section's frame", async () => {
+    const m = await mountRoute(ROUTE, { current: "beta", openFrame: "alpha-two" });
+    expect(currentIds(m.container)).toEqual(["beta"]);
+    expectAt(m, fittedTo(m, "beta"));
+    const late = await mountRoute(ROUTE, { current: null, openFrame: "gamma-detail" });
+    await late.setCurrent("alpha");
+    expect(currentIds(late.container)).toEqual(["alpha"]);
+  });
+
+  test("a frame the map does not have is ignored: a heading an edit removed or renamed opens the section's frame", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", openFrame: "alpha-three" });
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expectAt(m, fittedTo(m, "alpha"));
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha", head: true });
+  });
+
+  test("a section's own head frame as the link's frame is no different from none", async () => {
+    const m = await mountRoute(ROUTE, { current: "gamma", openFrame: "gamma" });
+    expect(currentIds(m.container)).toEqual(["gamma"]);
+    expect(m.reports).toEqual([{ frame: "gamma", head: true }]);
+  });
+
+  test("applies to the opening view only: later sections from outside go to their head frames", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", openFrame: "alpha-two" });
+    await m.setCurrent("beta");
+    expect(currentIds(m.container)).toEqual(["beta"]);
+    await m.setCurrent("alpha");
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expectAt(m, fittedTo(m, "alpha"));
+  });
+});
+
+describe("after an edit (decision 153, After an edit)", () => {
+  beforeEach(reduceMotion);
+
+  test("the map keeps its current frame while it exists, and says nothing new about it", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha" });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}");
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
+    const said = m.reports.length;
+    await m.edit(ROUTE.replace("Alpha one paragraph 1", "Alpha one, edited, paragraph 1"));
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expect(m.reports.length, "the same frame is not reported again").toBe(said);
+  });
+
+  test("a frame an edit removed gives way to the frame of its section, which is reported", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha" });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}");
+    await m.edit(ROUTE.replace("### Alpha two", "### Alpha twoo"));
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha", head: true });
   });
 });
 
