@@ -12,13 +12,17 @@ rows run to 137. In the fork since 2026-11-11: the simplification pass (125,
 (127, 128), focus views in the document view (129), small UX fixes (130, 131,
 133, 134), and a review of PR #5's feature code with its fixes (132, 135).
 Rows 133 and 134 and the Turkish "taşma notu" are proposed and wait for the
-owner. Map mode (136) is being built in ROADMAP "Next up" 1's five steps:
-all five are done on 2026-11-16 (`src/map/`: layout, frames, camera,
-route, laser, `MapView`; the room's state says `view: "map"`; decisions 139 to
-150, the lead's reading, waiting for the owner). Left for the owner: the hand
-check on a Mac trackpad and an iPad, and the open points under each step in
-ROADMAP. Hand tests on real
-devices (2) and the next feature round (3) need the owner.
+owner. Map mode (136): PR #7 (steps 1 to 5, rows 139 to 150) was merged by the
+owner on 2026-11-16, who then chose 151, 172 and 174 and left the map to this
+fork (rows 152 to 169 are the map's range, 170 onward the owner's). On
+2026-11-25 the fork built ROADMAP "Map: to do" items 1 to 5: one column down
+the page (174, with 155 keeping the frame being read in place), the phone
+walking the map (152), followers and links naming the frame (153), "Present
+the map" (154), one tap slop (156), no diagrams at unreadable zoom (157), the
+shared laser trail, and the unknown-view note (172). Rows 152 to 157 are the
+lead's reading and wait for the owner. Item 6 (moving frames by hand) is
+"later" and needs its own row; real-device checks (2) and the next feature
+round (3) need the owner.
 
 The project is public at github.com/emindeniz99/docwalk with the static
 build on GitHub Pages (`deploy-pages.yml` runs after CI passes on `main`, or
@@ -101,6 +105,7 @@ needs its own `node_modules` and a few pnpm settings (see Learnings, pnpm).
 - 2026-11-16: `touch-action` on a pane does not reach its scroll containers: a touch that starts on an `overflow: auto` child is the browser's (`pointercancel`) unless the child has `touch-action: none` too, and an e2e touch that starts on empty space cannot show it; send one through CDP that starts on text. A view shown only after "everything settled" is blank for as long as one image stalls: place from heights read at once, then again as reports come. Marks that name an action ("Press Enter to open") must come with the handler in the same change. Three workers built one view in parallel from one decision row with disjoint files (pure camera, DOM renderer, shell with a stub component), and a fourth composed them.
 - 2026-11-16: Chromium keeps a failed dynamic `import()` for the life of the page: clearing our own promise and importing again rejects at once with no request, so a test that fakes a load failure inside a module that did load proves nothing about a failed chunk. React Aria's `focusSafely` waits for running transitions only when focus last moved without a key or pointer ("virtual" modality: a screen reader, `element.focus()`), and loses count when a child's `transitioncancel` bubbles; a `transition-duration` above 0 on `*` starts a transition on every style change (`transition-property` defaults to `all`), which left the palette unfocused under reduced motion. `style.transform` read back in Chromium keeps six significant digits: compare cameras as numbers. A fast-check seed goes in as the second argument of `fcTest.prop` (`{ seed }`).
 - 2026-11-16: The map's keys listen on its pane, so an input that changes the map's state without a key or a mouse press (a wheel, a pinch, the palette) must move focus to the pane, or the Escape its status promises never arrives. A focus view that closes gives focus back to its block: if the map moved meanwhile, that `focusin` looks like a Tab into a far frame. `renderDiagrams`, the mirror layer and the annotation layer live on the deck's stage and are hidden with it on the map; map frames carry no `data-docwalk-id`, so nothing on the map is mirrored. A follower cannot receive a document too long for the room's link (the sample): follow tests use a short one.
+- 2026-11-25: Map in one column: any height change above the frame being read moves it, so `place()` anchors a frame (155); tests that check a frame once through `expect.poll` miss a jump that comes 150 ms later, so check after every diagram above has drawn. A step from the phone and a closing focus view both hand focus back to an old frame; `navigated` keeps the map on the new one.
 
 ## Done
 

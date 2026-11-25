@@ -649,37 +649,52 @@ commits: a decision row first where a rule changes, then a failing test, then
 code; the e2e suite on Chromium, Firefox and WebKit; a pull request from the
 fork, merged with a merge commit.
 
-1. Decisions 151 and 174, the owner's choices:
-   - The layout becomes one column that runs down the page (decision 174,
-     which replaces 151's rows): every frame, `##` sections and their `###`
-     parts alike, in document order from top to bottom, all one width, a
-     little wider than the document view. A wheel or two fingers move it down
-     and up; zoom, roaming and the rest stay. Change `src/map/layout.ts`
-     (`mapColumns`, `placeFrames`) and its tests; the whole map (`0`) is then
-     that column fitted to the pane.
-   - On the map, the phone remote's and an agent's next and previous walk the
-     frames as the arrow keys do, `###` frames included. Today they turn the
-     deck's pages and the map moves only when the section changes
-     (`src/remote/host.ts:425`, `setCurrent` in `MapView.tsx`).
-   - Followers and copied links follow the current frame, `###` parts
-     included, still as a section address (rule 7), never a camera position.
-     Today they stay on the column's head (145, 148, 150).
-   - Present keeps opening the slides; the map view gets its own "present the
-     map full screen" control.
-2. Settle two conflicting copies. `MapView.tsx` has its own text-field check:
-   use `isTextEntry` (`src/annotate/useAnnotationShortcuts.ts`), which also
-   knows `role="textbox"` and leaves checkboxes out. The tap slop is 10 px on
-   the map and 6 in the focus view: pick one and say why.
-3. Share the laser trail. `src/map/laser.ts` copies the `getStroke` settings
-   and fade of `src/annotate/layer.ts`; one small module both import keeps
-   drauu out of the map chunk and stops the copies drifting apart.
-4. Two cheap performance fixes: the whole map queues every diagram at once;
-   the pointer handler reads the pane's box on every pointer move anywhere in
-   the app, before it checks for a drag or pinch.
-5. Decision 172 (owner, 2026-11-16), build it before a second `view` value
-   exists: a follower that meets a view it does not know keeps following on
-   slides and shows a note that a reload shows the newer view. Today the state
-   message accepts only `"map"`, so any other value drops the whole state.
+1. Done 2026-11-25 (decisions 151 and 174; the lead's rows 152 to 155):
+   - One column down the page (174): `placeFrames` stacks every frame at
+     x = 0 in document order, a frame gap inside a section's group and a
+     column gap between groups; `0` fits that column. Review found that a
+     diagram drawn above the frame being read pushed it off screen (the
+     sample's API heading went 400 px above the pane), so 155 keeps the
+     current frame, or the first frame in view, in place when the frames are
+     placed again.
+   - The phone remote walks the map (152): while the map shows, a step goes
+     to `MapView`'s `step()`, the arrow keys' move, `###` frames included; a
+     step the map could not take (its chunk not loaded) turns the deck. An
+     open code, table or image view closes only when the step moves.
+   - Followers and links name the frame (153): `?frame=<id>` beside
+     `view=map` and an optional signed `frame`, only for a frame that is not
+     its column's head; a stale or foreign frame falls back to the section's.
+     The presenter drops `frame` before the document link when a state is too
+     large, and never sends a fallback after a later state.
+   - "Present the map" (154): a 44 px button in the pane and a palette entry;
+     the page root in full screen with the map pane alone, `view=map` kept,
+     the screen awake. Exit, Escape or leaving full screen return to the map
+     view on the same frame; an Escape for a dialog or the laser goes to it
+     first. While presented a resize refits only until the presenter pans or
+     zooms by hand.
+   - Left open: an agent tool for next and previous (152 covers any
+     control-key step, `docwalk-mcp` has none); the phone shows the deck's
+     slide, not the frame; after a presenter reload with `?frame=`, followers
+     may see the column head before the frame; switching view from the
+     palette while the map is presented leaves full screen on, as on the
+     slides. Not verified: Firefox's and WebKit's own Escape in full screen
+     beyond CI, a real phone, tablet or second device.
+2. Done 2026-11-25 (decision 156): `MapView` uses `isTextEntry`; one
+   `TAP_SLOP` of 10 CSS px in `src/deck/tapSlop.ts` serves the map and the
+   focus view, and both pan at 10 px or more.
+3. Done 2026-11-25: `src/annotate/laserTrail.ts` holds the trail's duration,
+   size, stroke and fade for the slides and the map; the map chunk still has
+   no drauu.
+4. Done 2026-11-25 (decision 157): no new diagram is queued while a frame
+   shows narrower than 320 CSS px, so the whole map no longer asks for every
+   diagram; the pointer move listener reads the pane's box only for a tracked
+   finger or a drag. An active pinch is still re-applied on any pointer's
+   move, a mouse's included.
+5. Done 2026-11-25 (decision 172): the signed `view` is any name of one
+   lowercase letter and up to 23 letters or hyphens; a follower shows the map
+   for `"map"` and slides for any other, keeps following, and the follow bar
+   shows a fixed note, wrapped on a phone, that a reload shows the newer
+   view.
 6. Later, after the new layout: moving frames by hand, as in Apple Freeform
    (decision 174, "later"). Positions are viewer state kept in the browser,
    never written to the Markdown (rule 1), with a control that resets the
