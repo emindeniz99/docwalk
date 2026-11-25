@@ -1,5 +1,4 @@
 import { createDrauu, type Drauu, type DrawingMode, type EraserModel } from "@drauu/core";
-import { getStroke } from "perfect-freehand";
 import "./layer.css";
 import {
   MAX_STROKE_POINTS,
@@ -14,18 +13,23 @@ import {
 } from "./mirrorTypes";
 import { coverPage } from "./boardCover";
 import { strokeElement } from "./markSvg";
-import { outlinePath } from "./outline";
+import {
+  LASER_SIZE,
+  LASER_TRAIL_MS,
+  freshTrail,
+  trailOpacity,
+  trailPath,
+  type TrailPoint,
+} from "./laserTrail";
 import { watchPenDrags } from "./stylus";
 import { acceptedInput } from "./stylusPolicy";
 import type { AnnotationLayer, AnnotationLayerOptions, AnnotationMode } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-/** How long a laser point stays on screen; the trail is gone this long after the pointer stops. */
-export const LASER_TRAIL_MS = 600;
+export { LASER_TRAIL_MS };
 
 const PEN_SIZE = 4;
-const LASER_SIZE = 12;
 
 /** The modes drauu draws or erases in; the laser and "off" are the layer's own. */
 type DrawMode = MarkTool | "eraser";
@@ -41,12 +45,6 @@ const attrNum = (el: Element | null, name: string) => Number(el?.getAttribute(na
 
 const isMarkTool = (mode: AnnotationMode): mode is MarkTool =>
   mode === "pen" || mode === "arrow" || mode === "rect" || mode === "ellipse";
-
-interface LaserPoint {
-  x: number;
-  y: number;
-  t: number;
-}
 
 function surface(kind: "draw" | "laser"): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -386,7 +384,7 @@ export function createAnnotationLayer(
   show(active);
 
   // Laser state.
-  let trail: LaserPoint[] = [];
+  let trail: TrailPoint[] = [];
   let frame = 0;
   let idleTimer = 0;
   const laserPath = document.createElementNS(SVG_NS, "path");
@@ -423,18 +421,14 @@ export function createAnnotationLayer(
   function renderTrail() {
     frame = 0;
     const now = performance.now();
-    trail = trail.filter((p) => now - p.t < LASER_TRAIL_MS);
+    trail = freshTrail(trail, now);
     if (trail.length === 0) {
       laser.replaceChildren();
       return;
     }
-    const outline = getStroke(
-      trail.map((p) => [p.x, p.y]),
-      { size: LASER_SIZE, thinning: 0.6, smoothing: 0.5, streamline: 0.4, start: { taper: true } },
-    );
-    laserPath.setAttribute("d", outlinePath(outline));
-    const newest = trail[trail.length - 1] as LaserPoint;
-    laserPath.setAttribute("opacity", String(1 - (now - newest.t) / LASER_TRAIL_MS));
+    laserPath.setAttribute("d", trailPath(trail));
+    const newest = trail[trail.length - 1] as TrailPoint;
+    laserPath.setAttribute("opacity", String(trailOpacity(newest, now)));
     if (!laserPath.isConnected) laser.replaceChildren(laserPath);
     frame = requestAnimationFrame(renderTrail);
   }

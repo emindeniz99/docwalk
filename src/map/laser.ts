@@ -1,17 +1,20 @@
-import { getStroke } from "perfect-freehand";
-import { outlinePath } from "../annotate/outline";
+import {
+  LASER_SIZE,
+  LASER_TRAIL_MS,
+  freshTrail,
+  trailOpacity,
+  trailPath,
+  type TrailPoint,
+} from "../annotate/laserTrail";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /**
- * How long a point of the trail stays on screen, as on the slides
- * (`LASER_TRAIL_MS` in annotate/layer.ts). Not imported from there: that
- * module pulls drauu and the annotation layer's CSS into the map's chunk.
+ * The trail's duration and the dot's size are the slides': they come from
+ * annotate/laserTrail.ts, not annotate/layer.ts, which pulls drauu and the
+ * annotation layer's CSS into the map's chunk.
  */
-export const MAP_LASER_TRAIL_MS = 600;
-
-/** The dot's diameter and the trail's width in CSS pixels, the slides' `LASER_SIZE` (not exported there). */
-export const MAP_LASER_SIZE = 12;
+export { LASER_SIZE as MAP_LASER_SIZE, LASER_TRAIL_MS as MAP_LASER_TRAIL_MS };
 
 export interface MapLaser {
   /** Shows the dot at `x`, `y` in the pane's padding box, in CSS pixels, and adds a trail point. */
@@ -20,12 +23,6 @@ export interface MapLaser {
   hide: () => void;
   /** Removes the overlay; later calls do nothing. */
   dispose: () => void;
-}
-
-interface TrailPoint {
-  x: number;
-  y: number;
-  t: number;
 }
 
 const reducedMotion = () =>
@@ -44,7 +41,7 @@ export function createMapLaser(pane: HTMLElement): MapLaser {
   svg.setAttribute("aria-hidden", "true");
   const path = document.createElementNS(SVG_NS, "path");
   const dot = document.createElementNS(SVG_NS, "circle");
-  dot.setAttribute("r", String(MAP_LASER_SIZE / 2));
+  dot.setAttribute("r", String(LASER_SIZE / 2));
   pane.append(svg);
 
   let trail: TrailPoint[] = [];
@@ -59,25 +56,14 @@ export function createMapLaser(pane: HTMLElement): MapLaser {
   const render = () => {
     frame = 0;
     const now = performance.now();
-    trail = trail.filter((p) => now - p.t < MAP_LASER_TRAIL_MS);
+    trail = freshTrail(trail, now);
     if (trail.length === 0) {
       path.remove();
       return;
     }
-    // The slides' stroke (annotate/layer.ts, renderTrail).
-    const outline = getStroke(
-      trail.map((p) => [p.x, p.y]),
-      {
-        size: MAP_LASER_SIZE,
-        thinning: 0.6,
-        smoothing: 0.5,
-        streamline: 0.4,
-        start: { taper: true },
-      },
-    );
-    path.setAttribute("d", outlinePath(outline));
+    path.setAttribute("d", trailPath(trail));
     const newest = trail.at(-1) as TrailPoint;
-    path.setAttribute("opacity", String(1 - (now - newest.t) / MAP_LASER_TRAIL_MS));
+    path.setAttribute("opacity", String(trailOpacity(newest, now)));
     showPath();
     frame = requestAnimationFrame(render);
   };
