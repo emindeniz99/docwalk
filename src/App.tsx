@@ -75,7 +75,7 @@ import { readInitialSections, useUrlSync } from "./url/useUrlSync";
 import { m } from "./paraglide/messages.js";
 import { FilesPanel } from "./workspace/FilesPanel";
 import { useWorkspace } from "./workspace/useWorkspace";
-import type { MapRequest } from "./map/MapView";
+import type { MapHandle, MapRequest } from "./map/MapView";
 import { WorkspaceBanner } from "./workspace/WorkspaceBanner";
 import { WorkspaceDialogs } from "./workspace/WorkspaceDialogs";
 
@@ -458,6 +458,9 @@ export function App() {
     (sectionId: string) => goToAddress(`${sectionId}/1`, true),
     [goToAddress],
   );
+  // The phone remote's Next and Previous walk the map's route while the map shows (decision 152).
+  const mapRef = useRef<MapHandle>(null);
+  const onMapStep = useCallback((direction: 1 | -1) => mapRef.current?.step(direction), []);
 
   // Comments (decision 55): App only places the pieces the hook builds.
   const comments = useCommentsUi({
@@ -848,6 +851,7 @@ export function App() {
             {/* The map moves with the deck's current slide and moves it (decision 145);
                 a section left out of the chosen ones is not in the deck, so goTo does nothing. */}
             <MapView
+              ref={mapRef}
               root={root}
               current={current?.sectionId ?? null}
               deckSections={plan.sections}
@@ -1012,6 +1016,7 @@ export function App() {
             mirror={mirrorFeed}
             countdown={presenterCountdown}
             mapView={view === "map"}
+            onMapStep={onMapStep}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
             edit={onEdit}

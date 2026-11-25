@@ -1,5 +1,13 @@
 import type { Root } from "mdast";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import {
+  type Ref,
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "react-aria-components";
 import { FOCUS_ATTR } from "../deck/focusTargets";
 import { wireFocusTargets } from "../deck/focusWiring";
@@ -57,7 +65,19 @@ export interface MapRequest {
   seq: number;
 }
 
+/** What the app can ask of a mounted map (decision 152). */
+export interface MapHandle {
+  /**
+   * The phone remote's Next (1) or Previous (-1): the next or previous frame
+   * of the route from the current frame, as Right and Left do on the pane but
+   * wherever keyboard focus is, with the laser on or off.
+   */
+  step: (direction: 1 | -1) => void;
+}
+
 export interface MapViewProps {
+  /** The map's handle, for the phone remote's steps. */
+  ref?: Ref<MapHandle>;
   /**
    * The parsed document. The map sections it itself with `mapPlan`, so the
    * level override and the choice of sections do not change it (decision 142).
@@ -227,6 +247,8 @@ interface MapController {
   setLaser: (on: boolean) => void;
   /** A section the reader chose in the shell: its frame, with the move, whatever is current. */
   request: (sectionId: string) => void;
+  /** The phone remote's Next or Previous (decision 152): the key's move, from wherever focus is. */
+  step: (direction: 1 | -1) => void;
   /** A follower's roam ends: the map goes to the presenter's section and follows it again (decision 150). */
   back: () => void;
   /** The deck's current section, from outside (an outline entry, a link, a palette result). */
@@ -286,6 +308,12 @@ interface MapController {
  *   goes off before the release; the laser going on ends a mouse drag.
  * - While a finger points, a mouse or pen moves no dot.
  * - Switched on while focus is outside the pane, the pane takes focus.
+ *
+ * Rules this view chose for the phone remote's steps (decision 152):
+ * - A step is the arrow key's move (`goToFrame`), taken from outside the
+ *   pane, so it needs no focus and no exclusion of a text field or a box that
+ *   scrolls; a focus view of a block closes only when the step moves.
+ * - A step at the first or last frame moves nothing and leaves an open view.
  *
  * Rules this view chose for a follower's map (step 5, decision 150):
  * - A roam starts with whatever moves the camera by the reader's hand: the
@@ -1051,6 +1079,25 @@ function mountMap(
       const id = camera ? frameForSection(mapSections, deckSections, sectionId) : null;
       if (id !== null) goToFrame(id, { report: false });
     },
+    step(direction) {
+      if (!camera || order.length === 0) return;
+      const to =
+        direction === 1 ? nextFrame(order, currentFrame) : previousFrame(order, currentFrame);
+      if (to === null) return;
+      // As a slide change closes them on the slides; a diagram view stays (decision 152).
+      const focused = document.activeElement;
+      focusWiring.closeContent();
+      // A closing view hands focus back to its block, and the focus rule would make that
+      // block's frame current again once the step has moved on: the step's frame wins.
+      const returned = document.activeElement;
+      if (returned !== focused && returned instanceof HTMLElement && layer.contains(returned)) {
+        navigated = returned;
+        queueMicrotask(() => {
+          navigated = null;
+        });
+      }
+      goToFrame(to, { leaveFocus: true });
+    },
     back,
     setCurrent(sectionId) {
       // The deck is being built: nothing to follow until it is back.
@@ -1123,6 +1170,7 @@ const NO_LEVELS: readonly number[] = [];
  * current frame, which follows the deck's current slide and reports its own.
  */
 export default function MapView({
+  ref,
   root,
   current = null,
   deckSections = NO_SECTIONS,
@@ -1143,6 +1191,11 @@ export default function MapView({
   const controller = useRef<MapController | null>(null);
   const report = useEffectEvent((sectionId: string) => onCurrent?.(sectionId));
   const askLaser = useEffectEvent((on: boolean) => onLaserChange?.(on));
+  useImperativeHandle(
+    ref,
+    () => ({ step: (direction) => controller.current?.step(direction) }),
+    [],
+  );
   // A follower's roam (decision 150): the controller decides it, this shows the button.
   const [roaming, setRoaming] = useState(false);
   useEffect(() => {
