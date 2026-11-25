@@ -1,7 +1,7 @@
 import { act, createElement as h, useEffect, useState } from "react";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, describe, expect, test } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
@@ -12,6 +12,7 @@ import { type Camera, fitFrame } from "./camera";
 import { FRAME_WIDTH } from "./layout";
 import { MOVE_MS } from "./route";
 import MapView, { type MapHandle } from "./MapView";
+import { cameraOf, frames, mapContainer, para, placedMap } from "./testMap";
 
 /**
  * Decision 154, the map's own "Present the map" control. MapView draws the
@@ -41,18 +42,6 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
-}
-
-const para = (label: string, n: number) =>
-  Array.from(
-    { length: n },
-    (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
-  ).join("\n\n");
-
 const DOC = ["## Alpha", "", para("Alpha", 2), "", "## Beta", "", para("Beta", 2), ""].join("\n");
 
 const SMALL = { width: 800, height: 500 };
@@ -76,14 +65,7 @@ interface Mounted {
 
 /** MapView as App mounts it, with or without the presenting control, in a pane of `SMALL`. */
 async function mount({ presenting = true }: { presenting?: boolean } = {}): Promise<Mounted> {
-  await page.viewport(LARGE.width + 100, LARGE.height + 100);
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    display: "grid",
-    width: `${SMALL.width}px`,
-    height: `${SMALL.height}px`,
-  });
-  document.body.append(container);
+  const container = await mapContainer(SMALL, LARGE);
   const asked: string[] = [];
   const laserAsked: boolean[] = [];
   const mapRoot = parseMarkdown(DOC);
@@ -117,10 +99,7 @@ async function mount({ presenting = true }: { presenting?: boolean } = {}): Prom
   const react = createRoot(container);
   reactRoot = react;
   act(() => react.render(h(Harness)));
-  const pane = container.querySelector<HTMLElement>(".docwalk-map-pane")!;
-  const layer = container.querySelector<HTMLElement>(".docwalk-map-layer")!;
-  await expect.poll(() => layer.hasAttribute("data-placed"), { timeout: 20_000 }).toBe(true);
-  await frames(3);
+  const { pane, layer } = await placedMap(container);
   return {
     container,
     pane,
@@ -148,14 +127,6 @@ const presentButton = (m: Mounted) =>
   [...m.pane.querySelectorAll<HTMLElement>("button")].find((b) =>
     /Present the map|Exit/.test(b.textContent ?? ""),
   );
-
-function cameraOf(layer: HTMLElement): Camera {
-  const match = /translate\(([-\d.e]+)px, ([-\d.e]+)px\) scale\(([-\d.e]+)\)/.exec(
-    layer.style.transform,
-  );
-  if (!match) throw new Error(`no camera in "${layer.style.transform}"`);
-  return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
-}
 
 /** What opening the map on the current frame gives in the pane's present size. */
 function fittedCurrent(m: Mounted): Camera {

@@ -701,9 +701,10 @@ fork, merged with a merge commit.
    layout. Needs its own decision row first.
 7. Optional simplifications: the camera's guards against NaN and enormous
    panes and their tests (about 50 and 285 lines); the diagram reload retry
-   beyond row 146's visible note (needs a row, since 147 and 148 chose it);
-   about 450 lines of test setup copied across the map's browser tests, which
-   one `src/map/testMap.ts` could hold.
+   beyond row 146's visible note (needs a row, since 147 and 148 chose it).
+   Done 2026-11-25: the helpers the map's browser tests shared moved into
+   `src/map/testMap.ts` (152 lines fewer; each file's own mount harness stays,
+   their props differ).
 8. Done: the owner accepted rows 139 to 150 on 2026-11-16; 151 refines
    136, 142, 145, 149 and 150.
 

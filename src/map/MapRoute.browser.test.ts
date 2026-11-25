@@ -2,18 +2,36 @@ import { createElement as h, useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
-import { type Camera, cameraTransform, fitAll, fitFrame } from "./camera";
-import { FRAME_WIDTH } from "./layout";
+import { type Camera, fitAll } from "./camera";
 import MapView, { type MapHandle } from "./MapView";
 import { roomFrame } from "../remote/types";
 import { ZOOM_STEP } from "./route";
+import {
+  boundsOf,
+  cameraOf,
+  currentIds,
+  expectAt,
+  fittedTo,
+  frame,
+  frameEl,
+  frames,
+  mapContainer,
+  para,
+  PANE,
+  paneSize,
+  placedMap,
+  press,
+  reduceMotion,
+  same,
+  statusOf,
+} from "./testMap";
 
 // The frames each `drawDiagrams` call names: what the view asks Mermaid to draw, counted where
 // it asks, since drawing itself is queued and slow. Every call still reaches the real one.
@@ -70,41 +88,6 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
-}
-
-/**
- * `prefers-reduced-motion: reduce` as the view reads it, at the time of each
- * move. Tests that only check where the camera ends use it; the move's own
- * tests leave the real query alone.
- */
-function reduceMotion() {
-  const real = window.matchMedia.bind(window);
-  vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
-    query.includes("prefers-reduced-motion")
-      ? ({
-          matches: true,
-          media: query,
-          onchange: null,
-          addEventListener: () => undefined,
-          removeEventListener: () => undefined,
-          addListener: () => undefined,
-          removeListener: () => undefined,
-          dispatchEvent: () => false,
-        } as MediaQueryList)
-      : real(query),
-  );
-}
-
-const para = (label: string, n: number) =>
-  Array.from(
-    { length: n },
-    (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
-  ).join("\n\n");
-
 /**
  * Three columns; the first and the last have `###` frames under the `##`
  * one, which the deck at `auto` shows inside the column's slide.
@@ -140,7 +123,6 @@ const ROUTE = [
 
 const ROUTE_IDS = ["alpha", "alpha-one", "alpha-two", "beta", "gamma", "gamma-detail"];
 
-const PANE = { width: 1200, height: 700 };
 /** Room for two frames of a column, so a click can reach the second at reading zoom. */
 const TALL_PANE = { width: 1200, height: 1500 };
 
@@ -196,14 +178,7 @@ async function mountRoute(
     openFrame = null,
   }: Options = {},
 ): Promise<Mounted> {
-  await page.viewport(size.width + 100, size.height + 100);
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    display: "grid",
-    width: `${size.width}px`,
-    height: `${size.height}px`,
-  });
-  document.body.append(container);
+  const container = await mapContainer(size);
   const calls: string[] = [];
   const reports: { frame: string; head: boolean }[] = [];
   const log: string[] = [];
@@ -246,10 +221,7 @@ async function mountRoute(
   const react = createRoot(container);
   reactRoot = react;
   flushSync(() => react.render(h(Harness)));
-  const pane = container.querySelector<HTMLElement>(".docwalk-map-pane")!;
-  const layer = container.querySelector<HTMLElement>(".docwalk-map-layer")!;
-  await expect.poll(() => layer.hasAttribute("data-placed"), { timeout: 20_000 }).toBe(true);
-  await frames(3);
+  const { pane, layer } = await placedMap(container);
   return {
     container,
     pane,
@@ -282,81 +254,8 @@ async function mountRoute(
   };
 }
 
-const frameEl = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`[data-map-frame="${CSS.escape(id)}"]`)!;
-
-/** The ids of the frames marked current: exactly one, the map's current frame. */
-const currentIds = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>('[data-map-frame][aria-current="true"]')].map(
-    (el) => el.dataset["mapFrame"],
-  );
-
-const statusOf = (pane: HTMLElement) =>
-  pane.querySelector<HTMLElement>('[role="status"]')?.textContent ?? null;
-
-const paneSize = (pane: HTMLElement) => ({ width: pane.clientWidth, height: pane.clientHeight });
-const boundsOf = (layer: HTMLElement) => ({
-  width: Number.parseFloat(layer.style.width),
-  height: Number.parseFloat(layer.style.height),
-});
-
-/** camera.ts's fit of a frame's placed rectangle, as the opening view fits a frame (decision 142). */
-function fittedTo(m: Mounted, id: string): Camera {
-  const el = frameEl(m.container, id);
-  const rect = {
-    x: Number.parseFloat(el.style.left),
-    y: Number.parseFloat(el.style.top),
-    width: FRAME_WIDTH,
-  };
-  return fitFrame(rect, boundsOf(m.layer), paneSize(m.pane));
-}
-
 /** The whole map centred, as `0` shows it. */
 const wholeMap = (m: Mounted) => fitAll(boundsOf(m.layer), paneSize(m.pane));
-
-/** The layer's camera, read back from its transform. */
-function cameraOf(layer: HTMLElement): Camera {
-  const match = /translate\(([-\d.e]+)px, ([-\d.e]+)px\) scale\(([-\d.e]+)\)/.exec(
-    layer.style.transform,
-  );
-  if (!match) throw new Error(`no camera in "${layer.style.transform}"`);
-  return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
-}
-
-/**
- * Whether two cameras draw the same: the style keeps six significant digits
- * of each number (`scale(0.272727)`), so the comparison allows that rounding.
- */
-const same = (a: Camera, b: Camera) =>
-  Math.abs(a.x - b.x) < 0.01 &&
-  Math.abs(a.y - b.y) < 0.01 &&
-  Math.abs(a.scale - b.scale) <= 1e-5 * b.scale;
-
-/** Asserts the layer shows `expected`, naming both cameras when it does not. */
-function expectAt(m: Mounted, expected: Camera) {
-  const actual = cameraOf(m.layer);
-  expect(
-    same(actual, expected),
-    `layer at ${cameraTransform(actual)}, expected ${cameraTransform(expected)}`,
-  ).toBe(true);
-}
-
-/** Sends `keys` to the focused element and says whether the last key's default was prevented. */
-async function press(keys: string): Promise<boolean> {
-  let prevented = false;
-  const onKey = (event: KeyboardEvent) => {
-    prevented = event.defaultPrevented;
-  };
-  // Bubbling on window runs after the pane's own listener.
-  window.addEventListener("keydown", onKey);
-  try {
-    await userEvent.keyboard(keys);
-  } finally {
-    window.removeEventListener("keydown", onKey);
-  }
-  await frames(2);
-  return prevented;
-}
 
 describe("the opening frame (decision 145, Address)", () => {
   beforeEach(reduceMotion);

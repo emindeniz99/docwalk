@@ -11,26 +11,13 @@ import { BLOCKED_IMAGE_CLASS, BLOCKED_IMAGE_SRC, nodesToHtml } from "../render/t
 import { parseMarkdown } from "../sectioning/sectionize";
 import { renderFrames, type MapFrames } from "./frames";
 import { mapPlan } from "./layout";
+import { frames, mermaidLoad } from "./testMap";
 
-// The Mermaid chunk can fail to load (a lost connection, a new deploy), as in
-// src/deck/mermaidLoad.browser.test.ts: while `failing` is set, `initialize`
-// throws, so the load rejects the way a missing chunk does, and
-// `renderDiagrams` marks the figure `data-load-failed` (decision 146). A load
-// that succeeded stays loaded for the page and `vi.resetModules()` gives no
-// fresh `mermaid.ts` in browser mode, so the load-failure test runs first.
-const control = vi.hoisted(() => ({ failing: false }));
-vi.mock("mermaid", async (importOriginal) => {
-  const real = await importOriginal<typeof import("mermaid")>();
-  const mermaid = new Proxy(real.default, {
-    get(target, key, receiver) {
-      if (control.failing && key === "initialize")
-        throw new TypeError("Failed to fetch dynamically imported module");
-      const value: unknown = Reflect.get(target, key, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-  return { ...real, default: mermaid };
-});
+// The Mermaid chunk can fail to load, so the load-failure test runs first (see
+// `mermaidLoad` in testMap.ts for why).
+vi.mock("mermaid", async (importOriginal) =>
+  (await import("./testMap")).failableMermaid(await importOriginal<typeof import("mermaid")>()),
+);
 
 /**
  * Decision 142, Frames, Measuring and Diagrams: the map draws one frame per
@@ -44,7 +31,7 @@ const handles: MapFrames[] = [];
 afterEach(() => {
   for (const handle of handles.splice(0)) handle.dispose();
   document.body.replaceChildren();
-  control.failing = false;
+  mermaidLoad.failing = false;
 });
 
 interface Mounted {
@@ -76,12 +63,6 @@ async function mount(markdown: string, parent: HTMLElement = document.body): Pro
   });
   await expect.poll(() => settledAt, { timeout: 20_000 }).toBeGreaterThan(0);
   return { host, handle, reports, full: reports[settledAt - 1]!, settledAt, navigations };
-}
-
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
 }
 
 /** A microtask later: MutationObserver records have been delivered. */
@@ -128,7 +109,7 @@ describe("a diagram whose code fails to load (decisions 146, 147 and 148)", () =
     // times a second and, in Chromium, can never succeed before a reload.
     const { handle } = await mount(DIAGRAMS);
     const first = handle.frames.get("first")!;
-    control.failing = true;
+    mermaidLoad.failing = true;
     await expect(handle.drawDiagrams(["first"])).resolves.toBeUndefined();
     const figure = first.querySelector<HTMLElement>("figure.docwalk-diagram[data-load-failed]")!;
     expect(figure).not.toBeNull();
@@ -153,7 +134,7 @@ describe("a diagram whose code fails to load (decisions 146, 147 and 148)", () =
     expect(attempts).toBe(2);
     observer.disconnect();
     // The code loads now: the next return draws the figure in place.
-    control.failing = false;
+    mermaidLoad.failing = false;
     await handle.drawDiagrams([]);
     await handle.drawDiagrams(["first"]);
     expect(first.querySelector(".docwalk-diagram svg")).not.toBeNull();

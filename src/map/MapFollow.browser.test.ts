@@ -2,16 +2,30 @@ import { createElement as h, useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
-import { type Camera, cameraTransform, fitFrame } from "./camera";
-import { FRAME_WIDTH } from "./layout";
 import MapView from "./MapView";
+import {
+  cameraOf,
+  currentIds,
+  expectAt,
+  fittedTo,
+  frameEl,
+  frames,
+  mapContainer,
+  para,
+  PANE,
+  placedMap,
+  press,
+  reduceMotion,
+  same,
+  statusOf,
+} from "./testMap";
 
 /**
  * Decision 150, the map on a follow screen. App gives the map the
@@ -47,37 +61,6 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
-}
-
-/** `prefers-reduced-motion: reduce`: these tests check where the camera ends, not the move. */
-function reduceMotion() {
-  const real = window.matchMedia.bind(window);
-  vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
-    query.includes("prefers-reduced-motion")
-      ? ({
-          matches: true,
-          media: query,
-          onchange: null,
-          addEventListener: () => undefined,
-          removeEventListener: () => undefined,
-          addListener: () => undefined,
-          removeListener: () => undefined,
-          dispatchEvent: () => false,
-        } as MediaQueryList)
-      : real(query),
-  );
-}
-
-const para = (label: string, n: number) =>
-  Array.from(
-    { length: n },
-    (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
-  ).join("\n\n");
-
 /** Three columns; the first has two `###` frames, which the deck at `auto` shows inside its slide. */
 const DOC = [
   "## Alpha",
@@ -108,7 +91,6 @@ const DOC = [
   "",
 ].join("\n");
 
-const PANE = { width: 1200, height: 700 };
 /** Room for two frames of a column, so a click can reach the second at reading zoom. */
 const TALL_PANE = { width: 1200, height: 1500 };
 
@@ -143,14 +125,7 @@ async function mount({
   size?: { width: number; height: number };
   doc?: string;
 } = {}) {
-  await page.viewport(size.width + 100, size.height + 100);
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    display: "grid",
-    width: `${size.width}px`,
-    height: `${size.height}px`,
-  });
-  document.body.append(container);
+  const container = await mapContainer(size);
   const calls: string[] = [];
   const asked: boolean[] = [];
   function Harness() {
@@ -181,10 +156,7 @@ async function mount({
   const react = createRoot(container);
   reactRoot = react;
   flushSync(() => react.render(h(Harness)));
-  const pane = container.querySelector<HTMLElement>(".docwalk-map-pane")!;
-  const layer = container.querySelector<HTMLElement>(".docwalk-map-layer")!;
-  await expect.poll(() => layer.hasAttribute("data-placed"), { timeout: 20_000 }).toBe(true);
-  await frames(3);
+  const { pane, layer } = await placedMap(container);
   const mounted: Mounted = {
     container,
     pane,
@@ -203,72 +175,9 @@ async function mount({
   return mounted;
 }
 
-const frameEl = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`[data-map-frame="${CSS.escape(id)}"]`)!;
-
-const currentIds = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>('[data-map-frame][aria-current="true"]')].map(
-    (el) => el.dataset["mapFrame"],
-  );
-
-const statusOf = (pane: HTMLElement) =>
-  pane.querySelector<HTMLElement>('[role="status"]')?.textContent ?? null;
-
 /** The "Back to presenter" button, or null while the follower follows. */
 const backButton = (pane: HTMLElement) =>
   [...pane.querySelectorAll("button")].find((b) => b.textContent === "Back to presenter") ?? null;
-
-function fittedTo(m: Mounted, id: string): Camera {
-  const el = frameEl(m.container, id);
-  const rect = {
-    x: Number.parseFloat(el.style.left),
-    y: Number.parseFloat(el.style.top),
-    width: FRAME_WIDTH,
-  };
-  const bounds = {
-    width: Number.parseFloat(m.layer.style.width),
-    height: Number.parseFloat(m.layer.style.height),
-  };
-  return fitFrame(rect, bounds, { width: m.pane.clientWidth, height: m.pane.clientHeight });
-}
-
-function cameraOf(layer: HTMLElement): Camera {
-  const match = /translate\(([-\d.e]+)px, ([-\d.e]+)px\) scale\(([-\d.e]+)\)/.exec(
-    layer.style.transform,
-  );
-  if (!match) throw new Error(`no camera in "${layer.style.transform}"`);
-  return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
-}
-
-/** The style keeps six significant digits of each number, so the comparison allows that rounding. */
-const same = (a: Camera, b: Camera) =>
-  Math.abs(a.x - b.x) < 0.01 &&
-  Math.abs(a.y - b.y) < 0.01 &&
-  Math.abs(a.scale - b.scale) <= 1e-5 * b.scale;
-
-function expectAt(m: Mounted, expected: Camera) {
-  const actual = cameraOf(m.layer);
-  expect(
-    same(actual, expected),
-    `layer at ${cameraTransform(actual)}, expected ${cameraTransform(expected)}`,
-  ).toBe(true);
-}
-
-/** Sends `keys` to the focused element and says whether the last key's default was prevented. */
-async function press(keys: string): Promise<boolean> {
-  let prevented = false;
-  const onKey = (event: KeyboardEvent) => {
-    prevented = event.defaultPrevented;
-  };
-  window.addEventListener("keydown", onKey);
-  try {
-    await userEvent.keyboard(keys);
-  } finally {
-    window.removeEventListener("keydown", onKey);
-  }
-  await frames(2);
-  return prevented;
-}
 
 /** A point in the pane, in client coordinates. */
 function at(pane: HTMLElement, fx: number, fy: number) {
