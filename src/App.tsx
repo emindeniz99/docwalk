@@ -326,6 +326,9 @@ export function App() {
   // the presenter's document is here; its deck stays mounted, hidden, on the presenter's slide.
   const followState = followUpdate.state;
   const followMap = follow && followState?.view === "map" && doc !== null;
+  // Any other view name is a later build's (decision 172): slides, still following, and a note.
+  // The name itself is never shown; the note is the catalogue's fixed message.
+  const followNewerView = follow && followState?.view !== undefined && followState.view !== "map";
   const presenterSection = followState
     ? followState.current.slice(0, Math.max(0, followState.current.lastIndexOf("/")))
     : null;
@@ -392,8 +395,9 @@ export function App() {
   const { frame, staged, fill, chrome, present } = usePresenting({
     view,
     follow,
-    // The bar above the map stays up: the idle chrome is the slide's (decision 150).
-    followOpen: followOpen && !followMap,
+    // The bar above the map stays up: the idle chrome is the slide's (decision 150). It stays
+    // up too while it carries the newer-view note (decision 172), or the note would hide itself.
+    followOpen: followOpen && !followMap && !followNewerView,
     mode,
     deckRef,
     layerRef,
@@ -563,9 +567,16 @@ export function App() {
   };
 
   const subline = follow ? (
-    <p className="docwalk-source-banner" role="status">
-      {followUpdate.incomplete ? FOLLOW_STATUS.closed() : FOLLOW_STATUS[followUpdate.status]()}
-    </p>
+    <>
+      <p className="docwalk-source-banner" role="status">
+        {followUpdate.incomplete ? FOLLOW_STATUS.closed() : FOLLOW_STATUS[followUpdate.status]()}
+      </p>
+      {followNewerView && (
+        <p className="docwalk-source-banner" role="status" title={m.follow_newer_view()}>
+          {m.follow_newer_view()}
+        </p>
+      )}
+    </>
   ) : !doc ? null : doc.source.kind === "workspace" ? (
     <WorkspaceBanner workspace={workspace} />
   ) : doc.source.kind === "sample" ? (

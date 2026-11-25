@@ -241,6 +241,9 @@ const Level = v.union([
   ),
 ]);
 
+/** The presenter's view in a state: one lowercase letter, then up to 23 more letters or hyphens (decision 172). */
+const VIEW_NAME = /^[a-z][a-z-]{0,23}$/;
+
 const StateMessage = v.pipe(
   v.object({
     type: v.literal("state"),
@@ -253,8 +256,11 @@ const StateMessage = v.pipe(
     docLinkTooLong: v.optional(v.boolean(), false),
     level: v.optional(Level, "auto"),
     // Absent means slides (decision 150). Like the defaults above, a value
-    // that is present and wrong fails the whole message.
-    view: v.exactOptional(v.literal("map")),
+    // that is present and wrong fails the whole message. A name this build
+    // does not know is still taken, so a later build's second view does not
+    // freeze followers on this one (decision 172): a short lowercase name, at
+    // most 24 characters, that the app never puts into the page as markup.
+    view: v.exactOptional(v.pipe(v.string(), v.regex(VIEW_NAME))),
   }),
   v.check((m) => m.index < m.total, "index must be inside the deck"),
 );

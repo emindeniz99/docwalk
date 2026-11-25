@@ -256,6 +256,7 @@
   "follow_connecting": "Sunuma bağlanılıyor…",
   "follow_doc_too_long": "Sunulan belge buraya gönderilemeyecek kadar uzun. Belgeyi kendiniz açın.",
   "follow_link_incomplete": "Bu izleme bağlantısı eksik. Bağlantıyı sunumu yapan kişiden yeniden isteyin.",
+  "follow_newer_view": "Sunumu yapan kişi docwalk'ın daha yeni bir görünümünü kullanıyor. Görmek için sayfayı yeniden yükleyin.",
   "follow_open": "Sunum izleniyor",
   "follow_reconnecting": "Sunuma yeniden bağlanılıyor…",
   "follow_waiting": "Sunumun başlaması bekleniyor…",
