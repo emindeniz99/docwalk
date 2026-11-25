@@ -134,7 +134,7 @@ interface Mounted {
    */
   choose: (id: string) => Promise<void>;
   /** The phone remote's Next (1) or Previous (-1) as the presenter hands it to the map (decision 152). */
-  step: (direction: 1 | -1) => Promise<void>;
+  step: (direction: 1 | -1) => Promise<boolean>;
 }
 
 interface Options {
@@ -219,8 +219,9 @@ async function mountRoute(
       await frames(2);
     },
     step: async (direction) => {
-      outside.handle!.step(direction);
+      const took = outside.handle!.step(direction);
       await frames(2);
+      return took;
     },
   };
 }
@@ -1056,6 +1057,15 @@ describe("the move (decision 145, The move)", () => {
   );
 });
 
+/** A `## title` section holding a code block with one long line. */
+const WIDE_BLOCK = (title: string) => [
+  `## ${title}`,
+  "",
+  "```text",
+  `log ${"key=value ".repeat(60)}`,
+  "```",
+];
+
 describe("a step from the phone remote (decision 152)", () => {
   beforeEach(reduceMotion);
 
@@ -1178,6 +1188,62 @@ describe("a step from the phone remote (decision 152)", () => {
     expect(m.calls).toEqual(["beta"]);
     await m.step(-1);
     expect(m.calls).toEqual(["beta", "alpha"]);
+  });
+
+  test("a step at the first or last frame leaves an open code view open, as Next on the last slide does", async () => {
+    // Nothing changes on the slides there (no slidechanged), so nothing closes the view.
+    const last = await mountRoute(["## First", "", "Text.", "", ...WIDE_BLOCK("Last")].join("\n"));
+    last.pane.focus();
+    await press("{End}");
+    const pre = frameEl(last.container, "last").querySelector<HTMLElement>("pre")!;
+    await expect.poll(() => pre.dataset["docwalkFocus"], { timeout: 20_000 }).toBe("code");
+    pre.focus();
+    await press("{Enter}");
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    const took = await last.step(1);
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    expect(currentIds(last.container)).toEqual(["last"]);
+    expect(took, "the map took the step, refitting in place").toBe(true);
+  });
+
+  test("a step before the first frame leaves an open code view open", async () => {
+    const m = await mountRoute([...WIDE_BLOCK("First"), "", "## Second", "", "Text."].join("\n"));
+    const pre = frameEl(m.container, "first").querySelector<HTMLElement>("pre")!;
+    await expect.poll(() => pre.dataset["docwalkFocus"], { timeout: 20_000 }).toBe("code");
+    pre.focus();
+    await press("{Enter}");
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    const took = await m.step(-1);
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    expect(currentIds(m.container)).toEqual(["first"]);
+    expect(took, "the map took the step, refitting in place").toBe(true);
+  });
+
+  test("a step the map is not ready for says so: false with no camera yet, true once it has one, also at an end", async () => {
+    // The pane has no size, so there is no opening view and no camera to move.
+    const container = document.createElement("div");
+    container.style.display = "none";
+    document.body.append(container);
+    const held: { current: MapHandle | null } = { current: null };
+    const react = createRoot(container);
+    reactRoot = react;
+    flushSync(() =>
+      react.render(
+        h(MapView, {
+          root: parseMarkdown(ROUTE),
+          ref: (instance: MapHandle | null) => {
+            held.current = instance;
+          },
+        }),
+      ),
+    );
+    await frames(3);
+    expect(held.current!.step(1)).toBe(false);
+    expect(held.current!.step(-1)).toBe(false);
+
+    const m = await mountRoute(ROUTE);
+    expect(await m.step(-1), "at the first frame").toBe(true);
+    expect(await m.step(1)).toBe(true);
   });
 
   test("it closes an open code view, as a slide change does on the slides", async () => {
