@@ -489,12 +489,43 @@ describe("the presenter's view in state (decision 150)", () => {
     expect(slides).not.toHaveProperty("view");
   });
 
-  test("any other view drops the whole state, as a bad level does: a key holder cannot slip in a surprising value", async () => {
+  test("a short lowercase view name this build does not know still arrives, so a newer presenter's followers are not left standing still (decision 172)", async () => {
+    // A later build may send another view. Dropping the state would freeze
+    // every follower on this build; the app shows slides and says why.
+    const key = await importKey(createRoomCredentials().key);
+    for (const view of ["overview", "timeline", "a", "two-words", "x".repeat(24)]) {
+      const message = { ...STATE, view } as RemoteMessage;
+      const opened = await decrypt(key, await encryptRaw(key, sealed(message)));
+      expect([view, opened?.message]).toEqual([view, message]);
+    }
+  });
+
+  test("a view outside the bounded name drops the whole state, as a bad level does: a key holder cannot slip in markup or a surprising value (decision 172)", async () => {
     // The state's other optional fields (docLinkTooLong, level) take a default
     // only when absent; a present but wrong value fails the message. view does
-    // the same, so the app never sees a view it does not know.
+    // the same for anything but a short lowercase name, so the app never holds
+    // a name it could not safely show.
     const key = await importKey(createRoomCredentials().key);
-    for (const view of ["slides", "MAP", "map ", "", "overview", 1, 0, true, null, {}, ["map"]]) {
+    const tooLong = "x".repeat(25);
+    for (const view of [
+      "MAP",
+      "Map",
+      "map ",
+      "",
+      "1map",
+      "-map",
+      "map_view",
+      "map\n",
+      "<b>",
+      '<img src=x onerror="alert(1)">',
+      tooLong,
+      1,
+      0,
+      true,
+      null,
+      {},
+      ["map"],
+    ]) {
       const frame = await encryptRaw(key, sealed({ ...STATE, view }));
       expect([view, await decrypt(key, frame)]).toEqual([view, null]);
     }
@@ -531,6 +562,19 @@ describe("the presenter's view in state (decision 150)", () => {
     expect((await decrypt(view, added, verifier))?.signed).toBe(false);
   });
 
+  test("a signed state with a view this build does not know verifies and keeps the name, and a follower's copy of it stays unsigned (decision 172)", async () => {
+    // The follower shows slides for the name, but only a state the presenter
+    // signed may say so: the note is as trusted as the map switch.
+    const { view, signer, verifier } = await signedRoom();
+    const newer = { ...STATE, view: "overview" } as RemoteMessage;
+    const opened = await decrypt(view, await encrypt(view, newer, SEAL, signer), verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(newer);
+    const forger = await signedRoom();
+    const forged = await decrypt(view, await encrypt(view, newer, SEAL, forger.signer), verifier);
+    expect(forged?.signed).toBe(false);
+  });
+
   test("a signed state verifies on a page whose schema does not know a field of it", async () => {
     // How a follower built before 150 sees view: the signature is checked over
     // the message as it arrived, not over what the schema kept, so the state
@@ -542,6 +586,123 @@ describe("the presenter's view in state (decision 150)", () => {
     const opened = await decrypt(view, frame, verifier);
     expect(opened?.signed).toBe(true);
     expect(opened?.message).toEqual(ON_MAP);
+  });
+});
+
+/** What a key holder's plaintext `message` arrives as, or null when it is dropped. */
+const arrives = async (key: RoomKey, message: unknown) =>
+  (await decrypt(key, await encryptRaw(key, sealed(message))))?.message;
+
+describe("the presenter's current map frame in state (decision 153)", () => {
+  // The follow screen's map goes to the frame the presenter is on, not only to
+  // its section. The field is optional and bounded, and a bad one costs the
+  // follower the frame, never the state: view, in contrast, fails the message.
+  const BASE_STATE = MESSAGES[0]!;
+  const ON_MAP = { ...BASE_STATE, view: "map" } as RemoteMessage;
+  const FRAMED = { ...ON_MAP, frame: "alpha-one" } as RemoteMessage;
+
+  test("a frame id arrives with the state, and a state without one has none", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    expect(await arrives(key, FRAMED)).toEqual(FRAMED);
+    const bare = await arrives(key, ON_MAP);
+    expect(bare).toEqual(ON_MAP);
+    expect(bare).not.toHaveProperty("frame");
+  });
+
+  test("ids in any script, up to 200 code points, are taken: they are GitHub heading anchors", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    for (const frame of ["a", "café-planı", "日本語", "𝒜", "snake_case", "日".repeat(200)]) {
+      const message = { ...ON_MAP, frame } as RemoteMessage;
+      expect([frame, await arrives(key, message)]).toEqual([frame, message]);
+    }
+  });
+
+  test("a frame that does not parse is dropped and the rest of the state is kept, so a later change to ids cannot stop followers (decision 172)", async () => {
+    const key = await importKey(createRoomCredentials().key);
+    for (const frame of [
+      "",
+      "a b",
+      "a/b",
+      "a.b",
+      "<b>",
+      '<img src=x onerror="alert(1)">',
+      "alpha\n",
+      "a".repeat(201),
+      "日".repeat(201),
+      "\ud800",
+      1,
+      0,
+      true,
+      null,
+      {},
+      ["alpha"],
+    ]) {
+      const opened = await arrives(key, { ...ON_MAP, frame });
+      expect([frame, opened]).toEqual([frame, ON_MAP]);
+      expect(opened, `${JSON.stringify(frame)}`).not.toHaveProperty("frame");
+    }
+  });
+
+  test("a signed state with a frame verifies and keeps it, and adding or removing the frame after signing fails", async () => {
+    const { view, signer, verifier } = await signedRoom();
+    const sealedFrame = await encrypt(view, FRAMED, SEAL, signer);
+    const opened = await decrypt(view, sealedFrame, verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(FRAMED);
+
+    const signedFramed = JSON.parse(
+      new TextDecoder().decode(
+        await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: fromBase64Url(sealedFrame.iv)! },
+          view,
+          fromBase64Url(sealedFrame.data)!,
+        ),
+      ),
+    ) as { s: string; n: number; m: Record<string, unknown>; g: string };
+    const { frame: _frame, ...withoutFrame } = signedFramed.m;
+    const removed = await encryptRaw(view, JSON.stringify({ ...signedFramed, m: withoutFrame }));
+    expect((await decrypt(view, removed, verifier))?.signed).toBe(false);
+    const moved = await encryptRaw(
+      view,
+      JSON.stringify({ ...signedFramed, m: { ...signedFramed.m, frame: "alpha-two" } }),
+    );
+    expect((await decrypt(view, moved, verifier))?.signed).toBe(false);
+  });
+
+  test("a signed state whose frame is dropped still verifies, as on a page built before the field, which strips it", async () => {
+    // The signature covers the message as it was sent, not what the schema
+    // kept, so a receiver that ignores `frame` (a follower, phone or agent
+    // from before this row) still trusts the state and reads it as 150 says.
+    const { view, signer, verifier } = await signedRoom();
+    const bad = { ...ON_MAP, frame: "not a slug" } as RemoteMessage;
+    const opened = await decrypt(view, await encrypt(view, bad, SEAL, signer), verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(ON_MAP);
+    // The same holds with a field no build knows next to a good frame.
+    const newer: unknown = { ...FRAMED, layout: "columns" };
+    const stripped = await decrypt(
+      view,
+      await encrypt(view, newer as RemoteMessage, SEAL, signer),
+      verifier,
+    );
+    expect(stripped?.signed).toBe(true);
+    expect(stripped?.message).toEqual(FRAMED);
+  });
+
+  test("the widest frame adds about a kilobyte to a signed state frame", async () => {
+    // 200 code points of four bytes each, base64 inside the ciphertext (decision 153, Size).
+    const { view, signer, verifier } = await signedRoom();
+    const widest = { ...ON_MAP, frame: "𝒜".repeat(200) } as RemoteMessage;
+    const withFrame = JSON.stringify(await encrypt(view, widest, PRESENTER_SEAL, signer)).length;
+    const without = JSON.stringify(await encrypt(view, ON_MAP, PRESENTER_SEAL, signer)).length;
+    expect(withFrame - without).toBeGreaterThan(1000);
+    expect(withFrame - without).toBeLessThan(1200);
+    const opened = await decrypt(
+      view,
+      await encrypt(view, widest, PRESENTER_SEAL, signer),
+      verifier,
+    );
+    expect(opened?.message).toEqual(widest);
   });
 });
 

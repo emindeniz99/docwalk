@@ -34,7 +34,8 @@ async function expectNoSeriousViolations(page: Page) {
 test("Map shows one frame per section of the map's plan, in document order, in place of the deck", async ({
   page,
 }) => {
-  // The sample has 23 columns and 40 frames (src/map/layout.test.ts). The
+  // The sample has 40 frames, in 23 groups of a section and its parts, all in
+  // one column down the page (src/map/layout.test.ts, decision 174). The
   // map's code loads only when asked for: the same pattern perf.spec.ts
   // holds the first load to finds the chunk here, so that check can fail.
   const chunks: string[] = [];
@@ -122,7 +123,8 @@ test("Present from the map presents the deck, and leaving lands in the edit view
   await ready(page, docLink(SHORT_DOC));
   await page.getByRole("radio", { name: "Map" }).click();
   await expect(frames(page)).toHaveCount(3);
-  await page.getByRole("button", { name: "Present" }).click();
+  // Exact: the map's own "Present the map" (decision 154) is a button too, and Present keeps the slides.
+  await page.getByRole("button", { name: "Present", exact: true }).click();
   await expect(app(page)).toHaveAttribute("data-view", "present");
   await expect(page.locator(".reveal .slides > section.present")).toBeVisible();
   await expect(mapRegion(page)).toHaveCount(0);
@@ -188,7 +190,7 @@ const pageScroll = (page: Page) =>
     };
   });
 
-test("the sample's frames lie in columns; a wheel pans, Ctrl + wheel zooms, and the page never scrolls", async ({
+test("the sample's frames lie in one column; a wheel pans, Ctrl + wheel zooms, and the page never scrolls", async ({
   page,
 }) => {
   // Decision 142, Camera: the pane takes the wheel, so the page behind it must not move.
@@ -196,12 +198,14 @@ test("the sample's frames lie in columns; a wheel pans, Ctrl + wheel zooms, and 
   await ready(page);
   await openMap(page);
   const first = frames(page).first();
-  // The title's column, then the first `##` column: tops aligned, side by side.
+  // Decision 174: the title's frame, then the first `##` frame right under it:
+  // one left edge, one width, the next frame lower down.
   const second = mapRegion(page).locator('[data-map-frame="summary"]');
   const a = await boxOf(first);
   const b = await boxOf(second);
-  expect(b.x).toBeGreaterThan(a.x + a.width);
-  expect(Math.abs(b.y - a.y)).toBeLessThan(1);
+  expect(Math.abs(b.x - a.x)).toBeLessThan(1);
+  expect(Math.abs(b.width - a.width)).toBeLessThan(1);
+  expect(b.y).toBeGreaterThan(a.y + a.height);
   const pane = await boxOf(mapRegion(page));
   await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
   await page.mouse.wheel(0, 200);
@@ -372,6 +376,10 @@ test.describe("at 800 × 900, where the main area scrolls", () => {
     await page.getByRole("radio", { name: "Map" }).click();
     await expect(frames(page).first()).toBeVisible({ timeout: 30_000 });
     await mapRegion(page).focus();
+    // The first stop after the pane is its "Present the map" button (decision 154), as a
+    // follower's "Back to presenter" is; the second is the first link, the far one.
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Present the map" })).toBeFocused();
     await page.keyboard.press("Tab");
     const link = page.getByRole("link", { name: "the far link" });
     await expect(link).toBeFocused();
@@ -561,7 +569,7 @@ test.describe("the route through the sample", () => {
       await expect(mapRegion(page).getByRole("status")).toHaveText("Glossary, 6 of 40");
     });
 
-    test("0 shows the whole map, the last column included, and Enter returns to the current frame", async ({
+    test("0 shows the whole map, first frame to last, and Enter returns to the current frame", async ({
       page,
     }) => {
       await openAt(page, "/?view=map#summary/1", "summary");
@@ -569,6 +577,8 @@ test.describe("the route through the sample", () => {
       await page.keyboard.press("0");
       const last = mapRegion(page).locator('[data-map-frame="changelog"]');
       await expect.poll(() => inPane(page, last)).toBe(true);
+      // Decision 174: the whole map is the one column fitted to the pane, top frame to last.
+      expect(await inPane(page, frames(page).first())).toBe(true);
       const whole = await boxOf(current(page));
       await page.keyboard.press("Enter");
       await expect
@@ -576,6 +586,24 @@ test.describe("the route through the sample", () => {
         .toBeGreaterThan(whole.width * 3);
       await expect.poll(() => inPane(page, current(page))).toBe(true);
       await expect(current(page)).toHaveAttribute("data-map-frame", "summary");
+    });
+
+    test("the API frame stays where the map put it while the diagrams above it draw (decision 155)", async ({
+      page,
+    }) => {
+      // In one column the frames above add up: the Data model diagram drawing
+      // above the API frame used to push its heading 400 px above the pane,
+      // about 150 ms after it had landed. So the check is made after the
+      // diagram has drawn and the map has placed it, never while it is landing.
+      await openAt(page, "/?view=map#api/1", "api");
+      const dataModel = mapRegion(page).locator('[data-map-frame="data-model"]');
+      await expect(dataModel.locator(".docwalk-diagram svg")).toHaveCount(1, { timeout: 30_000 });
+      await afterFrames(page);
+      await afterFrames(page);
+      const heading = mapRegion(page).locator('[data-map-frame="api"] h2').first();
+      await expect(heading).toBeVisible();
+      expect(await inPane(page, heading)).toBe(true);
+      await expect(current(page)).toHaveAttribute("data-map-frame", "api");
     });
 
     test("an outline entry in the map view moves the map to that section's frame", async ({
@@ -687,6 +715,52 @@ test.describe("the route through the sample", () => {
       for (const key of ["ArrowRight", "ArrowRight", "ArrowRight"]) await page.keyboard.press(key);
       await expect(current(page)).toHaveAttribute("data-map-frame", "glossary");
       await expect.poll(() => hash(page)).toBe("#glossary/1");
+    });
+
+    test("a ### frame is named in the link: walk to it, reload, and land on it (decision 153)", async ({
+      page,
+    }) => {
+      // The address stays the column's section (148); `frame=` says which of its frames.
+      const frameParam = () => new URL(page.url()).searchParams.get("frame");
+      await openAt(page, "/?view=map#goals-and-non-goals/1", "goals-and-non-goals");
+      expect(frameParam(), "the column's first frame needs no name").toBeNull();
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("ArrowRight");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "non-goals");
+      await expect.poll(frameParam).toBe("non-goals");
+      await afterFrames(page);
+      expect(await hash(page)).toBe("#goals-and-non-goals/1");
+
+      await page.reload();
+      await expect(app(page)).toHaveAttribute("data-view", "map");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "non-goals", {
+        timeout: 30_000,
+      });
+      await expect.poll(() => inPane(page, current(page)), { timeout: 30_000 }).toBe(true);
+      expect(frameParam()).toBe("non-goals");
+
+      // Back to the column's first frame: the link reads as it did before.
+      await mapRegion(page).focus();
+      await page.keyboard.press("ArrowLeft");
+      await page.keyboard.press("ArrowLeft");
+      await expect(current(page)).toHaveAttribute("data-map-frame", "goals-and-non-goals");
+      await expect.poll(frameParam).toBeNull();
+
+      // Leaving the map takes the frame out of the link.
+      await page.keyboard.press("ArrowRight");
+      await expect.poll(frameParam).toBe("goals");
+      await page.getByRole("radio", { name: "Edit" }).click();
+      await expect(app(page)).toHaveAttribute("data-view", "edit");
+      await expect.poll(frameParam).toBeNull();
+    });
+
+    test("a frame outside the link's section is ignored: the hash decides, and the stray frame leaves the link", async ({
+      page,
+    }) => {
+      await openAt(page, "/?view=map&frame=glossary#summary/1", "summary");
+      await expect.poll(() => new URL(page.url()).searchParams.get("frame")).toBeNull();
+      expect(await hash(page)).toBe("#summary/1");
     });
 
     test("axe finds no serious violations with a current frame announced", async ({ page }) => {
@@ -848,6 +922,9 @@ test.describe("a follow screen while the presenter is on the map (decision 150)"
     await expect(follower.getByText("Following the presenter", { exact: true })).toBeVisible();
     await expect(follower.getByRole("button", { name: /^Theme:/ })).toBeVisible();
     await expect(follower.getByRole("radio", { name: "Map" })).toHaveCount(0);
+    // Presenting the map is the presenter's: a follower's map has no such control (decision 154).
+    await expect(follower.getByRole("button", { name: "Present the map" })).toHaveCount(0);
+    await expect(presenter.getByRole("button", { name: "Present the map" })).toBeVisible();
     expect(chunks, "the map's chunk once the presenter is on it").toHaveLength(1);
     await expect(backButton(follower)).toHaveCount(0);
     await expectNoSeriousViolations(follower);
@@ -974,5 +1051,172 @@ test.describe("the presenter's marks while a follower shows the map (decision 15
     await expect(marks).toHaveCount(1);
     await expect(marks.first()).toBeVisible();
     expect(errors, "page errors on the follower").toEqual([]);
+  });
+});
+
+const presentMapButton = (page: Page) =>
+  mapRegion(page).getByRole("button", { name: "Present the map" });
+const exitButton = (page: Page) => mapRegion(page).getByRole("button", { name: "Exit" });
+const toolbar = (page: Page) => page.locator(".docwalk-toolbar");
+/** The page root is the full-screen element, as Present makes it. */
+const fullScreen = (page: Page) =>
+  page.evaluate(() => document.fullscreenElement === document.documentElement);
+
+/** The map of the short document, on its second frame, so "the same frame" means something. */
+async function onSecondFrame(page: Page) {
+  await ready(page, docLink(SHORT_DOC));
+  await openMap(page, 3);
+  await mapRegion(page).focus();
+  await page.keyboard.press("ArrowRight");
+  return (await current(page).getAttribute("data-map-frame"))!;
+}
+
+test.describe("presenting the map full screen (decision 154)", () => {
+  // Only where the camera ends matters here, never the move on its way.
+  test.use({ reducedMotion: "reduce" });
+
+  test("the button puts the page in full screen with the map alone, and Exit returns to the map view on the same frame", async ({
+    page,
+  }) => {
+    const frame = await onSecondFrame(page);
+    const windowed = await boxOf(mapRegion(page));
+    await presentMapButton(page).click();
+    await expect.poll(() => fullScreen(page)).toBe(true);
+    await expect(toolbar(page)).toBeHidden();
+    await expect(page.locator(".docwalk-statusbar")).toBeHidden();
+    await expect(page.locator(".docwalk-sidebar")).toHaveCount(0);
+    // The link keeps the map: a reload opens it windowed, as a reload while presenting opens the editor.
+    expect(new URL(page.url()).searchParams.get("view")).toBe("map");
+    await expect(app(page)).toHaveAttribute("data-view", "map");
+    // The route keys work at once, and the frame is fitted to the new size.
+    await expect(mapRegion(page)).toBeFocused();
+    await expect(current(page)).toHaveAttribute("data-map-frame", frame);
+    await expect
+      .poll(() => boxOf(mapRegion(page)).then((box) => box.width))
+      .toBeGreaterThan(windowed.width);
+    const screen = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    const pane = await boxOf(mapRegion(page));
+    expect(pane.width, "the pane fills the screen").toBe(screen.width);
+    expect(pane.height).toBe(screen.height);
+    await expect.poll(() => inPane(page, current(page))).toBe(true);
+    await page.keyboard.press("ArrowRight");
+    await expect(current(page)).not.toHaveAttribute("data-map-frame", frame);
+    await page.keyboard.press("ArrowLeft");
+    await expect(current(page)).toHaveAttribute("data-map-frame", frame);
+    await expectNoSeriousViolations(page);
+
+    await exitButton(page).click();
+    await expect.poll(() => fullScreen(page)).toBe(false);
+    await expect(toolbar(page)).toBeVisible();
+    await expect(app(page)).toHaveAttribute("data-view", "map");
+    await expect(current(page)).toHaveAttribute("data-map-frame", frame);
+    await expect(presentMapButton(page)).toBeVisible();
+    expect(new URL(page.url()).searchParams.get("view")).toBe("map");
+  });
+
+  test("Escape returns to the map view, not the editor, on the same frame", async ({ page }) => {
+    const frame = await onSecondFrame(page);
+    await presentMapButton(page).click();
+    await expect.poll(() => fullScreen(page)).toBe(true);
+    await expect(toolbar(page)).toBeHidden();
+    await page.keyboard.press("Escape");
+    // Firefox and WebKit keep this key for leaving full screen; the page hears the change.
+    await expect(toolbar(page)).toBeVisible();
+    await expect.poll(() => fullScreen(page)).toBe(false);
+    await expect(app(page)).toHaveAttribute("data-view", "map");
+    await expect(current(page)).toHaveAttribute("data-map-frame", frame);
+    await expect(page.locator(".cm-content")).toHaveCount(0);
+  });
+
+  test("an Escape for the palette or for the laser leaves the map presented; the next one leaves", async ({
+    page,
+  }) => {
+    await onSecondFrame(page);
+    await presentMapButton(page).click();
+    await expect.poll(() => fullScreen(page)).toBe(true);
+
+    // The palette is visible in full screen (the page root is the full-screen element).
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(palette).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
+    await expect(toolbar(page)).toBeHidden();
+    await expect(app(page)).toHaveAttribute("data-view", "map");
+
+    await mapRegion(page).focus();
+    await page.keyboard.press("l");
+    await expect(mapRegion(page)).toHaveAttribute("data-laser", "");
+    await page.keyboard.press("Escape");
+    await expect(mapRegion(page)).not.toHaveAttribute("data-laser");
+    await expect(toolbar(page)).toBeHidden();
+    await expect(exitButton(page)).toBeVisible();
+
+    await mapRegion(page).focus();
+    await page.keyboard.press("Escape");
+    await expect(toolbar(page)).toBeVisible();
+    await expect(app(page)).toHaveAttribute("data-view", "map");
+  });
+
+  test("the palette offers Present the map on the map only", async ({ page }) => {
+    await ready(page, docLink(SHORT_DOC));
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await page.keyboard.press("ControlOrMeta+k");
+    await palette.getByRole("searchbox").fill("Present the map");
+    await expect(palette.getByRole("menuitem", { name: "Present the map" })).toHaveCount(0);
+    await palette.getByRole("searchbox").fill("");
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
+    await openMap(page, 3);
+    await page.keyboard.press("ControlOrMeta+k");
+    await palette.getByRole("searchbox").fill("Present the map");
+    await palette.getByRole("menuitem", { name: "Present the map" }).click();
+    await expect.poll(() => fullScreen(page)).toBe(true);
+    await expect(toolbar(page)).toBeHidden();
+  });
+
+  test.describe("when the browser refuses full screen", () => {
+    test.beforeEach(({ page }) =>
+      page.addInitScript(() => {
+        Element.prototype.requestFullscreen = () => Promise.reject(new Error("refused"));
+      }),
+    );
+
+    test("the map still fills the window, and Exit and Escape leave", async ({ page }) => {
+      const frame = await onSecondFrame(page);
+      await presentMapButton(page).click();
+      await expect(toolbar(page)).toBeHidden();
+      expect(await fullScreen(page)).toBe(false);
+      const pane = await boxOf(mapRegion(page));
+      const screen = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+      expect(pane.width).toBe(screen.width);
+      expect(pane.height).toBe(screen.height);
+      await expect(mapRegion(page)).toBeFocused();
+      await exitButton(page).click();
+      await expect(toolbar(page)).toBeVisible();
+      await expect(current(page)).toHaveAttribute("data-map-frame", frame);
+      await presentMapButton(page).click();
+      await expect(toolbar(page)).toBeHidden();
+      await page.keyboard.press("Escape");
+      await expect(toolbar(page)).toBeVisible();
+      await expect(app(page)).toHaveAttribute("data-view", "map");
+    });
+  });
+
+  test("followers keep the map while the presenter presents it", async ({ context }) => {
+    const { presenter, followUrl } = await openRoom(context);
+    const follower = await context.newPage();
+    await ready(follower, followUrl);
+    await presenter.bringToFront();
+    await presenter.getByRole("radio", { name: "Map" }).click();
+    await expect(frames(presenter)).toHaveCount(3);
+    await presenter.getByRole("button", { name: "Present the map" }).click();
+    await expect(presenter.locator(".docwalk-toolbar")).toBeHidden();
+    await presenter.keyboard.press("ArrowRight");
+    const frame = await current(presenter).getAttribute("data-map-frame");
+    await follower.bringToFront();
+    await expect(frames(follower)).toHaveCount(3);
+    await expect(current(follower)).toHaveAttribute("data-map-frame", frame!);
+    await expect(follower.getByRole("button", { name: "Present the map" })).toHaveCount(0);
   });
 });

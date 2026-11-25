@@ -33,6 +33,7 @@ import {
   encrypt,
   formatJoinUrl,
   importKey,
+  importSigningKey,
   parseJoinFragment,
 } from "./crypto";
 import {
@@ -43,6 +44,7 @@ import {
   type RemoteFollower,
 } from "./follower";
 import { ROOM_STORAGE_KEY, useRemoteHost, type RemoteHost } from "./host";
+import { presenterSender } from "./replay";
 import {
   AGENT_NOTE,
   describeAgentEdit,
@@ -471,6 +473,48 @@ describe("room connection", () => {
   });
 });
 
+/** A presenter on the map, with a remote joined and the join-time states settled. */
+async function onTheMap(onMapStep: (direction: 1 | -1) => boolean, controller = fakeController(3)) {
+  const relay = new FakeRelay();
+  const host = mountHost({
+    controller,
+    docLink: null,
+    enabled: true,
+    socketFactory: relay.factory,
+    base: BASE,
+    mapView: true,
+    onMapStep,
+  });
+  const remote = peer(relay, await joinCreds(host, "remote"), "remote");
+  await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
+  await new Promise((r) => setTimeout(r, 50));
+  return { remote, controller };
+}
+
+/** A share link of `n` characters after `#doc=`. */
+const linkOf = (n: number) => `https://docwalk.example/#doc=${"a".repeat(n)}`;
+
+/** The sealed size of the state this host sends for `link` (with or without the frame). */
+async function frameBytes(link: string, frame: string | null) {
+  const creds = await createPresenterCredentials();
+  const view = await importKey(creds.view);
+  const signer = { room: creds.room, key: await importSigningKey(creds.sign) };
+  const state: RemoteMessage = {
+    type: "state",
+    current: "section-0/1",
+    index: 0,
+    total: 10,
+    title: "Title 0",
+    docLink: link,
+    docLinkTooLong: false,
+    level: "auto",
+    view: "map",
+    ...(frame === null ? {} : { frame }),
+  };
+  const seal = { sender: presenterSender(Date.now()), counter: 1 };
+  return JSON.stringify(await encrypt(view, state, seal, signer)).length;
+}
+
 describe("presenter host", () => {
   test("answers a remote's hello with the current slide", async () => {
     const relay = new FakeRelay();
@@ -724,6 +768,160 @@ describe("presenter host", () => {
     await vi.waitFor(() => expect(ofType(late, "state").at(-1)?.view).toBe("map"));
   });
 
+  describe("the map's current frame goes out in every state (decision 153)", () => {
+    const mapProps = (relay: FakeRelay, controller: DeckController) => ({
+      controller,
+      docLink: null,
+      enabled: true,
+      socketFactory: relay.factory,
+      base: BASE,
+      mapView: true,
+    });
+
+    test("a frame change with no deck change sends a state that names the new frame, and every state carries it", async () => {
+      // Walking the ### frames of one section moves the map and leaves the deck's
+      // slide alone, so the deck's onChange never fires for it: the host must send.
+      const relay = new FakeRelay();
+      const controller = fakeController();
+      const props = mapProps(relay, controller);
+      const host = mountHost({ ...props, mapFrame: "section-0-one" });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() =>
+        expect(ofType(follower, "state").at(-1)).toMatchObject({
+          current: "section-0/1",
+          view: "map",
+          frame: "section-0-one",
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 800));
+      const before = ofType(follower, "state").length;
+
+      mountHost({ ...props, mapFrame: "section-0-two" });
+      await vi.waitFor(() => expect(ofType(follower, "state").length).toBe(before + 1));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ofType(follower, "state").length, "one state for one change").toBe(before + 1);
+      expect(ofType(follower, "state").at(-1)).toMatchObject({
+        current: "section-0/1",
+        view: "map",
+        frame: "section-0-two",
+      });
+      expect(controller.next).not.toHaveBeenCalled();
+      expect(controller.goTo).toHaveBeenCalledTimes(0);
+
+      // A slide change on the map still names the frame.
+      act(() => controller.next());
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.current).toBe("section-1/1"));
+      expect(ofType(follower, "state").at(-1)?.frame).toBe("section-0-two");
+
+      // A follower that joins late is told the frame in the state that answers its hello.
+      const late = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(late, "state").at(-1)?.frame).toBe("section-0-two"));
+    });
+
+    test("a phone remote gets the frame too: the state is the same for every receiver", async () => {
+      const relay = new FakeRelay();
+      const host = mountHost({ ...mapProps(relay, fakeController()), mapFrame: "section-0-one" });
+      const remote = peer(relay, await joinCreds(host, "remote"), "remote");
+      await vi.waitFor(() => expect(ofType(remote, "state").at(-1)?.frame).toBe("section-0-one"));
+    });
+
+    test("no frame is sent on the slides, though the map last had one, and none before the map has reported one", async () => {
+      const relay = new FakeRelay();
+      const controller = fakeController();
+      const props = mapProps(relay, controller);
+      const host = mountHost({ ...props, mapFrame: null });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.view).toBe("map"));
+      expect(ofType(follower, "state").at(-1)).not.toHaveProperty("frame");
+      await new Promise((r) => setTimeout(r, 800));
+
+      mountHost({ ...props, mapFrame: "section-0-one" });
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.frame).toBe("section-0-one"));
+      const onMap = ofType(follower, "state").length;
+
+      // Back on the slides the app stops passing a frame, but even one left in
+      // the prop must not travel: a state says map or it names no frame.
+      mountHost({ ...props, mapView: false, mapFrame: "section-0-one" });
+      await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(onMap));
+      expect(ofType(follower, "state").at(-1)).not.toHaveProperty("view");
+      expect(ofType(follower, "state").at(-1)).not.toHaveProperty("frame");
+    });
+
+    test("a state whose document link fits only without the frame goes out with the link and without the frame", async () => {
+      const frame = "日".repeat(200);
+      // Base64 grows 4/3 per link character: aim the link at the limit from one measurement.
+      const probe = await frameBytes(linkOf(10_000), null);
+      const n = 10_000 + Math.floor(((API_LIMITS.maxFrameBytes - probe) * 3) / 4) - 8;
+      expect(await frameBytes(linkOf(n), null), "fits without the frame").toBeLessThanOrEqual(
+        API_LIMITS.maxFrameBytes,
+      );
+      expect(await frameBytes(linkOf(n), frame), "and not with it").toBeGreaterThan(
+        API_LIMITS.maxFrameBytes,
+      );
+
+      const relay = new FakeRelay();
+      const host = mountHost({
+        ...mapProps(relay, fakeController()),
+        docLink: linkOf(n),
+        mapFrame: frame,
+      });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+      const last = ofType(follower, "state").at(-1)!;
+      expect(last.docLink, "followers keep the document").toBe(linkOf(n));
+      expect(last).toMatchObject({ view: "map", docLinkTooLong: false });
+      expect(last, "and land on the column's first frame").not.toHaveProperty("frame");
+      // Nothing was lost to a state that never went out: the link was never reported too long.
+      await new Promise((r) => setTimeout(r, 100));
+      expect(host.current!.docLinkTooLong).toBe(false);
+      expect(ofType(follower, "state").every((state) => state.docLink === linkOf(n))).toBe(true);
+    });
+
+    test("a fallback never goes out after a later state: the follower's last state is the newest one, with its frame", async () => {
+      // A step to another section changes the slide and the frame together, so two
+      // states are queued in one tick. The first still names the old, long frame and is
+      // too large; its frame-less retry must not overtake the second, which fits.
+      const relay = new FakeRelay();
+      const controller = fakeController();
+      const long = "日".repeat(200);
+      const probe = await frameBytes(linkOf(10_000), null);
+      const n = 10_000 + Math.floor(((API_LIMITS.maxFrameBytes - probe) * 3) / 4) - 60;
+      expect(await frameBytes(linkOf(n), long)).toBeGreaterThan(API_LIMITS.maxFrameBytes);
+      expect(await frameBytes(linkOf(n), "ab")).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+      const props = { ...mapProps(relay, controller), docLink: linkOf(n) };
+      const host = mountHost({ ...props, mapFrame: long });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+      await new Promise((r) => setTimeout(r, 800));
+
+      act(() => controller.next());
+      mountHost({ ...props, mapFrame: "ab" });
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.frame).toBe("ab"));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(ofType(follower, "state").at(-1)).toMatchObject({
+        current: "section-1/1",
+        frame: "ab",
+      });
+    });
+
+    test("a link too long even without the frame is dropped as before, and the small state keeps the frame", async () => {
+      const relay = new FakeRelay();
+      const host = mountHost({
+        ...mapProps(relay, fakeController()),
+        docLink: linkOf(20_000),
+        mapFrame: "section-0-one",
+      });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.docLink).toBeNull());
+      expect(ofType(follower, "state").at(-1)).toMatchObject({
+        docLinkTooLong: true,
+        view: "map",
+        frame: "section-0-one",
+      });
+      await vi.waitFor(() => expect(host.current!.docLinkTooLong).toBe(true));
+    });
+  });
+
   test("tells followers to wait while the doc link is built, and only says 'too long' when there is none", async () => {
     // A presenter that just turned remote on sends state before its link is
     // ready; a follower shown "too long" then never loaded the real link.
@@ -778,6 +976,106 @@ describe("presenter host", () => {
     await remote.conn.send({ type: "step", direction: 1 });
     await vi.waitFor(() => expect(ofType(remote, "state").length).toBe(before + 1));
     expect(ofType(remote, "state").at(-1)?.current).toBe("section-2/1");
+  });
+
+  describe("a step on the map goes to the map, not to the deck (decision 152)", () => {
+    test("a step reaches the map's handler with its direction and turns no page of the hidden deck", async () => {
+      // The pages of a deck nobody sees are not what the phone's Next is for on the map.
+      const onMapStep = vi.fn<(direction: 1 | -1) => boolean>(() => true);
+      const { remote, controller } = await onTheMap(onMapStep);
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(onMapStep).toHaveBeenCalledTimes(1));
+      await remote.conn.send({ type: "step", direction: -1 });
+      await vi.waitFor(() => expect(onMapStep).toHaveBeenCalledTimes(2));
+      expect(onMapStep.mock.calls).toEqual([[1], [-1]]);
+      expect(controller.next).not.toHaveBeenCalled();
+      expect(controller.prev).not.toHaveBeenCalled();
+    });
+
+    test("a step inside one column changes no slide and still gets a state, or the phone reports the presenter away", async () => {
+      // Walking the ### frames of one section moves the map and leaves the deck's
+      // address alone; a phone that hears nothing for 4 s shows "presenter away".
+      const { remote } = await onTheMap(() => true);
+      const before = ofType(remote, "state").length;
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(ofType(remote, "state").length).toBe(before + 1));
+      expect(ofType(remote, "state").at(-1)).toMatchObject({ current: "section-0/1", view: "map" });
+    });
+
+    test("a step that takes the deck to another section is answered by that move's state alone", async () => {
+      // The map reports the new section, the app moves the deck, and the deck's
+      // own change announces itself: a second state would say the same again.
+      const controller = fakeController(3);
+      const { remote } = await onTheMap(() => {
+        controller.goTo("section-1/1");
+        return true;
+      }, controller);
+      const before = ofType(remote, "state").length;
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(ofType(remote, "state").at(-1)?.current).toBe("section-1/1"));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ofType(remote, "state").length).toBe(before + 1);
+    });
+
+    test("a goto still names a deck address on the map", async () => {
+      const onMapStep = vi.fn<(direction: 1 | -1) => boolean>(() => true);
+      const { remote, controller } = await onTheMap(onMapStep);
+      await remote.conn.send({ type: "goto", address: "section-2/1" });
+      await vi.waitFor(() => expect(controller.goTo).toHaveBeenCalledWith("section-2/1"));
+      expect(onMapStep).not.toHaveBeenCalled();
+    });
+
+    test("on the slides a step still turns pages, and the map's handler hears nothing", async () => {
+      const relay = new FakeRelay();
+      const onMapStep = vi.fn<(direction: 1 | -1) => boolean>(() => true);
+      const controller = fakeController(3);
+      const host = mountHost({
+        controller,
+        docLink: null,
+        enabled: true,
+        socketFactory: relay.factory,
+        base: BASE,
+        mapView: false,
+        onMapStep,
+      });
+      const remote = peer(relay, await joinCreds(host, "remote"), "remote");
+      await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(controller.next).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(ofType(remote, "state").at(-1)?.current).toBe("section-1/1"));
+      expect(onMapStep).not.toHaveBeenCalled();
+    });
+
+    test("a step the map did not take (its chunk is not loaded, or it has no camera yet) turns the deck's page, so the press is not lost", async () => {
+      // The handler answers false until the map can walk its route. Dropping the
+      // press then would leave the phone with a presenter that does not move.
+      const onMapStep = vi.fn<(direction: 1 | -1) => boolean>(() => false);
+      const { remote, controller } = await onTheMap(onMapStep);
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(controller.next).toHaveBeenCalledTimes(1));
+      await remote.conn.send({ type: "step", direction: -1 });
+      await vi.waitFor(() => expect(controller.prev).toHaveBeenCalledTimes(1));
+      expect(onMapStep.mock.calls).toEqual([[1], [-1]]);
+      await vi.waitFor(() => expect(ofType(remote, "state").at(-1)?.current).toBe("section-0/1"));
+    });
+
+    test("on the map with no handler (the map's chunk is not loaded yet) a step still turns the deck's pages", async () => {
+      // Nothing to hand the step to: the deck keeps its old behaviour rather than dropping the press.
+      const relay = new FakeRelay();
+      const controller = fakeController(3);
+      const host = mountHost({
+        controller,
+        docLink: null,
+        enabled: true,
+        socketFactory: relay.factory,
+        base: BASE,
+        mapView: true,
+      });
+      const remote = peer(relay, await joinCreds(host, "remote"), "remote");
+      await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(controller.next).toHaveBeenCalledTimes(1));
+    });
   });
 
   test("a duplicated tab opens its own room: it must not join the stored one as a second presenter", async () => {

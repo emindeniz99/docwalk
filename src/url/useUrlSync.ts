@@ -24,6 +24,20 @@ export interface UrlSyncOptions {
   onLevel: (level: NonNullable<ViewerUrlState["level"]>) => void;
   /** Called once on mount when the URL carries a valid `?view=`. */
   onView: (view: NonNullable<ViewerUrlState["view"]>) => void;
+  /**
+   * The map's current frame as `?frame=` should say it (decision 153): the id
+   * when the frame is not the one its section's address opens, `null` when it
+   * is, and left out (`undefined`) while the map has reported none or is not
+   * shown. Written when it changes, never on the first render, so a link's own
+   * frame keeps its spelling; a page that leaves it out never touches `?frame=`.
+   */
+  frame?: string | null | undefined;
+  /**
+   * Called once on mount with the frame of a link that opens the map on a
+   * slide address (`?view=map&frame=<id>#<section>/<n>`). The map decides
+   * whether it has that frame and whether it lies in the address's section.
+   */
+  onFrame?: ((frame: string) => void) | undefined;
 }
 
 function isSecurityError(error: unknown): boolean {
@@ -112,13 +126,15 @@ export function useUrlSync({
   level,
   view,
   sections,
+  frame,
   onLevel,
   onView,
+  onFrame,
 }: UrlSyncOptions): void {
-  const callbacks = useRef({ onLevel, onView });
+  const callbacks = useRef({ onLevel, onView, onFrame });
   const shownId = useRef(documentId);
   useLayoutEffect(() => {
-    callbacks.current = { onLevel, onView };
+    callbacks.current = { onLevel, onView, onFrame };
     shownId.current = documentId;
   });
 
@@ -126,6 +142,8 @@ export function useUrlSync({
     const state = currentState();
     if (state?.level != null) callbacks.current.onLevel(state.level);
     if (state?.view != null) callbacks.current.onView(state.view);
+    // Only the map reads a frame, and parse gives none without a slide address.
+    if (state?.view === "map" && state.frame !== null) callbacks.current.onFrame?.(state.frame);
   }, []);
 
   // On the first render the app still holds its defaults, which must not
@@ -136,6 +154,16 @@ export function useUrlSync({
     reflected.current = { level, view };
     replaceUrl({ level: typeof level === "object" && level !== null ? [...level] : level, view });
   }, [level, view]);
+
+  // The map's current frame (decision 153): written when it changes. Leaving the map
+  // removes it through the view's own write above (format drops a frame the call
+  // does not name when the view is not the map).
+  const reflectedFrame = useRef(frame);
+  useEffect(() => {
+    if (frame === reflectedFrame.current) return;
+    reflectedFrame.current = frame;
+    if (frame !== undefined) replaceUrl({ frame });
+  }, [frame]);
 
   // The choice of sections: written only when it changes, and compared by
   // content because the app may hand over a new array with the same ids.

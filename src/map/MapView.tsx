@@ -1,20 +1,34 @@
 import type { Root } from "mdast";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { Button } from "react-aria-components";
+import {
+  type Ref,
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Presentation, X } from "lucide-react";
+import { Button, Tooltip } from "react-aria-components";
+import { isTextEntry } from "../annotate/useAnnotationShortcuts";
 import { FOCUS_ATTR } from "../deck/focusTargets";
 import { wireFocusTargets } from "../deck/focusWiring";
+import { TAP_SLOP } from "../deck/tapSlop";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { useLoadRemoteImages } from "../render/remoteImages";
+import { QuietTooltipTrigger } from "../shell/QuietTooltipTrigger";
 import type { Section, SectionPlan } from "../sectioning/sectionize";
 import {
   type Camera,
   cameraTransform,
+  anchorFrame,
   clamp,
   FIT_MARGIN,
   fitAll,
   fitFrame,
   framesNear,
+  holdTop,
   pan,
   pinch,
   type Size,
@@ -24,6 +38,7 @@ import {
 import { renderFrames, type MapFrames } from "./frames";
 import {
   type FrameRect,
+  FRAME_WIDTH,
   mapColumns,
   mapPlan,
   type MapFrame,
@@ -57,7 +72,32 @@ export interface MapRequest {
   seq: number;
 }
 
+/** What the app can ask of a mounted map (decision 152). */
+export interface MapHandle {
+  /**
+   * The phone remote's Next (1) or Previous (-1): the next or previous frame
+   * of the route from the current frame, as Right and Left do on the pane but
+   * wherever keyboard focus is, with the laser on or off. True when the map
+   * took the step, also at an end where it refits in place; false while it
+   * has no camera yet (not opened, or no frames), so the caller can do
+   * something else with the press.
+   */
+  step: (direction: 1 | -1) => boolean;
+  /** Keyboard focus to the pane, so the route's keys work at once (decision 154). */
+  focus: () => void;
+}
+
+/** The presenter's control on the map (decision 154): "Present the map", and Exit while presented. */
+export interface MapPresenting {
+  /** The map is presented full screen, or in the window when full screen is refused. */
+  on: boolean;
+  start: () => void;
+  stop: () => void;
+}
+
 export interface MapViewProps {
+  /** The map's handle, for the phone remote's steps. */
+  ref?: Ref<MapHandle>;
   /**
    * The parsed document. The map sections it itself with `mapPlan`, so the
    * level override and the choice of sections do not change it (decision 142).
@@ -85,6 +125,30 @@ export interface MapViewProps {
    */
   onCurrent?: (sectionId: string) => void;
   /**
+   * The frame the map makes current, as often as it changes (decision 153): its
+   * id, and `head` when it is the frame the deck section's address alone opens
+   * (`frameForSection`), so a link names a frame only when it differs. Called
+   * before `onCurrent` when one move changes both, so the app has the frame
+   * when the section moves the deck. Nothing is reported while the deck has no
+   * current section: the address is unknown. A follower's map reports nothing.
+   * `onCurrent` stays the section's: a `###` frame reports no section.
+   */
+  onFrame?: (report: { frame: string; head: boolean }) => void;
+  /**
+   * The frame a link opened the page on (`?frame=`, decision 153). The opening
+   * view goes to it when this map has it and it lies in the deck section the
+   * address names (`sectionForFrame`); otherwise the section's own frame opens,
+   * as without a link. Used for the opening view only.
+   */
+  openFrame?: string | null;
+  /**
+   * A follow screen's map only (decision 153): the frame the presenter's state
+   * names, within `current`. The map follows it as it follows `current` when it
+   * has that frame, and shows `current`'s frame when it has not (the follower's
+   * document may not have caught up). "Back to presenter" ends a roam on it.
+   */
+  frame?: string | null;
+  /**
    * Whether the map's laser is on (decision 149). The app holds it, so the
    * command palette can switch it too, and switches it off when the map goes.
    */
@@ -98,6 +162,14 @@ export interface MapViewProps {
    * presenter" or Escape ends. Read when the map mounts.
    */
   follow?: boolean;
+  /**
+   * The presenter's "Present the map" control (decision 154): a button in a
+   * corner of the pane, outside the scaled layer, that turns into Exit while
+   * `on`. A follow screen's map is given none. While `on` the pane has its new
+   * size (the app hides the header and the outline), and the map fits its
+   * current frame to it, as at opening, and again when it leaves.
+   */
+  presenting?: MapPresenting;
 }
 
 interface Point {
@@ -125,8 +197,11 @@ function markScrollable(frame: HTMLElement): void {
   }
 }
 
-/** CSS pixels a pointer may move between press and release and still tap. */
-const TAP_SLOP = 10;
+/**
+ * A frame narrower than this on screen (CSS pixels, a quarter of `FRAME_WIDTH`, a scale of
+ * 0.25) draws no new diagram: its labels cannot be read (decision 157). One drawn stays.
+ */
+const MIN_DIAGRAM_WIDTH = FRAME_WIDTH / 4;
 
 /** The current frame's ring, in CSS pixels on screen at every zoom (map.css). */
 const RING_PX = 3;
@@ -179,8 +254,7 @@ function canScroll(el: Element, { x, y }: { x: number; y: number }): boolean {
  * the focus view for Enter and Space; a box that can still scroll that way.
  */
 function usesKey(target: Element, event: KeyboardEvent, pane: HTMLElement): boolean {
-  if (target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"))
-    return true;
+  if (isTextEntry(target)) return true;
   if (
     (event.key === "Enter" || event.key === " ") &&
     target.closest(`a[href], button, summary, [role="button"], [${FOCUS_ATTR}], .docwalk-diagram`)
@@ -208,6 +282,9 @@ function sameSelection(a: SelectionKey, b: SelectionKey): boolean {
   return a === b || (a !== null && b !== null && a.every((part, i) => part === b[i]));
 }
 
+/** The pane's own buttons: "Back to presenter" and "Present the map" (decisions 150 and 154). */
+const BUTTONS = ".docwalk-map-back, .docwalk-map-present";
+
 /** The id of the frame that holds `el`. */
 const frameOf = (el: Element): string | undefined =>
   el.closest<HTMLElement>("[data-map-frame]")?.dataset["mapFrame"];
@@ -225,12 +302,28 @@ interface MapController {
   setDeck: (sections: readonly DeckSection[], levels: readonly number[]) => void;
   /** The laser on or off (decision 149): the pane marks it and the status says it when it changes. */
   setLaser: (on: boolean) => void;
+  /**
+   * The map is presented, or no longer (decision 154): the current frame is
+   * fitted to the pane as it is now, and again when the pane resizes while
+   * presented and once more after it stops being presented.
+   */
+  setPresented: (on: boolean) => void;
+  /** Keyboard focus to the pane. */
+  focus: () => void;
   /** A section the reader chose in the shell: its frame, with the move, whatever is current. */
   request: (sectionId: string) => void;
+  /** The phone remote's Next or Previous (decision 152): the key's move, from wherever focus is. False when the map is not ready. */
+  step: (direction: 1 | -1) => boolean;
   /** A follower's roam ends: the map goes to the presenter's section and follows it again (decision 150). */
   back: () => void;
-  /** The deck's current section, from outside (an outline entry, a link, a palette result). */
-  setCurrent: (sectionId: string | null) => void;
+  /**
+   * The deck's current section, from outside (an outline entry, a link, a
+   * palette result), and on a follower's map the frame the presenter's state
+   * names (decision 153).
+   */
+  setCurrent: (sectionId: string | null, presenterFrame?: string | null) => void;
+  /** The frame the link opened the page on, or null (decision 153). */
+  setOpenFrame: (frame: string | null) => void;
   /** Stops everything and empties the layer. */
   dispose: () => void;
 }
@@ -245,14 +338,17 @@ interface MapController {
  * - The frames are placed from heights read as soon as they are in the
  *   page, and shown once the pane has a size, the camera on the opening
  *   frame; they are placed again as their heights settle.
- * - A height change re-places the frames and leaves the camera alone,
- *   only clamped to the new bounds: the frames after the changed one in
- *   its column move, the rest of the screen does not.
+ * - A height change re-places the frames and keeps the anchor frame's top
+ *   where it is on screen (decision 155): the current frame while any of it
+ *   is in the pane, else the first frame in the pane. The frames above the
+ *   changed one move with it, the frames after it follow the anchor, and the
+ *   camera is only clamped to the new bounds. A move under way is not
+ *   shifted: it reads its frame's new place on every step.
  * - "Empty map" for a mouse or pen drag is the pane, the layer and a
  *   frame's own box outside its `.docwalk-slide-body`; inside the body the
  *   mouse and the pen select text and follow links. One finger pans from
  *   anywhere, text included.
- * - A pointer that moved more than `TAP_SLOP` pans, and the click that may
+ * - A pointer that moved `TAP_SLOP` or more pans (decision 156), and the click that may
  *   follow it opens and follows nothing; a tap clicks as usual.
  *
  * Rules this view chose for the route (step 3, decisions 145 and 147):
@@ -287,6 +383,14 @@ interface MapController {
  * - While a finger points, a mouse or pen moves no dot.
  * - Switched on while focus is outside the pane, the pane takes focus.
  *
+ * Rules this view chose for the phone remote's steps (decision 152):
+ * - A step is the arrow key's move (`goToFrame`), taken from outside the
+ *   pane, so it needs no focus and no exclusion of a text field or a box that
+ *   scrolls; a focus view of a block closes only when the step goes to
+ *   another frame.
+ * - A step at the first or last frame refits the frame in place, as the key
+ *   does, and leaves an open view.
+ *
  * Rules this view chose for a follower's map (step 5, decision 150):
  * - A roam starts with whatever moves the camera by the reader's hand: the
  *   wheel, a drag, a pinch, the zoom keys, a route key, `0`, a click that
@@ -298,7 +402,7 @@ interface MapController {
  * - Escape ends a roam only from the pane; the focus view's own Escape
  *   never reaches it (the view lies outside the pane). A roam takes focus
  *   to the pane when it is elsewhere, so the Escape the status names works.
- * - A drag roams only once it has moved past `TAP_SLOP`; a finger's jitter
+ * - A drag roams only once it has moved `TAP_SLOP` or more; a finger's jitter
  *   still pans those few pixels but leaves the map following.
  * - Focus a closing focus view hands back to a frame other than the
  *   current one goes to the pane instead, when the follower is following:
@@ -311,6 +415,7 @@ function mountMap(
   layer: HTMLElement,
   status: HTMLElement,
   onCurrent: (sectionId: string) => void,
+  onFrame: (report: { frame: string; head: boolean }) => void,
   onLaser: (on: boolean) => void,
   follow: { onRoam: (roaming: boolean) => void } | null,
 ): MapController {
@@ -337,6 +442,12 @@ function mountMap(
   /** The deck section last known to be current: from outside, or reported. */
   let deckCurrent: string | null = null;
   let currentFrame: string | null = null;
+  /** The frame the link opened the page on, for the opening view (decision 153). */
+  let openFrame: string | null = null;
+  /** A follower's map: the frame the presenter's state names, within `deckCurrent` (decision 153). */
+  let presenterFrame: string | null = null;
+  /** What `onFrame` last said, so it speaks only when the frame or its head-ness changes. */
+  let reported: string | null = null;
   /** The whole map is shown (`0`), so a click in a frame chooses it. */
   let whole = false;
   /** The map opened before the deck had a current slide, and the reader has done nothing yet. */
@@ -353,6 +464,16 @@ function mountMap(
   let laserPress = false;
   /** A follower moved the map by hand: the presenter's sections no longer move it (decision 150). */
   let roaming = false;
+  /** The map is presented (decision 154): a resize fits the current frame again, not only clamps. */
+  let presented = false;
+  /** The resize that follows the end of presenting fits the frame once more. */
+  let refitOnce = false;
+  /**
+   * The camera sits where a fit put it: set by a fit and by a move along the route,
+   * cleared by the reader's own pan or zoom. A resize while presented refits only then,
+   * so a zoom by hand survives a notice opening above the map (decision 154).
+   */
+  let fitted = false;
 
   /** A follower's own move starts a roam, said politely once (decision 150). */
   const roam = () => {
@@ -383,8 +504,13 @@ function mountMap(
     layer.style.setProperty("--map-ring", `${RING_PX / camera.scale}px`);
     layer.dataset["placed"] = "";
     // Frames drawn later are measured again by frames.ts and re-placed below.
-    // Not on the way of a move: only where it ends (decision 145).
-    if (!move) void handle.drawDiagrams(framesNear(placement, camera, paneSize));
+    // Not on the way of a move: only where it ends (decision 145). Not at a zoom where a frame
+    // is too narrow on screen to read a diagram in it: the whole map of a long document would
+    // otherwise ask for every diagram at once. Naming no frames also releases a failed one.
+    if (!move) {
+      const readable = FRAME_WIDTH * camera.scale >= MIN_DIAGRAM_WIDTH;
+      void handle.drawDiagrams(readable ? framesNear(placement, camera, paneSize) : []);
+    }
   };
   const schedule = () => {
     if (!raf) raf = requestAnimationFrame(write);
@@ -478,9 +604,39 @@ function mountMap(
   };
 
   /**
+   * Tells the app the current frame, and whether it is the one the deck
+   * section's address alone opens (decision 153). Not while the deck has no
+   * current section, and never from a follower's map.
+   */
+  const publish = () => {
+    if (follow || currentFrame === null || deckCurrent === null) return;
+    const head = currentFrame === frameForSection(mapSections, deckSections, deckCurrent);
+    const key = `${currentFrame}\n${head}`;
+    if (key === reported) return;
+    reported = key;
+    onFrame({ frame: currentFrame, head });
+  };
+
+  /**
+   * The link's frame for the deck section `sectionId`: the frame the link named
+   * when this map has it and it lies in that section, else null (decision 153).
+   */
+  const linkedFrame = (sectionId: string): string | null =>
+    openFrame !== null &&
+    mapSections.some((s) => s.id === openFrame) &&
+    sectionForFrame(deckSections, mapSections, openFrame, deckLevels) === sectionId
+      ? openFrame
+      : null;
+
+  /** A follower's presenter frame, when this map has it (decision 153); else null, and the section's frame stands in. */
+  const followedFrame = (): string | null =>
+    follow && presenterFrame !== null && order.includes(presenterFrame) ? presenterFrame : null;
+
+  /**
    * Makes `id` the current frame: marked, said when it changed and `say` is
    * set, and its deck section reported when `report` is set and that
-   * section is not the last one known.
+   * section is not the last one known. The frame is reported first, so the
+   * app has it when the section moves the deck (decision 153).
    */
   const mark = (id: string, { say, report }: { say: boolean; report: boolean }) => {
     const changed = id !== currentFrame;
@@ -489,12 +645,12 @@ function mountMap(
     handle?.frames.get(id)?.setAttribute("aria-current", "true");
     if (changed && say) announce(id);
     // A follower's map moves no deck: the presenter's section stays `deckCurrent` (decision 150).
-    if (!report || follow) return;
-    const section = sectionForFrame(deckSections, mapSections, id, deckLevels);
-    if (section !== null && section !== deckCurrent) {
-      deckCurrent = section;
-      onCurrent(section);
-    }
+    const section =
+      report && !follow ? sectionForFrame(deckSections, mapSections, id, deckLevels) : null;
+    const moves = section !== null && section !== deckCurrent;
+    if (moves) deckCurrent = section;
+    publish();
+    if (moves) onCurrent(section);
   };
 
   /** Goes to a frame the reader chose: current, said, reported, and the camera moved to it. */
@@ -514,6 +670,7 @@ function mountMap(
   ) => {
     whole = false;
     waiting = false;
+    fitted = true;
     // A key or a click that leaves the frame holding keyboard focus takes focus
     // to the pane, so it is never on something off screen (decision 148).
     const focused = document.activeElement;
@@ -538,7 +695,10 @@ function mountMap(
   const open = () => {
     if (camera || paneSize.width <= 0 || paneSize.height <= 0) return;
     const opening =
-      (deckCurrent !== null && frameForSection(mapSections, deckSections, deckCurrent)) ||
+      (deckCurrent !== null &&
+        (followedFrame() ??
+          linkedFrame(deckCurrent) ??
+          frameForSection(mapSections, deckSections, deckCurrent))) ||
       firstFrame(order);
     waiting = deckCurrent === null;
     if (opening !== null) mark(opening, { say: false, report: false });
@@ -550,11 +710,36 @@ function mountMap(
     );
   };
 
+  /**
+   * The camera fitted to the pane as it is now (decision 154): the current
+   * frame as at opening, or the whole map while that is what is shown.
+   */
+  const refit = () => {
+    paneSize = { width: pane.clientWidth, height: pane.clientHeight };
+    if (!camera || paneSize.width <= 0 || paneSize.height <= 0) return;
+    const next = whole
+      ? fitAll(placement.bounds, paneSize)
+      : currentFrame === null
+        ? null
+        : frameCamera(currentFrame);
+    fitted = true;
+    setCamera(next ?? clamp(camera, placement.bounds, paneSize));
+  };
+
   const place = () => {
+    const before = placement.frames;
     placement = placeFrames(columns, heights);
+    const was = new Map(before.map((rect) => [rect.id, rect]));
     rects = new Map(placement.frames.map((rect) => [rect.id, rect]));
-    if (camera) camera = clamp(camera, placement.bounds, paneSize);
-    else open();
+    if (camera) {
+      // The frame being read keeps its place (decision 155); a move under way
+      // reads its target's new place on its next step.
+      const anchor = move ? null : anchorFrame(before, camera, paneSize, currentFrame);
+      const from = anchor === null ? undefined : was.get(anchor);
+      const to = anchor === null ? undefined : rects.get(anchor);
+      if (from && to) camera = holdTop(camera, from.y, to.y);
+      camera = clamp(camera, placement.bounds, paneSize);
+    } else open();
     schedule();
   };
 
@@ -598,6 +783,7 @@ function mountMap(
   /** The reader moved the camera by hand: a move stops where it is and the whole map ends. */
   const byHand = (roams = true) => {
     stopMove();
+    fitted = false;
     whole = false;
     waiting = false;
     if (roams) roam();
@@ -642,10 +828,11 @@ function mountMap(
 
   const onPointerDown = (event: PointerEvent) => {
     selectedAtPress = selectionKey();
-    laserPress = laser !== null;
-    if (!camera) return;
-    // "Back to presenter" is the button's: a finger or a mouse on it pans nothing.
-    if ((event.target as Element).closest(".docwalk-map-back")) return;
+    // The map's own buttons are theirs: a finger or a mouse on one pans nothing and points at
+    // nothing, laser or not, so Exit works while the laser is on.
+    const onButton = (event.target as Element).closest(BUTTONS) !== null;
+    laserPress = laser !== null && !onButton;
+    if (!camera || onButton) return;
     const at = local(event);
     if (laser && event.pointerType !== "touch") {
       // A mouse or pen press points and does nothing else (decision 149); onMouseDown
@@ -692,8 +879,10 @@ function mountMap(
   };
   const onPointerMove = (event: PointerEvent) => {
     if (!camera) return;
-    const at = local(event);
-    if (touches.has(event.pointerId)) touches.set(event.pointerId, at);
+    // Every move anywhere in the app reaches this listener, and `local` reads the pane's box:
+    // read it only for a finger being tracked or the pointer that drags.
+    let at: Point | undefined;
+    if (touches.has(event.pointerId)) touches.set(event.pointerId, (at = local(event)));
     if (pinching) {
       const a = touches.get(pinching.ids[0]);
       const b = touches.get(pinching.ids[1]);
@@ -704,14 +893,15 @@ function mountMap(
       return;
     }
     if (drag?.id !== event.pointerId) return;
+    at ??= local(event);
     const dx = at.x - drag.last.x;
     const dy = at.y - drag.last.y;
     drag.last = at;
     drag.moved += Math.hypot(dx, dy);
-    if (drag.moved > TAP_SLOP) panned = true;
+    if (drag.moved >= TAP_SLOP) panned = true;
     if (dx === 0 && dy === 0) return;
     // A follower's drag starts a roam only past the tap slop, so a finger's jitter does not.
-    byHand(drag.moved > TAP_SLOP);
+    byHand(drag.moved >= TAP_SLOP);
     setCamera(pan(camera, dx, dy, placement.bounds, paneSize));
   };
   /**
@@ -750,6 +940,7 @@ function mountMap(
    * and a link, a block or text keep their own meaning (decision 145).
    */
   const onClick = (event: MouseEvent) => {
+    if ((event.target as Element).closest(BUTTONS)) return;
     // A pointer's click with the laser on opens nothing, follows nothing and chooses nothing (decision 149).
     if ((laser || laserPress) && event.detail !== 0) {
       laserPress = false;
@@ -916,6 +1107,7 @@ function mountMap(
     if (key === "0" || (key === "Enter" && whole)) {
       event.preventDefault();
       roam();
+      fitted = true;
       if (whole) {
         whole = false;
         const id = currentFrame;
@@ -940,7 +1132,8 @@ function mountMap(
     roaming = false;
     follow.onRoam(false);
     const id =
-      deckCurrent === null ? null : frameForSection(mapSections, deckSections, deckCurrent);
+      followedFrame() ??
+      (deckCurrent === null ? null : frameForSection(mapSections, deckSections, deckCurrent));
     if (id !== null) goToFrame(id, { report: false, leaveFocus: true });
     // After the frame's own announcement, so this is what is said.
     status.textContent = m.map_following();
@@ -948,8 +1141,11 @@ function mountMap(
 
   const resize = new ResizeObserver(() => {
     paneSize = { width: pane.clientWidth, height: pane.clientHeight };
-    if (camera) setCamera(clamp(camera, placement.bounds, paneSize));
-    else open();
+    const refitting = (presented && fitted) || refitOnce;
+    refitOnce = false;
+    if (!camera) open();
+    else if (refitting) refit();
+    else setCamera(clamp(camera, placement.bounds, paneSize));
   });
   resize.observe(pane);
 
@@ -1008,12 +1204,19 @@ function mountMap(
       });
       handle = current;
       // The current frame stays current across an edit while it is on the map.
+      let jump: string | null = null;
       if (camera) {
-        const kept =
+        let kept =
           currentFrame !== null && current.frames.has(currentFrame)
             ? currentFrame
             : (deckCurrent !== null && frameForSection(mapSections, deckSections, deckCurrent)) ||
               firstFrame(order);
+        // A follower's document has caught up: the presenter's frame is here now (decision 153).
+        const followed = roaming ? null : followedFrame();
+        if (followed !== null && followed !== kept) {
+          kept = followed;
+          jump = followed;
+        }
         currentFrame = null;
         if (kept !== null) mark(kept, { say: false, report: false });
       }
@@ -1023,6 +1226,7 @@ function mountMap(
       for (const el of current.frames.values()) markScrollable(el);
       place();
       writeNow();
+      if (jump !== null) moveTo(() => frameCamera(jump), false);
     },
     setDeck(sections, levels) {
       deckSections = sections;
@@ -1045,14 +1249,47 @@ function mountMap(
       }
       status.textContent = on ? m.map_laser_on() : m.map_laser_off();
     },
+    setPresented(on) {
+      if (on === presented) return;
+      presented = on;
+      // The pane may take its last size after this: the page goes full screen in steps.
+      refitOnce = !on;
+      refit();
+    },
+    focus() {
+      pane.focus({ preventScroll: true });
+    },
     request(sectionId) {
       deckCurrent = sectionId;
       // Not opened yet: the opening view goes to `deckCurrent`.
       const id = camera ? frameForSection(mapSections, deckSections, sectionId) : null;
       if (id !== null) goToFrame(id, { report: false });
     },
+    step(direction) {
+      if (!camera || order.length === 0) return false;
+      const to =
+        direction === 1 ? nextFrame(order, currentFrame) : previousFrame(order, currentFrame);
+      if (to === null) return false;
+      // As a slide change closes them on the slides, which Next on the last slide is not;
+      // a diagram view stays (decision 152).
+      if (to !== currentFrame) {
+        const focused = document.activeElement;
+        focusWiring.closeContent();
+        // A closing view hands focus back to its block, and the focus rule would make that
+        // block's frame current again once the step has moved on: the step's frame wins.
+        const returned = document.activeElement;
+        if (returned !== focused && returned instanceof HTMLElement && layer.contains(returned)) {
+          navigated = returned;
+          queueMicrotask(() => {
+            navigated = null;
+          });
+        }
+      }
+      goToFrame(to, { leaveFocus: true });
+      return true;
+    },
     back,
-    setCurrent(sectionId) {
+    setCurrent(sectionId, frame = null) {
       // The deck is being built: nothing to follow until it is back.
       if (sectionId === null) return;
       const here =
@@ -1060,14 +1297,26 @@ function mountMap(
           ? null
           : sectionForFrame(deckSections, mapSections, currentFrame, deckLevels);
       deckCurrent = sectionId;
+      presenterFrame = follow ? frame : null;
       if (!camera) return;
       // Only the first section to arrive after opening can still be the opening view.
       const opening = waiting;
       waiting = false;
       // A roaming follower's map stays where they put it; `back` goes to `deckCurrent` (decision 150).
       if (roaming) return;
-      if (here === sectionId) return;
-      const id = frameForSection(mapSections, deckSections, sectionId);
+      // The frame to show: the presenter's, when this map has it, and the link's on the
+      // opening view; else the section's own frame (decisions 145 and 153). A follower
+      // always has one in mind, so a state with no frame leaves a ### frame for the column's head.
+      const wanted =
+        followedFrame() ??
+        (opening ? linkedFrame(sectionId) : null) ??
+        (follow ? frameForSection(mapSections, deckSections, sectionId) : null);
+      if (wanted === null ? here === sectionId : wanted === currentFrame) {
+        // Nothing moves, but the section may be what makes this frame the head one.
+        publish();
+        return;
+      }
+      const id = wanted ?? frameForSection(mapSections, deckSections, sectionId);
       if (id === null) return;
       if (opening) {
         // The deck's first slide arrives after the map opened: still the opening view.
@@ -1076,6 +1325,9 @@ function mountMap(
         return;
       }
       goToFrame(id, { report: false });
+    },
+    setOpenFrame(frame) {
+      openFrame = frame;
     },
     dispose() {
       if (raf) cancelAnimationFrame(raf);
@@ -1117,21 +1369,78 @@ const NO_SECTIONS: readonly DeckSection[] = [];
 const NO_LEVELS: readonly number[] = [];
 
 /**
+ * "Present the map", and Exit while it is presented (decision 154): a 44 px
+ * target over a corner of the pane. Exit names its key in a tooltip, as on the
+ * slides (decision 133), for a keyboard; a tablet with no keyboard has the button.
+ */
+function PresentMapButton({
+  on,
+  start,
+  stop,
+  laser,
+  laserOff,
+}: MapPresenting & { laser: boolean; laserOff: () => void }) {
+  const button = useRef<HTMLButtonElement>(null);
+  const leave = useEffectEvent(() => (laser ? laserOff() : stop()));
+  // An open tooltip closes on Escape from a capture listener on document and stops the key
+  // there, so neither the app's Escape nor the pane's laser ever sees it. A listener on the
+  // same node still runs: while Exit's tooltip is open that Escape leaves here, as on the
+  // slides (ExitButton, App.tsx), unless the laser is on: that Escape is the laser's
+  // (decisions 149 and 154), and the map stays presented.
+  useEffect(() => {
+    if (!on) return;
+    const onKey = (event: KeyboardEvent) => {
+      const tooltipOpen = button.current?.hasAttribute("aria-describedby") ?? false;
+      if (event.key !== "Escape" || event.defaultPrevented || !tooltipOpen) return;
+      // Handled here, once: the laser going off re-renders at once, and a key left to go on would
+      // find the pane's laser already off and the app's Escape ending the presenting too.
+      event.stopPropagation();
+      leave();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [on]);
+  if (!on)
+    return (
+      <Button className="docwalk-button docwalk-map-present" data-variant="primary" onPress={start}>
+        <Presentation size={16} aria-hidden="true" />
+        {m.app_present_map()}
+      </Button>
+    );
+  return (
+    <QuietTooltipTrigger delay={500}>
+      <Button ref={button} className="docwalk-button docwalk-map-present" onPress={stop}>
+        <X size={18} aria-hidden="true" />
+        {m.app_exit()}
+      </Button>
+      <Tooltip className="docwalk-tooltip" offset={6}>
+        {m.app_exit()} <kbd>Esc</kbd>
+      </Tooltip>
+    </QuietTooltipTrigger>
+  );
+}
+
+/**
  * The map view (decisions 142 and 145): the frames of the map's plan on one
  * layer in a named, focusable pane, in document order whatever their place,
  * so a screen reader and Tab read the document in order; one of them is the
  * current frame, which follows the deck's current slide and reports its own.
  */
 export default function MapView({
+  ref,
   root,
   current = null,
   deckSections = NO_SECTIONS,
   deckLevels = NO_LEVELS,
   request = null,
   onCurrent,
+  onFrame,
+  openFrame = null,
+  frame = null,
   laser = false,
   onLaserChange,
   follow = false,
+  presenting,
 }: MapViewProps) {
   const plan = useMemo(() => mapPlan(root), [root]);
   const loadRemoteImages = useLoadRemoteImages();
@@ -1142,7 +1451,16 @@ export default function MapView({
   const statusRef = useRef<HTMLParagraphElement>(null);
   const controller = useRef<MapController | null>(null);
   const report = useEffectEvent((sectionId: string) => onCurrent?.(sectionId));
+  const reportFrame = useEffectEvent((at: { frame: string; head: boolean }) => onFrame?.(at));
   const askLaser = useEffectEvent((on: boolean) => onLaserChange?.(on));
+  useImperativeHandle(
+    ref,
+    () => ({
+      step: (direction) => controller.current?.step(direction) ?? false,
+      focus: () => controller.current?.focus(),
+    }),
+    [],
+  );
   // A follower's roam (decision 150): the controller decides it, this shows the button.
   const [roaming, setRoaming] = useState(false);
   useEffect(() => {
@@ -1151,6 +1469,7 @@ export default function MapView({
       layerRef.current!,
       statusRef.current!,
       (id) => report(id),
+      (at) => reportFrame(at),
       (on) => askLaser(on),
       follow ? { onRoam: setRoaming } : null,
     );
@@ -1166,11 +1485,18 @@ export default function MapView({
     controller.current?.setDeck(deckSections, deckLevels);
   }, [deckSections, deckLevels]);
   useEffect(() => {
-    controller.current?.setCurrent(current);
-  }, [current]);
+    controller.current?.setOpenFrame(openFrame);
+  }, [openFrame]);
+  useEffect(() => {
+    controller.current?.setCurrent(current, frame);
+  }, [current, frame]);
   useEffect(() => {
     controller.current?.setLaser(laser);
   }, [laser]);
+  const presented = presenting?.on ?? false;
+  useEffect(() => {
+    controller.current?.setPresented(presented);
+  }, [presented]);
   // A request made before this map mounted (on an earlier visit to the map) is not a new choice.
   const handledSeq = useRef(request?.seq ?? 0);
   useEffect(() => {
@@ -1198,6 +1524,9 @@ export default function MapView({
         >
           {m.map_back_to_presenter()}
         </Button>
+      )}
+      {presenting && (
+        <PresentMapButton {...presenting} laser={laser} laserOff={() => askLaser(false)} />
       )}
       <div ref={layerRef} className="docwalk-map-layer" />
       {/* The current frame's title and place (decision 145); outside the scaled layer. */}

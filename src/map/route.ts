@@ -23,7 +23,7 @@ export const MOVE_MS = 300;
  */
 export const ZOOM_STEP = Math.exp(0.25);
 
-/** The frame ids in document order: the columns left to right, each top to bottom. */
+/** The frame ids in document order: the groups one after the other, each top to bottom. */
 export function routeOrder(columns: readonly (readonly Pick<MapFrame, "id">[])[]): string[] {
   return columns.flatMap((column) => column.map((frame) => frame.id));
 }

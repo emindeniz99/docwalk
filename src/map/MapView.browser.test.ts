@@ -1,7 +1,7 @@
 import { act, createElement as h } from "react";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
@@ -10,65 +10,43 @@ import "../styles.css";
 import type { FocusEvent } from "../annotate/mirrorTypes";
 import { observeFocus } from "../deck/focusEvents";
 import { parseMarkdown } from "../sectioning/sectionize";
-import { FRAME_GAP, FRAME_WIDTH, mapColumns, mapPlan, placeFrames } from "./layout";
+import { fitFrame } from "./camera";
+import { COLUMN_GAP, FRAME_GAP, FRAME_WIDTH, mapColumns, mapPlan, placeFrames } from "./layout";
 import MapView from "./MapView";
+import { MOVE_MS } from "./route";
+import { frame, frameEl, frames, mapContainer, mermaidLoad, para, PANE } from "./testMap";
 
 /**
  * Decision 142 and its corrections in 143: the map view places the frames
  * where `placeFrames` says, on one layer moved by a camera; the wheel, a
  * trackpad pinch, a mouse drag on empty map, touch and Safari's gesture
  * events move the camera; Mermaid draws only near the view; a height change
- * moves the frames after it in its column. Layout is compared box to box,
+ * moves every frame after it. Decision 174 puts every frame in one column down
+ * the page. Layout is compared box to box,
  * never against fixed pixel heights.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The Mermaid chunk can fail to load (a lost connection, a new deploy), as in
-// src/deck/mermaidLoad.browser.test.ts: while `failing` is set, `initialize`
-// throws, so the load rejects the way a missing chunk does and the figure is
-// marked `data-load-failed` (decision 146). A load that succeeded stays
-// loaded for the page and `vi.resetModules()` gives no fresh `mermaid.ts` in
-// browser mode, so the load-failure test is the first of this file.
-const control = vi.hoisted(() => ({ failing: false }));
-vi.mock("mermaid", async (importOriginal) => {
-  const real = await importOriginal<typeof import("mermaid")>();
-  const mermaid = new Proxy(real.default, {
-    get(target, key, receiver) {
-      if (control.failing && key === "initialize")
-        throw new TypeError("Failed to fetch dynamically imported module");
-      const value: unknown = Reflect.get(target, key, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-  return { ...real, default: mermaid };
-});
+// The Mermaid chunk can fail to load, so the load-failure test is the first of
+// this file (see `mermaidLoad` in testMap.ts for why).
+vi.mock("mermaid", async (importOriginal) =>
+  (await import("./testMap")).failableMermaid(await importOriginal<typeof import("mermaid")>()),
+);
 
 let reactRoot: ReactRoot | null = null;
 const cleanups: (() => void)[] = [];
 
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
-  control.failing = false;
+  mermaidLoad.failing = false;
   act(() => reactRoot?.unmount());
   reactRoot = null;
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
 
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
-}
-
-const para = (label: string, n: number) =>
-  Array.from(
-    { length: n },
-    (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
-  ).join("\n\n");
-
-/** Three columns, two with a part stacked under the column's first frame. */
+/** Three sections, two with a part under the section's frame; one column down the page (decision 174). */
 const DOC = [
   "## Alpha",
   "",
@@ -94,8 +72,6 @@ const DOC = [
   "",
 ].join("\n");
 
-const PANE = { width: 1200, height: 700 };
-
 interface Mounted {
   container: HTMLElement;
   pane: HTMLElement;
@@ -109,14 +85,7 @@ interface Mounted {
  * wrong place.
  */
 async function mountMap(markdown: string, size = PANE, timeout = 20_000): Promise<Mounted> {
-  await page.viewport(size.width + 100, size.height + 100);
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    display: "grid",
-    width: `${size.width}px`,
-    height: `${size.height}px`,
-  });
-  document.body.append(container);
+  const container = await mapContainer(size);
   const root = createRoot(container);
   reactRoot = root;
   const show = (md: string) => act(() => root.render(h(MapView, { root: parseMarkdown(md) })));
@@ -136,8 +105,6 @@ async function mountMap(markdown: string, size = PANE, timeout = 20_000): Promis
   return { container, pane, show };
 }
 
-const frameEl = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`[data-map-frame="${CSS.escape(id)}"]`)!;
 const boxOf = (container: HTMLElement, id: string) =>
   frameEl(container, id).getBoundingClientRect();
 const allBoxes = (container: HTMLElement) =>
@@ -234,7 +201,7 @@ describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)",
     };
     window.addEventListener("unhandledrejection", onRejection);
     cleanups.push(() => window.removeEventListener("unhandledrejection", onRejection));
-    control.failing = true;
+    mermaidLoad.failing = true;
     const { container, pane } = await mountMap(DIAGRAM_DOC);
     const start = frameEl(container, "start");
     await expect
@@ -257,12 +224,12 @@ describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)",
     }
     await frames(5);
     expect(attempts, "wheel events near the frame ask nothing").toBe(0);
-    // Away to the far column and back: one attempt.
+    // Down to the far frame and back: one attempt.
     const far = boxOf(container, "far");
-    const across = far.left - p.left - 24;
-    wheelAt(p.left + 50, p.top + 50, { deltaX: across });
+    const down = far.top - p.top - 24;
+    wheelAt(p.left + 50, p.top + 50, { deltaY: down });
     await frames(3);
-    wheelAt(p.left + 50, p.top + 50, { deltaX: -across });
+    wheelAt(p.left + 50, p.top + 50, { deltaY: -down });
     await expect.poll(() => attempts).toBe(1);
     await frames(5);
     expect(attempts).toBe(1);
@@ -272,7 +239,7 @@ describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)",
     await frames(5);
     expect(attempts).toBe(2);
     // The code loads now: online draws it in place.
-    control.failing = false;
+    mermaidLoad.failing = false;
     window.dispatchEvent(new Event("online"));
     await expect
       .poll(() => start.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
@@ -282,7 +249,7 @@ describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)",
 });
 
 describe("frames stand where placeFrames puts them (decision 142, Frames)", () => {
-  test("columns left to right, a column's frames stacked with the gap, no overlap, document order in the DOM", async () => {
+  test("one column down the page, in document order, group and frame gaps, no overlap (decision 174)", async () => {
     const { container } = await mountMap(DOC);
     const plan = mapPlan(parseMarkdown(DOC));
     const columns = mapColumns(plan);
@@ -310,18 +277,22 @@ describe("frames stand where placeFrames puts them (decision 142, Frames)", () =
       expect(off(box.height, rect.height * s), `${rect.id} height`).toBeLessThanOrEqual(1);
     }
     expect(columns.length).toBeGreaterThan(1);
-    const lefts = columns.map((column) => boxes.get(column[0]!.id)!.left);
-    for (let c = 1; c < lefts.length; c++) expect(lefts[c]).toBeGreaterThan(lefts[c - 1]!);
-    for (const column of columns) {
-      for (let r = 1; r < column.length; r++) {
-        const above = boxes.get(column[r - 1]!.id)!;
-        const below = boxes.get(column[r]!.id)!;
-        expect(off(below.left, above.left), "same column, same left").toBeLessThanOrEqual(0.5);
-        expect(
-          off(below.top - above.bottom, FRAME_GAP * s),
-          "the gap between frames",
-        ).toBeLessThanOrEqual(1);
-      }
+    // One column: every frame has the first frame's left and width, and each
+    // lies below the one before it, a frame gap inside a section and a group
+    // gap between sections.
+    for (let i = 1; i < placement.frames.length; i++) {
+      const above = boxes.get(placement.frames[i - 1]!.id)!;
+      const here = placement.frames[i]!;
+      const below = boxes.get(here.id)!;
+      expect(
+        off(below.left, firstBox.left),
+        `${here.id} same left as the first`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(off(below.width, firstBox.width), `${here.id} same width`).toBeLessThanOrEqual(0.5);
+      expect(
+        off(below.top - above.bottom, (here.row === 0 ? COLUMN_GAP : FRAME_GAP) * s),
+        `the gap above ${here.id}`,
+      ).toBeLessThanOrEqual(1);
     }
     const list = [...boxes.values()];
     for (let i = 0; i < list.length; i++) {
@@ -502,10 +473,10 @@ describe("the mouse on the map (decision 142, Camera)", () => {
   });
 
   test("a click on a link in a frame reaches it: the heading it names is focused and brought into view", async () => {
-    // Gamma detail is two columns away, outside the opening view.
+    // Gamma detail is far down the column, outside the opening view.
     const { container, pane } = await mountMap(DOC);
     const p = pane.getBoundingClientRect();
-    expect(boxOf(container, "gamma-detail").left).toBeGreaterThan(p.right);
+    expect(boxOf(container, "gamma-detail").top).toBeGreaterThan(p.bottom);
     const link = frameEl(container, "alpha").querySelector<HTMLAnchorElement>(
       'a[href="#gamma-detail"]',
     )!;
@@ -518,6 +489,38 @@ describe("the mouse on the map (decision 142, Camera)", () => {
         return b.left >= p.left && b.right <= p.right && b.top >= p.top && b.bottom <= p.bottom;
       })
       .toBe(true);
+  });
+});
+
+describe("the pointer's cost when it is not the map's (decision 142, Camera)", () => {
+  // The map listens for moves on the window, so every move anywhere in the app reaches it;
+  // reading the pane's box is a layout read, and a move that drags and pinches nothing needs none.
+  test("a pointer moving with no drag, pinch or laser reads nothing from the pane; a drag still pans", async () => {
+    const { container, pane } = await mountMap(DOC);
+    const read = vi.spyOn(pane, "getBoundingClientRect");
+    for (const pointerType of ["mouse", "pen", "touch"]) {
+      document.body.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 9,
+          pointerType,
+          clientX: 20,
+          clientY: 20,
+          bubbles: true,
+        }),
+      );
+    }
+    expect(read, "layout reads by pointer moves that do nothing").not.toHaveBeenCalled();
+    const before = boxOf(container, "alpha");
+    const p = pointOn(before, pane.getBoundingClientRect());
+    read.mockClear();
+    touch("pointerdown", 1, p.x, p.y);
+    touch("pointermove", 1, p.x + 40, p.y + 30);
+    touch("pointerup", 1, p.x + 40, p.y + 30);
+    await frames(2);
+    const after = boxOf(container, "alpha");
+    expect(off(after.left, before.left + 40), "left").toBeLessThanOrEqual(0.5);
+    expect(off(after.top, before.top + 30), "top").toBeLessThanOrEqual(0.5);
+    expect(read, "a drag reads the pane's box").toHaveBeenCalled();
   });
 });
 
@@ -632,7 +635,7 @@ describe("diagrams are drawn near the view only (decisions 142 and 143, Diagrams
       const farBefore = far.getBoundingClientRect();
       const offsetBefore = boxOf(container, "far-detail").top - farBefore.top;
       const p = pane.getBoundingClientRect();
-      wheelAt(p.left + 50, p.top + 50, { deltaX: farBefore.left - p.left - 24 });
+      wheelAt(p.left + 50, p.top + 50, { deltaY: farBefore.top - p.top - 24 });
       await expect
         .poll(() => far.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
         .not.toBeNull();
@@ -655,7 +658,7 @@ describe("diagrams are drawn near the view only (decisions 142 and 143, Diagrams
 });
 
 describe("a height change after opening (decision 142, Measuring)", () => {
-  test("moves the frames below it in its column, no frame in other columns, and not the camera", async () => {
+  test("moves every frame after it in document order, none before it, and not the camera (decision 174)", async () => {
     // The chosen rule: the camera is left alone (only clamped to the new
     // bounds), so the frame that changed stays where it is on screen.
     const { container } = await mountMap(DOC);
@@ -678,10 +681,135 @@ describe("a height change after opening (decision 142, Measuring)", () => {
       ),
       "the frame below moved by the growth",
     ).toBeLessThanOrEqual(1);
+    // One column: what follows alpha in the document follows it on the map,
+    // so every later frame moves down by the same growth and none sideways.
     for (const id of ["beta", "gamma", "gamma-detail"]) {
       expect(off(after.get(id)!.left, before.get(id)!.left), `${id} left`).toBeLessThanOrEqual(0.5);
-      expect(off(after.get(id)!.top, before.get(id)!.top), `${id} top`).toBeLessThanOrEqual(0.5);
+      expect(
+        off(after.get(id)!.top - before.get(id)!.top, alpha.height - before.get("alpha")!.height),
+        `${id} moved by the growth`,
+      ).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+/** Grows `id`'s frame by a late block, as a drawn diagram or a decoded image would. */
+function growFrame(container: HTMLElement, id: string) {
+  const more = document.createElement("p");
+  more.textContent = "A late block. ".repeat(300);
+  frameEl(container, id).querySelector(".docwalk-slide-body")!.append(more);
+}
+
+/** Resolves once `id`'s frame is taller than `than` on screen and the view has placed it. */
+const grewPast = async (container: HTMLElement, id: string, than: number) => {
+  await expect.poll(() => boxOf(container, id).height, { timeout: 5000 }).toBeGreaterThan(than + 1);
+};
+
+/** A key on the pane, which makes the frame it names current by a move that has ended. */
+async function walkTo(pane: HTMLElement, container: HTMLElement, id: string, keys: number) {
+  pane.focus();
+  for (let i = 0; i < keys; i++) await userEvent.keyboard("{ArrowRight}");
+  await new Promise((resolve) => setTimeout(resolve, MOVE_MS + 150));
+  await frames(2);
+  expect(container.querySelector('[data-map-frame][aria-current="true"]')).toBe(
+    frameEl(container, id),
+  );
+}
+
+describe("the frame being read keeps its place when a frame above it grows (decision 155)", () => {
+  test("the current frame's top stays where it was on screen, and the frames below it move with it", async () => {
+    // Decision 174 puts every frame on the sum of the heights above it, so a
+    // diagram drawn above the frame being read used to push it off the pane.
+    const { container, pane } = await mountMap(DOC);
+    await walkTo(pane, container, "beta", 2);
+    const before = allBoxes(container);
+    const alphaHeight = before.get("alpha")!.height;
+    growFrame(container, "alpha");
+    await grewPast(container, "alpha", alphaHeight);
+    await frames(3);
+    const after = allBoxes(container);
+    expect(off(after.get("beta")!.top, before.get("beta")!.top), "beta top").toBeLessThanOrEqual(1);
+    expect(off(after.get("beta")!.left, before.get("beta")!.left), "beta left").toBeLessThanOrEqual(
+      0.5,
+    );
+    expect(off(after.get("beta")!.width, before.get("beta")!.width), "scale").toBeLessThanOrEqual(
+      0.01,
+    );
+    // The frames below the anchor sit on it as before; the frames above it moved up off the screen.
+    expect(
+      off(after.get("gamma")!.top - before.get("gamma")!.top, 0),
+      "gamma follows beta",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      before.get("alpha")!.top - after.get("alpha")!.top,
+      "alpha moved up by its growth",
+    ).toBeGreaterThan(10);
+  });
+
+  test("with the current frame out of the pane, the first frame in view keeps its place", async () => {
+    const { container, pane } = await mountMap(DOC);
+    const p = pane.getBoundingClientRect();
+    // Roam down until alpha, the current frame, is above the pane and alpha-detail is its first frame.
+    const alpha = boxOf(container, "alpha");
+    wheelAt(p.left + 50, p.top + 50, { deltaY: alpha.bottom - p.top + 100 });
+    await frames(3);
+    expect(boxOf(container, "alpha").bottom, "alpha is out of the pane").toBeLessThan(p.top);
+    expect(boxOf(container, "alpha-detail").top, "alpha-detail is in it").toBeLessThan(p.bottom);
+    const before = allBoxes(container);
+    growFrame(container, "alpha");
+    await expect
+      .poll(() => boxOf(container, "alpha").height - before.get("alpha")!.height)
+      .toBeGreaterThan(10);
+    await frames(3);
+    expect(
+      off(boxOf(container, "alpha-detail").top, before.get("alpha-detail")!.top),
+      "alpha-detail top",
+    ).toBeLessThanOrEqual(1);
+  });
+
+  test("a frame that grows below the anchor moves nothing on screen above it", async () => {
+    const { container, pane } = await mountMap(DOC);
+    await walkTo(pane, container, "alpha-detail", 1);
+    const before = allBoxes(container);
+    growFrame(container, "gamma");
+    await grewPast(container, "gamma", before.get("gamma")!.height);
+    await frames(3);
+    for (const id of ["alpha", "alpha-detail", "beta"]) {
+      expect(off(boxOf(container, id).top, before.get(id)!.top), `${id} top`).toBeLessThanOrEqual(
+        0.5,
+      );
+    }
+  });
+
+  test("a height change during a smooth move ends with the target fitted at its new place", async () => {
+    const { container, pane } = await mountMap(DOC);
+    pane.focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    // The move to beta is under way; alpha, above it, grows meanwhile.
+    growFrame(container, "alpha");
+    await new Promise((resolve) => setTimeout(resolve, MOVE_MS + 300));
+    await frames(3);
+    const beta = frameEl(container, "beta");
+    const layer = beta.parentElement!;
+    const rect = {
+      x: Number.parseFloat(beta.style.left),
+      y: Number.parseFloat(beta.style.top),
+      width: FRAME_WIDTH,
+    };
+    const bounds = {
+      width: Number.parseFloat(layer.style.width),
+      height: Number.parseFloat(layer.style.height),
+    };
+    const fitted = fitFrame(rect, bounds, { width: pane.clientWidth, height: pane.clientHeight });
+    const p = pane.getBoundingClientRect();
+    const box = boxOf(container, "beta");
+    expect(
+      off(box.left - p.left - pane.clientLeft, fitted.x + rect.x * fitted.scale),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      off(box.top - p.top - pane.clientTop, fitted.y + rect.y * fitted.scale),
+    ).toBeLessThanOrEqual(1);
+    expect(off(box.width, FRAME_WIDTH * fitted.scale)).toBeLessThanOrEqual(1);
   });
 });
 
@@ -720,7 +848,7 @@ describe("the keyboard on the map (WCAG 2.4.7 and 2.4.11)", () => {
   test("Tab to a link in a far frame brings that frame into view", async () => {
     const { container, pane } = await mountMap(FAR_LINK);
     const p = pane.getBoundingClientRect();
-    expect(boxOf(container, "last").left).toBeGreaterThan(p.right);
+    expect(boxOf(container, "last").top).toBeGreaterThan(p.bottom);
     pane.focus();
     await userEvent.tab();
     const link = container.querySelector<HTMLAnchorElement>(
@@ -859,7 +987,7 @@ describe("blocks open in the focus view from the map (decisions 129 and 144)", (
 
   test("a far frame's code block, whose frame has drawn no diagram, is a tab stop that opens", async () => {
     const { container, pane } = await mountMap(BLOCKS, TALL_PANE);
-    expect(boxOf(container, "far").left).toBeGreaterThan(pane.getBoundingClientRect().right);
+    expect(boxOf(container, "far").top).toBeGreaterThan(pane.getBoundingClientRect().bottom);
     const pre = await blockIn(container, "far", "pre");
     expect(pre.tabIndex).toBe(0);
     pre.focus();

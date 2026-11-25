@@ -122,11 +122,14 @@ function rawQueryParam(url: URL, name: string): string | null {
 }
 
 export function parseViewerUrl(url: URL): ViewerUrlState {
+  const address = parseAddress(url.hash);
   return {
-    address: parseAddress(url.hash),
+    address,
     level: validate(LevelSchema, url.searchParams.get("level")),
     view: validate(ViewSchema, url.searchParams.get("view")),
     sections: validate(SectionsSchema, rawQueryParam(url, "sections")),
+    // A frame lies inside the address's section (decision 153): no address, no frame.
+    frame: address === null ? null : validate(SectionIdSchema, url.searchParams.get("frame")),
   };
 }
 
@@ -187,16 +190,25 @@ function setQueryParam(url: URL, name: string, value: string | null): void {
  * Returns a copy of `base` with the given fields written. A field left out
  * is not touched; `null` (or an invalid value) removes it. A reserved hash
  * such as a `#doc=` share fragment is never replaced.
+ *
+ * The frame (decision 153) is written only where the link will hold a slide
+ * address, so never under a share fragment. Writing a view other than the map
+ * removes a frame the call does not name: the other views ignore it.
  */
 export function formatViewerUrl(base: URL, state: Partial<ViewerUrlState>): URL {
   const url = new URL(base);
   if (state.level !== undefined) setQueryParam(url, "level", formatLevel(state.level));
-  if (state.view !== undefined) setQueryParam(url, "view", validate(ViewSchema, state.view));
+  const view = state.view === undefined ? undefined : validate(ViewSchema, state.view);
+  if (view !== undefined) setQueryParam(url, "view", view);
   if (state.sections !== undefined) setQueryParam(url, "sections", formatSections(state.sections));
   if (state.address !== undefined && !isReservedHash(url.hash)) {
     const address = state.address === null ? null : canonicalAddress(state.address.split("/"));
     url.hash = address ?? "";
   }
+  if (state.frame !== undefined) {
+    const frame = parseAddress(url.hash) === null ? null : validate(SectionIdSchema, state.frame);
+    setQueryParam(url, "frame", frame);
+  } else if (view !== undefined && view !== "map") setQueryParam(url, "frame", null);
   return url;
 }
 
