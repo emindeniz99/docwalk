@@ -9,6 +9,7 @@ import { emitFocus } from "./focusEvents";
 import { FOCUS_VIEW_CLASS } from "./focusView";
 import { type DiagramEdge, diagramEdges } from "./mermaid";
 import { focusKind, isLoadedImage, locateBlock, unmarkFocusTargets } from "./focusTargets";
+import { TAP_SLOP } from "./tapSlop";
 import { panDelta, wheelPixels, zoomDelta, zoomFactor } from "./wheelGesture";
 import {
   firstStep,
@@ -423,9 +424,6 @@ function diagramStage(stage: HTMLElement, diagram: HTMLElement, close: () => voi
     },
   };
 }
-
-/** A pointer that moved less than this between press and release tapped; more is a pan. */
-const TAP_SLOP = 6;
 
 /**
  * The diagram tour in the view (decision 109): a Tour toggle, Back and Next

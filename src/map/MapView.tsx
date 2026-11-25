@@ -10,8 +10,10 @@ import {
 } from "react";
 import { Presentation, X } from "lucide-react";
 import { Button, Tooltip } from "react-aria-components";
+import { isTextEntry } from "../annotate/useAnnotationShortcuts";
 import { FOCUS_ATTR } from "../deck/focusTargets";
 import { wireFocusTargets } from "../deck/focusWiring";
+import { TAP_SLOP } from "../deck/tapSlop";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { useLoadRemoteImages } from "../render/remoteImages";
@@ -194,9 +196,6 @@ function markScrollable(frame: HTMLElement): void {
   }
 }
 
-/** CSS pixels a pointer may move between press and release and still tap. */
-const TAP_SLOP = 10;
-
 /** The current frame's ring, in CSS pixels on screen at every zoom (map.css). */
 const RING_PX = 3;
 
@@ -248,8 +247,7 @@ function canScroll(el: Element, { x, y }: { x: number; y: number }): boolean {
  * the focus view for Enter and Space; a box that can still scroll that way.
  */
 function usesKey(target: Element, event: KeyboardEvent, pane: HTMLElement): boolean {
-  if (target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"))
-    return true;
+  if (isTextEntry(target)) return true;
   if (
     (event.key === "Enter" || event.key === " ") &&
     target.closest(`a[href], button, summary, [role="button"], [${FOCUS_ATTR}], .docwalk-diagram`)
@@ -343,7 +341,7 @@ interface MapController {
  *   frame's own box outside its `.docwalk-slide-body`; inside the body the
  *   mouse and the pen select text and follow links. One finger pans from
  *   anywhere, text included.
- * - A pointer that moved more than `TAP_SLOP` pans, and the click that may
+ * - A pointer that moved `TAP_SLOP` or more pans (decision 156), and the click that may
  *   follow it opens and follows nothing; a tap clicks as usual.
  *
  * Rules this view chose for the route (step 3, decisions 145 and 147):
@@ -397,7 +395,7 @@ interface MapController {
  * - Escape ends a roam only from the pane; the focus view's own Escape
  *   never reaches it (the view lies outside the pane). A roam takes focus
  *   to the pane when it is elsewhere, so the Escape the status names works.
- * - A drag roams only once it has moved past `TAP_SLOP`; a finger's jitter
+ * - A drag roams only once it has moved `TAP_SLOP` or more; a finger's jitter
  *   still pans those few pixels but leaves the map following.
  * - Focus a closing focus view hands back to a frame other than the
  *   current one goes to the pane instead, when the follower is following:
@@ -885,10 +883,10 @@ function mountMap(
     const dy = at.y - drag.last.y;
     drag.last = at;
     drag.moved += Math.hypot(dx, dy);
-    if (drag.moved > TAP_SLOP) panned = true;
+    if (drag.moved >= TAP_SLOP) panned = true;
     if (dx === 0 && dy === 0) return;
     // A follower's drag starts a roam only past the tap slop, so a finger's jitter does not.
-    byHand(drag.moved > TAP_SLOP);
+    byHand(drag.moved >= TAP_SLOP);
     setCamera(pan(camera, dx, dy, placement.bounds, paneSize));
   };
   /**
