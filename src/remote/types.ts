@@ -55,7 +55,9 @@ export type RemoteMessage =
       /**
        * The presenter's current frame on the map: its id, the heading anchor of
        * the map's plan (decision 153). Present only while `view` is "map" and
-       * the map has reported one; `current` stays the slide address. A
+       * the map has reported one that is not the frame `current`'s
+       * section opens on its own (a column's first frame names none, so its
+       * state reads as before); `current` stays the slide address. A
        * receiver reads it only while the state says map, compares it only with
        * its own frame ids, and drops one that does not parse while keeping the
        * rest of the state. A page built before the field strips it.
@@ -136,6 +138,15 @@ export interface AgentSlide {
  * - `too-large`: the answer or the write is over the size limits.
  */
 export type AgentError = "edits-off" | "conflict" | "no-document" | "too-large";
+
+/**
+ * The frame id the room's state names (decision 153): the map's current frame
+ * unless it is the one its section's address alone opens (`head`), which a
+ * state reads as it does without a frame. Null before the map has reported. Here, not in `src/map/`, so the shell does not load the map's code for it.
+ */
+export function roomFrame(report: { frame: string; head: boolean } | null): string | null {
+  return report === null || report.head ? null : report.frame;
+}
 
 /** The recipient id of messages for the presenter, which sends no hello. */
 export const PRESENTER_ID = "presenter";

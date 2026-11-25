@@ -76,6 +76,7 @@ import { m } from "./paraglide/messages.js";
 import { FilesPanel } from "./workspace/FilesPanel";
 import { useWorkspace } from "./workspace/useWorkspace";
 import type { MapHandle, MapRequest } from "./map/MapView";
+import { roomFrame } from "./remote/types";
 import { WorkspaceBanner } from "./workspace/WorkspaceBanner";
 import { WorkspaceDialogs } from "./workspace/WorkspaceDialogs";
 
@@ -1036,7 +1037,7 @@ export function App() {
             mirror={mirrorFeed}
             countdown={presenterCountdown}
             mapView={view === "map"}
-            mapFrame={view === "map" ? (mapFrame?.frame ?? null) : null}
+            mapFrame={view === "map" ? roomFrame(mapFrame) : null}
             onMapStep={onMapStep}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}

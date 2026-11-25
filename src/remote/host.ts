@@ -106,7 +106,8 @@ interface RemoteHostOptions {
   mapView?: boolean;
   /**
    * The map's current frame id while the presenter is in the map view, null
-   * until the map has reported one (decision 153). Every state says it while
+   * until the map has reported one or while it is the column's first frame,
+   * which a state leaves unnamed (decision 153). Every state says it while
    * `mapView` is true, and a change of it sends a state of its own, as a change
    * of slide does, since a step inside one column changes no slide.
    */
@@ -265,6 +266,8 @@ export function useRemoteHost({
   const levelRef = useRef(level);
   const mapViewRef = useRef(mapView);
   const mapFrameRef = useRef(mapFrame);
+  /** Counts states begun, so a state's retries can tell a newer one has been sent. */
+  const sendSeq = useRef(0);
   const markdownRef = useRef(markdown);
   /** The document the current deck was built from; the slide list is stale while it differs. */
   const builtForRef = useRef<string | null>(null);
@@ -313,9 +316,11 @@ export function useRemoteHost({
           }
         : {}),
     };
+    // A later state supersedes this one: its retries must not go out behind it (decision 153).
+    const mine = ++sendSeq.current;
     let result = await conn.send(state);
     let sent = state;
-    if (result === "too-large" && state.frame !== undefined) {
+    if (result === "too-large" && state.frame !== undefined && sendSeq.current === mine) {
       // The frame goes before the link (decision 153): followers keep the document and
       // land on the column's first frame.
       const { frame: _frame, ...bare } = state;
@@ -323,6 +328,7 @@ export function useRemoteHost({
       sent = bare;
     }
     if (result === "too-large" && sent.docLink) {
+      if (sendSeq.current !== mine) return;
       // Navigation still works without the link; the join dialog says followers need the document.
       const fallback = { ...state, docLink: null, docLinkTooLong: true };
       if ((await conn.send(fallback)) === "sent") setDocLinkTooLong(true);
