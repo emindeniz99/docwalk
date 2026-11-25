@@ -407,17 +407,26 @@ export function App() {
     setNotice,
   });
 
-  const { frame, staged, fill, chrome, present } = usePresenting({
-    view,
-    follow,
-    // The bar above the map stays up: the idle chrome is the slide's (decision 150). It stays
-    // up too while it carries the newer-view note (decision 172), or the note would hide itself.
-    followOpen: followOpen && !followMap && !followNewerView,
-    mode,
-    deckRef,
-    layerRef,
-    show,
-  });
+  // The map's laser (decision 149): here, so the palette can switch it and presenting the map
+  // can hear its Escape (decision 154); leaving the map switches it off.
+  const [mapLaser, setMapLaser] = useState(false);
+  // The map's handle: the phone remote's steps (decision 152) and focus for presenting (154).
+  const mapRef = useRef<MapHandle>(null);
+  const { frame, staged, fill, chrome, present, mapPresented, presentMap, exitMap, leaveMap } =
+    usePresenting({
+      view,
+      follow,
+      // The bar above the map stays up: the idle chrome is the slide's (decision 150). It stays
+      // up too while it carries the newer-view note (decision 172), or the note would hide itself.
+      followOpen: followOpen && !followMap && !followNewerView,
+      mode,
+      deckRef,
+      layerRef,
+      mapRef,
+      mapLaser,
+      setMapLaser,
+      show,
+    });
 
   const { diagnostics, onCursorLine } = useEditorSync({
     controller,
@@ -436,13 +445,12 @@ export function App() {
     openOverview: overview.open,
     setPaletteOpen,
     show,
+    leaveMap,
   });
 
   // A section the reader chose in the shell while the map shows: the map moves to
   // its frame even when the deck is already on it (decision 148).
   const [mapRequest, setMapRequest] = useState<MapRequest | null>(null);
-  // The map's laser (decision 149): here, so the palette can switch it; leaving the map switches it off.
-  const [mapLaser, setMapLaser] = useState(false);
   if (mapLaser && (view !== "map" || follow)) setMapLaser(false);
   const goToAddress = useCallback(
     (address: string, fromMap: boolean) => {
@@ -473,7 +481,6 @@ export function App() {
     [goToAddress],
   );
   // The phone remote's Next and Previous walk the map's route while the map shows (decision 152).
-  const mapRef = useRef<MapHandle>(null);
   const onMapStep = useCallback(
     (direction: 1 | -1) => mapRef.current?.step(direction) ?? false,
     [],
@@ -532,6 +539,8 @@ export function App() {
 
   const commands = appCommands({
     present,
+    presentMap,
+    mapPresented,
     openPresenter,
     overview,
     sectionPicker,
@@ -623,6 +632,7 @@ export function App() {
     <div
       className="docwalk-app"
       data-view={follow ? "follow" : view}
+      data-map-presented={mapPresented ? "" : undefined}
       data-pane={phone && view === "edit" && !follow ? phonePane : undefined}
       data-chrome={chrome.hidden ? "hidden" : chrome.hides ? "shown" : undefined}
       data-frame={staged ? frame : undefined}
@@ -744,7 +754,8 @@ export function App() {
       </div>
 
       <main className="docwalk-main">
-        {view !== "present" && !follow && !outlineSheet && (
+        {/* Presenting the map shows its pane alone (decision 154): no outline, no sheet. */}
+        {view !== "present" && !follow && !outlineSheet && !mapPresented && (
           <aside className="docwalk-sidebar">
             {workspace.available && <FilesPanel workspace={workspace} />}
             <Outline
@@ -776,7 +787,7 @@ export function App() {
             </div>
           </aside>
         )}
-        {outlineSheet && (
+        {outlineSheet && !mapPresented && (
           <div className="docwalk-document-bar">
             <Button className="docwalk-button" onPress={() => setOutlineOpen(true)}>
               <TableOfContents size={16} aria-hidden="true" />
@@ -881,6 +892,7 @@ export function App() {
               openFrame={linkFrame}
               laser={mapLaser}
               onLaserChange={setMapLaser}
+              presenting={{ on: mapPresented, start: () => void presentMap(), stop: exitMap }}
             />
           </Suspense>
         )}

@@ -8,12 +8,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { Button } from "react-aria-components";
+import { Presentation, X } from "lucide-react";
+import { Button, Tooltip } from "react-aria-components";
 import { FOCUS_ATTR } from "../deck/focusTargets";
 import { wireFocusTargets } from "../deck/focusWiring";
 import { useLocale } from "../i18n/locale";
 import { m } from "../paraglide/messages.js";
 import { useLoadRemoteImages } from "../render/remoteImages";
+import { QuietTooltipTrigger } from "../shell/QuietTooltipTrigger";
 import type { Section, SectionPlan } from "../sectioning/sectionize";
 import {
   type Camera,
@@ -78,6 +80,16 @@ export interface MapHandle {
    * something else with the press.
    */
   step: (direction: 1 | -1) => boolean;
+  /** Keyboard focus to the pane, so the route's keys work at once (decision 154). */
+  focus: () => void;
+}
+
+/** The presenter's control on the map (decision 154): "Present the map", and Exit while presented. */
+export interface MapPresenting {
+  /** The map is presented full screen, or in the window when full screen is refused. */
+  on: boolean;
+  start: () => void;
+  stop: () => void;
 }
 
 export interface MapViewProps {
@@ -147,6 +159,14 @@ export interface MapViewProps {
    * presenter" or Escape ends. Read when the map mounts.
    */
   follow?: boolean;
+  /**
+   * The presenter's "Present the map" control (decision 154): a button in a
+   * corner of the pane, outside the scaled layer, that turns into Exit while
+   * `on`. A follow screen's map is given none. While `on` the pane has its new
+   * size (the app hides the header and the outline), and the map fits its
+   * current frame to it, as at opening, and again when it leaves.
+   */
+  presenting?: MapPresenting;
 }
 
 interface Point {
@@ -257,6 +277,9 @@ function sameSelection(a: SelectionKey, b: SelectionKey): boolean {
   return a === b || (a !== null && b !== null && a.every((part, i) => part === b[i]));
 }
 
+/** The pane's own buttons: "Back to presenter" and "Present the map" (decisions 150 and 154). */
+const BUTTONS = ".docwalk-map-back, .docwalk-map-present";
+
 /** The id of the frame that holds `el`. */
 const frameOf = (el: Element): string | undefined =>
   el.closest<HTMLElement>("[data-map-frame]")?.dataset["mapFrame"];
@@ -274,6 +297,14 @@ interface MapController {
   setDeck: (sections: readonly DeckSection[], levels: readonly number[]) => void;
   /** The laser on or off (decision 149): the pane marks it and the status says it when it changes. */
   setLaser: (on: boolean) => void;
+  /**
+   * The map is presented, or no longer (decision 154): the current frame is
+   * fitted to the pane as it is now, and again when the pane resizes while
+   * presented and once more after it stops being presented.
+   */
+  setPresented: (on: boolean) => void;
+  /** Keyboard focus to the pane. */
+  focus: () => void;
   /** A section the reader chose in the shell: its frame, with the move, whatever is current. */
   request: (sectionId: string) => void;
   /** The phone remote's Next or Previous (decision 152): the key's move, from wherever focus is. False when the map is not ready. */
@@ -428,6 +459,10 @@ function mountMap(
   let laserPress = false;
   /** A follower moved the map by hand: the presenter's sections no longer move it (decision 150). */
   let roaming = false;
+  /** The map is presented (decision 154): a resize fits the current frame again, not only clamps. */
+  let presented = false;
+  /** The resize that follows the end of presenting fits the frame once more. */
+  let refitOnce = false;
 
   /** A follower's own move starts a roam, said politely once (decision 150). */
   const roam = () => {
@@ -658,6 +693,21 @@ function mountMap(
     );
   };
 
+  /**
+   * The camera fitted to the pane as it is now (decision 154): the current
+   * frame as at opening, or the whole map while that is what is shown.
+   */
+  const refit = () => {
+    paneSize = { width: pane.clientWidth, height: pane.clientHeight };
+    if (!camera || paneSize.width <= 0 || paneSize.height <= 0) return;
+    const fitted = whole
+      ? fitAll(placement.bounds, paneSize)
+      : currentFrame === null
+        ? null
+        : frameCamera(currentFrame);
+    setCamera(fitted ?? clamp(camera, placement.bounds, paneSize));
+  };
+
   const place = () => {
     const before = placement.frames;
     placement = placeFrames(columns, heights);
@@ -759,10 +809,11 @@ function mountMap(
 
   const onPointerDown = (event: PointerEvent) => {
     selectedAtPress = selectionKey();
-    laserPress = laser !== null;
-    if (!camera) return;
-    // "Back to presenter" is the button's: a finger or a mouse on it pans nothing.
-    if ((event.target as Element).closest(".docwalk-map-back")) return;
+    // The map's own buttons are theirs: a finger or a mouse on one pans nothing and points at
+    // nothing, laser or not, so Exit works while the laser is on.
+    const onButton = (event.target as Element).closest(BUTTONS) !== null;
+    laserPress = laser !== null && !onButton;
+    if (!camera || onButton) return;
     const at = local(event);
     if (laser && event.pointerType !== "touch") {
       // A mouse or pen press points and does nothing else (decision 149); onMouseDown
@@ -867,6 +918,7 @@ function mountMap(
    * and a link, a block or text keep their own meaning (decision 145).
    */
   const onClick = (event: MouseEvent) => {
+    if ((event.target as Element).closest(BUTTONS)) return;
     // A pointer's click with the laser on opens nothing, follows nothing and chooses nothing (decision 149).
     if ((laser || laserPress) && event.detail !== 0) {
       laserPress = false;
@@ -1066,8 +1118,11 @@ function mountMap(
 
   const resize = new ResizeObserver(() => {
     paneSize = { width: pane.clientWidth, height: pane.clientHeight };
-    if (camera) setCamera(clamp(camera, placement.bounds, paneSize));
-    else open();
+    const refitting = presented || refitOnce;
+    refitOnce = false;
+    if (!camera) open();
+    else if (refitting) refit();
+    else setCamera(clamp(camera, placement.bounds, paneSize));
   });
   resize.observe(pane);
 
@@ -1170,6 +1225,16 @@ function mountMap(
         delete pane.dataset["laser"];
       }
       status.textContent = on ? m.map_laser_on() : m.map_laser_off();
+    },
+    setPresented(on) {
+      if (on === presented) return;
+      presented = on;
+      // The pane may take its last size after this: the page goes full screen in steps.
+      refitOnce = !on;
+      refit();
+    },
+    focus() {
+      pane.focus({ preventScroll: true });
     },
     request(sectionId) {
       deckCurrent = sectionId;
@@ -1281,6 +1346,46 @@ const NO_SECTIONS: readonly DeckSection[] = [];
 const NO_LEVELS: readonly number[] = [];
 
 /**
+ * "Present the map", and Exit while it is presented (decision 154): a 44 px
+ * target over a corner of the pane. Exit names its key in a tooltip, as on the
+ * slides (decision 133), for a keyboard; a tablet with no keyboard has the button.
+ */
+function PresentMapButton({ on, start, stop }: MapPresenting) {
+  const button = useRef<HTMLButtonElement>(null);
+  const leave = useEffectEvent(stop);
+  // An open tooltip closes on Escape from a capture listener on document and stops the key
+  // there, so the app's Escape never sees it. A listener on the same node still runs: while
+  // Exit's tooltip is open that Escape leaves here, as on the slides (ExitButton, App.tsx).
+  useEffect(() => {
+    if (!on) return;
+    const onKey = (event: KeyboardEvent) => {
+      const tooltipOpen = button.current?.hasAttribute("aria-describedby") ?? false;
+      if (event.key === "Escape" && !event.defaultPrevented && tooltipOpen) leave();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [on]);
+  if (!on)
+    return (
+      <Button className="docwalk-button docwalk-map-present" data-variant="primary" onPress={start}>
+        <Presentation size={16} aria-hidden="true" />
+        {m.app_present_map()}
+      </Button>
+    );
+  return (
+    <QuietTooltipTrigger delay={500}>
+      <Button ref={button} className="docwalk-button docwalk-map-present" onPress={stop}>
+        <X size={18} aria-hidden="true" />
+        {m.app_exit()}
+      </Button>
+      <Tooltip className="docwalk-tooltip" offset={6}>
+        {m.app_exit()} <kbd>Esc</kbd>
+      </Tooltip>
+    </QuietTooltipTrigger>
+  );
+}
+
+/**
  * The map view (decisions 142 and 145): the frames of the map's plan on one
  * layer in a named, focusable pane, in document order whatever their place,
  * so a screen reader and Tab read the document in order; one of them is the
@@ -1300,6 +1405,7 @@ export default function MapView({
   laser = false,
   onLaserChange,
   follow = false,
+  presenting,
 }: MapViewProps) {
   const plan = useMemo(() => mapPlan(root), [root]);
   const loadRemoteImages = useLoadRemoteImages();
@@ -1314,7 +1420,10 @@ export default function MapView({
   const askLaser = useEffectEvent((on: boolean) => onLaserChange?.(on));
   useImperativeHandle(
     ref,
-    () => ({ step: (direction) => controller.current?.step(direction) ?? false }),
+    () => ({
+      step: (direction) => controller.current?.step(direction) ?? false,
+      focus: () => controller.current?.focus(),
+    }),
     [],
   );
   // A follower's roam (decision 150): the controller decides it, this shows the button.
@@ -1349,6 +1458,10 @@ export default function MapView({
   useEffect(() => {
     controller.current?.setLaser(laser);
   }, [laser]);
+  const presented = presenting?.on ?? false;
+  useEffect(() => {
+    controller.current?.setPresented(presented);
+  }, [presented]);
   // A request made before this map mounted (on an earlier visit to the map) is not a new choice.
   const handledSeq = useRef(request?.seq ?? 0);
   useEffect(() => {
@@ -1377,6 +1490,7 @@ export default function MapView({
           {m.map_back_to_presenter()}
         </Button>
       )}
+      {presenting && <PresentMapButton {...presenting} />}
       <div ref={layerRef} className="docwalk-map-layer" />
       {/* The current frame's title and place (decision 145); outside the scaled layer. */}
       <p ref={statusRef} role="status" className="docwalk-map-status" />

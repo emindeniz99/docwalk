@@ -228,6 +228,7 @@ Add a row here before introducing a new one.
 | slide                       | slayt                       | "slayt düzeyi" for the base level          |
 | deck                        | slayt destesi               | screen-reader role only; elsewhere "sunum" |
 | present (button)            | Sunum yap                   |                                            |
+| present the map             | haritayla sunum yap         | "sunum yap" as for Present; Exit is "Çık"  |
 | presenter view              | sunucu görünümü             |                                            |
 | presenting controls         | sunum düğmeleri             | not "kontrol", which also means check      |
 | fill the screen, card       | ekranı doldur, kart         | the two present frames                     |

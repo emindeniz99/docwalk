@@ -119,3 +119,23 @@
   min-height: 0;
   background: var(--dw-color-stage);
 }
+
+/*
+ * "Present the map", and Exit while it is presented (decision 154): over the
+ * pane in screen pixels, outside the scaled layer, a 44 px target in the
+ * corner at the end of its top edge. The map's pointer handling leaves it
+ * alone (MapView's BUTTONS), the laser's too.
+ */
+.docwalk-map-present {
+  position: absolute;
+  inset-block-start: var(--dw-space-lg);
+  inset-inline-end: var(--dw-space-lg);
+  z-index: 1;
+  min-height: var(--dw-space-target);
+}
+
+/* The laser hides the cursor over the pane; a button keeps its own. */
+.docwalk-map-pane[data-laser] .docwalk-map-present,
+.docwalk-map-pane[data-laser] .docwalk-map-present * {
+  cursor: pointer;
+}
