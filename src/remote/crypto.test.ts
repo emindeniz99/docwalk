@@ -489,12 +489,43 @@ describe("the presenter's view in state (decision 150)", () => {
     expect(slides).not.toHaveProperty("view");
   });
 
-  test("any other view drops the whole state, as a bad level does: a key holder cannot slip in a surprising value", async () => {
+  test("a short lowercase view name this build does not know still arrives, so a newer presenter's followers are not left standing still (decision 172)", async () => {
+    // A later build may send another view. Dropping the state would freeze
+    // every follower on this build; the app shows slides and says why.
+    const key = await importKey(createRoomCredentials().key);
+    for (const view of ["overview", "timeline", "a", "two-words", "x".repeat(24)]) {
+      const message = { ...STATE, view } as RemoteMessage;
+      const opened = await decrypt(key, await encryptRaw(key, sealed(message)));
+      expect([view, opened?.message]).toEqual([view, message]);
+    }
+  });
+
+  test("a view outside the bounded name drops the whole state, as a bad level does: a key holder cannot slip in markup or a surprising value (decision 172)", async () => {
     // The state's other optional fields (docLinkTooLong, level) take a default
     // only when absent; a present but wrong value fails the message. view does
-    // the same, so the app never sees a view it does not know.
+    // the same for anything but a short lowercase name, so the app never holds
+    // a name it could not safely show.
     const key = await importKey(createRoomCredentials().key);
-    for (const view of ["slides", "MAP", "map ", "", "overview", 1, 0, true, null, {}, ["map"]]) {
+    const tooLong = "x".repeat(25);
+    for (const view of [
+      "MAP",
+      "Map",
+      "map ",
+      "",
+      "1map",
+      "-map",
+      "map_view",
+      "map\n",
+      "<b>",
+      '<img src=x onerror="alert(1)">',
+      tooLong,
+      1,
+      0,
+      true,
+      null,
+      {},
+      ["map"],
+    ]) {
       const frame = await encryptRaw(key, sealed({ ...STATE, view }));
       expect([view, await decrypt(key, frame)]).toEqual([view, null]);
     }
@@ -529,6 +560,19 @@ describe("the presenter's view in state (decision 150)", () => {
       JSON.stringify({ ...signedSlides, m: { ...signedSlides.m, view: "map" } }),
     );
     expect((await decrypt(view, added, verifier))?.signed).toBe(false);
+  });
+
+  test("a signed state with a view this build does not know verifies and keeps the name, and a follower's copy of it stays unsigned (decision 172)", async () => {
+    // The follower shows slides for the name, but only a state the presenter
+    // signed may say so: the note is as trusted as the map switch.
+    const { view, signer, verifier } = await signedRoom();
+    const newer = { ...STATE, view: "overview" } as RemoteMessage;
+    const opened = await decrypt(view, await encrypt(view, newer, SEAL, signer), verifier);
+    expect(opened?.signed).toBe(true);
+    expect(opened?.message).toEqual(newer);
+    const forger = await signedRoom();
+    const forged = await decrypt(view, await encrypt(view, newer, SEAL, forger.signer), verifier);
+    expect(forged?.signed).toBe(false);
   });
 
   test("a signed state verifies on a page whose schema does not know a field of it", async () => {
