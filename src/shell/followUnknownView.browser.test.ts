@@ -6,10 +6,12 @@ import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { App } from "../App";
 import { connectRoom, type RoomConnection } from "../remote/client";
+import { chooseLocale } from "../i18n/locale";
 import { createPresenterCredentials, formatJoinUrl } from "../remote/crypto";
 import type { RemoteMessage } from "../remote/types";
 import { releaseDraft } from "../share/draft";
 import { encodeDoc } from "../share/fragment";
+import { CHROME_IDLE_MS } from "./presentChrome";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,7 +28,11 @@ import { encodeDoc } from "../share/fragment";
 const DOC = "# Follow checks\n\n## First point\n\nAlpha.\n\n## Second point\n\nBeta.\n";
 // Never put into the page: the test checks the name does not show up in it.
 const NEWER = "timeline-three";
-const NOTE = "The presenter uses a newer docwalk view. Reload the page to see it.";
+const NOTES = {
+  en: "The presenter uses a newer docwalk view. Reload the page to see it.",
+  tr: "Sunumu yapan kişi docwalk'ın daha yeni bir görünümünü kullanıyor. Görmek için sayfayı yeniden yükleyin.",
+};
+const NOTE = NOTES.en;
 
 /** A WebSocket that reaches only the other sockets on the same URL, like worker/room.ts. */
 class RelaySocket {
@@ -80,6 +86,7 @@ afterEach(() => {
   presenter = null;
   RelaySocket.all.clear();
   vi.unstubAllGlobals();
+  chooseLocale("en");
   history.replaceState(null, "", startUrl);
   document.body.replaceChildren();
   localStorage.clear();
@@ -87,7 +94,8 @@ afterEach(() => {
 });
 
 /** Opens a follow screen on a new room and returns what the presenter sends it. */
-async function followScreen() {
+async function followScreen({ width = 1280, height = 800 } = {}) {
+  await page.viewport(width, height);
   const creds = await createPresenterCredentials();
   const join = new URL(formatJoinUrl(`${location.origin}/`, "follow", creds));
   history.replaceState(null, "", `${join.pathname}${join.search}${join.hash}`);
@@ -104,7 +112,7 @@ async function followScreen() {
   });
 
   const container = document.createElement("div");
-  container.style.height = "800px";
+  container.style.height = `${height}px`;
   document.body.append(container);
   root = createRoot(container);
   act(() => root!.render(h(App)));
@@ -127,10 +135,14 @@ async function followScreen() {
 }
 
 const address = (el: HTMLElement) => el.querySelector(".docwalk-preview-address")?.textContent;
-const note = (el: HTMLElement) =>
-  [...el.querySelectorAll(".docwalk-preview-head [role=status]")].find(
-    (p) => p.textContent === NOTE,
+const note = (el: HTMLElement, text = NOTE) =>
+  [...el.querySelectorAll<HTMLElement>(".docwalk-preview-head [role=status]")].find(
+    (p) => p.textContent === text,
   );
+const chrome = (el: HTMLElement) => el.querySelector(".docwalk-app")?.getAttribute("data-chrome");
+const slideBottom = (el: HTMLElement) =>
+  el.querySelector(".docwalk-deck-pane .reveal .slides")!.getBoundingClientRect().bottom;
+const idle = () => new Promise((resolve) => setTimeout(resolve, CHROME_IDLE_MS + 1000));
 
 describe("a presenter on a view this build does not know (decision 172)", () => {
   // The same screen with a state that names no view: the control for the two tests below,
@@ -176,4 +188,49 @@ describe("a presenter on a view this build does not know (decision 172)", () => 
     await expect.poll(() => container.querySelector(".docwalk-follow-map")).not.toBeNull();
     await expect.poll(() => note(container)).toBeUndefined();
   }, 45_000);
+
+  test("the slide still fits the screen when the note appears: the bar leaves the overlay for a band and reveal.js is told", async () => {
+    // Height-limited on purpose: a bar that takes a band shrinks the deck pane, and reveal.js
+    // lays out only on a window resize, so without a nudge the slide hangs below the screen.
+    const { container, send } = await followScreen({ height: 700 });
+    await send("first-point/1");
+    await expect.poll(() => address(container), { timeout: 30_000 }).toBe("first-point/1");
+    await expect.poll(() => slideBottom(container)).toBeLessThanOrEqual(window.innerHeight);
+
+    await send("first-point/1", NEWER);
+    await expect.poll(() => note(container)).toBeDefined();
+    await expect
+      .poll(() => slideBottom(container), { timeout: 5_000 })
+      .toBeLessThanOrEqual(window.innerHeight);
+  }, 45_000);
+
+  test("the bar that carries the note stays up when idle, as the bar above the map does; without a note it hides", async () => {
+    // The hidden bar only fades to opacity 0, so the note would still be in the DOM:
+    // the check is the bar's own state after the idle delay.
+    const { container, send } = await followScreen();
+    await send("first-point/1");
+    await expect.poll(() => chrome(container), { timeout: 30_000 }).toBe("shown");
+    await expect.poll(() => chrome(container), { timeout: CHROME_IDLE_MS + 3000 }).toBe("hidden");
+
+    await send("first-point/1", NEWER);
+    await expect.poll(() => note(container)).toBeDefined();
+    await idle();
+    expect(chrome(container)).toBeNull();
+    expect(getComputedStyle(container.querySelector(".docwalk-preview-head")!).opacity).toBe("1");
+  }, 45_000);
+
+  test.each([["en"], ["tr"]] as const)(
+    "the note is read in full on a phone, in %s: it wraps rather than ending in an ellipsis",
+    async (locale) => {
+      chooseLocale(locale);
+      const { container, send } = await followScreen({ width: 390 });
+      await send("first-point/1", NEWER);
+      await expect.poll(() => note(container, NOTES[locale]), { timeout: 30_000 }).toBeDefined();
+      const el = note(container, NOTES[locale])!;
+      expect(el.scrollWidth).toBeLessThanOrEqual(el.clientWidth);
+      // The wrapped lines are not cut either: the box is as tall as its text.
+      expect(el.scrollHeight).toBeLessThanOrEqual(el.clientHeight);
+    },
+    45_000,
+  );
 });
