@@ -246,8 +246,8 @@ interface MapController {
  *   page, and shown once the pane has a size, the camera on the opening
  *   frame; they are placed again as their heights settle.
  * - A height change re-places the frames and leaves the camera alone,
- *   only clamped to the new bounds: the frames after the changed one in
- *   its column move, the rest of the screen does not.
+ *   only clamped to the new bounds: the frames after the changed one
+ *   move, the frames before it do not.
  * - "Empty map" for a mouse or pen drag is the pane, the layer and a
  *   frame's own box outside its `.docwalk-slide-body`; inside the body the
  *   mouse and the pen select text and follow links. One finger pans from
