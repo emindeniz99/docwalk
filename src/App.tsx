@@ -337,9 +337,10 @@ export function App() {
     if (!follow) return;
     const raf = requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     return () => cancelAnimationFrame(raf);
-    // `followMap` is here to nudge on each switch between the map and the slides.
+    // `followMap` is here to nudge on each switch between the map and the slides, and
+    // `followNewerView` on each switch of the bar between overlay and band (decision 172).
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [follow, followMap]);
+  }, [follow, followMap, followNewerView]);
 
   // Source line of every section, for the editor's reveal, cursor sync and notes.
   const sectionLines = useMemo(
@@ -572,7 +573,7 @@ export function App() {
         {followUpdate.incomplete ? FOLLOW_STATUS.closed() : FOLLOW_STATUS[followUpdate.status]()}
       </p>
       {followNewerView && (
-        <p className="docwalk-source-banner" role="status" title={m.follow_newer_view()}>
+        <p className="docwalk-source-banner docwalk-follow-note" role="status">
           {m.follow_newer_view()}
         </p>
       )}
