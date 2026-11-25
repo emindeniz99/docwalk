@@ -1,6 +1,7 @@
 import { fc, test as fcTest } from "@fast-check/vitest";
 import { describe, expect, test } from "vitest";
 import {
+  anchorFrame,
   type Camera,
   cameraTransform,
   clamp,
@@ -9,6 +10,7 @@ import {
   fitAll,
   fitFrame,
   framesNear,
+  holdTop,
   MAX_SCALE,
   minScale,
   OVERLAP,
@@ -21,7 +23,7 @@ import {
   type WheelInput,
   zoomAt,
 } from "./camera";
-import { FRAME_WIDTH, type MapPlacement, placeFrames } from "./layout";
+import { FRAME_WIDTH, type FrameRect, type MapPlacement, placeFrames } from "./layout";
 
 /**
  * The map's camera (decision 142): one translation and one scale on the
@@ -439,6 +441,60 @@ describe("framesNear: which frames Mermaid may draw", () => {
   test("an empty map has no frames near", () => {
     const empty: MapPlacement = { frames: [], bounds: { width: 0, height: 0 } };
     expect(framesNear(empty, { x: 0, y: 0, scale: 1 }, PANE)).toEqual([]);
+  });
+});
+
+/** A camera with the map point (0, `top`) at the pane's top-left corner, at scale 1. */
+const viewAt = (top: number): Camera => ({ x: 0, y: -top, scale: 1 });
+
+describe("anchorFrame and holdTop: what stays in place when a height changes (decision 155)", () => {
+  // Five frames of 720 units in one column, tops at 0, 784, 1568, 2352, 3136 (one group each frame gap).
+  const rects: FrameRect[] = placeFrames(
+    [[...Array(5).keys()].map((i) => ({ id: `f${i}` }))],
+    new Map(),
+  ).frames;
+
+  test("the current frame, while any of it is in the pane", () => {
+    // Pane 800 tall at map y 700..1500 shows the tail of f0 and f1 (784 to 1504).
+    expect(anchorFrame(rects, viewAt(700), PANE, "f1")).toBe("f1");
+    expect(anchorFrame(rects, viewAt(700), PANE, "f0")).toBe("f0");
+  });
+
+  test("otherwise the first frame in document order that is in the pane", () => {
+    expect(anchorFrame(rects, viewAt(700), PANE, "f4")).toBe("f0");
+    expect(anchorFrame(rects, viewAt(700), PANE, null)).toBe("f0");
+    expect(anchorFrame(rects, viewAt(800), PANE, "f4")).toBe("f1");
+  });
+
+  test("a frame that only touches the pane's edge is not in it", () => {
+    // f0 ends at 720; a pane starting at 720 shows none of it.
+    expect(anchorFrame(rects, viewAt(720), PANE, "f0")).toBe("f1");
+  });
+
+  test("no frame in the pane, no pane or no frames: no anchor", () => {
+    expect(anchorFrame(rects, viewAt(1e6), PANE, "f0")).toBeNull();
+    expect(anchorFrame(rects, viewAt(0), { width: 0, height: 0 }, "f0")).toBeNull();
+    expect(anchorFrame([], viewAt(0), PANE, null)).toBeNull();
+  });
+
+  test("an unknown current frame falls back to the first one in the pane", () => {
+    expect(anchorFrame(rects, viewAt(0), PANE, "gone")).toBe("f0");
+  });
+
+  test("holdTop moves the camera by the anchor's change in y, scaled, and nothing else", () => {
+    expect(holdTop({ x: 5, y: 10, scale: 0.5 }, 800, 1000)).toEqual({ x: 5, y: -90, scale: 0.5 });
+    expect(holdTop({ x: 5, y: 10, scale: 0.5 }, 1000, 800)).toEqual({ x: 5, y: 110, scale: 0.5 });
+    expect(holdTop(viewAt(100), 300, 300)).toEqual(viewAt(100));
+  });
+
+  test("the anchor's top is on the same pixel before and after", () => {
+    const camera: Camera = { x: 12, y: -300, scale: 0.8 };
+    const next = holdTop(camera, 784, 1584);
+    expect(1584 * next.scale + next.y).toBeCloseTo(784 * camera.scale + camera.y, 9);
+  });
+
+  test("a broken number leaves the camera as it is", () => {
+    for (const bad of BAD) expect(holdTop(viewAt(100), bad, 5)).toEqual(viewAt(100));
   });
 });
 

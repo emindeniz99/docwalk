@@ -34,7 +34,8 @@ async function expectNoSeriousViolations(page: Page) {
 test("Map shows one frame per section of the map's plan, in document order, in place of the deck", async ({
   page,
 }) => {
-  // The sample has 23 columns and 40 frames (src/map/layout.test.ts). The
+  // The sample has 40 frames, in 23 groups of a section and its parts, all in
+  // one column down the page (src/map/layout.test.ts, decision 174). The
   // map's code loads only when asked for: the same pattern perf.spec.ts
   // holds the first load to finds the chunk here, so that check can fail.
   const chunks: string[] = [];
@@ -580,6 +581,24 @@ test.describe("the route through the sample", () => {
         .toBeGreaterThan(whole.width * 3);
       await expect.poll(() => inPane(page, current(page))).toBe(true);
       await expect(current(page)).toHaveAttribute("data-map-frame", "summary");
+    });
+
+    test("the API frame stays where the map put it while the diagrams above it draw (decision 155)", async ({
+      page,
+    }) => {
+      // In one column the frames above add up: the Data model diagram drawing
+      // above the API frame used to push its heading 400 px above the pane,
+      // about 150 ms after it had landed. So the check is made after the
+      // diagram has drawn and the map has placed it, never while it is landing.
+      await openAt(page, "/?view=map#api/1", "api");
+      const dataModel = mapRegion(page).locator('[data-map-frame="data-model"]');
+      await expect(dataModel.locator(".docwalk-diagram svg")).toHaveCount(1, { timeout: 30_000 });
+      await afterFrames(page);
+      await afterFrames(page);
+      const heading = mapRegion(page).locator('[data-map-frame="api"] h2').first();
+      await expect(heading).toBeVisible();
+      expect(await inPane(page, heading)).toBe(true);
+      await expect(current(page)).toHaveAttribute("data-map-frame", "api");
     });
 
     test("an outline entry in the map view moves the map to that section's frame", async ({

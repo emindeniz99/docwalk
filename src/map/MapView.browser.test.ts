@@ -10,8 +10,10 @@ import "../styles.css";
 import type { FocusEvent } from "../annotate/mirrorTypes";
 import { observeFocus } from "../deck/focusEvents";
 import { parseMarkdown } from "../sectioning/sectionize";
+import { fitFrame } from "./camera";
 import { COLUMN_GAP, FRAME_GAP, FRAME_WIDTH, mapColumns, mapPlan, placeFrames } from "./layout";
 import MapView from "./MapView";
+import { MOVE_MS } from "./route";
 
 /**
  * Decision 142 and its corrections in 143: the map view places the frames
@@ -692,6 +694,126 @@ describe("a height change after opening (decision 142, Measuring)", () => {
         `${id} moved by the growth`,
       ).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+/** Grows `id`'s frame by a late block, as a drawn diagram or a decoded image would. */
+function growFrame(container: HTMLElement, id: string) {
+  const more = document.createElement("p");
+  more.textContent = "A late block. ".repeat(300);
+  frameEl(container, id).querySelector(".docwalk-slide-body")!.append(more);
+}
+
+/** Resolves once `id`'s frame is taller than `than` on screen and the view has placed it. */
+const grewPast = async (container: HTMLElement, id: string, than: number) => {
+  await expect.poll(() => boxOf(container, id).height, { timeout: 5000 }).toBeGreaterThan(than + 1);
+};
+
+/** A key on the pane, which makes the frame it names current by a move that has ended. */
+async function walkTo(pane: HTMLElement, container: HTMLElement, id: string, keys: number) {
+  pane.focus();
+  for (let i = 0; i < keys; i++) await userEvent.keyboard("{ArrowRight}");
+  await new Promise((resolve) => setTimeout(resolve, MOVE_MS + 150));
+  await frames(2);
+  expect(container.querySelector('[data-map-frame][aria-current="true"]')).toBe(
+    frameEl(container, id),
+  );
+}
+
+describe("the frame being read keeps its place when a frame above it grows (decision 155)", () => {
+  test("the current frame's top stays where it was on screen, and the frames below it move with it", async () => {
+    // Decision 174 puts every frame on the sum of the heights above it, so a
+    // diagram drawn above the frame being read used to push it off the pane.
+    const { container, pane } = await mountMap(DOC);
+    await walkTo(pane, container, "beta", 2);
+    const before = allBoxes(container);
+    const alphaHeight = before.get("alpha")!.height;
+    growFrame(container, "alpha");
+    await grewPast(container, "alpha", alphaHeight);
+    await frames(3);
+    const after = allBoxes(container);
+    expect(off(after.get("beta")!.top, before.get("beta")!.top), "beta top").toBeLessThanOrEqual(1);
+    expect(off(after.get("beta")!.left, before.get("beta")!.left), "beta left").toBeLessThanOrEqual(
+      0.5,
+    );
+    expect(off(after.get("beta")!.width, before.get("beta")!.width), "scale").toBeLessThanOrEqual(
+      0.01,
+    );
+    // The frames below the anchor sit on it as before; the frames above it moved up off the screen.
+    expect(
+      off(after.get("gamma")!.top - before.get("gamma")!.top, 0),
+      "gamma follows beta",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      before.get("alpha")!.top - after.get("alpha")!.top,
+      "alpha moved up by its growth",
+    ).toBeGreaterThan(10);
+  });
+
+  test("with the current frame out of the pane, the first frame in view keeps its place", async () => {
+    const { container, pane } = await mountMap(DOC);
+    const p = pane.getBoundingClientRect();
+    // Roam down until alpha, the current frame, is above the pane and alpha-detail is its first frame.
+    const alpha = boxOf(container, "alpha");
+    wheelAt(p.left + 50, p.top + 50, { deltaY: alpha.bottom - p.top + 100 });
+    await frames(3);
+    expect(boxOf(container, "alpha").bottom, "alpha is out of the pane").toBeLessThan(p.top);
+    expect(boxOf(container, "alpha-detail").top, "alpha-detail is in it").toBeLessThan(p.bottom);
+    const before = allBoxes(container);
+    growFrame(container, "alpha");
+    await expect
+      .poll(() => boxOf(container, "alpha").height - before.get("alpha")!.height)
+      .toBeGreaterThan(10);
+    await frames(3);
+    expect(
+      off(boxOf(container, "alpha-detail").top, before.get("alpha-detail")!.top),
+      "alpha-detail top",
+    ).toBeLessThanOrEqual(1);
+  });
+
+  test("a frame that grows below the anchor moves nothing on screen above it", async () => {
+    const { container, pane } = await mountMap(DOC);
+    await walkTo(pane, container, "alpha-detail", 1);
+    const before = allBoxes(container);
+    growFrame(container, "gamma");
+    await grewPast(container, "gamma", before.get("gamma")!.height);
+    await frames(3);
+    for (const id of ["alpha", "alpha-detail", "beta"]) {
+      expect(off(boxOf(container, id).top, before.get(id)!.top), `${id} top`).toBeLessThanOrEqual(
+        0.5,
+      );
+    }
+  });
+
+  test("a height change during a smooth move ends with the target fitted at its new place", async () => {
+    const { container, pane } = await mountMap(DOC);
+    pane.focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    // The move to beta is under way; alpha, above it, grows meanwhile.
+    growFrame(container, "alpha");
+    await new Promise((resolve) => setTimeout(resolve, MOVE_MS + 300));
+    await frames(3);
+    const beta = frameEl(container, "beta");
+    const layer = beta.parentElement!;
+    const rect = {
+      x: Number.parseFloat(beta.style.left),
+      y: Number.parseFloat(beta.style.top),
+      width: FRAME_WIDTH,
+    };
+    const bounds = {
+      width: Number.parseFloat(layer.style.width),
+      height: Number.parseFloat(layer.style.height),
+    };
+    const fitted = fitFrame(rect, bounds, { width: pane.clientWidth, height: pane.clientHeight });
+    const p = pane.getBoundingClientRect();
+    const box = boxOf(container, "beta");
+    expect(
+      off(box.left - p.left - pane.clientLeft, fitted.x + rect.x * fitted.scale),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      off(box.top - p.top - pane.clientTop, fitted.y + rect.y * fitted.scale),
+    ).toBeLessThanOrEqual(1);
+    expect(off(box.width, FRAME_WIDTH * fitted.scale)).toBeLessThanOrEqual(1);
   });
 });
 
