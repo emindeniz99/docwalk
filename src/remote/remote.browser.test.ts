@@ -877,6 +877,33 @@ describe("presenter host", () => {
       expect(ofType(follower, "state").every((state) => state.docLink === linkOf(n))).toBe(true);
     });
 
+    test("a fallback never goes out after a later state: the follower's last state is the newest one, with its frame", async () => {
+      // A step to another section changes the slide and the frame together, so two
+      // states are queued in one tick. The first still names the old, long frame and is
+      // too large; its frame-less retry must not overtake the second, which fits.
+      const relay = new FakeRelay();
+      const controller = fakeController();
+      const long = "日".repeat(200);
+      const probe = await frameBytes(linkOf(10_000), null);
+      const n = 10_000 + Math.floor(((API_LIMITS.maxFrameBytes - probe) * 3) / 4) - 60;
+      expect(await frameBytes(linkOf(n), long)).toBeGreaterThan(API_LIMITS.maxFrameBytes);
+      expect(await frameBytes(linkOf(n), "ab")).toBeLessThanOrEqual(API_LIMITS.maxFrameBytes);
+      const props = { ...mapProps(relay, controller), docLink: linkOf(n) };
+      const host = mountHost({ ...props, mapFrame: long });
+      const follower = peer(relay, await joinCreds(host, "follow"), "follower");
+      await vi.waitFor(() => expect(ofType(follower, "state").length).toBeGreaterThan(0));
+      await new Promise((r) => setTimeout(r, 800));
+
+      act(() => controller.next());
+      mountHost({ ...props, mapFrame: "ab" });
+      await vi.waitFor(() => expect(ofType(follower, "state").at(-1)?.frame).toBe("ab"));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(ofType(follower, "state").at(-1)).toMatchObject({
+        current: "section-1/1",
+        frame: "ab",
+      });
+    });
+
     test("a link too long even without the frame is dropped as before, and the small state keeps the frame", async () => {
       const relay = new FakeRelay();
       const host = mountHost({

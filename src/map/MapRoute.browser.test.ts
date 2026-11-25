@@ -12,6 +12,7 @@ import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import { type Camera, cameraTransform, fitAll, fitFrame } from "./camera";
 import { FRAME_WIDTH } from "./layout";
 import MapView, { type MapHandle } from "./MapView";
+import { roomFrame } from "../remote/types";
 import { ZOOM_STEP } from "./route";
 
 /**
@@ -706,7 +707,7 @@ describe("the frame the map reports (decision 153)", () => {
   beforeEach(reduceMotion);
 
   test("every frame the reader makes current is reported, with whether it is the one its section's address opens", async () => {
-    // The shell writes `?frame=` for a frame that is not the head and tells the room every one.
+    // The shell names a frame in the link and in the room only when it is not the head.
     const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
     expect(m.reports).toEqual([{ frame: "alpha", head: true }]);
     m.pane.focus();
@@ -734,7 +735,7 @@ describe("the frame the map reports (decision 153)", () => {
     expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
   });
 
-  test("the frame is reported before the section moves the deck, so the state the deck's change sends can carry the new frame", async () => {
+  test("a move that changes the frame and the section reports the frame first, then the section", async () => {
     const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
     m.pane.focus();
     await press("{ArrowRight}{ArrowRight}{ArrowRight}");
@@ -768,6 +769,16 @@ describe("the frame the map reports (decision 153)", () => {
     const m = await mountRoute(ROUTE, { current: null });
     await m.setCurrent("alpha");
     expect(m.reports).toEqual([{ frame: "alpha", head: true }]);
+  });
+});
+
+describe("the frame the room is told (decision 153, The room)", () => {
+  test("a column's head frame is no frame to name: only the others are", () => {
+    // A state on a column's first frame reads as it does today (row 153), and a
+    // state near the relay's frame limit pays nothing for a head.
+    expect(roomFrame({ frame: "alpha", head: true })).toBeNull();
+    expect(roomFrame({ frame: "alpha-two", head: false })).toBe("alpha-two");
+    expect(roomFrame(null)).toBeNull();
   });
 });
 
