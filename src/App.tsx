@@ -460,7 +460,10 @@ export function App() {
   );
   // The phone remote's Next and Previous walk the map's route while the map shows (decision 152).
   const mapRef = useRef<MapHandle>(null);
-  const onMapStep = useCallback((direction: 1 | -1) => mapRef.current?.step(direction), []);
+  const onMapStep = useCallback(
+    (direction: 1 | -1) => mapRef.current?.step(direction) ?? false,
+    [],
+  );
 
   // Comments (decision 55): App only places the pieces the hook builds.
   const comments = useCommentsUi({

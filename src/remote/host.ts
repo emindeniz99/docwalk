@@ -107,9 +107,11 @@ interface RemoteHostOptions {
   /**
    * Takes a remote's `step` while the presenter is in the map view, in place of
    * the deck's pages: the map walks its route, and the deck follows at section
-   * level (decision 152). Without it a step turns pages on the map too.
+   * level (decision 152). It returns whether the map took the step; when it did
+   * not (the map is not loaded or not open yet), and without a handler, the
+   * step turns the deck's pages, so no press is lost.
    */
-  onMapStep?: (direction: 1 | -1) => void;
+  onMapStep?: (direction: 1 | -1) => boolean;
 }
 
 export interface RemoteHost {
@@ -468,9 +470,11 @@ export function useRemoteHost({
           const before = deck?.current()?.address;
           const mapStep = callbacks.current.onMapStep;
           if (message.type === "goto") deck?.goTo(message.address);
-          else if (mapViewRef.current && mapStep) mapStep(message.direction);
-          else if (message.direction === 1) deck?.next();
-          else deck?.prev();
+          // On the map the map takes the step, if it can (decision 152).
+          else if (!(mapViewRef.current && mapStep?.(message.direction))) {
+            if (message.direction === 1) deck?.next();
+            else deck?.prev();
+          }
           // A move announces itself; a press that moved nothing (the last
           // slide, an unknown address, a step inside one frame column of the
           // map) still gets an answer.

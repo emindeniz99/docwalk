@@ -72,9 +72,12 @@ export interface MapHandle {
   /**
    * The phone remote's Next (1) or Previous (-1): the next or previous frame
    * of the route from the current frame, as Right and Left do on the pane but
-   * wherever keyboard focus is, with the laser on or off.
+   * wherever keyboard focus is, with the laser on or off. True when the map
+   * took the step, also at an end where it refits in place; false while it
+   * has no camera yet (not opened, or no frames), so the caller can do
+   * something else with the press.
    */
-  step: (direction: 1 | -1) => void;
+  step: (direction: 1 | -1) => boolean;
 }
 
 export interface MapViewProps {
@@ -249,8 +252,8 @@ interface MapController {
   setLaser: (on: boolean) => void;
   /** A section the reader chose in the shell: its frame, with the move, whatever is current. */
   request: (sectionId: string) => void;
-  /** The phone remote's Next or Previous (decision 152): the key's move, from wherever focus is. */
-  step: (direction: 1 | -1) => void;
+  /** The phone remote's Next or Previous (decision 152): the key's move, from wherever focus is. False when the map is not ready. */
+  step: (direction: 1 | -1) => boolean;
   /** A follower's roam ends: the map goes to the presenter's section and follows it again (decision 150). */
   back: () => void;
   /** The deck's current section, from outside (an outline entry, a link, a palette result). */
@@ -317,8 +320,10 @@ interface MapController {
  * Rules this view chose for the phone remote's steps (decision 152):
  * - A step is the arrow key's move (`goToFrame`), taken from outside the
  *   pane, so it needs no focus and no exclusion of a text field or a box that
- *   scrolls; a focus view of a block closes only when the step moves.
- * - A step at the first or last frame moves nothing and leaves an open view.
+ *   scrolls; a focus view of a block closes only when the step goes to
+ *   another frame.
+ * - A step at the first or last frame refits the frame in place, as the key
+ *   does, and leaves an open view.
  *
  * Rules this view chose for a follower's map (step 5, decision 150):
  * - A roam starts with whatever moves the camera by the reader's hand: the
@@ -1094,23 +1099,27 @@ function mountMap(
       if (id !== null) goToFrame(id, { report: false });
     },
     step(direction) {
-      if (!camera || order.length === 0) return;
+      if (!camera || order.length === 0) return false;
       const to =
         direction === 1 ? nextFrame(order, currentFrame) : previousFrame(order, currentFrame);
-      if (to === null) return;
-      // As a slide change closes them on the slides; a diagram view stays (decision 152).
-      const focused = document.activeElement;
-      focusWiring.closeContent();
-      // A closing view hands focus back to its block, and the focus rule would make that
-      // block's frame current again once the step has moved on: the step's frame wins.
-      const returned = document.activeElement;
-      if (returned !== focused && returned instanceof HTMLElement && layer.contains(returned)) {
-        navigated = returned;
-        queueMicrotask(() => {
-          navigated = null;
-        });
+      if (to === null) return false;
+      // As a slide change closes them on the slides, which Next on the last slide is not;
+      // a diagram view stays (decision 152).
+      if (to !== currentFrame) {
+        const focused = document.activeElement;
+        focusWiring.closeContent();
+        // A closing view hands focus back to its block, and the focus rule would make that
+        // block's frame current again once the step has moved on: the step's frame wins.
+        const returned = document.activeElement;
+        if (returned !== focused && returned instanceof HTMLElement && layer.contains(returned)) {
+          navigated = returned;
+          queueMicrotask(() => {
+            navigated = null;
+          });
+        }
       }
       goToFrame(to, { leaveFocus: true });
+      return true;
     },
     back,
     setCurrent(sectionId) {
@@ -1207,7 +1216,7 @@ export default function MapView({
   const askLaser = useEffectEvent((on: boolean) => onLaserChange?.(on));
   useImperativeHandle(
     ref,
-    () => ({ step: (direction) => controller.current?.step(direction) }),
+    () => ({ step: (direction) => controller.current?.step(direction) ?? false }),
     [],
   );
   // A follower's roam (decision 150): the controller decides it, this shows the button.
