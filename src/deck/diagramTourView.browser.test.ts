@@ -423,6 +423,35 @@ describe("tapping a node", () => {
     expect(ringed()).toBe("Alpha");
     expect(tours(events)).toEqual([[1]]);
   });
+
+  // Decision 156: the map and this view tell a tap from a pan at the same 10 CSS px, so a
+  // finger's drift on a node counts alike in both (it was 6 px here, 10 on the map).
+  test.each([
+    [8, "a press that drifts 8 px, a finger's jitter, still taps the node", "Gamma", [[1], [1, 3]]],
+    [12, "a press that moves 12 px is a pan and goes nowhere", "Alpha", [[1]]],
+  ] as const)("%i px: %s", async (distance, _name, ringedAfter, toursAfter) => {
+    await openView();
+    const events = record();
+    await startTour();
+    const gamma = nodes().find((node) => node.textContent?.includes("Gamma"))!;
+    const box = gamma.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    const y = box.top + box.height / 2;
+    const finger = {
+      bubbles: true,
+      pointerId: 8,
+      pointerType: "touch",
+      isPrimary: true,
+      button: 0,
+    };
+    gamma.dispatchEvent(new PointerEvent("pointerdown", { ...finger, clientX: x, clientY: y }));
+    gamma.dispatchEvent(
+      new PointerEvent("pointerup", { ...finger, clientX: x + distance, clientY: y }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(ringed()).toBe(ringedAfter);
+    expect(tours(events)).toEqual(toursAfter);
+  });
 });
 
 describe("keyboard reach", () => {

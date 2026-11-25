@@ -15,6 +15,27 @@ import MapView, { type MapHandle } from "./MapView";
 import { roomFrame } from "../remote/types";
 import { ZOOM_STEP } from "./route";
 
+// The frames each `drawDiagrams` call names: what the view asks Mermaid to draw, counted where
+// it asks, since drawing itself is queued and slow. Every call still reaches the real one.
+const asked = vi.hoisted(() => ({ calls: [] as string[][] }));
+vi.mock("./frames", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./frames")>();
+  return {
+    ...real,
+    renderFrames: (...args: Parameters<typeof real.renderFrames>) => {
+      const handle = real.renderFrames(...args);
+      return {
+        ...handle,
+        drawDiagrams: (ids: Iterable<string>) => {
+          const named = [...ids];
+          asked.calls.push(named);
+          return handle.drawDiagrams(named);
+        },
+      };
+    },
+  };
+});
+
 /**
  * Decision 145, the route on the map: one current frame, marked for the eye
  * and for assistive technology and announced when it changes; keys and
@@ -38,6 +59,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.restoreAllMocks();
+  asked.calls.length = 0;
   reactRoot?.unmount();
   reactRoot = null;
   outside.setCurrent = null;
@@ -488,6 +510,33 @@ describe("the keys from a frame (decision 145, Keys)", () => {
       expect(m.layer.style.transform).toBe(before);
     }
   });
+
+  // The pane's check is the annotation keys' own `isTextEntry`: a custom text widget answers
+  // to its role, and an input that takes no typed text answers to no key of its own.
+  test("a role=textbox widget in a frame keeps its keys, as a text field does", async () => {
+    const m = await mountRoute(ROUTE);
+    const before = m.layer.style.transform;
+    const widget = document.createElement("div");
+    widget.setAttribute("role", "textbox");
+    widget.tabIndex = 0;
+    frameEl(m.container, "alpha").querySelector(".docwalk-slide-body")!.append(widget);
+    widget.focus();
+    expect(await press("{ArrowRight}")).toBe(false);
+    await press("0");
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expect(m.layer.style.transform).toBe(before);
+  });
+
+  test("a checkbox in a frame takes no key of its own, so the route's keys work from it", async () => {
+    const m = await mountRoute(ROUTE);
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    frameEl(m.container, "alpha").querySelector(".docwalk-slide-body")!.append(box);
+    box.focus();
+    expect(document.activeElement).toBe(box);
+    expect(await press("{ArrowRight}")).toBe(true);
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+  });
 });
 
 describe("the whole map (decision 145, Keys)", () => {
@@ -548,6 +597,53 @@ describe("the whole map (decision 145, Keys)", () => {
     expect(await press("{Enter}")).toBe(false);
     expect(m.layer.style.transform).toBe(zoomed);
   });
+
+  // At the whole map of a long document every frame is a few dozen pixels wide, so a diagram
+  // there is a smudge; asking Mermaid for all of them at once is the cost of that smudge.
+  test(
+    "a diagram too small on screen to read is not asked for at the whole map, and is when zoomed in on",
+    { timeout: 90_000 },
+    async () => {
+      const count = 24;
+      const doc = Array.from({ length: count }, (_, i) => [
+        `## Section ${i + 1}`,
+        "",
+        ...diagram("LR"),
+        "",
+      ])
+        .flat()
+        .join("\n");
+      const m = await mountRoute(doc);
+      const first = frameEl(m.container, "section-1");
+      await expect
+        .poll(() => first.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
+        .not.toBeNull();
+      // The opening view's own diagrams are drawn and the layout has settled before the key.
+      const drawn = () =>
+        [...new Set(asked.calls.flat())].every(
+          (id) => frameEl(m.container, id).querySelector(".docwalk-diagram svg") !== null,
+        );
+      await expect.poll(drawn, { timeout: 20_000 }).toBe(true);
+      await frames(10);
+      m.pane.focus();
+      asked.calls.length = 0;
+      await press("0");
+      expectAt(m, wholeMap(m));
+      await frames(10);
+      const small = frameEl(m.container, "section-1").getBoundingClientRect().width;
+      expect(small, "a frame on the whole map is too small to read").toBeLessThan(100);
+      expect([...new Set(asked.calls.flat())], "frames asked for at the whole map").toEqual([]);
+      // Zooming in on a frame far from the opening view draws its diagram.
+      const target = frameEl(m.container, "section-12");
+      expect(target.querySelector(".docwalk-diagram")).toBeNull();
+      await userEvent.click(target);
+      await expect
+        .poll(() => target.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
+        .not.toBeNull();
+      expect(asked.calls.flat()).toContain("section-12");
+      expect(new Set(asked.calls.flat()).size).toBeLessThan(count);
+    },
+  );
 });
 
 const WIDE = [

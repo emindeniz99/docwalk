@@ -528,6 +528,38 @@ describe("the mouse on the map (decision 142, Camera)", () => {
   });
 });
 
+describe("the pointer's cost when it is not the map's (decision 142, Camera)", () => {
+  // The map listens for moves on the window, so every move anywhere in the app reaches it;
+  // reading the pane's box is a layout read, and a move that drags and pinches nothing needs none.
+  test("a pointer moving with no drag, pinch or laser reads nothing from the pane; a drag still pans", async () => {
+    const { container, pane } = await mountMap(DOC);
+    const read = vi.spyOn(pane, "getBoundingClientRect");
+    for (const pointerType of ["mouse", "pen", "touch"]) {
+      document.body.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 9,
+          pointerType,
+          clientX: 20,
+          clientY: 20,
+          bubbles: true,
+        }),
+      );
+    }
+    expect(read, "layout reads by pointer moves that do nothing").not.toHaveBeenCalled();
+    const before = boxOf(container, "alpha");
+    const p = pointOn(before, pane.getBoundingClientRect());
+    read.mockClear();
+    touch("pointerdown", 1, p.x, p.y);
+    touch("pointermove", 1, p.x + 40, p.y + 30);
+    touch("pointerup", 1, p.x + 40, p.y + 30);
+    await frames(2);
+    const after = boxOf(container, "alpha");
+    expect(off(after.left, before.left + 40), "left").toBeLessThanOrEqual(0.5);
+    expect(off(after.top, before.top + 30), "top").toBeLessThanOrEqual(0.5);
+    expect(read, "a drag reads the pane's box").toHaveBeenCalled();
+  });
+});
+
 describe("touch on the map (decision 142, Camera)", () => {
   // Synthetic PointerEvents bypass `touch-action`: these tests prove the
   // arithmetic and the wiring, not that a browser delivers the moves.
