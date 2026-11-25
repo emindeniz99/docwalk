@@ -471,6 +471,24 @@ describe("room connection", () => {
   });
 });
 
+/** A presenter on the map, with a remote joined and the join-time states settled. */
+async function onTheMap(onMapStep: (direction: 1 | -1) => boolean, controller = fakeController(3)) {
+  const relay = new FakeRelay();
+  const host = mountHost({
+    controller,
+    docLink: null,
+    enabled: true,
+    socketFactory: relay.factory,
+    base: BASE,
+    mapView: true,
+    onMapStep,
+  });
+  const remote = peer(relay, await joinCreds(host, "remote"), "remote");
+  await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
+  await new Promise((r) => setTimeout(r, 50));
+  return { remote, controller };
+}
+
 describe("presenter host", () => {
   test("answers a remote's hello with the current slide", async () => {
     const relay = new FakeRelay();
@@ -778,6 +796,106 @@ describe("presenter host", () => {
     await remote.conn.send({ type: "step", direction: 1 });
     await vi.waitFor(() => expect(ofType(remote, "state").length).toBe(before + 1));
     expect(ofType(remote, "state").at(-1)?.current).toBe("section-2/1");
+  });
+
+  describe("a step on the map goes to the map, not to the deck (decision 152)", () => {
+    test("a step reaches the map's handler with its direction and turns no page of the hidden deck", async () => {
+      // The pages of a deck nobody sees are not what the phone's Next is for on the map.
+      const onMapStep = vi.fn<(direction: 1 | -1) => boolean>(() => true);
+      const { remote, controller } = await onTheMap(onMapStep);
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(onMapStep).toHaveBeenCalledTimes(1));
+      await remote.conn.send({ type: "step", direction: -1 });
+      await vi.waitFor(() => expect(onMapStep).toHaveBeenCalledTimes(2));
+      expect(onMapStep.mock.calls).toEqual([[1], [-1]]);
+      expect(controller.next).not.toHaveBeenCalled();
+      expect(controller.prev).not.toHaveBeenCalled();
+    });
+
+    test("a step inside one column changes no slide and still gets a state, or the phone reports the presenter away", async () => {
+      // Walking the ### frames of one section moves the map and leaves the deck's
+      // address alone; a phone that hears nothing for 4 s shows "presenter away".
+      const { remote } = await onTheMap(() => true);
+      const before = ofType(remote, "state").length;
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(ofType(remote, "state").length).toBe(before + 1));
+      expect(ofType(remote, "state").at(-1)).toMatchObject({ current: "section-0/1", view: "map" });
+    });
+
+    test("a step that takes the deck to another section is answered by that move's state alone", async () => {
+      // The map reports the new section, the app moves the deck, and the deck's
+      // own change announces itself: a second state would say the same again.
+      const controller = fakeController(3);
+      const { remote } = await onTheMap(() => {
+        controller.goTo("section-1/1");
+        return true;
+      }, controller);
+      const before = ofType(remote, "state").length;
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(ofType(remote, "state").at(-1)?.current).toBe("section-1/1"));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ofType(remote, "state").length).toBe(before + 1);
+    });
+
+    test("a goto still names a deck address on the map", async () => {
+      const onMapStep = vi.fn<(direction: 1 | -1) => boolean>(() => true);
+      const { remote, controller } = await onTheMap(onMapStep);
+      await remote.conn.send({ type: "goto", address: "section-2/1" });
+      await vi.waitFor(() => expect(controller.goTo).toHaveBeenCalledWith("section-2/1"));
+      expect(onMapStep).not.toHaveBeenCalled();
+    });
+
+    test("on the slides a step still turns pages, and the map's handler hears nothing", async () => {
+      const relay = new FakeRelay();
+      const onMapStep = vi.fn<(direction: 1 | -1) => boolean>(() => true);
+      const controller = fakeController(3);
+      const host = mountHost({
+        controller,
+        docLink: null,
+        enabled: true,
+        socketFactory: relay.factory,
+        base: BASE,
+        mapView: false,
+        onMapStep,
+      });
+      const remote = peer(relay, await joinCreds(host, "remote"), "remote");
+      await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(controller.next).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(ofType(remote, "state").at(-1)?.current).toBe("section-1/1"));
+      expect(onMapStep).not.toHaveBeenCalled();
+    });
+
+    test("a step the map did not take (its chunk is not loaded, or it has no camera yet) turns the deck's page, so the press is not lost", async () => {
+      // The handler answers false until the map can walk its route. Dropping the
+      // press then would leave the phone with a presenter that does not move.
+      const onMapStep = vi.fn<(direction: 1 | -1) => boolean>(() => false);
+      const { remote, controller } = await onTheMap(onMapStep);
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(controller.next).toHaveBeenCalledTimes(1));
+      await remote.conn.send({ type: "step", direction: -1 });
+      await vi.waitFor(() => expect(controller.prev).toHaveBeenCalledTimes(1));
+      expect(onMapStep.mock.calls).toEqual([[1], [-1]]);
+      await vi.waitFor(() => expect(ofType(remote, "state").at(-1)?.current).toBe("section-0/1"));
+    });
+
+    test("on the map with no handler (the map's chunk is not loaded yet) a step still turns the deck's pages", async () => {
+      // Nothing to hand the step to: the deck keeps its old behaviour rather than dropping the press.
+      const relay = new FakeRelay();
+      const controller = fakeController(3);
+      const host = mountHost({
+        controller,
+        docLink: null,
+        enabled: true,
+        socketFactory: relay.factory,
+        base: BASE,
+        mapView: true,
+      });
+      const remote = peer(relay, await joinCreds(host, "remote"), "remote");
+      await vi.waitFor(() => expect(ofType(remote, "state").length).toBeGreaterThan(0));
+      await remote.conn.send({ type: "step", direction: 1 });
+      await vi.waitFor(() => expect(controller.next).toHaveBeenCalledTimes(1));
+    });
   });
 
   test("a duplicated tab opens its own room: it must not join the stored one as a second presenter", async () => {

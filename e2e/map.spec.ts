@@ -34,7 +34,8 @@ async function expectNoSeriousViolations(page: Page) {
 test("Map shows one frame per section of the map's plan, in document order, in place of the deck", async ({
   page,
 }) => {
-  // The sample has 23 columns and 40 frames (src/map/layout.test.ts). The
+  // The sample has 40 frames, in 23 groups of a section and its parts, all in
+  // one column down the page (src/map/layout.test.ts, decision 174). The
   // map's code loads only when asked for: the same pattern perf.spec.ts
   // holds the first load to finds the chunk here, so that check can fail.
   const chunks: string[] = [];
@@ -188,7 +189,7 @@ const pageScroll = (page: Page) =>
     };
   });
 
-test("the sample's frames lie in columns; a wheel pans, Ctrl + wheel zooms, and the page never scrolls", async ({
+test("the sample's frames lie in one column; a wheel pans, Ctrl + wheel zooms, and the page never scrolls", async ({
   page,
 }) => {
   // Decision 142, Camera: the pane takes the wheel, so the page behind it must not move.
@@ -196,12 +197,14 @@ test("the sample's frames lie in columns; a wheel pans, Ctrl + wheel zooms, and 
   await ready(page);
   await openMap(page);
   const first = frames(page).first();
-  // The title's column, then the first `##` column: tops aligned, side by side.
+  // Decision 174: the title's frame, then the first `##` frame right under it:
+  // one left edge, one width, the next frame lower down.
   const second = mapRegion(page).locator('[data-map-frame="summary"]');
   const a = await boxOf(first);
   const b = await boxOf(second);
-  expect(b.x).toBeGreaterThan(a.x + a.width);
-  expect(Math.abs(b.y - a.y)).toBeLessThan(1);
+  expect(Math.abs(b.x - a.x)).toBeLessThan(1);
+  expect(Math.abs(b.width - a.width)).toBeLessThan(1);
+  expect(b.y).toBeGreaterThan(a.y + a.height);
   const pane = await boxOf(mapRegion(page));
   await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
   await page.mouse.wheel(0, 200);
@@ -561,7 +564,7 @@ test.describe("the route through the sample", () => {
       await expect(mapRegion(page).getByRole("status")).toHaveText("Glossary, 6 of 40");
     });
 
-    test("0 shows the whole map, the last column included, and Enter returns to the current frame", async ({
+    test("0 shows the whole map, first frame to last, and Enter returns to the current frame", async ({
       page,
     }) => {
       await openAt(page, "/?view=map#summary/1", "summary");
@@ -569,6 +572,8 @@ test.describe("the route through the sample", () => {
       await page.keyboard.press("0");
       const last = mapRegion(page).locator('[data-map-frame="changelog"]');
       await expect.poll(() => inPane(page, last)).toBe(true);
+      // Decision 174: the whole map is the one column fitted to the pane, top frame to last.
+      expect(await inPane(page, frames(page).first())).toBe(true);
       const whole = await boxOf(current(page));
       await page.keyboard.press("Enter");
       await expect
@@ -576,6 +581,24 @@ test.describe("the route through the sample", () => {
         .toBeGreaterThan(whole.width * 3);
       await expect.poll(() => inPane(page, current(page))).toBe(true);
       await expect(current(page)).toHaveAttribute("data-map-frame", "summary");
+    });
+
+    test("the API frame stays where the map put it while the diagrams above it draw (decision 155)", async ({
+      page,
+    }) => {
+      // In one column the frames above add up: the Data model diagram drawing
+      // above the API frame used to push its heading 400 px above the pane,
+      // about 150 ms after it had landed. So the check is made after the
+      // diagram has drawn and the map has placed it, never while it is landing.
+      await openAt(page, "/?view=map#api/1", "api");
+      const dataModel = mapRegion(page).locator('[data-map-frame="data-model"]');
+      await expect(dataModel.locator(".docwalk-diagram svg")).toHaveCount(1, { timeout: 30_000 });
+      await afterFrames(page);
+      await afterFrames(page);
+      const heading = mapRegion(page).locator('[data-map-frame="api"] h2').first();
+      await expect(heading).toBeVisible();
+      expect(await inPane(page, heading)).toBe(true);
+      await expect(current(page)).toHaveAttribute("data-map-frame", "api");
     });
 
     test("an outline entry in the map view moves the map to that section's frame", async ({

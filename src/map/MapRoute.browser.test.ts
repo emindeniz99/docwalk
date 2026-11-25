@@ -11,7 +11,7 @@ import "../styles.css";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
 import { type Camera, cameraTransform, fitAll, fitFrame } from "./camera";
 import { FRAME_WIDTH } from "./layout";
-import MapView from "./MapView";
+import MapView, { type MapHandle } from "./MapView";
 import { ZOOM_STEP } from "./route";
 
 /**
@@ -26,7 +26,8 @@ import { ZOOM_STEP } from "./route";
 const outside: {
   setCurrent: ((id: string | null) => void) | null;
   setRequest: ((request: { sectionId: string; seq: number }) => void) | null;
-} = { setCurrent: null, setRequest: null };
+  handle: MapHandle | null;
+} = { setCurrent: null, setRequest: null, handle: null };
 let requests = 0;
 
 let reactRoot: ReactRoot | null = null;
@@ -39,6 +40,7 @@ afterEach(() => {
   reactRoot = null;
   outside.setCurrent = null;
   outside.setRequest = null;
+  outside.handle = null;
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
@@ -131,6 +133,8 @@ interface Mounted {
    * request of its own (decision 148).
    */
   choose: (id: string) => Promise<void>;
+  /** The phone remote's Next (1) or Previous (-1) as the presenter hands it to the map (decision 152). */
+  step: (direction: 1 | -1) => Promise<boolean>;
 }
 
 interface Options {
@@ -143,12 +147,14 @@ interface Options {
   feedback?: boolean;
   /** The deck's level; the map sections the document itself. */
   level?: Parameters<typeof sectionize>[1];
+  /** The map's laser, as App holds it (decision 149). */
+  laser?: boolean;
 }
 
 /** MapView with the deck's sections at `auto`, once its first placement is shown. */
 async function mountRoute(
   markdown: string,
-  { current = null, size = PANE, feedback = false, level = "auto" }: Options = {},
+  { current = null, size = PANE, feedback = false, level = "auto", laser = false }: Options = {},
 ): Promise<Mounted> {
   await page.viewport(size.width + 100, size.height + 100);
   const container = document.createElement("div");
@@ -163,6 +169,10 @@ async function mountRoute(
   const deckSections = deckPlan.sections;
   const calls: string[] = [];
   function Harness() {
+    const [handle, setHandle] = useState<MapHandle | null>(null);
+    useEffect(() => {
+      outside.handle = handle;
+    }, [handle]);
     const [now, setNow] = useState<string | null>(current);
     const [request, setRequest] = useState<{ sectionId: string; seq: number } | null>(null);
     useEffect(() => {
@@ -170,11 +180,13 @@ async function mountRoute(
       outside.setRequest = setRequest;
     }, []);
     return h(MapView, {
+      ref: setHandle,
       root,
       current: now,
       deckSections,
       deckLevels: deckPlan.levels,
       request,
+      laser,
       onCurrent: (id: string) => {
         calls.push(id);
         if (feedback) setNow(id);
@@ -205,6 +217,11 @@ async function mountRoute(
         outside.setRequest?.({ sectionId: id, seq });
       });
       await frames(2);
+    },
+    step: async (direction) => {
+      const took = outside.handle!.step(direction);
+      await frames(2);
+      return took;
     },
   };
 }
@@ -1036,6 +1053,230 @@ describe("the move (decision 145, The move)", () => {
       const middle = frameEl(m.container, "middle");
       expect(middle.querySelector(".docwalk-diagram")).toBeNull();
       expect(middle.querySelector("pre > code.language-mermaid")).not.toBeNull();
+    },
+  );
+});
+
+/** A `## title` section holding a code block with one long line. */
+const WIDE_BLOCK = (title: string) => [
+  `## ${title}`,
+  "",
+  "```text",
+  `log ${"key=value ".repeat(60)}`,
+  "```",
+];
+
+describe("a step from the phone remote (decision 152)", () => {
+  beforeEach(reduceMotion);
+
+  /** Step, the deck section the map opens on, the frame reached: the arrow keys' own table. */
+  const STEPS: [1 | -1, string, string][] = [
+    [1, "alpha", "alpha-one"],
+    [1, "alpha-one", "alpha-two"],
+    [1, "alpha-two", "beta"],
+    [-1, "beta", "alpha-two"],
+    [-1, "gamma", "beta"],
+    // No wrap: the ends stay.
+    [-1, "alpha", "alpha"],
+  ];
+  for (const [direction, from, to] of STEPS) {
+    test(`step ${direction} from ${from} goes to ${to}, fitted, as the arrow key does`, async () => {
+      // A ### frame is no deck section: the map opens on its column's head and walks there.
+      const head = from.startsWith("alpha-") ? "alpha" : from;
+      const m = await mountRoute(ROUTE, { current: head });
+      for (let i = ROUTE_IDS.indexOf(head); i < ROUTE_IDS.indexOf(from); i++) await m.step(1);
+      expect(currentIds(m.container)).toEqual([from]);
+      await m.step(direction);
+      expect(currentIds(m.container)).toEqual([to]);
+      expectAt(m, fittedTo(m, to));
+    });
+  }
+
+  test("at the last frame it stays: no wrap, no move, nothing reported", async () => {
+    const m = await mountRoute(ROUTE, { feedback: true });
+    m.pane.focus();
+    await press("{End}");
+    const there = m.layer.style.transform;
+    const reported = [...m.calls];
+    await m.step(1);
+    expect(currentIds(m.container)).toEqual(["gamma-detail"]);
+    expect(m.layer.style.transform).toBe(there);
+    expect(m.calls).toEqual(reported);
+  });
+
+  test("every frame is reached once in document order by steps alone, and back again", async () => {
+    const m = await mountRoute(ROUTE);
+    const seen = [currentIds(m.container)[0]];
+    for (let i = 1; i < ROUTE_IDS.length; i++) {
+      await m.step(1);
+      seen.push(currentIds(m.container)[0]);
+    }
+    expect(seen).toEqual(ROUTE_IDS);
+    for (let i = ROUTE_IDS.length - 2; i >= 0; i--) {
+      await m.step(-1);
+      expect(currentIds(m.container)).toEqual([ROUTE_IDS[i]]);
+    }
+  });
+
+  test("a part made by a thematic break is a frame of the route, as it is for the arrow keys", async () => {
+    const m = await mountRoute(
+      [
+        "## A",
+        "",
+        "Before the break.",
+        "",
+        "---",
+        "",
+        "After the break.",
+        "",
+        "## B",
+        "",
+        "Text.",
+      ].join("\n"),
+    );
+    const ids = [...m.container.querySelectorAll<HTMLElement>("[data-map-frame]")].map(
+      (el) => el.dataset["mapFrame"]!,
+    );
+    expect(ids).toHaveLength(3);
+    await m.step(1);
+    expect(currentIds(m.container)).toEqual([ids[1]]);
+    await m.step(1);
+    expect(currentIds(m.container)).toEqual([ids[2]]);
+  });
+
+  test("from the whole map it goes from the current frame, not from the first one", async () => {
+    const m = await mountRoute(ROUTE, { current: "beta" });
+    m.pane.focus();
+    await press("0");
+    expectAt(m, wholeMap(m));
+    await m.step(1);
+    expect(currentIds(m.container)).toEqual(["gamma"]);
+    expectAt(m, fittedTo(m, "gamma"));
+  });
+
+  test("it moves with keyboard focus in a text field outside the pane, which the arrow keys cannot", async () => {
+    // A remote press must not depend on focus: the pane's key rules skip a text field.
+    const m = await mountRoute(ROUTE);
+    const field = document.createElement("input");
+    document.body.append(field);
+    field.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    await m.step(1);
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+    expectAt(m, fittedTo(m, "alpha-one"));
+    expect(document.activeElement).toBe(field);
+  });
+
+  test("it moves with the laser on, which keeps the pane's keys but must not keep the remote out", async () => {
+    const m = await mountRoute(ROUTE, { laser: true });
+    expect(m.pane.hasAttribute("data-laser")).toBe(true);
+    await m.step(1);
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+    expectAt(m, fittedTo(m, "alpha-one"));
+    expect(m.pane.hasAttribute("data-laser")).toBe(true);
+  });
+
+  test("a step inside a column reports nothing; one into another column reports its section once, as the keys do", async () => {
+    // The deck follows at section level: the map reports a section, and the
+    // deck's address (and so the phone's slide number) changes only then.
+    const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
+    await m.step(1);
+    await m.step(1);
+    expect(m.calls).toEqual([]);
+    await m.step(1);
+    expect(m.calls).toEqual(["beta"]);
+    await m.step(-1);
+    expect(m.calls).toEqual(["beta", "alpha"]);
+  });
+
+  test("a step at the first or last frame leaves an open code view open, as Next on the last slide does", async () => {
+    // Nothing changes on the slides there (no slidechanged), so nothing closes the view.
+    const last = await mountRoute(["## First", "", "Text.", "", ...WIDE_BLOCK("Last")].join("\n"));
+    last.pane.focus();
+    await press("{End}");
+    const pre = frameEl(last.container, "last").querySelector<HTMLElement>("pre")!;
+    await expect.poll(() => pre.dataset["docwalkFocus"], { timeout: 20_000 }).toBe("code");
+    pre.focus();
+    await press("{Enter}");
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    const took = await last.step(1);
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    expect(currentIds(last.container)).toEqual(["last"]);
+    expect(took, "the map took the step, refitting in place").toBe(true);
+  });
+
+  test("a step before the first frame leaves an open code view open", async () => {
+    const m = await mountRoute([...WIDE_BLOCK("First"), "", "## Second", "", "Text."].join("\n"));
+    const pre = frameEl(m.container, "first").querySelector<HTMLElement>("pre")!;
+    await expect.poll(() => pre.dataset["docwalkFocus"], { timeout: 20_000 }).toBe("code");
+    pre.focus();
+    await press("{Enter}");
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    const took = await m.step(-1);
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    expect(currentIds(m.container)).toEqual(["first"]);
+    expect(took, "the map took the step, refitting in place").toBe(true);
+  });
+
+  test("a step the map is not ready for says so: false with no camera yet, true once it has one, also at an end", async () => {
+    // The pane has no size, so there is no opening view and no camera to move.
+    const container = document.createElement("div");
+    container.style.display = "none";
+    document.body.append(container);
+    const held: { current: MapHandle | null } = { current: null };
+    const react = createRoot(container);
+    reactRoot = react;
+    flushSync(() =>
+      react.render(
+        h(MapView, {
+          root: parseMarkdown(ROUTE),
+          ref: (instance: MapHandle | null) => {
+            held.current = instance;
+          },
+        }),
+      ),
+    );
+    await frames(3);
+    expect(held.current!.step(1)).toBe(false);
+    expect(held.current!.step(-1)).toBe(false);
+
+    const m = await mountRoute(ROUTE);
+    expect(await m.step(-1), "at the first frame").toBe(true);
+    expect(await m.step(1)).toBe(true);
+  });
+
+  test("it closes an open code view, as a slide change does on the slides", async () => {
+    const m = await mountRoute(WIDE);
+    const pre = frameEl(m.container, "wide").querySelector<HTMLElement>("pre")!;
+    await expect.poll(() => pre.dataset["docwalkFocus"], { timeout: 20_000 }).toBe("code");
+    pre.focus();
+    await press("{Enter}");
+    expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("code");
+    await m.step(1);
+    expect(document.querySelector(".docwalk-focus")).toBeNull();
+    expect(currentIds(m.container)).toEqual(["next"]);
+    expectAt(m, fittedTo(m, "next"));
+  });
+
+  test(
+    "it leaves an open diagram view open, as a slide change does on the slides",
+    { timeout: 60_000 },
+    async () => {
+      const m = await mountRoute(
+        ["## One", "", ...diagram("LR"), "", "## Two", "", para("Two", 2), ""].join("\n"),
+      );
+      const host = frameEl(m.container, "one");
+      await expect
+        .poll(() => host.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
+        .not.toBeNull();
+      await userEvent.click(host.querySelector<HTMLElement>(".docwalk-diagram")!);
+      await expect
+        .poll(() => document.querySelector(".docwalk-focus")?.getAttribute("data-kind"))
+        .toBe("diagram");
+      await m.step(1);
+      expect(currentIds(m.container)).toEqual(["two"]);
+      expect(document.querySelector(".docwalk-focus")?.getAttribute("data-kind")).toBe("diagram");
     },
   );
 });

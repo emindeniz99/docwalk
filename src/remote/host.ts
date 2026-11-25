@@ -104,6 +104,14 @@ interface RemoteHostOptions {
    * and entering or leaving the map sends one (decision 150). Defaults to false.
    */
   mapView?: boolean;
+  /**
+   * Takes a remote's `step` while the presenter is in the map view, in place of
+   * the deck's pages: the map walks its route, and the deck follows at section
+   * level (decision 152). It returns whether the map took the step; when it did
+   * not (the map is not loaded or not open yet), and without a handler, the
+   * step turns the deck's pages, so no press is lost.
+   */
+  onMapStep?: (direction: 1 | -1) => boolean;
 }
 
 export interface RemoteHost {
@@ -226,6 +234,7 @@ export function useRemoteHost({
   mirror = null,
   countdown = null,
   mapView = false,
+  onMapStep,
 }: RemoteHostOptions): RemoteHost {
   /** Null while a new room's keys are generated (none stored, a duplicated tab, a taken seat). */
   const [creds, setCreds] = useState(readStoredCredentials);
@@ -255,7 +264,7 @@ export function useRemoteHost({
   const countdownRef = useRef(countdown);
   /** What the phones were last sent: null for nothing or a cleared clock, undefined when a send did not go out. */
   const sentCountdownRef = useRef<Countdown | null | undefined>(null);
-  const callbacks = useRef({ onAgentEdit, onAgentEditRefused });
+  const callbacks = useRef({ onAgentEdit, onAgentEditRefused, onMapStep });
   useLayoutEffect(() => {
     if (controller !== controllerRef.current) builtForRef.current = controller ? markdown : null;
     controllerRef.current = controller;
@@ -264,7 +273,7 @@ export function useRemoteHost({
     markdownRef.current = markdown;
     allowRef.current = allowAgentEdits;
     countdownRef.current = countdown;
-    callbacks.current = { onAgentEdit, onAgentEditRefused };
+    callbacks.current = { onAgentEdit, onAgentEditRefused, onMapStep };
   });
   useEffect(() => {
     if (!controller || builtForRef.current !== markdownRef.current) return;
@@ -459,11 +468,16 @@ export function useRemoteHost({
         case "step":
         case "goto": {
           const before = deck?.current()?.address;
+          const mapStep = callbacks.current.onMapStep;
           if (message.type === "goto") deck?.goTo(message.address);
-          else if (message.direction === 1) deck?.next();
-          else deck?.prev();
+          // On the map the map takes the step, if it can (decision 152).
+          else if (!(mapViewRef.current && mapStep?.(message.direction))) {
+            if (message.direction === 1) deck?.next();
+            else deck?.prev();
+          }
           // A move announces itself; a press that moved nothing (the last
-          // slide, an unknown address) still gets an answer.
+          // slide, an unknown address, a step inside one frame column of the
+          // map) still gets an answer.
           if (deck?.current()?.address === before) void sendState();
           break;
         }

@@ -256,6 +256,7 @@
   "follow_connecting": "Connecting to the presenter…",
   "follow_doc_too_long": "The presenter's document is too long to send here. Open it yourself.",
   "follow_link_incomplete": "This follow link is incomplete. Ask the presenter for the link again.",
+  "follow_newer_view": "The presenter uses a newer docwalk view. Reload the page to see it.",
   "follow_open": "Following the presenter",
   "follow_reconnecting": "Reconnecting to the presenter…",
   "follow_waiting": "Waiting for the presenter…",

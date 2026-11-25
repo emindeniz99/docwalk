@@ -12,6 +12,7 @@ import {
   MIN_FRAME_HEIGHT,
   placeFrames,
 } from "./layout";
+import { fitAll } from "./camera";
 
 const fixture = readFileSync(new URL("../../fixtures/ledger-redesign.md", import.meta.url), "utf8");
 
@@ -248,14 +249,17 @@ describe("mapColumns: columns from the map plan (decisions 139 and 140)", () => 
   });
 });
 
-describe("placeFrames: rectangles from measured heights (decision 139)", () => {
+describe("placeFrames: rectangles from measured heights (decisions 139 and 174)", () => {
   test("frames are one slide wide, so text on the map has its slide size", () => {
     // Compared with the literal: src/deck/pages.ts imports DOM measuring code,
     // which the Node unit project's tsconfig (no DOM lib) cannot type-check.
     expect(FRAME_WIDTH).toBe(1280);
   });
 
-  test("columns run left to right, frames top to bottom, with the fixed gaps", () => {
+  test("one column down the page: every frame at x = 0, in document order, with the group gaps (decision 174)", () => {
+    // Row 174: the map is one column read from the top down. A section's own
+    // frames sit a frame gap apart; the next section starts a column gap below,
+    // so the sections stay readable as groups.
     const columns = [[{ id: "a" }, { id: "b" }], [{ id: "c" }]];
     const heights = new Map([
       ["a", 1000],
@@ -263,28 +267,23 @@ describe("placeFrames: rectangles from measured heights (decision 139)", () => {
       ["c", 900],
     ]);
     const { frames, bounds } = placeFrames(columns, heights);
+    const bTop = 1000 + FRAME_GAP;
+    const cTop = bTop + 2000 + COLUMN_GAP;
     expect(frames).toEqual([
       { id: "a", x: 0, y: 0, width: FRAME_WIDTH, height: 1000, column: 0, row: 0 },
-      {
-        id: "b",
-        x: 0,
-        y: 1000 + FRAME_GAP,
-        width: FRAME_WIDTH,
-        height: 2000,
-        column: 0,
-        row: 1,
-      },
-      {
-        id: "c",
-        x: FRAME_WIDTH + COLUMN_GAP,
-        y: 0,
-        width: FRAME_WIDTH,
-        height: 900,
-        column: 1,
-        row: 0,
-      },
+      { id: "b", x: 0, y: bTop, width: FRAME_WIDTH, height: 2000, column: 0, row: 1 },
+      { id: "c", x: 0, y: cTop, width: FRAME_WIDTH, height: 900, column: 1, row: 0 },
     ]);
-    expect(bounds).toEqual({ width: 2 * FRAME_WIDTH + COLUMN_GAP, height: 3000 + FRAME_GAP });
+    expect(bounds).toEqual({ width: FRAME_WIDTH, height: cTop + 900 });
+  });
+
+  test("a group of one frame still sits a column gap below the previous group", () => {
+    const { frames } = placeFrames([[{ id: "a" }], [{ id: "b" }], [{ id: "c" }]], new Map());
+    expect(frames.map((f) => f.y)).toEqual([
+      0,
+      MIN_FRAME_HEIGHT + COLUMN_GAP,
+      2 * (MIN_FRAME_HEIGHT + COLUMN_GAP),
+    ]);
   });
 
   test("a short, missing, NaN, negative or infinite height gets the minimum", () => {
@@ -320,9 +319,30 @@ describe("placeFrames: rectangles from measured heights (decision 139)", () => {
     expect(placeFrames([], new Map())).toEqual({ frames: [], bounds: { width: 0, height: 0 } });
   });
 
-  test("the gap between columns is wider than the gap between frames", () => {
-    // A column's frames belong together; the eye groups them by distance.
+  test("the gap between groups is wider than the gap between frames of a group", () => {
+    // A section's frames belong together; the eye groups them by distance.
     expect(COLUMN_GAP).toBeGreaterThan(FRAME_GAP);
+  });
+});
+
+describe("the whole map is the one column fitted to the pane (decision 174)", () => {
+  test("every frame of the fixture is on screen, centred on one vertical line", () => {
+    // The `0` key: one column of 40 frames, a tall narrow map, so the pane's
+    // height sets the scale and the column sits in the middle of its width.
+    const { frames, bounds } = placeFrames(mapColumns(plan(fixture)), new Map());
+    expect(bounds.width).toBe(FRAME_WIDTH);
+    const pane = { width: 1200, height: 800 };
+    const { x, y, scale } = fitAll(bounds, pane);
+    expect(frames).toHaveLength(40);
+    for (const f of frames) {
+      const left = x + f.x * scale;
+      const top = y + f.y * scale;
+      expect(left + (f.width * scale) / 2).toBeCloseTo(pane.width / 2, 6);
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(left + f.width * scale).toBeLessThanOrEqual(pane.width);
+      expect(top).toBeGreaterThanOrEqual(0);
+      expect(top + f.height * scale).toBeLessThanOrEqual(pane.height);
+    }
   });
 });
 
@@ -455,20 +475,21 @@ describe("properties", () => {
   });
 
   fcTest.prop([layout])(
-    "frames come in document order, one per input frame, with exact gaps",
+    "one column, document order, one frame per input frame, x = 0 and exact gaps (decision 174)",
     ({ columns, heights }) => {
       const { frames } = placeFrames(columns, heights);
       expect(frames.map((f) => f.id)).toEqual(columns.flat().map((f) => f.id));
       columns.forEach((column, c) => {
         const placed = frames.filter((f) => f.column === c);
         expect(placed.map((f) => f.row)).toEqual(column.map((_, r) => r));
-        expect(placed[0]?.y).toBe(0);
-        for (const f of placed) expect(f.x).toBe(c * (FRAME_WIDTH + COLUMN_GAP));
-        for (let r = 1; r < placed.length; r++) {
-          const above = placed[r - 1]!;
-          expect(placed[r]!.y).toBe(above.y + above.height + FRAME_GAP);
-        }
       });
+      expect(frames[0]?.y ?? 0).toBe(0);
+      for (const f of frames) expect(f.x).toBe(0);
+      for (let i = 1; i < frames.length; i++) {
+        const above = frames[i - 1]!;
+        const gap = frames[i]!.row === 0 ? COLUMN_GAP : FRAME_GAP;
+        expect(frames[i]!.y).toBe(above.y + above.height + gap);
+      }
     },
   );
 

@@ -308,3 +308,35 @@ export function framesNear(
     .filter((f) => f.x < right && left < f.x + f.width && f.y < bottom && top < f.y + f.height)
     .map((f) => f.id);
 }
+
+/**
+ * The frame a height change keeps in place (decision 155): `current` while any
+ * of it is in the pane, otherwise the first frame in document order that is.
+ * `frames` are the rectangles as they were before the change, seen by
+ * `camera`. Null when no frame is in the pane or the pane has no area.
+ */
+export function anchorFrame(
+  frames: readonly FrameRect[],
+  camera: Camera,
+  pane: Size,
+  current: string | null,
+): string | null {
+  const v = visibleRect(camera, pane);
+  if (v.width <= 0 || v.height <= 0) return null;
+  const shown = (f: FrameRect) =>
+    f.x < v.x + v.width && v.x < f.x + f.width && f.y < v.y + v.height && v.y < f.y + f.height;
+  const kept = current === null ? undefined : frames.find((f) => f.id === current);
+  if (kept && shown(kept)) return kept.id;
+  return frames.find(shown)?.id ?? null;
+}
+
+/**
+ * The camera moved so a frame that stood at `fromY` and now stands at `toY`
+ * keeps the place of its top on screen (decision 155). Only `y` changes; a
+ * broken number leaves the camera as it is.
+ */
+export function holdTop(camera: Camera, fromY: number, toY: number): Camera {
+  const { x, y, scale } = readable(camera);
+  const shift = (fromY - toY) * scale;
+  return Number.isFinite(shift) ? { x, y: y + shift, scale } : { x, y, scale };
+}

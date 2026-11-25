@@ -75,7 +75,7 @@ import { readInitialSections, useUrlSync } from "./url/useUrlSync";
 import { m } from "./paraglide/messages.js";
 import { FilesPanel } from "./workspace/FilesPanel";
 import { useWorkspace } from "./workspace/useWorkspace";
-import type { MapRequest } from "./map/MapView";
+import type { MapHandle, MapRequest } from "./map/MapView";
 import { WorkspaceBanner } from "./workspace/WorkspaceBanner";
 import { WorkspaceDialogs } from "./workspace/WorkspaceDialogs";
 
@@ -326,6 +326,9 @@ export function App() {
   // the presenter's document is here; its deck stays mounted, hidden, on the presenter's slide.
   const followState = followUpdate.state;
   const followMap = follow && followState?.view === "map" && doc !== null;
+  // Any other view name is a later build's (decision 172): slides, still following, and a note.
+  // The name itself is never shown; the note is the catalogue's fixed message.
+  const followNewerView = follow && followState?.view !== undefined && followState.view !== "map";
   const presenterSection = followState
     ? followState.current.slice(0, Math.max(0, followState.current.lastIndexOf("/")))
     : null;
@@ -334,9 +337,10 @@ export function App() {
     if (!follow) return;
     const raf = requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     return () => cancelAnimationFrame(raf);
-    // `followMap` is here to nudge on each switch between the map and the slides.
+    // `followMap` is here to nudge on each switch between the map and the slides, and
+    // `followNewerView` on each switch of the bar between overlay and band (decision 172).
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [follow, followMap]);
+  }, [follow, followMap, followNewerView]);
 
   // Source line of every section, for the editor's reveal, cursor sync and notes.
   const sectionLines = useMemo(
@@ -392,8 +396,9 @@ export function App() {
   const { frame, staged, fill, chrome, present } = usePresenting({
     view,
     follow,
-    // The bar above the map stays up: the idle chrome is the slide's (decision 150).
-    followOpen: followOpen && !followMap,
+    // The bar above the map stays up: the idle chrome is the slide's (decision 150). It stays
+    // up too while it carries the newer-view note (decision 172), or the note would hide itself.
+    followOpen: followOpen && !followMap && !followNewerView,
     mode,
     deckRef,
     layerRef,
@@ -452,6 +457,12 @@ export function App() {
   const onMapCurrent = useCallback(
     (sectionId: string) => goToAddress(`${sectionId}/1`, true),
     [goToAddress],
+  );
+  // The phone remote's Next and Previous walk the map's route while the map shows (decision 152).
+  const mapRef = useRef<MapHandle>(null);
+  const onMapStep = useCallback(
+    (direction: 1 | -1) => mapRef.current?.step(direction) ?? false,
+    [],
   );
 
   // Comments (decision 55): App only places the pieces the hook builds.
@@ -563,9 +574,16 @@ export function App() {
   };
 
   const subline = follow ? (
-    <p className="docwalk-source-banner" role="status">
-      {followUpdate.incomplete ? FOLLOW_STATUS.closed() : FOLLOW_STATUS[followUpdate.status]()}
-    </p>
+    <>
+      <p className="docwalk-source-banner" role="status">
+        {followUpdate.incomplete ? FOLLOW_STATUS.closed() : FOLLOW_STATUS[followUpdate.status]()}
+      </p>
+      {followNewerView && (
+        <p className="docwalk-source-banner docwalk-follow-note" role="status">
+          {m.follow_newer_view()}
+        </p>
+      )}
+    </>
   ) : !doc ? null : doc.source.kind === "workspace" ? (
     <WorkspaceBanner workspace={workspace} />
   ) : doc.source.kind === "sample" ? (
@@ -836,6 +854,7 @@ export function App() {
             {/* The map moves with the deck's current slide and moves it (decision 145);
                 a section left out of the chosen ones is not in the deck, so goTo does nothing. */}
             <MapView
+              ref={mapRef}
               root={root}
               current={current?.sectionId ?? null}
               deckSections={plan.sections}
@@ -1000,6 +1019,7 @@ export function App() {
             mirror={mirrorFeed}
             countdown={presenterCountdown}
             mapView={view === "map"}
+            onMapStep={onMapStep}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}
             edit={onEdit}

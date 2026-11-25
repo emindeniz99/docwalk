@@ -75,7 +75,7 @@ function markBlocks(root: ParentNode): void {
 /**
  * One frame: the section's heading and nodes as `buildSlide` (src/deck/slides.ts)
  * renders them, in the slide's own classes so the text has its slide size
- * (decision 139). No breadcrumb and no "continued" title: the map's columns
+ * (decision 139). No breadcrumb and no "continued" title: the map's groups
  * show where a frame belongs, and a part is named by its section's title.
  */
 function buildFrame(section: Section, plan: SectionPlan, loadRemoteImages: boolean): HTMLElement {

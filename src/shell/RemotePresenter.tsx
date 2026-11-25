@@ -22,6 +22,8 @@ interface RemotePresenterProps {
   countdown?: Countdown | null;
   /** True while the presenter is in the map view, which follow screens show too (decision 150). */
   mapView?: boolean;
+  /** A remote's Next or Previous while the presenter is on the map; false when the map did not take it (decision 152). */
+  onMapStep: (direction: 1 | -1) => boolean;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   /** Applies an agent's write the way an edit in the editor would (decision 59). */
@@ -47,6 +49,7 @@ export function RemotePresenter({
   mirror,
   countdown = null,
   mapView = false,
+  onMapStep,
   isOpen,
   onOpenChange,
   edit,
@@ -102,6 +105,7 @@ export function RemotePresenter({
     mirror,
     countdown,
     mapView,
+    onMapStep,
   });
   useStageLaser(controller, remote.laser);
   return <JoinDialog isOpen={isOpen} onOpenChange={onOpenChange} host={remote} />;

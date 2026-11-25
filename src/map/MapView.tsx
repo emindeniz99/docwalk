@@ -1,5 +1,13 @@
 import type { Root } from "mdast";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import {
+  type Ref,
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "react-aria-components";
 import { FOCUS_ATTR } from "../deck/focusTargets";
 import { wireFocusTargets } from "../deck/focusWiring";
@@ -10,11 +18,13 @@ import type { Section, SectionPlan } from "../sectioning/sectionize";
 import {
   type Camera,
   cameraTransform,
+  anchorFrame,
   clamp,
   FIT_MARGIN,
   fitAll,
   fitFrame,
   framesNear,
+  holdTop,
   pan,
   pinch,
   type Size,
@@ -57,7 +67,22 @@ export interface MapRequest {
   seq: number;
 }
 
+/** What the app can ask of a mounted map (decision 152). */
+export interface MapHandle {
+  /**
+   * The phone remote's Next (1) or Previous (-1): the next or previous frame
+   * of the route from the current frame, as Right and Left do on the pane but
+   * wherever keyboard focus is, with the laser on or off. True when the map
+   * took the step, also at an end where it refits in place; false while it
+   * has no camera yet (not opened, or no frames), so the caller can do
+   * something else with the press.
+   */
+  step: (direction: 1 | -1) => boolean;
+}
+
 export interface MapViewProps {
+  /** The map's handle, for the phone remote's steps. */
+  ref?: Ref<MapHandle>;
   /**
    * The parsed document. The map sections it itself with `mapPlan`, so the
    * level override and the choice of sections do not change it (decision 142).
@@ -227,6 +252,8 @@ interface MapController {
   setLaser: (on: boolean) => void;
   /** A section the reader chose in the shell: its frame, with the move, whatever is current. */
   request: (sectionId: string) => void;
+  /** The phone remote's Next or Previous (decision 152): the key's move, from wherever focus is. False when the map is not ready. */
+  step: (direction: 1 | -1) => boolean;
   /** A follower's roam ends: the map goes to the presenter's section and follows it again (decision 150). */
   back: () => void;
   /** The deck's current section, from outside (an outline entry, a link, a palette result). */
@@ -245,9 +272,12 @@ interface MapController {
  * - The frames are placed from heights read as soon as they are in the
  *   page, and shown once the pane has a size, the camera on the opening
  *   frame; they are placed again as their heights settle.
- * - A height change re-places the frames and leaves the camera alone,
- *   only clamped to the new bounds: the frames after the changed one in
- *   its column move, the rest of the screen does not.
+ * - A height change re-places the frames and keeps the anchor frame's top
+ *   where it is on screen (decision 155): the current frame while any of it
+ *   is in the pane, else the first frame in the pane. The frames above the
+ *   changed one move with it, the frames after it follow the anchor, and the
+ *   camera is only clamped to the new bounds. A move under way is not
+ *   shifted: it reads its frame's new place on every step.
  * - "Empty map" for a mouse or pen drag is the pane, the layer and a
  *   frame's own box outside its `.docwalk-slide-body`; inside the body the
  *   mouse and the pen select text and follow links. One finger pans from
@@ -286,6 +316,14 @@ interface MapController {
  *   goes off before the release; the laser going on ends a mouse drag.
  * - While a finger points, a mouse or pen moves no dot.
  * - Switched on while focus is outside the pane, the pane takes focus.
+ *
+ * Rules this view chose for the phone remote's steps (decision 152):
+ * - A step is the arrow key's move (`goToFrame`), taken from outside the
+ *   pane, so it needs no focus and no exclusion of a text field or a box that
+ *   scrolls; a focus view of a block closes only when the step goes to
+ *   another frame.
+ * - A step at the first or last frame refits the frame in place, as the key
+ *   does, and leaves an open view.
  *
  * Rules this view chose for a follower's map (step 5, decision 150):
  * - A roam starts with whatever moves the camera by the reader's hand: the
@@ -551,10 +589,19 @@ function mountMap(
   };
 
   const place = () => {
+    const before = placement.frames;
     placement = placeFrames(columns, heights);
+    const was = new Map(before.map((rect) => [rect.id, rect]));
     rects = new Map(placement.frames.map((rect) => [rect.id, rect]));
-    if (camera) camera = clamp(camera, placement.bounds, paneSize);
-    else open();
+    if (camera) {
+      // The frame being read keeps its place (decision 155); a move under way
+      // reads its target's new place on its next step.
+      const anchor = move ? null : anchorFrame(before, camera, paneSize, currentFrame);
+      const from = anchor === null ? undefined : was.get(anchor);
+      const to = anchor === null ? undefined : rects.get(anchor);
+      if (from && to) camera = holdTop(camera, from.y, to.y);
+      camera = clamp(camera, placement.bounds, paneSize);
+    } else open();
     schedule();
   };
 
@@ -1051,6 +1098,29 @@ function mountMap(
       const id = camera ? frameForSection(mapSections, deckSections, sectionId) : null;
       if (id !== null) goToFrame(id, { report: false });
     },
+    step(direction) {
+      if (!camera || order.length === 0) return false;
+      const to =
+        direction === 1 ? nextFrame(order, currentFrame) : previousFrame(order, currentFrame);
+      if (to === null) return false;
+      // As a slide change closes them on the slides, which Next on the last slide is not;
+      // a diagram view stays (decision 152).
+      if (to !== currentFrame) {
+        const focused = document.activeElement;
+        focusWiring.closeContent();
+        // A closing view hands focus back to its block, and the focus rule would make that
+        // block's frame current again once the step has moved on: the step's frame wins.
+        const returned = document.activeElement;
+        if (returned !== focused && returned instanceof HTMLElement && layer.contains(returned)) {
+          navigated = returned;
+          queueMicrotask(() => {
+            navigated = null;
+          });
+        }
+      }
+      goToFrame(to, { leaveFocus: true });
+      return true;
+    },
     back,
     setCurrent(sectionId) {
       // The deck is being built: nothing to follow until it is back.
@@ -1123,6 +1193,7 @@ const NO_LEVELS: readonly number[] = [];
  * current frame, which follows the deck's current slide and reports its own.
  */
 export default function MapView({
+  ref,
   root,
   current = null,
   deckSections = NO_SECTIONS,
@@ -1143,6 +1214,11 @@ export default function MapView({
   const controller = useRef<MapController | null>(null);
   const report = useEffectEvent((sectionId: string) => onCurrent?.(sectionId));
   const askLaser = useEffectEvent((on: boolean) => onLaserChange?.(on));
+  useImperativeHandle(
+    ref,
+    () => ({ step: (direction) => controller.current?.step(direction) ?? false }),
+    [],
+  );
   // A follower's roam (decision 150): the controller decides it, this shows the button.
   const [roaming, setRoaming] = useState(false);
   useEffect(() => {

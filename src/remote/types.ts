@@ -47,9 +47,11 @@ export type RemoteMessage =
       /**
        * "map" while the presenter is in the map view; absent on slides, which is
        * also how a page built before the field reads every state (decision 150).
-       * `current` stays the slide address either way.
+       * `current` stays the slide address either way. A later build may send
+       * another short lowercase name; a follower that does not know it shows
+       * slides and says so (decision 172).
        */
-      view?: "map";
+      view?: string;
     }
   /**
    * Presenter -> remotes and agents: the presenter window's countdown, or null
