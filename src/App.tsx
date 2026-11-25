@@ -348,6 +348,16 @@ export function App() {
     [plan],
   );
 
+  // The map's current frame, as the map reports it while it shows (decision 153): the id for the
+  // room, and whether it is the frame its section's address opens, which the link need not name.
+  const [mapFrame, setMapFrame] = useState<{ frame: string; head: boolean } | null>(null);
+  // The frame a link opened the page on, for the map's opening view only.
+  const [linkFrame, setLinkFrame] = useState<string | null>(null);
+  if (view !== "map" && (mapFrame !== null || linkFrame !== null)) {
+    setMapFrame(null);
+    setLinkFrame(null);
+  }
+
   useUrlSync({
     // A follower shows the presenter's slide (RemoteFollower), never one the URL or a rebuild remembers.
     controller: follow ? null : controller,
@@ -355,6 +365,9 @@ export function App() {
     level,
     view,
     sections: follow ? undefined : sections,
+    // Written only for a frame the address alone would not open; left alone until the map reports one.
+    frame: follow || mapFrame === null ? undefined : mapFrame.head ? null : mapFrame.frame,
+    onFrame: setLinkFrame,
     onLevel: setLevel,
     // Present needs a user gesture for fullscreen, so a link can open edit, document or map only.
     onView: (v) => {
@@ -837,11 +850,13 @@ export function App() {
               {followTheme}
             </div>
             <Suspense fallback={<div className="docwalk-map-pane" />}>
-              {/* The presenter's section, followed until the follower roams; a follower's
-                  map reports nothing, so the hidden deck stays on the presenter's slide. */}
+              {/* The presenter's section and frame, followed until the follower roams; a
+                  follower's map reports nothing, so the hidden deck stays on the presenter's
+                  slide. The frame is read only while the state says map, as it does here. */}
               <MapView
                 root={root}
                 current={presenterSection}
+                frame={followState?.frame ?? null}
                 deckSections={plan.sections}
                 deckLevels={plan.levels}
                 follow
@@ -861,6 +876,8 @@ export function App() {
               deckLevels={plan.levels}
               request={mapRequest}
               onCurrent={onMapCurrent}
+              onFrame={setMapFrame}
+              openFrame={linkFrame}
               laser={mapLaser}
               onLaserChange={setMapLaser}
             />
@@ -1019,6 +1036,7 @@ export function App() {
             mirror={mirrorFeed}
             countdown={presenterCountdown}
             mapView={view === "map"}
+            mapFrame={view === "map" ? (mapFrame?.frame ?? null) : null}
             onMapStep={onMapStep}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}

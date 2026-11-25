@@ -52,6 +52,15 @@ export type RemoteMessage =
        * slides and says so (decision 172).
        */
       view?: string;
+      /**
+       * The presenter's current frame on the map: its id, the heading anchor of
+       * the map's plan (decision 153). Present only while `view` is "map" and
+       * the map has reported one; `current` stays the slide address. A
+       * receiver reads it only while the state says map, compares it only with
+       * its own frame ids, and drops one that does not parse while keeping the
+       * rest of the state. A page built before the field strips it.
+       */
+      frame?: string;
     }
   /**
    * Presenter -> remotes and agents: the presenter window's countdown, or null

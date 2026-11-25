@@ -110,6 +110,30 @@ export interface MapViewProps {
    */
   onCurrent?: (sectionId: string) => void;
   /**
+   * The frame the map makes current, as often as it changes (decision 153): its
+   * id, and `head` when it is the frame the deck section's address alone opens
+   * (`frameForSection`), so a link names a frame only when it differs. Called
+   * before `onCurrent` when one move changes both, so the app has the frame
+   * when the section moves the deck. Nothing is reported while the deck has no
+   * current section: the address is unknown. A follower's map reports nothing.
+   * `onCurrent` stays the section's: a `###` frame reports no section.
+   */
+  onFrame?: (report: { frame: string; head: boolean }) => void;
+  /**
+   * The frame a link opened the page on (`?frame=`, decision 153). The opening
+   * view goes to it when this map has it and it lies in the deck section the
+   * address names (`sectionForFrame`); otherwise the section's own frame opens,
+   * as without a link. Used for the opening view only.
+   */
+  openFrame?: string | null;
+  /**
+   * A follow screen's map only (decision 153): the frame the presenter's state
+   * names, within `current`. The map follows it as it follows `current` when it
+   * has that frame, and shows `current`'s frame when it has not (the follower's
+   * document may not have caught up). "Back to presenter" ends a roam on it.
+   */
+  frame?: string | null;
+  /**
    * Whether the map's laser is on (decision 149). The app holds it, so the
    * command palette can switch it too, and switches it off when the map goes.
    */
@@ -256,8 +280,14 @@ interface MapController {
   step: (direction: 1 | -1) => boolean;
   /** A follower's roam ends: the map goes to the presenter's section and follows it again (decision 150). */
   back: () => void;
-  /** The deck's current section, from outside (an outline entry, a link, a palette result). */
-  setCurrent: (sectionId: string | null) => void;
+  /**
+   * The deck's current section, from outside (an outline entry, a link, a
+   * palette result), and on a follower's map the frame the presenter's state
+   * names (decision 153).
+   */
+  setCurrent: (sectionId: string | null, presenterFrame?: string | null) => void;
+  /** The frame the link opened the page on, or null (decision 153). */
+  setOpenFrame: (frame: string | null) => void;
   /** Stops everything and empties the layer. */
   dispose: () => void;
 }
@@ -349,6 +379,7 @@ function mountMap(
   layer: HTMLElement,
   status: HTMLElement,
   onCurrent: (sectionId: string) => void,
+  onFrame: (report: { frame: string; head: boolean }) => void,
   onLaser: (on: boolean) => void,
   follow: { onRoam: (roaming: boolean) => void } | null,
 ): MapController {
@@ -375,6 +406,12 @@ function mountMap(
   /** The deck section last known to be current: from outside, or reported. */
   let deckCurrent: string | null = null;
   let currentFrame: string | null = null;
+  /** The frame the link opened the page on, for the opening view (decision 153). */
+  let openFrame: string | null = null;
+  /** A follower's map: the frame the presenter's state names, within `deckCurrent` (decision 153). */
+  let presenterFrame: string | null = null;
+  /** What `onFrame` last said, so it speaks only when the frame or its head-ness changes. */
+  let reported: string | null = null;
   /** The whole map is shown (`0`), so a click in a frame chooses it. */
   let whole = false;
   /** The map opened before the deck had a current slide, and the reader has done nothing yet. */
@@ -516,9 +553,39 @@ function mountMap(
   };
 
   /**
+   * Tells the app the current frame, and whether it is the one the deck
+   * section's address alone opens (decision 153). Not while the deck has no
+   * current section, and never from a follower's map.
+   */
+  const publish = () => {
+    if (follow || currentFrame === null || deckCurrent === null) return;
+    const head = currentFrame === frameForSection(mapSections, deckSections, deckCurrent);
+    const key = `${currentFrame}\n${head}`;
+    if (key === reported) return;
+    reported = key;
+    onFrame({ frame: currentFrame, head });
+  };
+
+  /**
+   * The link's frame for the deck section `sectionId`: the frame the link named
+   * when this map has it and it lies in that section, else null (decision 153).
+   */
+  const linkedFrame = (sectionId: string): string | null =>
+    openFrame !== null &&
+    mapSections.some((s) => s.id === openFrame) &&
+    sectionForFrame(deckSections, mapSections, openFrame, deckLevels) === sectionId
+      ? openFrame
+      : null;
+
+  /** A follower's presenter frame, when this map has it (decision 153); else null, and the section's frame stands in. */
+  const followedFrame = (): string | null =>
+    follow && presenterFrame !== null && order.includes(presenterFrame) ? presenterFrame : null;
+
+  /**
    * Makes `id` the current frame: marked, said when it changed and `say` is
    * set, and its deck section reported when `report` is set and that
-   * section is not the last one known.
+   * section is not the last one known. The frame is reported first, so the
+   * app has it when the section moves the deck (decision 153).
    */
   const mark = (id: string, { say, report }: { say: boolean; report: boolean }) => {
     const changed = id !== currentFrame;
@@ -527,12 +594,12 @@ function mountMap(
     handle?.frames.get(id)?.setAttribute("aria-current", "true");
     if (changed && say) announce(id);
     // A follower's map moves no deck: the presenter's section stays `deckCurrent` (decision 150).
-    if (!report || follow) return;
-    const section = sectionForFrame(deckSections, mapSections, id, deckLevels);
-    if (section !== null && section !== deckCurrent) {
-      deckCurrent = section;
-      onCurrent(section);
-    }
+    const section =
+      report && !follow ? sectionForFrame(deckSections, mapSections, id, deckLevels) : null;
+    const moves = section !== null && section !== deckCurrent;
+    if (moves) deckCurrent = section;
+    publish();
+    if (moves) onCurrent(section);
   };
 
   /** Goes to a frame the reader chose: current, said, reported, and the camera moved to it. */
@@ -576,7 +643,10 @@ function mountMap(
   const open = () => {
     if (camera || paneSize.width <= 0 || paneSize.height <= 0) return;
     const opening =
-      (deckCurrent !== null && frameForSection(mapSections, deckSections, deckCurrent)) ||
+      (deckCurrent !== null &&
+        (followedFrame() ??
+          linkedFrame(deckCurrent) ??
+          frameForSection(mapSections, deckSections, deckCurrent))) ||
       firstFrame(order);
     waiting = deckCurrent === null;
     if (opening !== null) mark(opening, { say: false, report: false });
@@ -987,7 +1057,8 @@ function mountMap(
     roaming = false;
     follow.onRoam(false);
     const id =
-      deckCurrent === null ? null : frameForSection(mapSections, deckSections, deckCurrent);
+      followedFrame() ??
+      (deckCurrent === null ? null : frameForSection(mapSections, deckSections, deckCurrent));
     if (id !== null) goToFrame(id, { report: false, leaveFocus: true });
     // After the frame's own announcement, so this is what is said.
     status.textContent = m.map_following();
@@ -1055,12 +1126,19 @@ function mountMap(
       });
       handle = current;
       // The current frame stays current across an edit while it is on the map.
+      let jump: string | null = null;
       if (camera) {
-        const kept =
+        let kept =
           currentFrame !== null && current.frames.has(currentFrame)
             ? currentFrame
             : (deckCurrent !== null && frameForSection(mapSections, deckSections, deckCurrent)) ||
               firstFrame(order);
+        // A follower's document has caught up: the presenter's frame is here now (decision 153).
+        const followed = roaming ? null : followedFrame();
+        if (followed !== null && followed !== kept) {
+          kept = followed;
+          jump = followed;
+        }
         currentFrame = null;
         if (kept !== null) mark(kept, { say: false, report: false });
       }
@@ -1070,6 +1148,7 @@ function mountMap(
       for (const el of current.frames.values()) markScrollable(el);
       place();
       writeNow();
+      if (jump !== null) moveTo(() => frameCamera(jump), false);
     },
     setDeck(sections, levels) {
       deckSections = sections;
@@ -1122,7 +1201,7 @@ function mountMap(
       return true;
     },
     back,
-    setCurrent(sectionId) {
+    setCurrent(sectionId, frame = null) {
       // The deck is being built: nothing to follow until it is back.
       if (sectionId === null) return;
       const here =
@@ -1130,14 +1209,26 @@ function mountMap(
           ? null
           : sectionForFrame(deckSections, mapSections, currentFrame, deckLevels);
       deckCurrent = sectionId;
+      presenterFrame = follow ? frame : null;
       if (!camera) return;
       // Only the first section to arrive after opening can still be the opening view.
       const opening = waiting;
       waiting = false;
       // A roaming follower's map stays where they put it; `back` goes to `deckCurrent` (decision 150).
       if (roaming) return;
-      if (here === sectionId) return;
-      const id = frameForSection(mapSections, deckSections, sectionId);
+      // The frame to show: the presenter's, when this map has it, and the link's on the
+      // opening view; else the section's own frame (decisions 145 and 153). A follower
+      // always has one in mind, so a state with no frame leaves a ### frame for the column's head.
+      const wanted =
+        followedFrame() ??
+        (opening ? linkedFrame(sectionId) : null) ??
+        (follow ? frameForSection(mapSections, deckSections, sectionId) : null);
+      if (wanted === null ? here === sectionId : wanted === currentFrame) {
+        // Nothing moves, but the section may be what makes this frame the head one.
+        publish();
+        return;
+      }
+      const id = wanted ?? frameForSection(mapSections, deckSections, sectionId);
       if (id === null) return;
       if (opening) {
         // The deck's first slide arrives after the map opened: still the opening view.
@@ -1146,6 +1237,9 @@ function mountMap(
         return;
       }
       goToFrame(id, { report: false });
+    },
+    setOpenFrame(frame) {
+      openFrame = frame;
     },
     dispose() {
       if (raf) cancelAnimationFrame(raf);
@@ -1200,6 +1294,9 @@ export default function MapView({
   deckLevels = NO_LEVELS,
   request = null,
   onCurrent,
+  onFrame,
+  openFrame = null,
+  frame = null,
   laser = false,
   onLaserChange,
   follow = false,
@@ -1213,6 +1310,7 @@ export default function MapView({
   const statusRef = useRef<HTMLParagraphElement>(null);
   const controller = useRef<MapController | null>(null);
   const report = useEffectEvent((sectionId: string) => onCurrent?.(sectionId));
+  const reportFrame = useEffectEvent((at: { frame: string; head: boolean }) => onFrame?.(at));
   const askLaser = useEffectEvent((on: boolean) => onLaserChange?.(on));
   useImperativeHandle(
     ref,
@@ -1227,6 +1325,7 @@ export default function MapView({
       layerRef.current!,
       statusRef.current!,
       (id) => report(id),
+      (at) => reportFrame(at),
       (on) => askLaser(on),
       follow ? { onRoam: setRoaming } : null,
     );
@@ -1242,8 +1341,11 @@ export default function MapView({
     controller.current?.setDeck(deckSections, deckLevels);
   }, [deckSections, deckLevels]);
   useEffect(() => {
-    controller.current?.setCurrent(current);
-  }, [current]);
+    controller.current?.setOpenFrame(openFrame);
+  }, [openFrame]);
+  useEffect(() => {
+    controller.current?.setCurrent(current, frame);
+  }, [current, frame]);
   useEffect(() => {
     controller.current?.setLaser(laser);
   }, [laser]);

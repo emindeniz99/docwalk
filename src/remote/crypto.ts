@@ -244,6 +244,13 @@ const Level = v.union([
 /** The presenter's view in a state: one lowercase letter, then up to 23 more letters or hyphens (decision 172). */
 const VIEW_NAME = /^[a-z][a-z-]{0,23}$/;
 
+/**
+ * The map frame in a state: a heading anchor, as the URL's `?frame=` and slide
+ * addresses take it (src/url/state.ts): letters, marks, digits, connector
+ * punctuation and `-`, at most 200 code points (decision 153).
+ */
+const FRAME_ID = /^[\p{Alphabetic}\p{M}\p{N}\p{Pc}-]{1,200}$/u;
+
 const StateMessage = v.pipe(
   v.object({
     type: v.literal("state"),
@@ -261,8 +268,18 @@ const StateMessage = v.pipe(
     // freeze followers on this one (decision 172): a short lowercase name, at
     // most 24 characters, that the app never puts into the page as markup.
     view: v.exactOptional(v.pipe(v.string(), v.regex(VIEW_NAME))),
+    // The presenter's current map frame (decision 153). Unlike `view`, a value
+    // that does not parse is dropped and the rest of the state is kept, so a
+    // later change to frame ids cannot stop followers (decision 172). The
+    // signature is checked over the message as sent, so a receiver built
+    // before the field strips it and still verifies.
+    frame: v.exactOptional(v.fallback(v.pipe(v.string(), v.regex(FRAME_ID)), "")),
   }),
   v.check((m) => m.index < m.total, "index must be inside the deck"),
+  // `fallback` stands "" in for a frame that did not parse, which no id is: drop the key.
+  v.transform(({ frame, ...rest }) =>
+    frame === undefined || frame === "" ? rest : { ...rest, frame },
+  ),
 );
 
 /** The countdown a phone shows, in 80's limits: 1 to 600 minutes, at most 7 days spent (decision 112). */
