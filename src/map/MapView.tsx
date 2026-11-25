@@ -38,6 +38,7 @@ import {
 import { renderFrames, type MapFrames } from "./frames";
 import {
   type FrameRect,
+  FRAME_WIDTH,
   mapColumns,
   mapPlan,
   type MapFrame,
@@ -195,6 +196,12 @@ function markScrollable(frame: HTMLElement): void {
     else box.removeAttribute("tabindex");
   }
 }
+
+/**
+ * A frame narrower than this on screen (CSS pixels, a quarter of `FRAME_WIDTH`, a scale of
+ * 0.25) draws no new diagram: its labels cannot be read (decision 157). One drawn stays.
+ */
+const MIN_DIAGRAM_WIDTH = FRAME_WIDTH / 4;
 
 /** The current frame's ring, in CSS pixels on screen at every zoom (map.css). */
 const RING_PX = 3;
@@ -497,8 +504,13 @@ function mountMap(
     layer.style.setProperty("--map-ring", `${RING_PX / camera.scale}px`);
     layer.dataset["placed"] = "";
     // Frames drawn later are measured again by frames.ts and re-placed below.
-    // Not on the way of a move: only where it ends (decision 145).
-    if (!move) void handle.drawDiagrams(framesNear(placement, camera, paneSize));
+    // Not on the way of a move: only where it ends (decision 145). Not at a zoom where a frame
+    // is too narrow on screen to read a diagram in it: the whole map of a long document would
+    // otherwise ask for every diagram at once. Naming no frames also releases a failed one.
+    if (!move) {
+      const readable = FRAME_WIDTH * camera.scale >= MIN_DIAGRAM_WIDTH;
+      void handle.drawDiagrams(readable ? framesNear(placement, camera, paneSize) : []);
+    }
   };
   const schedule = () => {
     if (!raf) raf = requestAnimationFrame(write);
@@ -867,8 +879,10 @@ function mountMap(
   };
   const onPointerMove = (event: PointerEvent) => {
     if (!camera) return;
-    const at = local(event);
-    if (touches.has(event.pointerId)) touches.set(event.pointerId, at);
+    // Every move anywhere in the app reaches this listener, and `local` reads the pane's box:
+    // read it only for a finger being tracked or the pointer that drags.
+    let at: Point | undefined;
+    if (touches.has(event.pointerId)) touches.set(event.pointerId, (at = local(event)));
     if (pinching) {
       const a = touches.get(pinching.ids[0]);
       const b = touches.get(pinching.ids[1]);
@@ -879,6 +893,7 @@ function mountMap(
       return;
     }
     if (drag?.id !== event.pointerId) return;
+    at ??= local(event);
     const dx = at.x - drag.last.x;
     const dy = at.y - drag.last.y;
     drag.last = at;
