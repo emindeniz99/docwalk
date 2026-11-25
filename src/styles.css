@@ -1246,6 +1246,29 @@ kbd {
   }
 }
 
+/*
+ * Presenting the map (decision 154): the map view in full screen shows its pane
+ * alone, as presenting shows the slide: no header, no status bar and (in the
+ * markup) no outline. This sits after the document and map rules above so it wins
+ * at every width; the pane takes the whole main area, and the safe-area insets
+ * read as more of it.
+ */
+.docwalk-app[data-map-presented] {
+  grid-template-rows: auto 1fr;
+  background: var(--surface);
+}
+
+.docwalk-app[data-map-presented] :is(.docwalk-toolbar, .docwalk-statusbar) {
+  display: none;
+}
+
+.docwalk-app[data-map-presented] .docwalk-main {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
 .docwalk-outline-overlay {
   position: fixed;
   inset: 0;

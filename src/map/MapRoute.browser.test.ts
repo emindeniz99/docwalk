@@ -1,18 +1,58 @@
-import { createElement as h, useEffect, useState } from "react";
+import { createElement as h, useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
-import { type Camera, cameraTransform, fitAll, fitFrame } from "./camera";
-import { FRAME_WIDTH } from "./layout";
+import { type Camera, fitAll } from "./camera";
 import MapView, { type MapHandle } from "./MapView";
+import { roomFrame } from "../remote/types";
 import { ZOOM_STEP } from "./route";
+import {
+  boundsOf,
+  cameraOf,
+  currentIds,
+  expectAt,
+  fittedTo,
+  frame,
+  frameEl,
+  frames,
+  mapContainer,
+  para,
+  PANE,
+  paneSize,
+  placedMap,
+  press,
+  reduceMotion,
+  same,
+  statusOf,
+} from "./testMap";
+
+// The frames each `drawDiagrams` call names: what the view asks Mermaid to draw, counted where
+// it asks, since drawing itself is queued and slow. Every call still reaches the real one.
+const asked = vi.hoisted(() => ({ calls: [] as string[][] }));
+vi.mock("./frames", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./frames")>();
+  return {
+    ...real,
+    renderFrames: (...args: Parameters<typeof real.renderFrames>) => {
+      const handle = real.renderFrames(...args);
+      return {
+        ...handle,
+        drawDiagrams: (ids: Iterable<string>) => {
+          const named = [...ids];
+          asked.calls.push(named);
+          return handle.drawDiagrams(named);
+        },
+      };
+    },
+  };
+});
 
 /**
  * Decision 145, the route on the map: one current frame, marked for the eye
@@ -27,7 +67,8 @@ const outside: {
   setCurrent: ((id: string | null) => void) | null;
   setRequest: ((request: { sectionId: string; seq: number }) => void) | null;
   handle: MapHandle | null;
-} = { setCurrent: null, setRequest: null, handle: null };
+  setMarkdown: ((markdown: string) => void) | null;
+} = { setCurrent: null, setRequest: null, handle: null, setMarkdown: null };
 let requests = 0;
 
 let reactRoot: ReactRoot | null = null;
@@ -36,49 +77,16 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.restoreAllMocks();
+  asked.calls.length = 0;
   reactRoot?.unmount();
   reactRoot = null;
   outside.setCurrent = null;
   outside.setRequest = null;
   outside.handle = null;
+  outside.setMarkdown = null;
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
-
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
-}
-
-/**
- * `prefers-reduced-motion: reduce` as the view reads it, at the time of each
- * move. Tests that only check where the camera ends use it; the move's own
- * tests leave the real query alone.
- */
-function reduceMotion() {
-  const real = window.matchMedia.bind(window);
-  vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
-    query.includes("prefers-reduced-motion")
-      ? ({
-          matches: true,
-          media: query,
-          onchange: null,
-          addEventListener: () => undefined,
-          removeEventListener: () => undefined,
-          addListener: () => undefined,
-          removeListener: () => undefined,
-          dispatchEvent: () => false,
-        } as MediaQueryList)
-      : real(query),
-  );
-}
-
-const para = (label: string, n: number) =>
-  Array.from(
-    { length: n },
-    (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
-  ).join("\n\n");
 
 /**
  * Three columns; the first and the last have `###` frames under the `##`
@@ -115,7 +123,6 @@ const ROUTE = [
 
 const ROUTE_IDS = ["alpha", "alpha-one", "alpha-two", "beta", "gamma", "gamma-detail"];
 
-const PANE = { width: 1200, height: 700 };
 /** Room for two frames of a column, so a click can reach the second at reading zoom. */
 const TALL_PANE = { width: 1200, height: 1500 };
 
@@ -125,6 +132,10 @@ interface Mounted {
   layer: HTMLElement;
   /** Every `onCurrent` call, in order. */
   calls: string[];
+  /** Every `onFrame` report, in order (decision 153). */
+  reports: { frame: string; head: boolean }[];
+  /** Both callbacks in the order they came: `frame:<id>` and `section:<id>`. */
+  log: string[];
   /** The app's current deck section changing from outside (a rebuilt deck, a hash change). */
   setCurrent: (id: string | null) => Promise<void>;
   /**
@@ -135,6 +146,8 @@ interface Mounted {
   choose: (id: string) => Promise<void>;
   /** The phone remote's Next (1) or Previous (-1) as the presenter hands it to the map (decision 152). */
   step: (direction: 1 | -1) => Promise<boolean>;
+  /** The document edited: the map's plan and the deck's sections are made again. */
+  edit: (markdown: string) => Promise<void>;
 }
 
 interface Options {
@@ -149,26 +162,31 @@ interface Options {
   level?: Parameters<typeof sectionize>[1];
   /** The map's laser, as App holds it (decision 149). */
   laser?: boolean;
+  /** The frame a link opened the page on (`?frame=`), which App hands the map (decision 153). */
+  openFrame?: string | null;
 }
 
 /** MapView with the deck's sections at `auto`, once its first placement is shown. */
 async function mountRoute(
   markdown: string,
-  { current = null, size = PANE, feedback = false, level = "auto", laser = false }: Options = {},
+  {
+    current = null,
+    size = PANE,
+    feedback = false,
+    level = "auto",
+    laser = false,
+    openFrame = null,
+  }: Options = {},
 ): Promise<Mounted> {
-  await page.viewport(size.width + 100, size.height + 100);
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    display: "grid",
-    width: `${size.width}px`,
-    height: `${size.height}px`,
-  });
-  document.body.append(container);
-  const root = parseMarkdown(markdown);
-  const deckPlan = sectionize(root, level);
-  const deckSections = deckPlan.sections;
+  const container = await mapContainer(size);
   const calls: string[] = [];
+  const reports: { frame: string; head: boolean }[] = [];
+  const log: string[] = [];
   function Harness() {
+    const [text, setText] = useState(markdown);
+    const root = useMemo(() => parseMarkdown(text), [text]);
+    const deckPlan = useMemo(() => sectionize(root, level), [root]);
+    const deckSections = deckPlan.sections;
     const [handle, setHandle] = useState<MapHandle | null>(null);
     useEffect(() => {
       outside.handle = handle;
@@ -178,6 +196,7 @@ async function mountRoute(
     useEffect(() => {
       outside.setCurrent = setNow;
       outside.setRequest = setRequest;
+      outside.setMarkdown = setText;
     }, []);
     return h(MapView, {
       ref: setHandle,
@@ -187,8 +206,14 @@ async function mountRoute(
       deckLevels: deckPlan.levels,
       request,
       laser,
+      openFrame,
+      onFrame: (report: { frame: string; head: boolean }) => {
+        reports.push(report);
+        log.push(`frame:${report.frame}`);
+      },
       onCurrent: (id: string) => {
         calls.push(id);
+        log.push(`section:${id}`);
         if (feedback) setNow(id);
       },
     });
@@ -196,15 +221,14 @@ async function mountRoute(
   const react = createRoot(container);
   reactRoot = react;
   flushSync(() => react.render(h(Harness)));
-  const pane = container.querySelector<HTMLElement>(".docwalk-map-pane")!;
-  const layer = container.querySelector<HTMLElement>(".docwalk-map-layer")!;
-  await expect.poll(() => layer.hasAttribute("data-placed"), { timeout: 20_000 }).toBe(true);
-  await frames(3);
+  const { pane, layer } = await placedMap(container);
   return {
     container,
     pane,
     layer,
     calls,
+    reports,
+    log,
     setCurrent: async (id) => {
       flushSync(() => outside.setCurrent?.(id));
       await frames(2);
@@ -223,84 +247,15 @@ async function mountRoute(
       await frames(2);
       return took;
     },
+    edit: async (text) => {
+      flushSync(() => outside.setMarkdown?.(text));
+      await frames(4);
+    },
   };
-}
-
-const frameEl = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`[data-map-frame="${CSS.escape(id)}"]`)!;
-
-/** The ids of the frames marked current: exactly one, the map's current frame. */
-const currentIds = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>('[data-map-frame][aria-current="true"]')].map(
-    (el) => el.dataset["mapFrame"],
-  );
-
-const statusOf = (pane: HTMLElement) =>
-  pane.querySelector<HTMLElement>('[role="status"]')?.textContent ?? null;
-
-const paneSize = (pane: HTMLElement) => ({ width: pane.clientWidth, height: pane.clientHeight });
-const boundsOf = (layer: HTMLElement) => ({
-  width: Number.parseFloat(layer.style.width),
-  height: Number.parseFloat(layer.style.height),
-});
-
-/** camera.ts's fit of a frame's placed rectangle, as the opening view fits a frame (decision 142). */
-function fittedTo(m: Mounted, id: string): Camera {
-  const el = frameEl(m.container, id);
-  const rect = {
-    x: Number.parseFloat(el.style.left),
-    y: Number.parseFloat(el.style.top),
-    width: FRAME_WIDTH,
-  };
-  return fitFrame(rect, boundsOf(m.layer), paneSize(m.pane));
 }
 
 /** The whole map centred, as `0` shows it. */
 const wholeMap = (m: Mounted) => fitAll(boundsOf(m.layer), paneSize(m.pane));
-
-/** The layer's camera, read back from its transform. */
-function cameraOf(layer: HTMLElement): Camera {
-  const match = /translate\(([-\d.e]+)px, ([-\d.e]+)px\) scale\(([-\d.e]+)\)/.exec(
-    layer.style.transform,
-  );
-  if (!match) throw new Error(`no camera in "${layer.style.transform}"`);
-  return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
-}
-
-/**
- * Whether two cameras draw the same: the style keeps six significant digits
- * of each number (`scale(0.272727)`), so the comparison allows that rounding.
- */
-const same = (a: Camera, b: Camera) =>
-  Math.abs(a.x - b.x) < 0.01 &&
-  Math.abs(a.y - b.y) < 0.01 &&
-  Math.abs(a.scale - b.scale) <= 1e-5 * b.scale;
-
-/** Asserts the layer shows `expected`, naming both cameras when it does not. */
-function expectAt(m: Mounted, expected: Camera) {
-  const actual = cameraOf(m.layer);
-  expect(
-    same(actual, expected),
-    `layer at ${cameraTransform(actual)}, expected ${cameraTransform(expected)}`,
-  ).toBe(true);
-}
-
-/** Sends `keys` to the focused element and says whether the last key's default was prevented. */
-async function press(keys: string): Promise<boolean> {
-  let prevented = false;
-  const onKey = (event: KeyboardEvent) => {
-    prevented = event.defaultPrevented;
-  };
-  // Bubbling on window runs after the pane's own listener.
-  window.addEventListener("keydown", onKey);
-  try {
-    await userEvent.keyboard(keys);
-  } finally {
-    window.removeEventListener("keydown", onKey);
-  }
-  await frames(2);
-  return prevented;
-}
 
 describe("the opening frame (decision 145, Address)", () => {
   beforeEach(reduceMotion);
@@ -454,6 +409,33 @@ describe("the keys from a frame (decision 145, Keys)", () => {
       expect(m.layer.style.transform).toBe(before);
     }
   });
+
+  // The pane's check is the annotation keys' own `isTextEntry`: a custom text widget answers
+  // to its role, and an input that takes no typed text answers to no key of its own.
+  test("a role=textbox widget in a frame keeps its keys, as a text field does", async () => {
+    const m = await mountRoute(ROUTE);
+    const before = m.layer.style.transform;
+    const widget = document.createElement("div");
+    widget.setAttribute("role", "textbox");
+    widget.tabIndex = 0;
+    frameEl(m.container, "alpha").querySelector(".docwalk-slide-body")!.append(widget);
+    widget.focus();
+    expect(await press("{ArrowRight}")).toBe(false);
+    await press("0");
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expect(m.layer.style.transform).toBe(before);
+  });
+
+  test("a checkbox in a frame takes no key of its own, so the route's keys work from it", async () => {
+    const m = await mountRoute(ROUTE);
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    frameEl(m.container, "alpha").querySelector(".docwalk-slide-body")!.append(box);
+    box.focus();
+    expect(document.activeElement).toBe(box);
+    expect(await press("{ArrowRight}")).toBe(true);
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+  });
 });
 
 describe("the whole map (decision 145, Keys)", () => {
@@ -514,6 +496,53 @@ describe("the whole map (decision 145, Keys)", () => {
     expect(await press("{Enter}")).toBe(false);
     expect(m.layer.style.transform).toBe(zoomed);
   });
+
+  // At the whole map of a long document every frame is a few dozen pixels wide, so a diagram
+  // there is a smudge; asking Mermaid for all of them at once is the cost of that smudge.
+  test(
+    "a diagram too small on screen to read is not asked for at the whole map, and is when zoomed in on",
+    { timeout: 90_000 },
+    async () => {
+      const count = 24;
+      const doc = Array.from({ length: count }, (_, i) => [
+        `## Section ${i + 1}`,
+        "",
+        ...diagram("LR"),
+        "",
+      ])
+        .flat()
+        .join("\n");
+      const m = await mountRoute(doc);
+      const first = frameEl(m.container, "section-1");
+      await expect
+        .poll(() => first.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
+        .not.toBeNull();
+      // The opening view's own diagrams are drawn and the layout has settled before the key.
+      const drawn = () =>
+        [...new Set(asked.calls.flat())].every(
+          (id) => frameEl(m.container, id).querySelector(".docwalk-diagram svg") !== null,
+        );
+      await expect.poll(drawn, { timeout: 20_000 }).toBe(true);
+      await frames(10);
+      m.pane.focus();
+      asked.calls.length = 0;
+      await press("0");
+      expectAt(m, wholeMap(m));
+      await frames(10);
+      const small = frameEl(m.container, "section-1").getBoundingClientRect().width;
+      expect(small, "a frame on the whole map is too small to read").toBeLessThan(100);
+      expect([...new Set(asked.calls.flat())], "frames asked for at the whole map").toEqual([]);
+      // Zooming in on a frame far from the opening view draws its diagram.
+      const target = frameEl(m.container, "section-12");
+      expect(target.querySelector(".docwalk-diagram")).toBeNull();
+      await userEvent.click(target);
+      await expect
+        .poll(() => target.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
+        .not.toBeNull();
+      expect(asked.calls.flat()).toContain("section-12");
+      expect(new Set(asked.calls.flat()).size).toBeLessThan(count);
+    },
+  );
 });
 
 const WIDE = [
@@ -666,6 +695,160 @@ describe("the deck section the map reports and follows (decision 145, Address)",
     expect(statusOf(m.pane)).toBe("Gamma, 5 of 6");
     // A section the app chose is not reported back.
     expect(m.calls).toEqual([]);
+  });
+});
+
+describe("the frame the map reports (decision 153)", () => {
+  beforeEach(reduceMotion);
+
+  test("every frame the reader makes current is reported, with whether it is the one its section's address opens", async () => {
+    // The shell names a frame in the link and in the room only when it is not the head.
+    const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
+    expect(m.reports).toEqual([{ frame: "alpha", head: true }]);
+    m.pane.focus();
+    await press("{ArrowRight}");
+    await press("{ArrowRight}");
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
+    await press("{ArrowRight}");
+    expect(m.reports.at(-1)).toEqual({ frame: "beta", head: true });
+    await press("{End}");
+    expect(m.reports.at(-1)).toEqual({ frame: "gamma-detail", head: false });
+    expect(m.reports.map((r) => r.frame)).toEqual([
+      "alpha",
+      "alpha-one",
+      "alpha-two",
+      "beta",
+      "gamma-detail",
+    ]);
+  });
+
+  test("a section the app reports is `onCurrent`'s alone: a ### frame still reports no section", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}");
+    expect(m.calls).toEqual([]);
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
+  });
+
+  test("a move that changes the frame and the section reports the frame first, then the section", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", feedback: true });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}{ArrowRight}");
+    expect(m.log).toEqual([
+      "frame:alpha",
+      "frame:alpha-one",
+      "frame:alpha-two",
+      "frame:beta",
+      "section:beta",
+    ]);
+  });
+
+  test("a frame chosen in the shell and a section from outside are reported too", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha" });
+    await m.setCurrent("gamma");
+    expect(m.reports.at(-1)).toEqual({ frame: "gamma", head: true });
+    await m.choose("beta");
+    expect(m.reports.at(-1)).toEqual({ frame: "beta", head: true });
+  });
+
+  test("nothing is reported while the deck has no current section: the address is unknown", async () => {
+    const m = await mountRoute(ROUTE, { current: null });
+    expect(m.reports).toEqual([]);
+    await m.setCurrent("beta");
+    expect(m.reports).toEqual([{ frame: "beta", head: true }]);
+  });
+
+  test("a section that arrives after the map opened on the same frame still reports it", async () => {
+    // The map opened on the first frame before the deck had a slide; the deck's
+    // first section is that frame's own, so the map moves nothing, yet it is now known.
+    const m = await mountRoute(ROUTE, { current: null });
+    await m.setCurrent("alpha");
+    expect(m.reports).toEqual([{ frame: "alpha", head: true }]);
+  });
+});
+
+describe("the frame the room is told (decision 153, The room)", () => {
+  test("a column's head frame is no frame to name: only the others are", () => {
+    // A state on a column's first frame reads as it does today (row 153), and a
+    // state near the relay's frame limit pays nothing for a head.
+    expect(roomFrame({ frame: "alpha", head: true })).toBeNull();
+    expect(roomFrame({ frame: "alpha-two", head: false })).toBe("alpha-two");
+    expect(roomFrame(null)).toBeNull();
+  });
+});
+
+describe("a link that names a frame (decision 153, The link)", () => {
+  beforeEach(reduceMotion);
+
+  test("opens on that frame when the map has it and it lies in the section the address names", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", openFrame: "alpha-two" });
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expectAt(m, fittedTo(m, "alpha-two"));
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
+    // The frame is a place inside the section: the deck is not asked to move.
+    expect(m.calls).toEqual([]);
+  });
+
+  test("opens there when the deck's current section arrives after the map opened", async () => {
+    const m = await mountRoute(ROUTE, { current: null, openFrame: "alpha-two" });
+    await m.setCurrent("alpha");
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expectAt(m, fittedTo(m, "alpha-two"));
+  });
+
+  test("a frame outside the address's section is ignored: the hash decides, and the map opens on the section's frame", async () => {
+    const m = await mountRoute(ROUTE, { current: "beta", openFrame: "alpha-two" });
+    expect(currentIds(m.container)).toEqual(["beta"]);
+    expectAt(m, fittedTo(m, "beta"));
+    const late = await mountRoute(ROUTE, { current: null, openFrame: "gamma-detail" });
+    await late.setCurrent("alpha");
+    expect(currentIds(late.container)).toEqual(["alpha"]);
+  });
+
+  test("a frame the map does not have is ignored: a heading an edit removed or renamed opens the section's frame", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", openFrame: "alpha-three" });
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expectAt(m, fittedTo(m, "alpha"));
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha", head: true });
+  });
+
+  test("a section's own head frame as the link's frame is no different from none", async () => {
+    const m = await mountRoute(ROUTE, { current: "gamma", openFrame: "gamma" });
+    expect(currentIds(m.container)).toEqual(["gamma"]);
+    expect(m.reports).toEqual([{ frame: "gamma", head: true }]);
+  });
+
+  test("applies to the opening view only: later sections from outside go to their head frames", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha", openFrame: "alpha-two" });
+    await m.setCurrent("beta");
+    expect(currentIds(m.container)).toEqual(["beta"]);
+    await m.setCurrent("alpha");
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expectAt(m, fittedTo(m, "alpha"));
+  });
+});
+
+describe("after an edit (decision 153, After an edit)", () => {
+  beforeEach(reduceMotion);
+
+  test("the map keeps its current frame while it exists, and says nothing new about it", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha" });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}");
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha-two", head: false });
+    const said = m.reports.length;
+    await m.edit(ROUTE.replace("Alpha one paragraph 1", "Alpha one, edited, paragraph 1"));
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expect(m.reports.length, "the same frame is not reported again").toBe(said);
+  });
+
+  test("a frame an edit removed gives way to the frame of its section, which is reported", async () => {
+    const m = await mountRoute(ROUTE, { current: "alpha" });
+    m.pane.focus();
+    await press("{ArrowRight}{ArrowRight}");
+    await m.edit(ROUTE.replace("### Alpha two", "### Alpha twoo"));
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expect(m.reports.at(-1)).toEqual({ frame: "alpha", head: true });
   });
 });
 

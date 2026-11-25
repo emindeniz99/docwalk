@@ -105,6 +105,14 @@ interface RemoteHostOptions {
    */
   mapView?: boolean;
   /**
+   * The map's current frame id while the presenter is in the map view, null
+   * until the map has reported one or while it is the column's first frame,
+   * which a state leaves unnamed (decision 153). Every state says it while
+   * `mapView` is true, and a change of it sends a state of its own, as a change
+   * of slide does, since a step inside one column changes no slide.
+   */
+  mapFrame?: string | null;
+  /**
    * Takes a remote's `step` while the presenter is in the map view, in place of
    * the deck's pages: the map walks its route, and the deck follows at section
    * level (decision 152). It returns whether the map took the step; when it did
@@ -234,6 +242,7 @@ export function useRemoteHost({
   mirror = null,
   countdown = null,
   mapView = false,
+  mapFrame = null,
   onMapStep,
 }: RemoteHostOptions): RemoteHost {
   /** Null while a new room's keys are generated (none stored, a duplicated tab, a taken seat). */
@@ -256,6 +265,9 @@ export function useRemoteHost({
   const docLinkRef = useRef(docLink);
   const levelRef = useRef(level);
   const mapViewRef = useRef(mapView);
+  const mapFrameRef = useRef(mapFrame);
+  /** Counts states begun, so a state's retries can tell a newer one has been sent. */
+  const sendSeq = useRef(0);
   const markdownRef = useRef(markdown);
   /** The document the current deck was built from; the slide list is stale while it differs. */
   const builtForRef = useRef<string | null>(null);
@@ -297,15 +309,31 @@ export function useRemoteHost({
       docLink: link ?? null,
       docLinkTooLong: link === null,
       level: typeof lvl === "object" ? [...lvl] : lvl,
-      ...(mapViewRef.current ? { view: "map" as const } : {}),
+      ...(mapViewRef.current
+        ? {
+            view: "map" as const,
+            ...(mapFrameRef.current === null ? {} : { frame: mapFrameRef.current }),
+          }
+        : {}),
     };
-    const result = await conn.send(state);
-    if (result === "too-large" && state.docLink) {
+    // A later state supersedes this one: its retries must not go out behind it (decision 153).
+    const mine = ++sendSeq.current;
+    let result = await conn.send(state);
+    let sent = state;
+    if (result === "too-large" && state.frame !== undefined && sendSeq.current === mine) {
+      // The frame goes before the link (decision 153): followers keep the document and
+      // land on the column's first frame.
+      const { frame: _frame, ...bare } = state;
+      result = await conn.send(bare);
+      sent = bare;
+    }
+    if (result === "too-large" && sent.docLink) {
+      if (sendSeq.current !== mine) return;
       // Navigation still works without the link; the join dialog says followers need the document.
       const fallback = { ...state, docLink: null, docLinkTooLong: true };
       if ((await conn.send(fallback)) === "sent") setDocLinkTooLong(true);
     } else if (result === "sent") {
-      setDocLinkTooLong(state.docLinkTooLong);
+      setDocLinkTooLong(sent.docLinkTooLong);
     }
   }, []);
 
@@ -551,14 +579,16 @@ export function useRemoteHost({
 
   // Subscribing announces the current slide at once, and again on every change,
   // including after the deck is rebuilt, the doc link changes or the presenter
-  // enters or leaves the map, which changes no slide (decision 150).
+  // enters or leaves the map, which changes no slide (decision 150), or moves to another
+  // frame of the map, which may change none either (decision 153).
   const ready = room !== null;
   useEffect(() => {
     if (!ready || !controller) return;
     docLinkRef.current = docLink;
     mapViewRef.current = mapView;
+    mapFrameRef.current = mapFrame;
     return controller.onChange(() => void sendState());
-  }, [ready, controller, docLink, mapView, sendState]);
+  }, [ready, controller, docLink, mapView, mapFrame, sendState]);
 
   // A change of the countdown reaches the phones at once, also the one that ends it.
   useEffect(() => {

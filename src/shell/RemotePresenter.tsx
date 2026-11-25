@@ -22,6 +22,8 @@ interface RemotePresenterProps {
   countdown?: Countdown | null;
   /** True while the presenter is in the map view, which follow screens show too (decision 150). */
   mapView?: boolean;
+  /** The map's current frame id while it shows, null until the map has reported one (decision 153). */
+  mapFrame?: string | null;
   /** A remote's Next or Previous while the presenter is on the map; false when the map did not take it (decision 152). */
   onMapStep: (direction: 1 | -1) => boolean;
   isOpen: boolean;
@@ -49,6 +51,7 @@ export function RemotePresenter({
   mirror,
   countdown = null,
   mapView = false,
+  mapFrame = null,
   onMapStep,
   isOpen,
   onOpenChange,
@@ -105,6 +108,7 @@ export function RemotePresenter({
     mirror,
     countdown,
     mapView,
+    mapFrame,
     onMapStep,
   });
   useStageLaser(controller, remote.laser);

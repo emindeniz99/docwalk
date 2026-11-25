@@ -5,7 +5,7 @@ import type { View } from "./view";
 
 /**
  * The app's own keys: O for the slide overview, Mod+K for the command
- * palette, and Escape out of present mode. The annotation keys live in
+ * palette, and Escape out of present mode or out of presenting the map. The annotation keys live in
  * useAnnotationShortcuts.
  */
 export function useAppKeys({
@@ -16,6 +16,7 @@ export function useAppKeys({
   openOverview,
   setPaletteOpen,
   show,
+  leaveMap,
 }: {
   follow: boolean;
   controller: DeckController | null;
@@ -24,6 +25,8 @@ export function useAppKeys({
   openOverview: () => void;
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   show: (next: View | ((v: View) => View)) => void;
+  /** Ends presenting the map, which is the map view in the window again (decision 154). */
+  leaveMap: () => void;
 }) {
   // O opens the slide overview: anywhere while presenting, from the deck pane while editing.
   // The document view and the map hide the deck pane.
@@ -46,10 +49,14 @@ export function useAppKeys({
       // reveal marks Escape as handled (its binding is a no-op), so do not test defaultPrevented here.
       if (e.key === "Escape") {
         if (document.fullscreenElement) void document.exitFullscreen();
-        else show((v) => (v === "present" ? "edit" : v));
+        else {
+          show((v) => (v === "present" ? "edit" : v));
+          // The presented map is still the map view: Escape ends the presenting, nothing more.
+          leaveMap();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [show, follow, setPaletteOpen]);
+  }, [show, follow, setPaletteOpen, leaveMap]);
 }

@@ -3,6 +3,7 @@ import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { createMapLaser, MAP_LASER_SIZE, MAP_LASER_TRAIL_MS } from "./laser";
 import "./map.css";
+import { frame, reduceMotion } from "./testMap";
 
 /**
  * Decision 149, Pointing: the map's laser is drawn over the pane in screen
@@ -20,8 +21,6 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
 /** A pane as the map's: positioned, with a border, so pane coordinates start inside it. */
 function makePane(): HTMLElement {
   const pane = document.createElement("section");
@@ -35,24 +34,6 @@ function makePane(): HTMLElement {
   });
   document.body.append(pane);
   return pane;
-}
-
-function reduceMotion() {
-  const real = window.matchMedia.bind(window);
-  vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
-    query.includes("prefers-reduced-motion")
-      ? ({
-          matches: true,
-          media: query,
-          onchange: null,
-          addEventListener: () => undefined,
-          removeEventListener: () => undefined,
-          addListener: () => undefined,
-          removeListener: () => undefined,
-          dispatchEvent: () => false,
-        } as MediaQueryList)
-      : real(query),
-  );
 }
 
 const dot = (pane: HTMLElement) =>

@@ -72,6 +72,14 @@ and pan on a canvas; code and tables scroll and zoom by type size. One
 dialog, toolbar, Tab trap and focus return serve all four (87). Code:
 `src/deck/focus.ts`, `focusTargets.ts`.
 
+**Frame**: one section of the map's plan, drawn as a box on the map: a
+heading at the document's slide level or one below it, or a part cut by a
+thematic break. Its id is the heading's anchor. The map has one **current
+frame**. The slide address stays the deck section that holds the frame's
+first line; `?frame=<id>` in the link and `frame` in the room's state name
+the frame inside it, only while the map shows (140, 145, 153). Code:
+`MapFrame`, `MapView`, `src/map/route.ts`.
+
 **Full mode**: a deployment with the Worker, so `/api` exists: OAuth and
 remote control (37, 38). Opposite: **static mode**.
 
@@ -220,6 +228,7 @@ Add a row here before introducing a new one.
 | slide                       | slayt                       | "slayt düzeyi" for the base level          |
 | deck                        | slayt destesi               | screen-reader role only; elsewhere "sunum" |
 | present (button)            | Sunum yap                   |                                            |
+| present the map             | haritayla sunum yap         | "sunum yap" as for Present; Exit is "Çık"  |
 | presenter view              | sunucu görünümü             |                                            |
 | presenting controls         | sunum düğmeleri             | not "kontrol", which also means check      |
 | fill the screen, card       | ekranı doldur, kart         | the two present frames                     |
@@ -238,6 +247,7 @@ Add a row here before introducing a new one.
 | section selection           | bölüm seçimi                | "Bölümler: tümü" when there is none        |
 | slide overview              | slaytlara genel bakış       |                                            |
 | map (the view)              | harita                      | not "kanvas" (sketch), "genel bakış"       |
+| frame (on the map)          | çerçeve                     | one section of the map; not "slayt"        |
 | task mark                   | görev işareti               | named "tamamlandı", "tamamlanmadı"         |
 | text hit                    | metin eşleşmesi             | the palette's "Slayt metninde" section     |
 | diagram, node               | diyagram, düğüm             |                                            |

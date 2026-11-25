@@ -39,6 +39,8 @@ interface Opener {
 /** The command palette's commands, in the order it lists them. */
 export function appCommands({
   present,
+  presentMap,
+  mapPresented,
   openPresenter,
   overview,
   sectionPicker,
@@ -69,6 +71,8 @@ export function appCommands({
   workspace,
 }: {
   present: () => Promise<void>;
+  presentMap: () => Promise<void>;
+  mapPresented: boolean;
   openPresenter: () => void;
   overview: Opener;
   sectionPicker: Opener;
@@ -100,6 +104,11 @@ export function appCommands({
 }): Command[] {
   return [
     { id: "present", label: m.cmd_present(), run: () => void present() },
+    // Presenting the map (decision 154) is the presenter's own map: it exists only on the map,
+    // and Exit and Escape leave it, so there is nothing to offer while it is presented.
+    ...(view === "map" && !mapPresented
+      ? [{ id: "present-map", label: m.cmd_present_map(), run: () => void presentMap() }]
+      : []),
     { id: "presenter", label: m.cmd_presenter(), run: openPresenter },
     { id: "overview", label: m.cmd_overview(), hint: "O", run: overview.open },
     { id: "sections", label: m.cmd_sections(), run: sectionPicker.open },

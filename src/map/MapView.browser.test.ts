@@ -1,7 +1,7 @@
 import { act, createElement as h } from "react";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
@@ -14,6 +14,7 @@ import { fitFrame } from "./camera";
 import { COLUMN_GAP, FRAME_GAP, FRAME_WIDTH, mapColumns, mapPlan, placeFrames } from "./layout";
 import MapView from "./MapView";
 import { MOVE_MS } from "./route";
+import { frame, frameEl, frames, mapContainer, mermaidLoad, para, PANE } from "./testMap";
 
 /**
  * Decision 142 and its corrections in 143: the map view places the frames
@@ -27,49 +28,23 @@ import { MOVE_MS } from "./route";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The Mermaid chunk can fail to load (a lost connection, a new deploy), as in
-// src/deck/mermaidLoad.browser.test.ts: while `failing` is set, `initialize`
-// throws, so the load rejects the way a missing chunk does and the figure is
-// marked `data-load-failed` (decision 146). A load that succeeded stays
-// loaded for the page and `vi.resetModules()` gives no fresh `mermaid.ts` in
-// browser mode, so the load-failure test is the first of this file.
-const control = vi.hoisted(() => ({ failing: false }));
-vi.mock("mermaid", async (importOriginal) => {
-  const real = await importOriginal<typeof import("mermaid")>();
-  const mermaid = new Proxy(real.default, {
-    get(target, key, receiver) {
-      if (control.failing && key === "initialize")
-        throw new TypeError("Failed to fetch dynamically imported module");
-      const value: unknown = Reflect.get(target, key, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-  return { ...real, default: mermaid };
-});
+// The Mermaid chunk can fail to load, so the load-failure test is the first of
+// this file (see `mermaidLoad` in testMap.ts for why).
+vi.mock("mermaid", async (importOriginal) =>
+  (await import("./testMap")).failableMermaid(await importOriginal<typeof import("mermaid")>()),
+);
 
 let reactRoot: ReactRoot | null = null;
 const cleanups: (() => void)[] = [];
 
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
-  control.failing = false;
+  mermaidLoad.failing = false;
   act(() => reactRoot?.unmount());
   reactRoot = null;
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
-
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
-}
-
-const para = (label: string, n: number) =>
-  Array.from(
-    { length: n },
-    (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
-  ).join("\n\n");
 
 /** Three sections, two with a part under the section's frame; one column down the page (decision 174). */
 const DOC = [
@@ -97,8 +72,6 @@ const DOC = [
   "",
 ].join("\n");
 
-const PANE = { width: 1200, height: 700 };
-
 interface Mounted {
   container: HTMLElement;
   pane: HTMLElement;
@@ -112,14 +85,7 @@ interface Mounted {
  * wrong place.
  */
 async function mountMap(markdown: string, size = PANE, timeout = 20_000): Promise<Mounted> {
-  await page.viewport(size.width + 100, size.height + 100);
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    display: "grid",
-    width: `${size.width}px`,
-    height: `${size.height}px`,
-  });
-  document.body.append(container);
+  const container = await mapContainer(size);
   const root = createRoot(container);
   reactRoot = root;
   const show = (md: string) => act(() => root.render(h(MapView, { root: parseMarkdown(md) })));
@@ -139,8 +105,6 @@ async function mountMap(markdown: string, size = PANE, timeout = 20_000): Promis
   return { container, pane, show };
 }
 
-const frameEl = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`[data-map-frame="${CSS.escape(id)}"]`)!;
 const boxOf = (container: HTMLElement, id: string) =>
   frameEl(container, id).getBoundingClientRect();
 const allBoxes = (container: HTMLElement) =>
@@ -237,7 +201,7 @@ describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)",
     };
     window.addEventListener("unhandledrejection", onRejection);
     cleanups.push(() => window.removeEventListener("unhandledrejection", onRejection));
-    control.failing = true;
+    mermaidLoad.failing = true;
     const { container, pane } = await mountMap(DIAGRAM_DOC);
     const start = frameEl(container, "start");
     await expect
@@ -275,7 +239,7 @@ describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)",
     await frames(5);
     expect(attempts).toBe(2);
     // The code loads now: online draws it in place.
-    control.failing = false;
+    mermaidLoad.failing = false;
     window.dispatchEvent(new Event("online"));
     await expect
       .poll(() => start.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
@@ -525,6 +489,38 @@ describe("the mouse on the map (decision 142, Camera)", () => {
         return b.left >= p.left && b.right <= p.right && b.top >= p.top && b.bottom <= p.bottom;
       })
       .toBe(true);
+  });
+});
+
+describe("the pointer's cost when it is not the map's (decision 142, Camera)", () => {
+  // The map listens for moves on the window, so every move anywhere in the app reaches it;
+  // reading the pane's box is a layout read, and a move that drags and pinches nothing needs none.
+  test("a pointer moving with no drag, pinch or laser reads nothing from the pane; a drag still pans", async () => {
+    const { container, pane } = await mountMap(DOC);
+    const read = vi.spyOn(pane, "getBoundingClientRect");
+    for (const pointerType of ["mouse", "pen", "touch"]) {
+      document.body.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 9,
+          pointerType,
+          clientX: 20,
+          clientY: 20,
+          bubbles: true,
+        }),
+      );
+    }
+    expect(read, "layout reads by pointer moves that do nothing").not.toHaveBeenCalled();
+    const before = boxOf(container, "alpha");
+    const p = pointOn(before, pane.getBoundingClientRect());
+    read.mockClear();
+    touch("pointerdown", 1, p.x, p.y);
+    touch("pointermove", 1, p.x + 40, p.y + 30);
+    touch("pointerup", 1, p.x + 40, p.y + 30);
+    await frames(2);
+    const after = boxOf(container, "alpha");
+    expect(off(after.left, before.left + 40), "left").toBeLessThanOrEqual(0.5);
+    expect(off(after.top, before.top + 30), "top").toBeLessThanOrEqual(0.5);
+    expect(read, "a drag reads the pane's box").toHaveBeenCalled();
   });
 });
 

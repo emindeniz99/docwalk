@@ -210,20 +210,25 @@ describe("format then parse round-trips every valid state", () => {
   const shortId = fc.string({ unit: slugChar, minLength: 1, maxLength: 20 });
   const page = fc.integer({ min: 1, max: 99_999 });
   const depth = fc.constantFrom<HeadingDepth>(1, 2, 3, 4, 5, 6);
-  const state = fc.record({
-    address: fc.option(fc.tuple(sectionId, page).map(([id, n]) => `${id}/${n}`)),
-    level: fc.option(
-      fc.oneof(
-        fc.constant("auto" as const),
-        depth,
-        fc
-          .uniqueArray(depth, { minLength: 2, maxLength: 6 })
-          .map((list) => list.toSorted((a, b) => a - b)),
+  // A frame names a place inside the hash's section (decision 153), so a link
+  // with no address carries none.
+  const state = fc
+    .record({
+      address: fc.option(fc.tuple(sectionId, page).map(([id, n]) => `${id}/${n}`)),
+      level: fc.option(
+        fc.oneof(
+          fc.constant("auto" as const),
+          depth,
+          fc
+            .uniqueArray(depth, { minLength: 2, maxLength: 6 })
+            .map((list) => list.toSorted((a, b) => a - b)),
+        ),
       ),
-    ),
-    view: fc.option(fc.constantFrom("edit", "document", "map", "present", "presenter" as const)),
-    sections: fc.option(fc.uniqueArray(shortId, { minLength: 1, maxLength: 5 })),
-  }) as fc.Arbitrary<ViewerUrlState>;
+      view: fc.option(fc.constantFrom("edit", "document", "map", "present", "presenter" as const)),
+      sections: fc.option(fc.uniqueArray(shortId, { minLength: 1, maxLength: 5 })),
+      frame: fc.option(sectionId),
+    })
+    .map((s) => (s.address === null ? { ...s, frame: null } : s)) as fc.Arbitrary<ViewerUrlState>;
   const unrelated = fc.constantFrom(
     "",
     "?src=https://raw.githubusercontent.com/o/r/HEAD/x.md",
@@ -412,6 +417,116 @@ describe("sectionsFitInLink", () => {
     expect(sectionsFitInLink(Array.from({ length: 101 }, (_, i) => `s${i}`))).toBe(false);
     expect(sectionsFitInLink(["a".repeat(201)])).toBe(false);
     expect(sectionsFitInLink(wide(21))).toBe(false);
+  });
+});
+
+const frame = (href: string) => parse(href).frame;
+
+describe("the map's current frame in the query (?frame=, decision 153)", () => {
+  test("a frame id beside view=map and a slide address is read back, so a reload lands on the frame", () => {
+    expect(frame("?view=map&frame=goals#goals-and-non-goals/1")).toBe("goals");
+    expect(parse("?view=map&frame=goals#goals-and-non-goals/1")).toMatchObject({
+      view: "map",
+      address: "goals-and-non-goals/1",
+    });
+  });
+
+  test("ids in any script decode, because the map's frame ids are GitHub heading anchors", () => {
+    expect(frame(`?view=map&frame=${encodeURIComponent("café-planı")}#a/1`)).toBe("café-planı");
+    expect(frame(`?view=map&frame=${encodeURIComponent("日本語")}#a/1`)).toBe("日本語");
+  });
+
+  test("a value that is not a slug, or is over 200 code points, parses as null, so a hostile link costs nothing", () => {
+    const accepted = [
+      "",
+      "a b",
+      "a/b",
+      "a%2Fb",
+      "a.b",
+      "a=b",
+      "<script>alert(1)</script>",
+      "javascript:alert(1)",
+      "%E0%A4%A", // malformed percent-encoding
+      "%00",
+      "%ED%A0%80", // a lone surrogate
+      "a".repeat(201),
+      "日".repeat(201),
+    ].filter((raw) => frame(`?view=map&frame=${raw}#a/1`) !== null);
+    expect(accepted).toEqual([]);
+    expect(frame(`?view=map&frame=${"日".repeat(200)}#a/1`)).toBe("日".repeat(200));
+    expect(frame(`?view=map&frame=${"a".repeat(200)}#a/1`)).toBe("a".repeat(200));
+    expect(frame("?view=map#a/1")).toBeNull();
+  });
+
+  test("a frame without a slide address is null: it names a place inside the hash's section", () => {
+    expect(frame("?view=map&frame=goals")).toBeNull();
+    expect(frame("?view=map&frame=goals#doc=eJzLSM3JyQcABiwCFQ")).toBeNull();
+    expect(frame("?view=map&frame=goals#not a slug")).toBeNull();
+  });
+
+  test("format writes it beside view=map and the address, and parse reads the same", () => {
+    const url = format("/?src=x#intro/2", { view: "map", frame: "retries" });
+    expect(url.search).toBe("?src=x&view=map&frame=retries");
+    expect(parseViewerUrl(url)).toMatchObject({
+      view: "map",
+      frame: "retries",
+      address: "intro/2",
+    });
+    // The address and the frame in one call: the address is the one the link will hold.
+    expect(format("/?view=map", { address: "intro/2", frame: "retries" }).search).toBe(
+      "?view=map&frame=retries",
+    );
+  });
+
+  test("ids in other scripts are written percent-encoded and read back unchanged", () => {
+    for (const id of ["café-planı", "日本語", "𝒜", "日".repeat(200)]) {
+      const url = format("/?view=map#a/1", { frame: id });
+      expect(parseViewerUrl(url).frame).toBe(id);
+    }
+  });
+
+  test("null removes it, and a value parse would reject is removed instead of written", () => {
+    expect(format("/?view=map&frame=goals#a/1", { frame: null }).search).toBe("?view=map");
+    for (const bad of ["not a slug", "a/b", "a".repeat(201), "", "\ud800"]) {
+      expect(format("/?view=map&frame=goals#a/1", { frame: bad }).search, `${bad}`).toBe(
+        "?view=map",
+      );
+    }
+  });
+
+  test("nothing is written under a #doc= share fragment, or where the hash holds no slide address", () => {
+    // A shared document keeps its hash (7), so there is no address for a frame to lie in.
+    const shared = "/?view=map#doc=eJzLSM3JyQcABiwCFQ";
+    expect(format(shared, { frame: "goals" }).search).toBe("?view=map");
+    expect(format(shared, { frame: "goals" }).hash).toBe("#doc=eJzLSM3JyQcABiwCFQ");
+    expect(format(shared, { address: "intro/2", frame: "goals" }).search).toBe("?view=map");
+    // A frame a build before this row left beside a share fragment is not carried on.
+    expect(format("/?view=map&frame=old#doc=eJzLSM3JyQcABiwCFQ", { frame: "goals" }).search).toBe(
+      "?view=map",
+    );
+    expect(format("/?view=map", { frame: "goals" }).search).toBe("?view=map");
+    // The address goes away in the same call: so does the frame.
+    expect(format("/?view=map&frame=goals#a/1", { address: null, frame: "goals" }).search).toBe(
+      "?view=map",
+    );
+  });
+
+  test("leaving the map removes it, and the other views never get one", () => {
+    const onMap = "/?src=x&view=map&frame=goals#a/1";
+    expect(format(onMap, { view: "edit" }).search).toBe("?src=x&view=edit");
+    expect(format(onMap, { view: "document" }).search).toBe("?src=x&view=document");
+    expect(format(onMap, { view: "present" }).search).toBe("?src=x&view=present");
+    // Back to the default view, which writes no `view` at all.
+    expect(format(onMap, { view: null }).search).toBe("?src=x");
+    // Staying on the map, or touching another setting, keeps it.
+    expect(format(onMap, { view: "map" }).search).toBe("?src=x&view=map&frame=goals");
+    expect(format(onMap, { level: 2 }).search).toBe("?src=x&view=map&frame=goals&level=2");
+  });
+
+  test("a frame asked for beside another view is written as asked: leaving the map only removes what was not named", () => {
+    expect(format("/?view=map&frame=a#a/1", { view: "edit", frame: "b" }).search).toBe(
+      "?view=edit&frame=b",
+    );
   });
 });
 

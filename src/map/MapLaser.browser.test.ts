@@ -2,7 +2,7 @@ import { createElement as h, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
@@ -11,6 +11,18 @@ import "../styles.css";
 import { parseMarkdown } from "../sectioning/sectionize";
 import { MAP_LASER_SIZE } from "./laser";
 import MapView from "./MapView";
+import {
+  currentIds,
+  frame,
+  frameEl,
+  frames,
+  mapContainer,
+  para,
+  PANE,
+  placedMap,
+  reduceMotion,
+  statusOf,
+} from "./testMap";
 
 /**
  * Decision 149, the map's own laser. `L` and the app (the palette) switch it
@@ -34,37 +46,6 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
-}
-
-/** `prefers-reduced-motion: reduce` as the view and the laser read it. */
-function reduceMotion() {
-  const real = window.matchMedia.bind(window);
-  vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
-    query.includes("prefers-reduced-motion")
-      ? ({
-          matches: true,
-          media: query,
-          onchange: null,
-          addEventListener: () => undefined,
-          removeEventListener: () => undefined,
-          addListener: () => undefined,
-          removeListener: () => undefined,
-          dispatchEvent: () => false,
-        } as MediaQueryList)
-      : real(query),
-  );
-}
-
-const para = (label: string, n: number) =>
-  Array.from(
-    { length: n },
-    (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
-  ).join("\n\n");
-
 const DOC = [
   "## Alpha",
   "",
@@ -86,8 +67,6 @@ const DOC = [
   "",
 ].join("\n");
 
-const PANE = { width: 1200, height: 700 };
-
 interface Mounted {
   container: HTMLElement;
   pane: HTMLElement;
@@ -98,14 +77,7 @@ interface Mounted {
 
 /** MapView with the laser held outside it, as App holds it, once its first placement is shown. */
 async function mount(markdown = DOC): Promise<Mounted> {
-  await page.viewport(PANE.width + 100, PANE.height + 100);
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    display: "grid",
-    width: `${PANE.width}px`,
-    height: `${PANE.height}px`,
-  });
-  document.body.append(container);
+  const container = await mapContainer(PANE);
   const root = parseMarkdown(markdown);
   const asked: boolean[] = [];
   function Harness() {
@@ -125,10 +97,7 @@ async function mount(markdown = DOC): Promise<Mounted> {
   const react = createRoot(container);
   reactRoot = react;
   flushSync(() => react.render(h(Harness)));
-  const pane = container.querySelector<HTMLElement>(".docwalk-map-pane")!;
-  const layer = container.querySelector<HTMLElement>(".docwalk-map-layer")!;
-  await expect.poll(() => layer.hasAttribute("data-placed"), { timeout: 20_000 }).toBe(true);
-  await frames(3);
+  const { pane, layer } = await placedMap(container);
   return { container, pane, layer, asked };
 }
 
@@ -164,17 +133,6 @@ async function press(keys: string): Promise<{ prevented: boolean; reachedWindow:
   await frames(2);
   return { prevented: (last as KeyboardEvent | null)?.defaultPrevented ?? false, reachedWindow };
 }
-
-const frameEl = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`[data-map-frame="${CSS.escape(id)}"]`)!;
-
-const currentIds = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>('[data-map-frame][aria-current="true"]')].map(
-    (el) => el.dataset["mapFrame"],
-  );
-
-const statusOf = (pane: HTMLElement) =>
-  pane.querySelector<HTMLElement>('[role="status"]')?.textContent ?? null;
 
 const isOn = (pane: HTMLElement) => pane.hasAttribute("data-laser");
 

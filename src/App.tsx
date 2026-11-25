@@ -76,6 +76,7 @@ import { m } from "./paraglide/messages.js";
 import { FilesPanel } from "./workspace/FilesPanel";
 import { useWorkspace } from "./workspace/useWorkspace";
 import type { MapHandle, MapRequest } from "./map/MapView";
+import { roomFrame } from "./remote/types";
 import { WorkspaceBanner } from "./workspace/WorkspaceBanner";
 import { WorkspaceDialogs } from "./workspace/WorkspaceDialogs";
 
@@ -348,6 +349,16 @@ export function App() {
     [plan],
   );
 
+  // The map's current frame, as the map reports it while it shows (decision 153): the id for the
+  // room, and whether it is the frame its section's address opens, which the link need not name.
+  const [mapFrame, setMapFrame] = useState<{ frame: string; head: boolean } | null>(null);
+  // The frame a link opened the page on, for the map's opening view only.
+  const [linkFrame, setLinkFrame] = useState<string | null>(null);
+  if (view !== "map" && (mapFrame !== null || linkFrame !== null)) {
+    setMapFrame(null);
+    setLinkFrame(null);
+  }
+
   useUrlSync({
     // A follower shows the presenter's slide (RemoteFollower), never one the URL or a rebuild remembers.
     controller: follow ? null : controller,
@@ -355,6 +366,9 @@ export function App() {
     level,
     view,
     sections: follow ? undefined : sections,
+    // Written only for a frame the address alone would not open; left alone until the map reports one.
+    frame: follow || mapFrame === null ? undefined : mapFrame.head ? null : mapFrame.frame,
+    onFrame: setLinkFrame,
     onLevel: setLevel,
     // Present needs a user gesture for fullscreen, so a link can open edit, document or map only.
     onView: (v) => {
@@ -393,17 +407,26 @@ export function App() {
     setNotice,
   });
 
-  const { frame, staged, fill, chrome, present } = usePresenting({
-    view,
-    follow,
-    // The bar above the map stays up: the idle chrome is the slide's (decision 150). It stays
-    // up too while it carries the newer-view note (decision 172), or the note would hide itself.
-    followOpen: followOpen && !followMap && !followNewerView,
-    mode,
-    deckRef,
-    layerRef,
-    show,
-  });
+  // The map's laser (decision 149): here, so the palette can switch it and presenting the map
+  // can hear its Escape (decision 154); leaving the map switches it off.
+  const [mapLaser, setMapLaser] = useState(false);
+  // The map's handle: the phone remote's steps (decision 152) and focus for presenting (154).
+  const mapRef = useRef<MapHandle>(null);
+  const { frame, staged, fill, chrome, present, mapPresented, presentMap, exitMap, leaveMap } =
+    usePresenting({
+      view,
+      follow,
+      // The bar above the map stays up: the idle chrome is the slide's (decision 150). It stays
+      // up too while it carries the newer-view note (decision 172), or the note would hide itself.
+      followOpen: followOpen && !followMap && !followNewerView,
+      mode,
+      deckRef,
+      layerRef,
+      mapRef,
+      mapLaser,
+      setMapLaser,
+      show,
+    });
 
   const { diagnostics, onCursorLine } = useEditorSync({
     controller,
@@ -422,13 +445,12 @@ export function App() {
     openOverview: overview.open,
     setPaletteOpen,
     show,
+    leaveMap,
   });
 
   // A section the reader chose in the shell while the map shows: the map moves to
   // its frame even when the deck is already on it (decision 148).
   const [mapRequest, setMapRequest] = useState<MapRequest | null>(null);
-  // The map's laser (decision 149): here, so the palette can switch it; leaving the map switches it off.
-  const [mapLaser, setMapLaser] = useState(false);
   if (mapLaser && (view !== "map" || follow)) setMapLaser(false);
   const goToAddress = useCallback(
     (address: string, fromMap: boolean) => {
@@ -459,7 +481,6 @@ export function App() {
     [goToAddress],
   );
   // The phone remote's Next and Previous walk the map's route while the map shows (decision 152).
-  const mapRef = useRef<MapHandle>(null);
   const onMapStep = useCallback(
     (direction: 1 | -1) => mapRef.current?.step(direction) ?? false,
     [],
@@ -518,6 +539,8 @@ export function App() {
 
   const commands = appCommands({
     present,
+    presentMap,
+    mapPresented,
     openPresenter,
     overview,
     sectionPicker,
@@ -609,6 +632,7 @@ export function App() {
     <div
       className="docwalk-app"
       data-view={follow ? "follow" : view}
+      data-map-presented={mapPresented ? "" : undefined}
       data-pane={phone && view === "edit" && !follow ? phonePane : undefined}
       data-chrome={chrome.hidden ? "hidden" : chrome.hides ? "shown" : undefined}
       data-frame={staged ? frame : undefined}
@@ -730,7 +754,8 @@ export function App() {
       </div>
 
       <main className="docwalk-main">
-        {view !== "present" && !follow && !outlineSheet && (
+        {/* Presenting the map shows its pane alone (decision 154): no outline, no sheet. */}
+        {view !== "present" && !follow && !outlineSheet && !mapPresented && (
           <aside className="docwalk-sidebar">
             {workspace.available && <FilesPanel workspace={workspace} />}
             <Outline
@@ -762,7 +787,7 @@ export function App() {
             </div>
           </aside>
         )}
-        {outlineSheet && (
+        {outlineSheet && !mapPresented && (
           <div className="docwalk-document-bar">
             <Button className="docwalk-button" onPress={() => setOutlineOpen(true)}>
               <TableOfContents size={16} aria-hidden="true" />
@@ -837,11 +862,13 @@ export function App() {
               {followTheme}
             </div>
             <Suspense fallback={<div className="docwalk-map-pane" />}>
-              {/* The presenter's section, followed until the follower roams; a follower's
-                  map reports nothing, so the hidden deck stays on the presenter's slide. */}
+              {/* The presenter's section and frame, followed until the follower roams; a
+                  follower's map reports nothing, so the hidden deck stays on the presenter's
+                  slide. The frame is read only while the state says map, as it does here. */}
               <MapView
                 root={root}
                 current={presenterSection}
+                frame={followState?.frame ?? null}
                 deckSections={plan.sections}
                 deckLevels={plan.levels}
                 follow
@@ -861,8 +888,11 @@ export function App() {
               deckLevels={plan.levels}
               request={mapRequest}
               onCurrent={onMapCurrent}
+              onFrame={setMapFrame}
+              openFrame={linkFrame}
               laser={mapLaser}
               onLaserChange={setMapLaser}
+              presenting={{ on: mapPresented, start: () => void presentMap(), stop: exitMap }}
             />
           </Suspense>
         )}
@@ -1019,6 +1049,7 @@ export function App() {
             mirror={mirrorFeed}
             countdown={presenterCountdown}
             mapView={view === "map"}
+            mapFrame={view === "map" ? roomFrame(mapFrame) : null}
             onMapStep={onMapStep}
             isOpen={join.isOpen}
             onOpenChange={join.onOpenChange}

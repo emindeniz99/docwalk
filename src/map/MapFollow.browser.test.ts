@@ -1,17 +1,31 @@
-import { createElement as h, useEffect, useState } from "react";
+import { createElement as h, useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 // Same fonts as the app, so heights match what readers see.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "virtual:docwalk-tokens.css";
 import "../styles.css";
 import { parseMarkdown, sectionize } from "../sectioning/sectionize";
-import { type Camera, cameraTransform, fitFrame } from "./camera";
-import { FRAME_WIDTH } from "./layout";
 import MapView from "./MapView";
+import {
+  cameraOf,
+  currentIds,
+  expectAt,
+  fittedTo,
+  frameEl,
+  frames,
+  mapContainer,
+  para,
+  PANE,
+  placedMap,
+  press,
+  reduceMotion,
+  same,
+  statusOf,
+} from "./testMap";
 
 /**
  * Decision 150, the map on a follow screen. App gives the map the
@@ -29,7 +43,11 @@ import MapView from "./MapView";
 const ROAMING = "Roaming the map on your own. Press Escape to go back to the presenter.";
 const BACK = "Following the presenter again";
 
-const outside: { setCurrent: ((id: string | null) => void) | null } = { setCurrent: null };
+const outside: {
+  setCurrent: ((id: string | null) => void) | null;
+  setPresenter: ((at: { section: string | null; frame: string | null }) => void) | null;
+  setDocument: ((markdown: string) => void) | null;
+} = { setCurrent: null, setPresenter: null, setDocument: null };
 let reactRoot: ReactRoot | null = null;
 
 afterEach(() => {
@@ -37,40 +55,11 @@ afterEach(() => {
   reactRoot?.unmount();
   reactRoot = null;
   outside.setCurrent = null;
+  outside.setPresenter = null;
+  outside.setDocument = null;
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
 });
-
-const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-
-async function frames(n: number) {
-  for (let i = 0; i < n; i++) await frame();
-}
-
-/** `prefers-reduced-motion: reduce`: these tests check where the camera ends, not the move. */
-function reduceMotion() {
-  const real = window.matchMedia.bind(window);
-  vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
-    query.includes("prefers-reduced-motion")
-      ? ({
-          matches: true,
-          media: query,
-          onchange: null,
-          addEventListener: () => undefined,
-          removeEventListener: () => undefined,
-          addListener: () => undefined,
-          removeListener: () => undefined,
-          dispatchEvent: () => false,
-        } as MediaQueryList)
-      : real(query),
-  );
-}
-
-const para = (label: string, n: number) =>
-  Array.from(
-    { length: n },
-    (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
-  ).join("\n\n");
 
 /** Three columns; the first has two `###` frames, which the deck at `auto` shows inside its slide. */
 const DOC = [
@@ -102,7 +91,6 @@ const DOC = [
   "",
 ].join("\n");
 
-const PANE = { width: 1200, height: 700 };
 /** Room for two frames of a column, so a click can reach the second at reading zoom. */
 const TALL_PANE = { width: 1200, height: 1500 };
 
@@ -114,36 +102,49 @@ interface Mounted {
   calls: string[];
   /** Every laser state the map asked App for. */
   asked: boolean[];
-  /** The presenter's section changing, as App passes it from the room's state. */
-  presenter: (id: string) => Promise<void>;
+  /**
+   * The presenter's section changing, as App passes it from the room's state,
+   * with the frame the state names (decision 153), if any.
+   */
+  presenter: (id: string, frame?: string | null) => Promise<void>;
+  /** The follower's document changing, as when the presenter's link finishes loading. */
+  setDocument: (markdown: string) => Promise<void>;
 }
 
 /** MapView as App mounts it on a follow screen (`follow`), or as the presenter's own map. */
 async function mount({
   current = "alpha",
+  frame: presenterFrame = null,
   follow = true,
   size = PANE,
-}: { current?: string; follow?: boolean; size?: { width: number; height: number } } = {}) {
-  await page.viewport(size.width + 100, size.height + 100);
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    display: "grid",
-    width: `${size.width}px`,
-    height: `${size.height}px`,
-  });
-  document.body.append(container);
-  const root = parseMarkdown(DOC);
-  const deckPlan = sectionize(root, "auto");
+  doc = DOC,
+}: {
+  current?: string;
+  frame?: string | null;
+  follow?: boolean;
+  size?: { width: number; height: number };
+  doc?: string;
+} = {}) {
+  const container = await mapContainer(size);
   const calls: string[] = [];
   const asked: boolean[] = [];
   function Harness() {
-    const [now, setNow] = useState<string | null>(current);
+    const [shown, setShown] = useState<{ section: string | null; frame: string | null }>({
+      section: current,
+      frame: presenterFrame,
+    });
+    const [markdown, setMarkdown] = useState(doc);
+    const root = useMemo(() => parseMarkdown(markdown), [markdown]);
+    const deckPlan = useMemo(() => sectionize(root, "auto"), [root]);
     useEffect(() => {
-      outside.setCurrent = setNow;
+      outside.setCurrent = (id) => setShown({ section: id, frame: null });
+      outside.setPresenter = setShown;
+      outside.setDocument = setMarkdown;
     }, []);
     return h(MapView, {
       root,
-      current: now,
+      current: shown.section,
+      frame: shown.frame,
       deckSections: deckPlan.sections,
       deckLevels: deckPlan.levels,
       follow,
@@ -155,90 +156,28 @@ async function mount({
   const react = createRoot(container);
   reactRoot = react;
   flushSync(() => react.render(h(Harness)));
-  const pane = container.querySelector<HTMLElement>(".docwalk-map-pane")!;
-  const layer = container.querySelector<HTMLElement>(".docwalk-map-layer")!;
-  await expect.poll(() => layer.hasAttribute("data-placed"), { timeout: 20_000 }).toBe(true);
-  await frames(3);
+  const { pane, layer } = await placedMap(container);
   const mounted: Mounted = {
     container,
     pane,
     layer,
     calls,
     asked,
-    presenter: async (id) => {
-      flushSync(() => outside.setCurrent?.(id));
+    presenter: async (id, frame = null) => {
+      flushSync(() => outside.setPresenter?.({ section: id, frame }));
       await frames(2);
+    },
+    setDocument: async (markdown) => {
+      flushSync(() => outside.setDocument?.(markdown));
+      await frames(3);
     },
   };
   return mounted;
 }
 
-const frameEl = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`[data-map-frame="${CSS.escape(id)}"]`)!;
-
-const currentIds = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>('[data-map-frame][aria-current="true"]')].map(
-    (el) => el.dataset["mapFrame"],
-  );
-
-const statusOf = (pane: HTMLElement) =>
-  pane.querySelector<HTMLElement>('[role="status"]')?.textContent ?? null;
-
 /** The "Back to presenter" button, or null while the follower follows. */
 const backButton = (pane: HTMLElement) =>
   [...pane.querySelectorAll("button")].find((b) => b.textContent === "Back to presenter") ?? null;
-
-function fittedTo(m: Mounted, id: string): Camera {
-  const el = frameEl(m.container, id);
-  const rect = {
-    x: Number.parseFloat(el.style.left),
-    y: Number.parseFloat(el.style.top),
-    width: FRAME_WIDTH,
-  };
-  const bounds = {
-    width: Number.parseFloat(m.layer.style.width),
-    height: Number.parseFloat(m.layer.style.height),
-  };
-  return fitFrame(rect, bounds, { width: m.pane.clientWidth, height: m.pane.clientHeight });
-}
-
-function cameraOf(layer: HTMLElement): Camera {
-  const match = /translate\(([-\d.e]+)px, ([-\d.e]+)px\) scale\(([-\d.e]+)\)/.exec(
-    layer.style.transform,
-  );
-  if (!match) throw new Error(`no camera in "${layer.style.transform}"`);
-  return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
-}
-
-/** The style keeps six significant digits of each number, so the comparison allows that rounding. */
-const same = (a: Camera, b: Camera) =>
-  Math.abs(a.x - b.x) < 0.01 &&
-  Math.abs(a.y - b.y) < 0.01 &&
-  Math.abs(a.scale - b.scale) <= 1e-5 * b.scale;
-
-function expectAt(m: Mounted, expected: Camera) {
-  const actual = cameraOf(m.layer);
-  expect(
-    same(actual, expected),
-    `layer at ${cameraTransform(actual)}, expected ${cameraTransform(expected)}`,
-  ).toBe(true);
-}
-
-/** Sends `keys` to the focused element and says whether the last key's default was prevented. */
-async function press(keys: string): Promise<boolean> {
-  let prevented = false;
-  const onKey = (event: KeyboardEvent) => {
-    prevented = event.defaultPrevented;
-  };
-  window.addEventListener("keydown", onKey);
-  try {
-    await userEvent.keyboard(keys);
-  } finally {
-    window.removeEventListener("keydown", onKey);
-  }
-  await frames(2);
-  return prevented;
-}
 
 /** A point in the pane, in client coordinates. */
 function at(pane: HTMLElement, fx: number, fy: number) {
@@ -308,6 +247,104 @@ describe("following the presenter (decision 150, What a follower sees)", () => {
     expect(await press("{Escape}")).toBe(false);
     expectAt(m, fittedTo(m, "beta"));
     expect(backButton(m.pane)).toBeNull();
+  });
+});
+
+describe("following the presenter's frame (decision 153, The room)", () => {
+  beforeEach(reduceMotion);
+
+  test("the presenter's section alpha with the frame alpha-one puts the follower on alpha-one", async () => {
+    // The state's `current` is the column's section; the frame says which of its frames.
+    const m = await mount({ current: "alpha", frame: "alpha-one" });
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+    expectAt(m, fittedTo(m, "alpha-one"));
+    expect(backButton(m.pane)).toBeNull();
+    expect(m.calls, "a follower's map still reports nothing").toEqual([]);
+  });
+
+  test("a change of frame inside one section moves the map, and a state with no frame goes back to the section's frame", async () => {
+    const m = await mount({ current: "alpha", frame: "alpha-one" });
+    await m.presenter("alpha", "alpha-two");
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expectAt(m, fittedTo(m, "alpha-two"));
+    // A state that carries no frame (an older presenter, or one whose state was too large).
+    await m.presenter("alpha", null);
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expectAt(m, fittedTo(m, "alpha"));
+    await m.presenter("beta", null);
+    expect(currentIds(m.container)).toEqual(["beta"]);
+    await m.presenter("alpha", "alpha-one");
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+    expect(m.calls).toEqual([]);
+  });
+
+  test("a frame this map does not have falls back to the frame of the presenter's section", async () => {
+    const m = await mount({ current: "alpha", frame: "alpha-nine" });
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    expectAt(m, fittedTo(m, "alpha"));
+    await m.presenter("beta", "alpha-nine");
+    expect(currentIds(m.container)).toEqual(["beta"]);
+  });
+
+  test("the frame is a frame id and nothing else: a section's name that is no frame id of the map changes nothing", async () => {
+    const m = await mount({ current: "beta", frame: "not-a-frame-here" });
+    expect(currentIds(m.container)).toEqual(["beta"]);
+    expectAt(m, fittedTo(m, "beta"));
+  });
+
+  test("Back to presenter ends a roam on the presenter's frame, not on the column's first frame", async () => {
+    const m = await mount({ current: "alpha", frame: "alpha-one" });
+    m.pane.focus();
+    await press("{ArrowRight}");
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expect(backButton(m.pane)).not.toBeNull();
+    backButton(m.pane)!.focus();
+    await press("{Enter}");
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+    expectAt(m, fittedTo(m, "alpha-one"));
+    expect(backButton(m.pane)).toBeNull();
+  });
+
+  test("Escape ends a roam on the presenter's latest frame, whichever the follower roamed to", async () => {
+    const m = await mount({ current: "alpha", frame: "alpha-one" });
+    m.pane.focus();
+    await press("{End}");
+    expect(currentIds(m.container)).toEqual(["gamma"]);
+    // The presenter walked on while the follower roamed: the map did not move.
+    await m.presenter("alpha", "alpha-two");
+    expect(currentIds(m.container)).toEqual(["gamma"]);
+    await press("{Escape}");
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expectAt(m, fittedTo(m, "alpha-two"));
+    expect(statusOf(m.pane)).toBe(BACK);
+  });
+
+  test("while the follower roams, the presenter's frames do not move the map", async () => {
+    const m = await mount({ current: "alpha", frame: "alpha-one" });
+    await wheel(m.pane, { deltaY: 200 });
+    const held = cameraOf(m.layer);
+    await m.presenter("alpha", "alpha-two");
+    expect(same(cameraOf(m.layer), held)).toBe(true);
+    expect(currentIds(m.container)).toEqual(["alpha-one"]);
+  });
+
+  test("a follower whose document has not caught up shows the frame of the section until its map has the presenter's frame", async () => {
+    // The follower loads the presenter's document after the first state: the
+    // heading is still "Alpha twoo" here, so the frame alpha-two is not on this map.
+    const m = await mount({
+      current: "alpha",
+      frame: "alpha-two",
+      doc: DOC.replace("### Alpha two", "### Alpha twoo"),
+    });
+    expect(currentIds(m.container)).toEqual(["alpha"]);
+    await m.setDocument(DOC);
+    expect(currentIds(m.container)).toEqual(["alpha-two"]);
+    expectAt(m, fittedTo(m, "alpha-two"));
+  });
+
+  test("the presenter's own map ignores a frame it is handed: only a follower follows one", async () => {
+    const m = await mount({ current: "alpha", frame: "alpha-one", follow: false });
+    expect(currentIds(m.container)).toEqual(["alpha"]);
   });
 });
 
