@@ -18,11 +18,13 @@ import type { Section, SectionPlan } from "../sectioning/sectionize";
 import {
   type Camera,
   cameraTransform,
+  anchorFrame,
   clamp,
   FIT_MARGIN,
   fitAll,
   fitFrame,
   framesNear,
+  holdTop,
   pan,
   pinch,
   type Size,
@@ -267,9 +269,12 @@ interface MapController {
  * - The frames are placed from heights read as soon as they are in the
  *   page, and shown once the pane has a size, the camera on the opening
  *   frame; they are placed again as their heights settle.
- * - A height change re-places the frames and leaves the camera alone,
- *   only clamped to the new bounds: the frames after the changed one
- *   move, the frames before it do not.
+ * - A height change re-places the frames and keeps the anchor frame's top
+ *   where it is on screen (decision 155): the current frame while any of it
+ *   is in the pane, else the first frame in the pane. The frames above the
+ *   changed one move with it, the frames after it follow the anchor, and the
+ *   camera is only clamped to the new bounds. A move under way is not
+ *   shifted: it reads its frame's new place on every step.
  * - "Empty map" for a mouse or pen drag is the pane, the layer and a
  *   frame's own box outside its `.docwalk-slide-body`; inside the body the
  *   mouse and the pen select text and follow links. One finger pans from
@@ -579,10 +584,19 @@ function mountMap(
   };
 
   const place = () => {
+    const before = placement.frames;
     placement = placeFrames(columns, heights);
+    const was = new Map(before.map((rect) => [rect.id, rect]));
     rects = new Map(placement.frames.map((rect) => [rect.id, rect]));
-    if (camera) camera = clamp(camera, placement.bounds, paneSize);
-    else open();
+    if (camera) {
+      // The frame being read keeps its place (decision 155); a move under way
+      // reads its target's new place on its next step.
+      const anchor = move ? null : anchorFrame(before, camera, paneSize, currentFrame);
+      const from = anchor === null ? undefined : was.get(anchor);
+      const to = anchor === null ? undefined : rects.get(anchor);
+      if (from && to) camera = holdTop(camera, from.y, to.y);
+      camera = clamp(camera, placement.bounds, paneSize);
+    } else open();
     schedule();
   };
 
