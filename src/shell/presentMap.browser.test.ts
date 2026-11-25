@@ -22,7 +22,7 @@ import { DRAFT_STORAGE_KEY } from "../share/types";
  */
 
 const DOC =
-  "# Map checks\n\n## First point\n\nAlpha paragraph.\n\n## Second point\n\nBeta paragraph.\n\n## Third point\n\nGamma paragraph.\n";
+  "# Map checks\n\n## First point\n\nAlpha paragraph.\n\n```ts\nconst answer = 42;\n```\n\n## Second point\n\nBeta paragraph.\n\n## Third point\n\nGamma paragraph.\n";
 
 let root: Root | null = null;
 const startUrl = location.href;
@@ -133,6 +133,16 @@ const shown = (el: Element | null) => el !== null && el.getClientRects().length 
 const header = (el: HTMLElement) => el.querySelector(".docwalk-toolbar");
 const statusbar = (el: HTMLElement) => el.querySelector(".docwalk-statusbar");
 const outline = (el: HTMLElement) => el.querySelector(".docwalk-sidebar");
+/** The map pane's box and the current frame's, as they are now. */
+const boxes = () => ({
+  p: pane()!.getBoundingClientRect(),
+  f: document
+    .querySelector<HTMLElement>('.docwalk-map-pane [data-map-frame][aria-current="true"]')!
+    .getBoundingClientRect(),
+});
+const code = () => document.querySelector<HTMLElement>(".docwalk-map-pane pre[data-docwalk-focus]");
+/** The focus view of a block, which opens outside the pane. */
+const view = () => document.querySelector<HTMLElement>(".docwalk-focus");
 const pageView = () => new URLSearchParams(location.search).get("view");
 
 const menuItem = (text: string) =>
@@ -226,14 +236,15 @@ describe("presenting the map", () => {
     await openMap(el);
     await userEvent.click(presentMapButton()!);
     await expect.poll(() => shown(header(el))).toBe(false);
-    const p = pane()!.getBoundingClientRect();
-    const f = document
-      .querySelector<HTMLElement>('.docwalk-map-pane [data-map-frame][aria-current="true"]')!
-      .getBoundingClientRect();
-    // Fitted as at opening: inside the pane, centred across it, near its top.
+    // Measured on each try: the camera settles a frame or two after the pane has its new size.
+    // Fitted as at opening: inside the pane, centred across it.
     await expect
-      .poll(() => Math.abs(f.left + f.width / 2 - (p.left + p.width / 2)))
+      .poll(() => {
+        const { p, f } = boxes();
+        return Math.abs(f.left + f.width / 2 - (p.left + p.width / 2));
+      })
       .toBeLessThan(2);
+    const { p, f } = boxes();
     expect(f.left).toBeGreaterThanOrEqual(p.left);
     expect(f.right).toBeLessThanOrEqual(p.right + 0.5);
   });
@@ -249,6 +260,34 @@ describe("presenting the map", () => {
     await expect.poll(currentFrame).not.toBe(first);
     await userEvent.keyboard("l");
     await expect.poll(() => pane()!.hasAttribute("data-laser")).toBe(true);
+    await userEvent.keyboard("l");
+    await expect.poll(() => pane()!.hasAttribute("data-laser")).toBe(false);
+  });
+
+  test("a block's focus view opens outside the pane and stays visible while presented", async () => {
+    // The page root is the full-screen element so that this view and the palette, which open
+    // outside the pane, are painted (decision 154); a view that vanished would leave the
+    // presenter on a map that cannot be read.
+    stubFullscreen();
+    const el = await mountApp();
+    await openMap(el);
+    await userEvent.click(presentMapButton()!);
+    await expect.poll(() => shown(header(el))).toBe(false);
+    await expect.poll(code, { timeout: 20_000 }).not.toBeNull();
+    act(() => code()!.focus());
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(view).not.toBeNull();
+    expect(pane()!.contains(view()), "outside the pane").toBe(false);
+    expect(shown(view())).toBe(true);
+    const box = view()!.getBoundingClientRect();
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(window.innerWidth);
+    // Its own Escape closes it, and the map stays presented.
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(view).toBeNull();
+    expect(shown(header(el)), "still presented").toBe(false);
+    expect(exitButton()).toBeDefined();
   });
 
   test("keeps the screen awake while it is presented and lets go on leaving", async () => {
@@ -342,7 +381,7 @@ describe("leaving", () => {
     await presentSecondFrame(el);
     await expect.poll(() => shown(header(el))).toBe(false);
 
-    // In the window: the dialog takes the key.
+    // Chromium delivers Escape to the page in full screen: the dialog takes the key.
     await userEvent.keyboard("{Control>}k{/Control}");
     await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull();
     await userEvent.keyboard("{Escape}");
@@ -372,7 +411,7 @@ describe("leaving", () => {
     await userEvent.keyboard("l");
     await expect.poll(() => pane()!.hasAttribute("data-laser")).toBe(true);
 
-    // In the window the pane takes the key.
+    // Chromium delivers Escape to the page in full screen: the pane takes the key.
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => pane()!.hasAttribute("data-laser")).toBe(false);
     expect(shown(header(el)), "still presented").toBe(false);
@@ -421,6 +460,56 @@ describe("leaving", () => {
 });
 
 describe("when full screen is refused (iOS, an iframe)", () => {
+  test("in the window an Escape for a dialog or for the laser leaves the map presented; the next one leaves", async () => {
+    stubFullscreen({ refuse: true });
+    const el = await mountApp();
+    await presentSecondFrame(el);
+    await expect.poll(() => shown(header(el))).toBe(false);
+    await expect.poll(() => document.activeElement).toBe(pane());
+    expect(document.fullscreenElement, "windowed").toBeNull();
+
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector('[role="dialog"]')).toBeNull();
+    expect(shown(header(el)), "still presented after the dialog's Escape").toBe(false);
+    expect(exitButton()).toBeDefined();
+
+    pane()!.focus();
+    await userEvent.keyboard("l");
+    await expect.poll(() => pane()!.hasAttribute("data-laser")).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => pane()!.hasAttribute("data-laser")).toBe(false);
+    expect(shown(header(el)), "still presented after the laser's Escape").toBe(false);
+
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => shown(header(el))).toBe(true);
+    expect(app(el).getAttribute("data-view")).toBe("map");
+  });
+
+  test("with the laser on and Exit's tooltip open, Escape still goes to the laser", async () => {
+    // The tooltip takes the key before the pane does; the map must not end the presenting
+    // and leave the laser on.
+    stubFullscreen({ refuse: true });
+    const el = await mountApp();
+    await presentSecondFrame(el);
+    await expect.poll(() => document.activeElement).toBe(pane());
+    await userEvent.keyboard("l");
+    await expect.poll(() => pane()!.hasAttribute("data-laser")).toBe(true);
+    // From elsewhere in the pane, so the pointer really moves onto the button.
+    await userEvent.hover(pane()!);
+    await userEvent.hover(exitButton()!);
+    await expect
+      .poll(() => document.querySelector('[role="tooltip"]'), { timeout: 5_000 })
+      .not.toBeNull();
+
+    await userEvent.keyboard("{Escape}");
+
+    await expect.poll(() => pane()!.hasAttribute("data-laser")).toBe(false);
+    expect(shown(header(el)), "still presented").toBe(false);
+    expect(exitButton()).toBeDefined();
+  });
+
   test("the map still fills the window, and Exit and Escape still leave", async () => {
     const fullscreen = stubFullscreen({ refuse: true });
     const el = await mountApp();

@@ -10,6 +10,7 @@ import "../styles.css";
 import { parseMarkdown } from "../sectioning/sectionize";
 import { type Camera, fitFrame } from "./camera";
 import { FRAME_WIDTH } from "./layout";
+import { MOVE_MS } from "./route";
 import MapView, { type MapHandle } from "./MapView";
 
 /**
@@ -63,6 +64,8 @@ interface Mounted {
   layer: HTMLElement;
   /** What the button asked for, in order. */
   asked: string[];
+  /** The laser states the map asked the app for, in order. */
+  laserAsked: boolean[];
   handle: () => MapHandle | null;
   resize: (size: { width: number; height: number }) => Promise<void>;
   /** The app switching the map's laser. */
@@ -82,6 +85,7 @@ async function mount({ presenting = true }: { presenting?: boolean } = {}): Prom
   });
   document.body.append(container);
   const asked: string[] = [];
+  const laserAsked: boolean[] = [];
   const mapRoot = parseMarkdown(DOC);
   function Harness() {
     const [on, setOn] = useState(false);
@@ -98,6 +102,7 @@ async function mount({ presenting = true }: { presenting?: boolean } = {}): Prom
       ref: setHandle,
       root: mapRoot,
       laser,
+      onLaserChange: (next: boolean) => laserAsked.push(next),
       ...(presenting
         ? {
             presenting: {
@@ -121,6 +126,7 @@ async function mount({ presenting = true }: { presenting?: boolean } = {}): Prom
     pane,
     layer,
     asked,
+    laserAsked,
     handle: () => outside.handle,
     resize: async (size) => {
       container.style.width = `${size.width}px`;
@@ -151,9 +157,9 @@ function cameraOf(layer: HTMLElement): Camera {
   return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
 }
 
-/** What opening the map on the first frame gives in the pane's present size. */
-function fittedFirst(m: Mounted): Camera {
-  const el = m.layer.querySelector<HTMLElement>("[data-map-frame]")!;
+/** What opening the map on the current frame gives in the pane's present size. */
+function fittedCurrent(m: Mounted): Camera {
+  const el = m.layer.querySelector<HTMLElement>('[data-map-frame][aria-current="true"]')!;
   const rect = {
     x: Number.parseFloat(el.style.left),
     y: Number.parseFloat(el.style.top),
@@ -244,6 +250,28 @@ describe("the Present the map button (decision 154)", () => {
     expect(m.asked).toEqual(["stop"]);
   });
 
+  test("with the laser on, the Escape Exit's tooltip took goes to the laser, not to Exit", async () => {
+    // Presented in the window (full screen refused, or after an earlier Escape) with the laser
+    // on: that Escape is the laser's (decisions 149 and 154), and ending the presenting with
+    // the laser still on would be the wrong answer to it. The tooltip stops the key before the
+    // pane hears it, so the button hands it to the laser.
+    const m = await mount();
+    await m.present(true);
+    await m.laser(true);
+    await hoverButton(m);
+    await expect.poll(() => document.querySelector('[role="tooltip"]')).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    expect(m.asked, "still presented").toEqual([]);
+    expect(m.laserAsked, "the laser asked to go off").toEqual([false]);
+
+    // The laser is off now (the app says so); the next Escape leaves.
+    await m.laser(false);
+    await hoverButton(m);
+    await expect.poll(() => document.querySelector('[role="tooltip"]')).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    expect(m.asked).toEqual(["stop"]);
+  });
+
   test("the pane takes keyboard focus when the app asks for it", async () => {
     const m = await mount();
     act(() => presentButton(m)!.focus());
@@ -253,20 +281,31 @@ describe("the Present the map button (decision 154)", () => {
 });
 
 describe("fitting the current frame to the pane's new size (decision 154)", () => {
-  test("presenting refits the current frame to a pane that has grown, and leaving refits it again", async () => {
+  test("presenting refits the current frame to a pane that has grown", async () => {
     const m = await mount();
     const before = cameraOf(m.layer);
-    expect(sameCamera(before, fittedFirst(m)), "fitted at opening").toBe(true);
+    expect(sameCamera(before, fittedCurrent(m)), "fitted at opening").toBe(true);
 
     await m.resize(LARGE);
     await m.present(true);
     const presented = cameraOf(m.layer);
     expect(presented.scale, "a larger pane shows the frame larger").toBeGreaterThan(before.scale);
-    expect(sameCamera(presented, fittedFirst(m))).toBe(true);
+    expect(sameCamera(presented, fittedCurrent(m))).toBe(true);
+  });
 
-    await m.resize(SMALL);
+  test("leaving refits it again, once the pane has its windowed size back", async () => {
+    // In the app the order is this one: the app says the map is no longer presented, and the pane
+    // shrinks after it (the header comes back, the window leaves full screen). A map that refitted
+    // only when told would fit the old, large pane and keep that scale in the small one.
+    const m = await mount();
+    await m.resize(LARGE);
+    await m.present(true);
+    expect(cameraOf(m.layer).scale).toBeGreaterThan(0.9);
+
     await m.present(false);
-    expect(sameCamera(cameraOf(m.layer), fittedFirst(m))).toBe(true);
+    await m.resize(SMALL);
+    expect(sameCamera(cameraOf(m.layer), fittedCurrent(m))).toBe(true);
+    expect(cameraOf(m.layer).scale).toBeLessThan(0.7);
   });
 
   test("a resize with nothing presented only clamps, as before (the control for the test above)", async () => {
@@ -281,8 +320,43 @@ describe("fitting the current frame to the pane's new size (decision 154)", () =
     const m = await mount();
     await m.present(true);
     await m.resize(LARGE);
-    expect(sameCamera(cameraOf(m.layer), fittedFirst(m))).toBe(true);
+    expect(sameCamera(cameraOf(m.layer), fittedCurrent(m))).toBe(true);
     await m.resize({ width: 1100, height: 700 });
-    expect(sameCamera(cameraOf(m.layer), fittedFirst(m))).toBe(true);
+    expect(sameCamera(cameraOf(m.layer), fittedCurrent(m))).toBe(true);
+  });
+
+  test("a zoom by hand survives a later resize while presented: it is only clamped", async () => {
+    // A notice closing or opening above the map resizes the pane in mid-talk (the banner row
+    // stays); the presenter's own zoom must not be thrown away by it.
+    const m = await mount();
+    await m.present(true);
+    await m.resize(LARGE);
+    const fitted = cameraOf(m.layer);
+    act(() => m.pane.focus());
+    await userEvent.keyboard("+");
+    await frames(3);
+    const zoomed = cameraOf(m.layer);
+    expect(zoomed.scale, "zoomed in").toBeGreaterThan(fitted.scale);
+
+    await m.resize({ width: 1400, height: 800 });
+    expect(cameraOf(m.layer).scale).toBeCloseTo(zoomed.scale, 6);
+    await m.resize(LARGE);
+    expect(cameraOf(m.layer).scale).toBeCloseTo(zoomed.scale, 6);
+  });
+
+  test("a move along the route fits as before, and a later resize keeps that frame fitted", async () => {
+    const m = await mount();
+    await m.present(true);
+    await m.resize(LARGE);
+    act(() => m.pane.focus());
+    await userEvent.keyboard("+");
+    await frames(3);
+    await userEvent.keyboard("{ArrowRight}");
+    await new Promise((resolve) => setTimeout(resolve, MOVE_MS + 300));
+    await frames(2);
+    expect(sameCamera(cameraOf(m.layer), fittedCurrent(m))).toBe(true);
+
+    await m.resize({ width: 1100, height: 700 });
+    expect(sameCamera(cameraOf(m.layer), fittedCurrent(m))).toBe(true);
   });
 });
