@@ -188,7 +188,7 @@ const pageScroll = (page: Page) =>
     };
   });
 
-test("the sample's frames lie in columns; a wheel pans, Ctrl + wheel zooms, and the page never scrolls", async ({
+test("the sample's frames lie in one column; a wheel pans, Ctrl + wheel zooms, and the page never scrolls", async ({
   page,
 }) => {
   // Decision 142, Camera: the pane takes the wheel, so the page behind it must not move.
@@ -196,12 +196,14 @@ test("the sample's frames lie in columns; a wheel pans, Ctrl + wheel zooms, and 
   await ready(page);
   await openMap(page);
   const first = frames(page).first();
-  // The title's column, then the first `##` column: tops aligned, side by side.
+  // Decision 174: the title's frame, then the first `##` frame right under it:
+  // one left edge, one width, the next frame lower down.
   const second = mapRegion(page).locator('[data-map-frame="summary"]');
   const a = await boxOf(first);
   const b = await boxOf(second);
-  expect(b.x).toBeGreaterThan(a.x + a.width);
-  expect(Math.abs(b.y - a.y)).toBeLessThan(1);
+  expect(Math.abs(b.x - a.x)).toBeLessThan(1);
+  expect(Math.abs(b.width - a.width)).toBeLessThan(1);
+  expect(b.y).toBeGreaterThan(a.y + a.height);
   const pane = await boxOf(mapRegion(page));
   await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
   await page.mouse.wheel(0, 200);
@@ -561,7 +563,7 @@ test.describe("the route through the sample", () => {
       await expect(mapRegion(page).getByRole("status")).toHaveText("Glossary, 6 of 40");
     });
 
-    test("0 shows the whole map, the last column included, and Enter returns to the current frame", async ({
+    test("0 shows the whole map, first frame to last, and Enter returns to the current frame", async ({
       page,
     }) => {
       await openAt(page, "/?view=map#summary/1", "summary");
@@ -569,6 +571,8 @@ test.describe("the route through the sample", () => {
       await page.keyboard.press("0");
       const last = mapRegion(page).locator('[data-map-frame="changelog"]');
       await expect.poll(() => inPane(page, last)).toBe(true);
+      // Decision 174: the whole map is the one column fitted to the pane, top frame to last.
+      expect(await inPane(page, frames(page).first())).toBe(true);
       const whole = await boxOf(current(page));
       await page.keyboard.press("Enter");
       await expect

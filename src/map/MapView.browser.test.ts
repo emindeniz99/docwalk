@@ -10,7 +10,7 @@ import "../styles.css";
 import type { FocusEvent } from "../annotate/mirrorTypes";
 import { observeFocus } from "../deck/focusEvents";
 import { parseMarkdown } from "../sectioning/sectionize";
-import { FRAME_GAP, FRAME_WIDTH, mapColumns, mapPlan, placeFrames } from "./layout";
+import { COLUMN_GAP, FRAME_GAP, FRAME_WIDTH, mapColumns, mapPlan, placeFrames } from "./layout";
 import MapView from "./MapView";
 
 /**
@@ -18,7 +18,8 @@ import MapView from "./MapView";
  * where `placeFrames` says, on one layer moved by a camera; the wheel, a
  * trackpad pinch, a mouse drag on empty map, touch and Safari's gesture
  * events move the camera; Mermaid draws only near the view; a height change
- * moves the frames after it in its column. Layout is compared box to box,
+ * moves every frame after it. Decision 174 puts every frame in one column down
+ * the page. Layout is compared box to box,
  * never against fixed pixel heights.
  */
 
@@ -68,7 +69,7 @@ const para = (label: string, n: number) =>
     (_, i) => `${label} paragraph ${i + 1} holds a few words so that it fills a line.`,
   ).join("\n\n");
 
-/** Three columns, two with a part stacked under the column's first frame. */
+/** Three sections, two with a part under the section's frame; one column down the page (decision 174). */
 const DOC = [
   "## Alpha",
   "",
@@ -257,12 +258,12 @@ describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)",
     }
     await frames(5);
     expect(attempts, "wheel events near the frame ask nothing").toBe(0);
-    // Away to the far column and back: one attempt.
+    // Down to the far frame and back: one attempt.
     const far = boxOf(container, "far");
-    const across = far.left - p.left - 24;
-    wheelAt(p.left + 50, p.top + 50, { deltaX: across });
+    const down = far.top - p.top - 24;
+    wheelAt(p.left + 50, p.top + 50, { deltaY: down });
     await frames(3);
-    wheelAt(p.left + 50, p.top + 50, { deltaX: -across });
+    wheelAt(p.left + 50, p.top + 50, { deltaY: -down });
     await expect.poll(() => attempts).toBe(1);
     await frames(5);
     expect(attempts).toBe(1);
@@ -282,7 +283,7 @@ describe("a diagram whose code fails to load (decisions 144, 146, 147 and 148)",
 });
 
 describe("frames stand where placeFrames puts them (decision 142, Frames)", () => {
-  test("columns left to right, a column's frames stacked with the gap, no overlap, document order in the DOM", async () => {
+  test("one column down the page, in document order, group and frame gaps, no overlap (decision 174)", async () => {
     const { container } = await mountMap(DOC);
     const plan = mapPlan(parseMarkdown(DOC));
     const columns = mapColumns(plan);
@@ -310,18 +311,22 @@ describe("frames stand where placeFrames puts them (decision 142, Frames)", () =
       expect(off(box.height, rect.height * s), `${rect.id} height`).toBeLessThanOrEqual(1);
     }
     expect(columns.length).toBeGreaterThan(1);
-    const lefts = columns.map((column) => boxes.get(column[0]!.id)!.left);
-    for (let c = 1; c < lefts.length; c++) expect(lefts[c]).toBeGreaterThan(lefts[c - 1]!);
-    for (const column of columns) {
-      for (let r = 1; r < column.length; r++) {
-        const above = boxes.get(column[r - 1]!.id)!;
-        const below = boxes.get(column[r]!.id)!;
-        expect(off(below.left, above.left), "same column, same left").toBeLessThanOrEqual(0.5);
-        expect(
-          off(below.top - above.bottom, FRAME_GAP * s),
-          "the gap between frames",
-        ).toBeLessThanOrEqual(1);
-      }
+    // One column: every frame has the first frame's left and width, and each
+    // lies below the one before it, a frame gap inside a section and a group
+    // gap between sections.
+    for (let i = 1; i < placement.frames.length; i++) {
+      const above = boxes.get(placement.frames[i - 1]!.id)!;
+      const here = placement.frames[i]!;
+      const below = boxes.get(here.id)!;
+      expect(
+        off(below.left, firstBox.left),
+        `${here.id} same left as the first`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(off(below.width, firstBox.width), `${here.id} same width`).toBeLessThanOrEqual(0.5);
+      expect(
+        off(below.top - above.bottom, (here.row === 0 ? COLUMN_GAP : FRAME_GAP) * s),
+        `the gap above ${here.id}`,
+      ).toBeLessThanOrEqual(1);
     }
     const list = [...boxes.values()];
     for (let i = 0; i < list.length; i++) {
@@ -502,10 +507,10 @@ describe("the mouse on the map (decision 142, Camera)", () => {
   });
 
   test("a click on a link in a frame reaches it: the heading it names is focused and brought into view", async () => {
-    // Gamma detail is two columns away, outside the opening view.
+    // Gamma detail is far down the column, outside the opening view.
     const { container, pane } = await mountMap(DOC);
     const p = pane.getBoundingClientRect();
-    expect(boxOf(container, "gamma-detail").left).toBeGreaterThan(p.right);
+    expect(boxOf(container, "gamma-detail").top).toBeGreaterThan(p.bottom);
     const link = frameEl(container, "alpha").querySelector<HTMLAnchorElement>(
       'a[href="#gamma-detail"]',
     )!;
@@ -632,7 +637,7 @@ describe("diagrams are drawn near the view only (decisions 142 and 143, Diagrams
       const farBefore = far.getBoundingClientRect();
       const offsetBefore = boxOf(container, "far-detail").top - farBefore.top;
       const p = pane.getBoundingClientRect();
-      wheelAt(p.left + 50, p.top + 50, { deltaX: farBefore.left - p.left - 24 });
+      wheelAt(p.left + 50, p.top + 50, { deltaY: farBefore.top - p.top - 24 });
       await expect
         .poll(() => far.querySelector(".docwalk-diagram svg"), { timeout: 20_000 })
         .not.toBeNull();
@@ -655,7 +660,7 @@ describe("diagrams are drawn near the view only (decisions 142 and 143, Diagrams
 });
 
 describe("a height change after opening (decision 142, Measuring)", () => {
-  test("moves the frames below it in its column, no frame in other columns, and not the camera", async () => {
+  test("moves every frame after it in document order, none before it, and not the camera (decision 174)", async () => {
     // The chosen rule: the camera is left alone (only clamped to the new
     // bounds), so the frame that changed stays where it is on screen.
     const { container } = await mountMap(DOC);
@@ -678,9 +683,14 @@ describe("a height change after opening (decision 142, Measuring)", () => {
       ),
       "the frame below moved by the growth",
     ).toBeLessThanOrEqual(1);
+    // One column: what follows alpha in the document follows it on the map,
+    // so every later frame moves down by the same growth and none sideways.
     for (const id of ["beta", "gamma", "gamma-detail"]) {
       expect(off(after.get(id)!.left, before.get(id)!.left), `${id} left`).toBeLessThanOrEqual(0.5);
-      expect(off(after.get(id)!.top, before.get(id)!.top), `${id} top`).toBeLessThanOrEqual(0.5);
+      expect(
+        off(after.get(id)!.top - before.get(id)!.top, alpha.height - before.get("alpha")!.height),
+        `${id} moved by the growth`,
+      ).toBeLessThanOrEqual(1);
     }
   });
 });
@@ -720,7 +730,7 @@ describe("the keyboard on the map (WCAG 2.4.7 and 2.4.11)", () => {
   test("Tab to a link in a far frame brings that frame into view", async () => {
     const { container, pane } = await mountMap(FAR_LINK);
     const p = pane.getBoundingClientRect();
-    expect(boxOf(container, "last").left).toBeGreaterThan(p.right);
+    expect(boxOf(container, "last").top).toBeGreaterThan(p.bottom);
     pane.focus();
     await userEvent.tab();
     const link = container.querySelector<HTMLAnchorElement>(
@@ -859,7 +869,7 @@ describe("blocks open in the focus view from the map (decisions 129 and 144)", (
 
   test("a far frame's code block, whose frame has drawn no diagram, is a tab stop that opens", async () => {
     const { container, pane } = await mountMap(BLOCKS, TALL_PANE);
-    expect(boxOf(container, "far").left).toBeGreaterThan(pane.getBoundingClientRect().right);
+    expect(boxOf(container, "far").top).toBeGreaterThan(pane.getBoundingClientRect().bottom);
     const pre = await blockIn(container, "far", "pre");
     expect(pre.tabIndex).toBe(0);
     pre.focus();

@@ -415,18 +415,20 @@ describe("visibleRect", () => {
 });
 
 describe("framesNear: which frames Mermaid may draw", () => {
-  // Three columns of three frames, 720 units tall each.
+  // Three groups of three frames, 720 units tall each, in one column (decision 174).
   const columns = [0, 1, 2].map((c) => [0, 1, 2].map((r) => ({ id: `c${c}r${r}` })));
   const placement = placeFrames(columns, new Map());
 
   test("at scale 1 on the first frame, frames within one pane around it are near", () => {
     // Visible: x 0..1000, y 0..800. Grown by one pane: x -1000..2000, y -800..1600.
+    // The column's frames start at y 0, 784 and 1568; the next group at 2480.
     const ids = framesNear(placement, { x: 0, y: 0, scale: 1 }, PANE);
-    expect(ids).toEqual(["c0r0", "c0r1", "c0r2", "c1r0", "c1r1", "c1r2"]);
+    expect(ids).toEqual(["c0r0", "c0r1", "c0r2"]);
   });
 
   test("a frame further than one pane from the view is not near", () => {
     const ids = framesNear(placement, { x: 0, y: 0, scale: 1 }, PANE);
+    expect(ids).not.toContain("c1r0");
     expect(ids).not.toContain("c2r0");
   });
 
