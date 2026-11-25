@@ -463,6 +463,12 @@ function mountMap(
   let presented = false;
   /** The resize that follows the end of presenting fits the frame once more. */
   let refitOnce = false;
+  /**
+   * The camera sits where a fit put it: set by a fit and by a move along the route,
+   * cleared by the reader's own pan or zoom. A resize while presented refits only then,
+   * so a zoom by hand survives a notice opening above the map (decision 154).
+   */
+  let fitted = false;
 
   /** A follower's own move starts a roam, said politely once (decision 150). */
   const roam = () => {
@@ -654,6 +660,7 @@ function mountMap(
   ) => {
     whole = false;
     waiting = false;
+    fitted = true;
     // A key or a click that leaves the frame holding keyboard focus takes focus
     // to the pane, so it is never on something off screen (decision 148).
     const focused = document.activeElement;
@@ -700,12 +707,13 @@ function mountMap(
   const refit = () => {
     paneSize = { width: pane.clientWidth, height: pane.clientHeight };
     if (!camera || paneSize.width <= 0 || paneSize.height <= 0) return;
-    const fitted = whole
+    const next = whole
       ? fitAll(placement.bounds, paneSize)
       : currentFrame === null
         ? null
         : frameCamera(currentFrame);
-    setCamera(fitted ?? clamp(camera, placement.bounds, paneSize));
+    fitted = true;
+    setCamera(next ?? clamp(camera, placement.bounds, paneSize));
   };
 
   const place = () => {
@@ -765,6 +773,7 @@ function mountMap(
   /** The reader moved the camera by hand: a move stops where it is and the whole map ends. */
   const byHand = (roams = true) => {
     stopMove();
+    fitted = false;
     whole = false;
     waiting = false;
     if (roams) roam();
@@ -1085,6 +1094,7 @@ function mountMap(
     if (key === "0" || (key === "Enter" && whole)) {
       event.preventDefault();
       roam();
+      fitted = true;
       if (whole) {
         whole = false;
         const id = currentFrame;
@@ -1118,7 +1128,7 @@ function mountMap(
 
   const resize = new ResizeObserver(() => {
     paneSize = { width: pane.clientWidth, height: pane.clientHeight };
-    const refitting = presented || refitOnce;
+    const refitting = (presented && fitted) || refitOnce;
     refitOnce = false;
     if (!camera) open();
     else if (refitting) refit();
@@ -1350,17 +1360,29 @@ const NO_LEVELS: readonly number[] = [];
  * target over a corner of the pane. Exit names its key in a tooltip, as on the
  * slides (decision 133), for a keyboard; a tablet with no keyboard has the button.
  */
-function PresentMapButton({ on, start, stop }: MapPresenting) {
+function PresentMapButton({
+  on,
+  start,
+  stop,
+  laser,
+  laserOff,
+}: MapPresenting & { laser: boolean; laserOff: () => void }) {
   const button = useRef<HTMLButtonElement>(null);
-  const leave = useEffectEvent(stop);
+  const leave = useEffectEvent(() => (laser ? laserOff() : stop()));
   // An open tooltip closes on Escape from a capture listener on document and stops the key
-  // there, so the app's Escape never sees it. A listener on the same node still runs: while
-  // Exit's tooltip is open that Escape leaves here, as on the slides (ExitButton, App.tsx).
+  // there, so neither the app's Escape nor the pane's laser ever sees it. A listener on the
+  // same node still runs: while Exit's tooltip is open that Escape leaves here, as on the
+  // slides (ExitButton, App.tsx), unless the laser is on: that Escape is the laser's
+  // (decisions 149 and 154), and the map stays presented.
   useEffect(() => {
     if (!on) return;
     const onKey = (event: KeyboardEvent) => {
       const tooltipOpen = button.current?.hasAttribute("aria-describedby") ?? false;
-      if (event.key === "Escape" && !event.defaultPrevented && tooltipOpen) leave();
+      if (event.key !== "Escape" || event.defaultPrevented || !tooltipOpen) return;
+      // Handled here, once: the laser going off re-renders at once, and a key left to go on would
+      // find the pane's laser already off and the app's Escape ending the presenting too.
+      event.stopPropagation();
+      leave();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
@@ -1490,7 +1512,9 @@ export default function MapView({
           {m.map_back_to_presenter()}
         </Button>
       )}
-      {presenting && <PresentMapButton {...presenting} />}
+      {presenting && (
+        <PresentMapButton {...presenting} laser={laser} laserOff={() => askLaser(false)} />
+      )}
       <div ref={layerRef} className="docwalk-map-layer" />
       {/* The current frame's title and place (decision 145); outside the scaled layer. */}
       <p ref={statusRef} role="status" className="docwalk-map-status" />
